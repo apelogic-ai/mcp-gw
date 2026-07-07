@@ -1,0 +1,21 @@
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../../deploy/compose/.Caddyfile-dev:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - agentgateway
+      - google-workspace
+
+  agentgateway:
+    volumes:
+      - ../../deploy/compose/.agentgateway-dev.yaml:/etc/agentgateway/config.yaml:ro
+
+volumes:
+  caddy-data:
+  caddy-config:

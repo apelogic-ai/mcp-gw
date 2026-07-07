@@ -1,0 +1,34 @@
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - matches:
+              - path:
+                  exact: /mcp
+              - path:
+                  exact: /.well-known/oauth-protected-resource/mcp
+            policies:
+              cors:
+                allowOrigins: ["*"]
+                allowHeaders: [mcp-protocol-version, content-type, authorization]
+                exposeHeaders: ["Mcp-Session-Id"]
+              mcpAuthentication:
+                mode: strict
+                issuer: http://host.docker.internal:18080
+                audiences:
+                  - http://agentgateway:3000/mcp
+                jwks:
+                  url: http://host.docker.internal:18080/.well-known/jwks.json
+                resourceMetadata:
+                  resource: http://agentgateway:3000/mcp
+                  scopesSupported: [read:all]
+                  bearerMethodsSupported: [header]
+            backends:
+              - mcp:
+                  targets:
+                    - name: google-workspace
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://google-workspace:8080/mcp

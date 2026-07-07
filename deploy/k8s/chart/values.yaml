@@ -1,0 +1,54 @@
+global:
+  imagePullPolicy: IfNotPresent
+
+agentgateway:
+  enabled: true
+  image: ghcr.io/agentgateway/agentgateway:v1.1.0
+  replicas: 2
+  port: 8080
+  host: mcp.example.com
+  hpa:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+googleWorkspace:
+  enabled: true
+  image: mcp-gateway/google-workspace:dev
+  replicas: 2
+  port: 8080
+  hpa:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  env:
+    PORT: "8080"
+    GWS_BINARY_PATH: /app/node_modules/.bin/gws
+    HOP1_PROFILE: google
+    HOP1_EMAIL_CLAIM: email
+    HOP1_SUBJECT_CLAIM: sub
+  secretRef:
+    name: google-workspace-runtime
+    externalStore: aws-secrets-manager
+    remoteKey: mcp-gateway/google-workspace
+
+dbMcp:
+  enabled: true
+  image: mcp-gateway/db-mcp:dev
+  replicas: 2
+  port: 8080
+  hpa:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  env:
+    MCP_TRANSPORT: http
+    MCP_HOST: 0.0.0.0
+    MCP_PORT: "8080"
+    MCP_PATH: /mcp
+    TOOL_MODE: shell
+    TOOL_PROFILE: query
+  secretRef:
+    name: db-mcp-runtime
+    externalStore: aws-secrets-manager
+    remoteKey: mcp-gateway/db-mcp

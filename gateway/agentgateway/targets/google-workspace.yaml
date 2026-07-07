@@ -1,0 +1,3 @@
+name: google-workspace
+host: http://google-workspace:8080/mcp
+toolPrefix: google

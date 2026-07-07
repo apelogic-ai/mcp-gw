@@ -1,0 +1,36 @@
+{
+  "name": "mcp-gateway",
+  "version": "0.1.0",
+  "description": "Remote MCP gateway and Google Workspace wrapper.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"{src,servers,shared,test}/**/*.ts\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "compose:check": "bash scripts/check-compose.sh",
+    "compose:smoke": "bash scripts/smoke-compose.sh",
+    "infra:check": "bash scripts/check-infra.sh",
+    "k8s:check": "bash scripts/check-k8s.sh",
+    "deploy:check": "bun run compose:check && bun run infra:check && bun run k8s:check",
+    "deploy:dev": "bash scripts/deploy-dev.sh",
+    "integration:local": "bash scripts/smoke-local-integration.sh",
+    "ci": "bun run typecheck && bun run lint && bun run format:check && bun run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/bun": "^1.2.0",
+    "@types/pg": "^8.20.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0"
+  },
+  "dependencies": {
+    "jose": "^6.2.3",
+    "pg": "^8.22.0"
+  }
+}

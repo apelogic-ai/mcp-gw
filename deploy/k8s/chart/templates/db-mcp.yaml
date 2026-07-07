@@ -1,0 +1,112 @@
+{{- if .Values.dbMcp.enabled }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+spec:
+  secretStoreRef:
+    name: {{ .Values.dbMcp.secretRef.externalStore }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ .Values.dbMcp.secretRef.name }}
+  dataFrom:
+    - extract:
+        key: {{ .Values.dbMcp.secretRef.remoteKey }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-mcp
+spec:
+  replicas: {{ .Values.dbMcp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 8 }}
+    spec:
+      containers:
+        - name: db-mcp
+          image: {{ .Values.dbMcp.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.dbMcp.port }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.dbMcp.secretRef.name }}
+          env:
+            {{- range $name, $value := .Values.dbMcp.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-mcp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.dbMcp.port }}
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+  minReplicas: {{ .Values.dbMcp.hpa.minReplicas }}
+  maxReplicas: {{ .Values.dbMcp.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.dbMcp.hpa.targetCPUUtilizationPercentage }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agentgateway
+      ports:
+        - protocol: TCP
+          port: {{ .Values.dbMcp.port }}
+{{- end }}

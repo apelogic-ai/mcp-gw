@@ -1,0 +1,27 @@
+services:
+  agentgateway:
+    volumes:
+      - ../../gateway/agentgateway/federated.yaml:/etc/agentgateway/config.yaml:ro
+    depends_on:
+      - google-workspace
+      - db-mcp
+
+  db-mcp:
+    profiles: ["db-mcp"]
+    build:
+      context: ${DB_MCP_REPO_PATH:-../../../db-mcp}
+      dockerfile: ${DB_MCP_DOCKERFILE:-../mcp-gw/servers/db-mcp/Dockerfile}
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8080"
+      MCP_PATH: /mcp
+      CONNECTION_NAME: ${DB_MCP_CONNECTION_NAME:-playground}
+      TOOL_MODE: ${DB_MCP_TOOL_MODE:-shell}
+      TOOL_PROFILE: ${DB_MCP_TOOL_PROFILE:-query}
+      CONNECTIONS_DIR: ${DB_MCP_CONNECTIONS_DIR:-/home/app/.db-mcp/connections}
+    volumes:
+      - db-mcp-data:/home/app/.db-mcp
+
+volumes:
+  db-mcp-data:

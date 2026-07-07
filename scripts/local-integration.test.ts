@@ -1,0 +1,43 @@
+import { constants } from "node:fs";
+import { access, readFile } from "node:fs/promises";
+
+import { describe, expect, test } from "bun:test";
+
+describe("local Docker integration smoke", () => {
+  test("exposes a separate Docker-backed integration command", async () => {
+    await access("scripts/smoke-local-integration.sh", constants.X_OK);
+
+    const packageJson = await readFile("package.json", "utf8");
+    expect(packageJson).toContain('"integration:local": "bash scripts/smoke-local-integration.sh"');
+  });
+
+  test("uses a local JWKS fixture and signed HOP-1 JWT", async () => {
+    const fixture = await readFile("scripts/fixtures/hop1-fixture.ts", "utf8");
+    const smoke = await readFile("scripts/smoke-local-integration.sh", "utf8");
+
+    expect(fixture).toContain("SignJWT");
+    expect(fixture).toContain(".well-known/jwks.json");
+    expect(smoke).toContain('ISSUER="http://host.docker.internal:$JWKS_PORT"');
+    expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
+    expect(smoke).toContain("accept: application/json, text/event-stream");
+    expect(smoke).toContain('method":"initialize');
+    expect(smoke).toContain("mcp-session-id");
+    expect(smoke).toContain("tools/list");
+    expect(smoke).toContain("google_drive_files_list");
+  });
+
+  test("mounts an authenticated local agentgateway config for the smoke path", async () => {
+    const compose = await readFile("deploy/compose/docker-compose.yaml", "utf8");
+    const override = await readFile("deploy/compose/docker-compose.local-smoke.yaml", "utf8");
+    const config = await readFile("gateway/agentgateway/local-smoke.yaml", "utf8");
+
+    expect(compose).toContain("--file");
+    expect(compose).toContain("${GATEWAY_PORT:-8080}:3000");
+    expect(override).toContain("gateway/agentgateway/local-smoke.yaml");
+    expect(config).toContain("mcpAuthentication:");
+    expect(config).toContain("backendAuth:");
+    expect(config).toContain("passthrough: {}");
+    expect(config).toContain("issuer: http://host.docker.internal:18080");
+    expect(config).toContain("host: http://google-workspace:8080/mcp");
+  });
+});

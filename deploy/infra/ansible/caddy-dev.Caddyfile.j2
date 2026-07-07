@@ -1,0 +1,46 @@
+{{ dev_host }} {
+  encode zstd gzip
+
+  handle / {
+    respond "mcp-gateway DEV\n\nMCP: https://{{ dev_host }}/mcp\nOAuth status: https://{{ dev_host }}/oauth/google/status\n" 200
+  }
+
+  handle /mcp {
+    reverse_proxy agentgateway:3000 {
+      header_up X-Forwarded-Proto https
+      header_up X-Forwarded-Host {host}
+      header_down WWW-Authenticate "Bearer resource_metadata=\"https://{{ dev_host }}/.well-known/oauth-protected-resource/mcp\""
+    }
+  }
+
+  handle /.well-known/oauth-protected-resource/mcp {
+    reverse_proxy agentgateway:3000 {
+      header_up X-Forwarded-Proto https
+      header_up X-Forwarded-Host {host}
+    }
+  }
+
+  handle /.well-known/oauth-authorization-server {
+    header Content-Type application/json
+    respond "{\"issuer\":\"https://accounts.google.com\",\"authorization_endpoint\":\"https://{{ dev_host }}/authorize\",\"token_endpoint\":\"https://{{ dev_host }}/token\",\"jwks_uri\":\"https://www.googleapis.com/oauth2/v3/certs\",\"response_types_supported\":[\"code\"],\"code_challenge_methods_supported\":[\"S256\"],\"scopes_supported\":[\"openid\",\"profile\",\"email\"]}" 200
+  }
+
+  handle /.well-known/openid-configuration {
+    header Content-Type application/json
+    respond "{\"issuer\":\"https://accounts.google.com\",\"authorization_endpoint\":\"https://{{ dev_host }}/authorize\",\"token_endpoint\":\"https://{{ dev_host }}/token\",\"jwks_uri\":\"https://www.googleapis.com/oauth2/v3/certs\",\"response_types_supported\":[\"code\"],\"code_challenge_methods_supported\":[\"S256\"],\"scopes_supported\":[\"openid\",\"profile\",\"email\"]}" 200
+  }
+
+  handle /authorize {
+    reverse_proxy google-workspace:8080
+  }
+
+  handle /token {
+    reverse_proxy google-workspace:8080
+  }
+
+  handle /oauth/google/* {
+    reverse_proxy google-workspace:8080
+  }
+
+  respond 404
+}

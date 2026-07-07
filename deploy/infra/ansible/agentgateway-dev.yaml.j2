@@ -1,0 +1,49 @@
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - matches:
+              - path:
+                  exact: /mcp
+              - path:
+                  exact: /.well-known/oauth-protected-resource/mcp
+            policies:
+              cors:
+                allowOrigins: ["*"]
+                allowHeaders: [mcp-protocol-version, content-type, authorization]
+                exposeHeaders: ["Mcp-Session-Id"]
+              mcpAuthentication:
+                mode: strict
+{% if hop1_issuers_json is defined and (hop1_issuers_json | length) > 0 %}
+                # The first provider is advertised in MCP OAuth discovery; later providers are accepted for headless callers.
+                providers:
+{% for provider in hop1_issuers_json | from_json %}
+                  - issuer: {{ provider.issuer }}
+                    audiences:
+{% for audience in provider.audiences %}
+                      - {{ audience }}
+{% endfor %}
+                    jwks:
+                      url: {{ provider.jwksUrl }}
+                    discoverable: {{ provider.discoverable | default(loop.first) | lower }}
+{% endfor %}
+{% else %}
+                issuer: {{ hop1_issuer }}
+                audiences:
+                  - {{ hop1_audience }}
+                jwks:
+                  url: {{ hop1_jwks_url }}
+{% endif %}
+                resourceMetadata:
+                  resource: {{ hop1_resource | default(hop1_audience) }}
+                  scopesSupported: [read:all]
+                  bearerMethodsSupported: [header]
+            backends:
+              - mcp:
+                  targets:
+                    - name: google-workspace
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://google-workspace:8080/mcp

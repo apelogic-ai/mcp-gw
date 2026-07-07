@@ -1,0 +1,112 @@
+{{- if .Values.googleWorkspace.enabled }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+spec:
+  secretStoreRef:
+    name: {{ .Values.googleWorkspace.secretRef.externalStore }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ .Values.googleWorkspace.secretRef.name }}
+  dataFrom:
+    - extract:
+        key: {{ .Values.googleWorkspace.secretRef.remoteKey }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: google-workspace
+spec:
+  replicas: {{ .Values.googleWorkspace.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 8 }}
+    spec:
+      containers:
+        - name: google-workspace
+          image: {{ .Values.googleWorkspace.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.googleWorkspace.port }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.googleWorkspace.secretRef.name }}
+          env:
+            {{- range $name, $value := .Values.googleWorkspace.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: google-workspace
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.googleWorkspace.port }}
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  minReplicas: {{ .Values.googleWorkspace.hpa.minReplicas }}
+  maxReplicas: {{ .Values.googleWorkspace.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.googleWorkspace.hpa.targetCPUUtilizationPercentage }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agentgateway
+      ports:
+        - protocol: TCP
+          port: {{ .Values.googleWorkspace.port }}
+{{- end }}

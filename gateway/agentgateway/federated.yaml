@@ -1,0 +1,29 @@
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - matches:
+              - path:
+                  exact: /mcp
+              - path:
+                  exact: /.well-known/oauth-protected-resource/mcp
+            policies:
+              cors:
+                allowOrigins: ["*"]
+                allowHeaders: [mcp-protocol-version, content-type, authorization]
+                exposeHeaders: ["Mcp-Session-Id"]
+            backends:
+              - mcp:
+                  targets:
+                    - name: google-workspace
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://google-workspace:8080/mcp
+                    - name: db-mcp
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://db-mcp:8080/mcp

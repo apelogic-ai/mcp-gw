@@ -1,0 +1,4 @@
+services:
+  agentgateway:
+    volumes:
+      - ../../gateway/agentgateway/local-smoke.yaml:/etc/agentgateway/config.yaml:ro

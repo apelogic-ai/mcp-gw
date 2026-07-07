@@ -1,0 +1,140 @@
+- name: Deploy MCP gateway DEV Docker Compose stack
+  hosts: mcp_gateway_dev
+  become: true
+  vars:
+    repo_src: "{{ playbook_dir }}/../../.."
+    app_dir: /opt/mcp-gateway
+    compose_files:
+      - -f
+      - deploy/compose/docker-compose.yaml
+      - -f
+      - deploy/compose/docker-compose.dev.yaml
+    release_archive: /tmp/mcp-gateway.tar.gz
+  tasks:
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      tags: [deploy]
+
+    - name: Ensure application directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+      tags: [deploy]
+
+    - name: Ensure audit log directory exists
+      ansible.builtin.file:
+        path: /var/log/mcp-gw
+        state: directory
+        mode: "0777"
+      tags: [deploy]
+
+    - name: Create local release archive
+      ansible.builtin.command:
+        cmd: git archive --format=tar.gz -o "{{ release_archive }}" HEAD
+        chdir: "{{ repo_src }}"
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      tags: [deploy]
+
+    - name: Remove staged application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}.next"
+        state: absent
+      tags: [deploy]
+
+    - name: Create staged application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}.next"
+        state: directory
+        mode: "0755"
+      tags: [deploy]
+
+    - name: Extract release archive to staged directory
+      ansible.builtin.unarchive:
+        src: "{{ release_archive }}"
+        dest: "{{ app_dir }}.next"
+      tags: [deploy]
+
+    - name: Copy DEV compose env file
+      ansible.builtin.copy:
+        src: "{{ dev_env_file }}"
+        dest: "{{ app_dir }}.next/deploy/compose/.env"
+        mode: "0600"
+      no_log: true
+      when: dev_env_file is defined
+      tags: [deploy]
+
+    - name: Render DEV agentgateway auth config
+      ansible.builtin.template:
+        src: agentgateway-dev.yaml.j2
+        dest: "{{ app_dir }}.next/deploy/compose/.agentgateway-dev.yaml"
+        mode: "0644"
+      tags: [deploy]
+
+    - name: Render DEV Caddy config
+      ansible.builtin.template:
+        src: caddy-dev.Caddyfile.j2
+        dest: "{{ app_dir }}.next/deploy/compose/.Caddyfile-dev"
+        mode: "0644"
+      tags: [deploy]
+
+    - name: Validate Docker Compose config
+      ansible.builtin.command:
+        cmd: docker compose --env-file deploy/compose/.env {{ compose_files | join(' ') }} config
+        chdir: "{{ app_dir }}.next"
+      changed_when: false
+      tags: [deploy, smoke]
+
+    - name: Check current application directory
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/deploy/compose/docker-compose.yaml"
+      register: current_compose
+      tags: [deploy]
+
+    - name: Stop current Docker Compose stack
+      ansible.builtin.command:
+        cmd: docker compose --env-file deploy/compose/.env {{ compose_files | join(' ') }} down --remove-orphans
+        chdir: "{{ app_dir }}"
+      when: current_compose.stat.exists
+      changed_when: true
+      tags: [deploy]
+
+    - name: Remove previous application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}.previous"
+        state: absent
+      tags: [deploy]
+
+    - name: Move current application directory aside
+      ansible.builtin.command:
+        cmd: mv "{{ app_dir }}" "{{ app_dir }}.previous"
+      when: current_compose.stat.exists
+      changed_when: true
+      tags: [deploy]
+
+    - name: Promote staged application directory
+      ansible.builtin.command:
+        cmd: mv "{{ app_dir }}.next" "{{ app_dir }}"
+      changed_when: true
+      tags: [deploy]
+
+    - name: Start Docker Compose stack
+      ansible.builtin.command:
+        cmd: docker compose --env-file deploy/compose/.env {{ compose_files | join(' ') }} up -d --build
+        chdir: "{{ app_dir }}"
+      changed_when: true
+      tags: [deploy]
+
+    - name: Run compose smoke test
+      ansible.builtin.command:
+        cmd: scripts/smoke-compose.sh
+        chdir: "{{ app_dir }}"
+      changed_when: false
+      tags: [smoke]

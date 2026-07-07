@@ -1,0 +1,11 @@
+aws_region            = "us-east-1"
+vpc_id                = null
+subnet_id             = null
+allowed_ingress_cidrs     = ["203.0.113.10/32"]
+public_web_ingress_cidrs  = ["0.0.0.0/0"]
+dev_host_name             = "mcp-gateway-dev"
+dev_instance_type         = "t3.medium"
+enable_break_glass_ssh    = false
+
+# Required only when enable_break_glass_ssh = true.
+# dev_ssh_public_key = "ssh-ed25519 AAAA... user@example.com"
