@@ -19,6 +19,7 @@
     "deploy:check": "bun run backends:check && bun run compose:check && bun run infra:check && bun run k8s:check",
     "deploy:dev": "bash scripts/deploy-dev.sh",
     "integration:local": "bash scripts/smoke-local-integration.sh",
+    "release:check": "bun scripts/check-release-metadata.ts",
     "ci": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "devDependencies": {

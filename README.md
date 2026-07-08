@@ -108,6 +108,12 @@ The deployment assets are templates. Replace placeholder domains, OAuth client I
 cloud role ARNs, image digests, and secret values for each environment. Do not commit real runtime
 secrets to this repository.
 
+## Releases
+
+Releases are SemVer Git tags with GitHub Releases. Enterprise forks should pin upstream release tags,
+mirror or rebuild artifacts into private registries, and keep private deployment overlays outside the
+public repo. See [docs/releases.md](docs/releases.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
