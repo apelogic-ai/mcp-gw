@@ -112,7 +112,8 @@ secrets to this repository.
 
 Releases are SemVer Git tags with GitHub Releases. Enterprise forks should pin upstream release tags,
 mirror or rebuild artifacts into private registries, and keep private deployment overlays outside the
-public repo. See [docs/releases.md](docs/releases.md).
+public repo. See [docs/releases.md](docs/releases.md) and the bundled release-agent skill at
+[skills/mcp-gw-release/SKILL.md](skills/mcp-gw-release/SKILL.md).
 
 ## License
 

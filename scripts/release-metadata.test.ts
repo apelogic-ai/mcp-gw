@@ -2,11 +2,12 @@ import { readFile } from "node:fs/promises";
 
 describe("release metadata", () => {
   test("documents the release process and current package version", async () => {
-    const [packageJson, changelog, releaseDocs, readme] = await Promise.all([
+    const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile("CHANGELOG.md", "utf8"),
       readFile("docs/releases.md", "utf8"),
       readFile("README.md", "utf8"),
+      readFile("skills/mcp-gw-release/SKILL.md", "utf8"),
     ]);
 
     const parsedPackage = JSON.parse(packageJson) as {
@@ -21,6 +22,10 @@ describe("release metadata", () => {
     expect(releaseDocs).toContain("SemVer");
     expect(releaseDocs).toContain(`v${parsedPackage.version}`);
     expect(readme).toContain("docs/releases.md");
+    expect(skill).toContain("name: mcp-gw-release");
+    expect(skill).toContain("bun run release:check");
+    expect(skill).toContain("git tag -a vX.Y.Z");
+    expect(skill).toContain("Do not include private DEV hostnames");
   });
 
   test("runs release metadata checks in CI and on version tags", async () => {
