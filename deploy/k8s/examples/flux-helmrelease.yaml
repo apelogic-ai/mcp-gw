@@ -1,0 +1,49 @@
+# EXAMPLE - Flux consumer wiring for an organization's private config repo.
+# Replace all placeholders before use. Secret values should come from an
+# external secret manager, not from git.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: mcp-gateway
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: https://github.com/<org>/mcp-gw.git
+  ref:
+    branch: main
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mcp-gateway
+  namespace: mcp-gateway
+spec:
+  interval: 10m
+  chart:
+    spec:
+      sourceRef:
+        kind: GitRepository
+        name: mcp-gateway
+        namespace: flux-system
+      chart: ./deploy/k8s/chart
+      reconcileStrategy: Revision
+  install:
+    createNamespace: true
+  upgrade:
+    cleanupOnFail: true
+  valuesFiles:
+    - ./deploy/k8s/chart/values.yaml
+    - ./deploy/k8s/examples/values-private-overlay.example.yaml
+  values:
+    agentgateway:
+      ingress:
+        host: <mcp-hostname>
+    googleWorkspace:
+      secretRef:
+        externalStore: <cluster-secret-store-name>
+        remoteKey: <secret-manager-path-for-google-workspace-runtime>
+    dbMcp:
+      secretRef:
+        externalStore: <cluster-secret-store-name>
+        remoteKey: <secret-manager-path-for-db-mcp-runtime>

@@ -34,6 +34,7 @@ describe("local Docker integration smoke", () => {
     expect(compose).toContain("--file");
     expect(compose).toContain("${GATEWAY_PORT:-8080}:3000");
     expect(override).toContain("gateway/agentgateway/local-smoke.yaml");
+    expect(override).toContain("host.docker.internal:host-gateway");
     expect(config).toContain("mcpAuthentication:");
     expect(config).toContain("backendAuth:");
     expect(config).toContain("passthrough: {}");

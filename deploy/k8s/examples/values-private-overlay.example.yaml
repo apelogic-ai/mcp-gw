@@ -1,0 +1,66 @@
+# Example values for an organization's private overlay.
+#
+# Keep this file generic in this public repo. Forking organizations should copy
+# it into their private config repo or private overlay branch and replace every
+# example hostname, registry, digest, and secret path with their own values.
+global:
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: private-registry-pull
+
+agentgateway:
+  image: ghcr.io/example/agentgateway@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  replicas: 3
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::<aws-account-id>:role/mcp-gateway-agentgateway
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  ingress:
+    host: mcp-gateway.internal.example.com
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    tls:
+      - secretName: mcp-gateway-tls
+        hosts:
+          - mcp-gateway.internal.example.com
+
+googleWorkspace:
+  image: ghcr.io/example/mcp-gateway-google-workspace@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  replicas: 3
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::<aws-account-id>:role/mcp-gateway-google-workspace
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  secretRef:
+    name: google-workspace-runtime
+    externalStore: aws-secrets-manager
+    remoteKey: mcp-gateway/prod/google-workspace
+
+dbMcp:
+  image: ghcr.io/example/mcp-gateway-db-mcp@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  replicas: 2
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::<aws-account-id>:role/mcp-gateway-db-mcp
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  secretRef:
+    name: db-mcp-runtime
+    externalStore: aws-secrets-manager
+    remoteKey: mcp-gateway/prod/db-mcp

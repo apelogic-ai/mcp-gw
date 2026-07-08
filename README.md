@@ -87,8 +87,15 @@ Deployment templates are provided for:
 - a single AWS Compose host under [deploy/infra](deploy/infra);
 - Kubernetes/Helm under [deploy/k8s](deploy/k8s).
 
-The deployment assets are templates. Replace placeholder domains, AWS profile names, OAuth client
-IDs, redirect URIs, and secret values for each environment.
+The Kubernetes chart is intended for fork-and-overlay enterprise deployments. Keep
+[deploy/k8s/chart](deploy/k8s/chart) close to upstream, then put org-specific hostnames, image
+digests, identity annotations, and secret-manager paths in a private values overlay. Flux, Argo CD,
+AWS External Secrets, and private overlay examples are in
+[deploy/k8s/examples](deploy/k8s/examples).
+
+The deployment assets are templates. Replace placeholder domains, OAuth client IDs, redirect URIs,
+cloud role ARNs, image digests, and secret values for each environment. Do not commit real runtime
+secrets to this repository.
 
 ## License
 
