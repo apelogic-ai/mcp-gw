@@ -1,4 +1,10 @@
 services:
   agentgateway:
+    extra_hosts:
+      - host.docker.internal:host-gateway
     volumes:
       - ../../gateway/agentgateway/local-smoke.yaml:/etc/agentgateway/config.yaml:ro
+
+  google-workspace:
+    extra_hosts:
+      - host.docker.internal:host-gateway
