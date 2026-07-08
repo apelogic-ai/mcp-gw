@@ -20,6 +20,10 @@ runtime manifests or install its own chart, then append an entry under
 rendered by this chart, or `host` for a fully qualified in-cluster MCP URL. See
 `values-extra-backend.example.yaml`.
 
+To enforce Google Workspace tool policy without running an external policy
+service, enable `googleWorkspace.policy` and provide YAML policy content in a
+private values overlay. See `values-google-policy.example.yaml`.
+
 Do not expose the agentgateway Admin UI on the public MCP ingress. Agentgateway
 serves its Admin UI on port `15000` in standalone/Kubernetes modes, but the
 upstream Kubernetes docs describe it as read-only and accessed with

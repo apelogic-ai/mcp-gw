@@ -102,10 +102,14 @@ describe("Google Workspace wrapper app", () => {
       HOP1_EMAIL_CLAIM: "email",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       OPA_POLICY_URL: "http://opa:8181/v1/data/mcp/allow",
+      GOOGLE_WORKSPACE_POLICY_FILE: "/etc/mcp-gw/google-workspace-policy.yaml",
       AUDIT_LOG_PATH: "/var/log/mcp-gw/audit.jsonl",
     });
 
-    expect(config.policy).toEqual({ opaUrl: "http://opa:8181/v1/data/mcp/allow" });
+    expect(config.policy).toEqual({
+      opaUrl: "http://opa:8181/v1/data/mcp/allow",
+      yamlFile: "/etc/mcp-gw/google-workspace-policy.yaml",
+    });
     expect(config.audit).toEqual({ jsonlPath: "/var/log/mcp-gw/audit.jsonl" });
   });
 

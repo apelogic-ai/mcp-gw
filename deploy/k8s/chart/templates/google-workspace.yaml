@@ -1,5 +1,18 @@
 {{- if .Values.googleWorkspace.enabled }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "google-workspace" "values" .Values.googleWorkspace) }}
+{{- if .Values.googleWorkspace.policy.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: google-workspace
+data:
+  google-workspace-policy.yaml: |
+{{ .Values.googleWorkspace.policy.yaml | nindent 4 }}
+---
+{{- end }}
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -59,10 +72,27 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if .Values.googleWorkspace.policy.enabled }}
+            - name: GOOGLE_WORKSPACE_POLICY_FILE
+              value: {{ .Values.googleWorkspace.policy.mountPath | quote }}
+            {{- end }}
+          {{- if .Values.googleWorkspace.policy.enabled }}
+          volumeMounts:
+            - name: google-workspace-policy
+              mountPath: {{ .Values.googleWorkspace.policy.mountPath | quote }}
+              subPath: google-workspace-policy.yaml
+              readOnly: true
+          {{- end }}
           {{- with .Values.googleWorkspace.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- if .Values.googleWorkspace.policy.enabled }}
+      volumes:
+        - name: google-workspace-policy
+          configMap:
+            name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

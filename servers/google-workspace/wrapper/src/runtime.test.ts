@@ -218,9 +218,23 @@ describe("runtime wrapper wiring", () => {
     });
   });
 
-  test("creates OPA policy and JSONL audit sinks from runtime config", async () => {
+  test("creates YAML, OPA policy, and JSONL audit sinks from runtime config", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mcp-gw-audit-"));
     const auditPath = join(dir, "audit.jsonl");
+    const policyPath = join(dir, "google-workspace-policy.yaml");
+    await writeFile(
+      policyPath,
+      `
+default: allow
+rules:
+  - effect: deny
+    reason: deletes disabled by YAML policy
+    match:
+      actionClass: destructive
+`,
+      "utf8",
+    );
+
     const handler = createRuntimeWrapperHandler({
       config: {
         gwsBinary: await fakeGws(),
@@ -237,23 +251,18 @@ describe("runtime wrapper wiring", () => {
           redirectUri: "https://dev.example.com/oauth/google/callback",
           tokenEncryptionKey,
         },
-        policy: { opaUrl: "http://opa:8181/v1/data/mcp/allow" },
+        policy: {
+          yamlFile: policyPath,
+          opaUrl: "http://opa:8181/v1/data/mcp/allow",
+        },
         audit: { jsonlPath: auditPath },
       },
       tokenStore: new InMemoryOAuthTokenStore(),
       issuers: [{ profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) }],
-      fetch: (url, init) => {
-        expect(url).toBe("http://opa:8181/v1/data/mcp/allow");
-        expect(init?.method).toBe("POST");
-        return Promise.resolve(
-          jsonResponse({
-            result: { allow: false, reason: "destructive actions disabled" },
-          }),
-        );
-      },
+      fetch: () => Promise.reject(new Error("OPA should not run after YAML deny")),
     });
 
-    expect.assertions(7);
+    expect.assertions(5);
     try {
       await handler(
         new Request("http://127.0.0.1/mcp", {
@@ -275,7 +284,7 @@ describe("runtime wrapper wiring", () => {
       );
     } catch (error) {
       expect((error as Error).message).toBe(
-        "Policy denied google_drive_files_delete: destructive actions disabled",
+        "Policy denied google_drive_files_delete: deletes disabled by YAML policy",
       );
       const [event] = (await readFile(auditPath, "utf8"))
         .trim()
@@ -287,7 +296,7 @@ describe("runtime wrapper wiring", () => {
       }
       expect(event.status).toBe("deny");
       expect(event.tool).toBe("google_drive_files_delete");
-      expect(event.error).toBe("destructive actions disabled");
+      expect(event.error).toBe("deletes disabled by YAML policy");
     }
   });
 });

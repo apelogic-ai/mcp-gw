@@ -50,6 +50,19 @@ describe("Kubernetes production chart", () => {
     expect(examplesReadme).toContain("kubectl port-forward");
   });
 
+  test("renders Google Workspace YAML policy from values", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-google-policy.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-gateway-google-workspace-policy");
+    expect(rendered).toContain("GOOGLE_WORKSPACE_POLICY_FILE");
+    expect(rendered).toContain("/etc/mcp-gw/google-workspace-policy.yaml");
+    expect(rendered).toContain("default: deny");
+    expect(rendered).toContain("actionClass: read");
+  });
+
   test("renders with the private overlay example values", () => {
     const rendered = helmTemplate([
       "--values",
@@ -123,6 +136,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "clustersecretstore-aws.yaml",
     "flux-helmrelease.yaml",
     "values-extra-backend.example.yaml",
+    "values-google-policy.example.yaml",
     "values-private-overlay.example.yaml",
   ];
   const contents = new Map<string, string>();

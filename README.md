@@ -49,6 +49,9 @@ by default.
 See [docs/gws-generated-catalog.md](docs/gws-generated-catalog.md) and
 [servers/google-workspace/README.md](servers/google-workspace/README.md).
 
+Admins can enforce Google Workspace tool policy with a YAML policy file and/or an external OPA
+endpoint. See [docs/google-workspace-policy.md](docs/google-workspace-policy.md).
+
 ## Local Development
 
 Install dependencies:
