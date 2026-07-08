@@ -1,14 +1,15 @@
-name: CI
+name: Release
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-      - master
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
 
 jobs:
-  quality:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -37,8 +38,13 @@ jobs:
       - name: Run deployment validation
         run: bun run deploy:check
 
+      - name: Run local MCP integration smoke
+        run: bun run integration:local
+
       - name: Run release metadata validation
         run: bun run release:check
 
-      - name: Run local MCP integration smoke
-        run: bun run integration:local
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes
