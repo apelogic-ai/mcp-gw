@@ -95,7 +95,8 @@ AWS External Secrets, and private overlay examples are in
 
 Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
 checked-in Google Workspace and db-mcp backends are examples of the pattern; additional MCP servers
-can be added by appending a target in an overlay.
+can be added by appending a target in an overlay. See
+[docs/backend-registry.md](docs/backend-registry.md).
 
 Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access internal through
 `kubectl port-forward` or a private overlay protected by corporate network controls and SSO.

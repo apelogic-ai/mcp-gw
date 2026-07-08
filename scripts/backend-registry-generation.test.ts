@@ -21,4 +21,13 @@ describe("backend registry config generation", () => {
     expect(base).not.toContain("name: db-mcp");
     expect(federated).toContain("name: db-mcp");
   });
+
+  test("documents the public backend onboarding contract", async () => {
+    const guide = await readFile("docs/backend-registry.md", "utf8");
+
+    expect(guide).toContain("servers/<backend>/backend.yaml");
+    expect(guide).toContain("bun scripts/generate-agentgateway-config.ts");
+    expect(guide).toContain("agentgateway.backends");
+    expect(guide).toContain("Do not commit runtime secrets");
+  });
 });
