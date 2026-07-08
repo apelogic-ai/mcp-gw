@@ -1,3 +1,4 @@
 name: db-mcp
 host: http://db-mcp:8080/mcp
 toolPrefix: db
+enabledByDefault: false

@@ -5,6 +5,10 @@ export interface BackendDescriptor {
   enabledByDefault: boolean;
 }
 
+export interface RenderBackendOptions {
+  includeOptional?: boolean;
+}
+
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/u;
 const TOOL_PREFIX_PATTERN = /^[a-z][a-z0-9_]*$/u;
 
@@ -45,18 +49,46 @@ export function validateBackendRegistry(descriptors: BackendDescriptor[]): void 
   }
 }
 
-export function renderAgentgatewayTargets(descriptors: BackendDescriptor[]): string {
+export function renderAgentgatewayConfig(
+  descriptors: BackendDescriptor[],
+  options: RenderBackendOptions = {},
+): string {
+  return `binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - matches:
+              - path:
+                  exact: /mcp
+              - path:
+                  exact: /.well-known/oauth-protected-resource/mcp
+            policies:
+              cors:
+                allowOrigins: ["*"]
+                allowHeaders: [mcp-protocol-version, content-type, authorization]
+                exposeHeaders: ["Mcp-Session-Id"]
+            backends:
+              - mcp:
+                  targets:
+${renderAgentgatewayTargets(descriptors, options)}
+`;
+}
+
+export function renderAgentgatewayTargets(
+  descriptors: BackendDescriptor[],
+  options: RenderBackendOptions = {},
+): string {
   validateBackendRegistry(descriptors);
 
   return descriptors
-    .filter((descriptor) => descriptor.enabledByDefault)
+    .filter((descriptor) => options.includeOptional === true || descriptor.enabledByDefault)
     .map(
-      (descriptor) => `          - name: ${descriptor.name}
-            policies:
-              backendAuth:
-                passthrough: {}
-            mcp:
-              host: ${descriptor.host}`,
+      (descriptor) => `                    - name: ${descriptor.name}
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: ${descriptor.host}`,
     )
     .join("\n");
 }

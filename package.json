@@ -11,11 +11,12 @@
     "lint": "eslint \"{src,servers,shared,test}/**/*.ts\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "backends:check": "bun scripts/generate-agentgateway-config.ts --check",
     "compose:check": "bash scripts/check-compose.sh",
     "compose:smoke": "bash scripts/smoke-compose.sh",
     "infra:check": "bash scripts/check-infra.sh",
     "k8s:check": "bash scripts/check-k8s.sh",
-    "deploy:check": "bun run compose:check && bun run infra:check && bun run k8s:check",
+    "deploy:check": "bun run backends:check && bun run compose:check && bun run infra:check && bun run k8s:check",
     "deploy:dev": "bash scripts/deploy-dev.sh",
     "integration:local": "bash scripts/smoke-local-integration.sh",
     "ci": "bun run typecheck && bun run lint && bun run format:check && bun run test"
