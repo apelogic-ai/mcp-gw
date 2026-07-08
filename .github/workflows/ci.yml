@@ -36,3 +36,6 @@ jobs:
 
       - name: Run deployment validation
         run: bun run deploy:check
+
+      - name: Run local MCP integration smoke
+        run: bun run integration:local

@@ -24,6 +24,7 @@ describe("deployment validation scripts", () => {
     expect(workflow).toContain("azure/setup-helm");
     expect(workflow).toContain("pipx install ansible-core");
     expect(workflow).toContain("bun run deploy:check");
+    expect(workflow).toContain("bun run integration:local");
   });
 });
 
