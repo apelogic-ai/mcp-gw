@@ -1,0 +1,15 @@
+agentgateway:
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: db-mcp
+      enabled: false
+      serviceName: db-mcp
+      port: 8080
+      path: /mcp
+    - name: enterprise-search
+      enabled: true
+      host: http://enterprise-search.search.svc.cluster.local:8080/mcp

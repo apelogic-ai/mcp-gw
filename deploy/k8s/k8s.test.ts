@@ -28,6 +28,28 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("type: ClusterIP");
   });
 
+  test("renders agentgateway MCP backend targets from values", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-extra-backend.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-gateway-db-mcp");
+    expect(rendered).not.toContain("host: http://mcp-gateway-db-mcp:8080/mcp");
+    expect(rendered).toContain("name: enterprise-search");
+    expect(rendered).toContain("host: http://enterprise-search.search.svc.cluster.local:8080/mcp");
+  });
+
+  test("does not expose the agentgateway admin UI by default", async () => {
+    const rendered = helmTemplate();
+    const examplesReadme = await readExample("README.md");
+
+    expect(rendered).not.toContain("port: 15000");
+    expect(rendered).not.toContain("targetPort: admin");
+    expect(examplesReadme).toContain("Do not expose the agentgateway Admin UI");
+    expect(examplesReadme).toContain("kubectl port-forward");
+  });
+
   test("renders with the private overlay example values", () => {
     const rendered = helmTemplate([
       "--values",
@@ -100,6 +122,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "argocd-application.yaml",
     "clustersecretstore-aws.yaml",
     "flux-helmrelease.yaml",
+    "values-extra-backend.example.yaml",
     "values-private-overlay.example.yaml",
   ];
   const contents = new Map<string, string>();
