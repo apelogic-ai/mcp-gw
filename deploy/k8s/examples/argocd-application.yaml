@@ -1,0 +1,38 @@
+# EXAMPLE - Argo CD Application for an organization's private fork.
+# Replace placeholders and keep environment-specific values in private overlays.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mcp-gateway
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/<org>/mcp-gw.git
+    targetRevision: main
+    path: deploy/k8s/chart
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../examples/values-private-overlay.example.yaml
+      values: |
+        agentgateway:
+          ingress:
+            host: <mcp-hostname>
+        googleWorkspace:
+          secretRef:
+            externalStore: <cluster-secret-store-name>
+            remoteKey: <secret-manager-path-for-google-workspace-runtime>
+        dbMcp:
+          secretRef:
+            externalStore: <cluster-secret-store-name>
+            remoteKey: <secret-manager-path-for-db-mcp-runtime>
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mcp-gateway
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

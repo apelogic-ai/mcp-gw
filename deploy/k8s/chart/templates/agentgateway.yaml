@@ -1,4 +1,5 @@
 {{- if .Values.agentgateway.enabled }}
+{{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "agentgateway" "values" .Values.agentgateway) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -42,13 +43,26 @@ spec:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.agentgateway.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "agentgateway" "values" .Values.agentgateway) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.agentgateway.podSecurityContext | nindent 8 }}
       containers:
         - name: agentgateway
           image: {{ .Values.agentgateway.image }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.agentgateway.securityContext | nindent 12 }}
           args:
             - --config
             - /etc/agentgateway/config.yaml
@@ -60,6 +74,10 @@ spec:
               mountPath: /etc/agentgateway/config.yaml
               subPath: config.yaml
               readOnly: true
+          {{- with .Values.agentgateway.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       volumes:
         - name: config
           configMap:
@@ -81,6 +99,7 @@ spec:
       port: {{ .Values.agentgateway.port }}
       targetPort: http
 ---
+{{- if .Values.agentgateway.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -88,9 +107,20 @@ metadata:
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
+  {{- with .Values.agentgateway.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
+  {{- with .Values.agentgateway.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.agentgateway.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   rules:
-    - host: {{ .Values.agentgateway.host }}
+    - host: {{ .Values.agentgateway.ingress.host }}
       http:
         paths:
           - path: /mcp
@@ -100,6 +130,7 @@ spec:
                 name: {{ include "mcp-gateway.fullname" . }}-agentgateway
                 port:
                   name: http
+{{- end }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

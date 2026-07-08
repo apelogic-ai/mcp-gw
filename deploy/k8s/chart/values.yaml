@@ -1,12 +1,32 @@
 global:
   imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
 
 agentgateway:
   enabled: true
   image: ghcr.io/agentgateway/agentgateway:v1.1.0
   replicas: 2
   port: 8080
-  host: mcp.example.com
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
+  ingress:
+    enabled: true
+    host: mcp.example.com
+    className: ""
+    annotations: {}
+    tls: []
   hpa:
     minReplicas: 2
     maxReplicas: 6
@@ -17,6 +37,20 @@ googleWorkspace:
   image: mcp-gateway/google-workspace:dev
   replicas: 2
   port: 8080
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
   hpa:
     minReplicas: 2
     maxReplicas: 6
@@ -37,6 +71,20 @@ dbMcp:
   image: mcp-gateway/db-mcp:dev
   replicas: 2
   port: 8080
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
   hpa:
     minReplicas: 2
     maxReplicas: 6

@@ -1,4 +1,5 @@
 {{- if .Values.googleWorkspace.enabled }}
+{{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "google-workspace" "values" .Values.googleWorkspace) }}
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -27,13 +28,26 @@ spec:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.googleWorkspace.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "google-workspace" "values" .Values.googleWorkspace) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.googleWorkspace.podSecurityContext | nindent 8 }}
       containers:
         - name: google-workspace
           image: {{ .Values.googleWorkspace.image }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.googleWorkspace.securityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.googleWorkspace.port }}
@@ -45,6 +59,10 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+          {{- with .Values.googleWorkspace.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service

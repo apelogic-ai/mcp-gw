@@ -27,15 +27,86 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("selector:");
     expect(rendered).toContain("type: ClusterIP");
   });
+
+  test("renders with the private overlay example values", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-private-overlay.example.yaml",
+    ]);
+
+    expect(rendered).toContain("host: mcp-gateway.internal.example.com");
+    expect(rendered).toContain("ingressClassName: nginx");
+    expect(rendered).toContain("ghcr.io/example/mcp-gateway-google-workspace");
+    expect(rendered).toContain("ghcr.io/example/mcp-gateway-db-mcp");
+    expect(rendered).toContain("ghcr.io/example/agentgateway");
+    expect(rendered).toContain("mcp-gateway/prod/google-workspace");
+    expect(rendered).toContain("mcp-gateway/prod/db-mcp");
+  });
+
+  test("ships Flux and Argo CD consumer examples", async () => {
+    const flux = await readExample("flux-helmrelease.yaml");
+    const argo = await readExample("argocd-application.yaml");
+    const secretStore = await readExample("clustersecretstore-aws.yaml");
+
+    expect(flux).toContain("kind: HelmRelease");
+    expect(flux).toContain("kind: GitRepository");
+    expect(flux).toContain("valuesFiles:");
+    expect(argo).toContain("kind: Application");
+    expect(argo).toContain("path: deploy/k8s/chart");
+    expect(secretStore).toContain("kind: ClusterSecretStore");
+    expect(secretStore).toContain("service: SecretsManager");
+  });
+
+  test("public deployment examples do not contain private environment values", async () => {
+    const examples = await readAllExampleFiles();
+    const privatePatterns = [
+      /18\.210\.100\.44/,
+      /54\.211\.134\.28/,
+      /projectn/,
+      /apelogic/i,
+      /burble/i,
+      /\/Users\/lbelyaev/,
+      /\/private\/tmp/,
+      /client_secret\s*[:=]\s*[^<{\n]/i,
+      /refresh_token\s*[:=]\s*[^<{\n]/i,
+    ];
+
+    for (const content of examples.values()) {
+      for (const pattern of privatePatterns) {
+        expect(content).not.toMatch(pattern);
+      }
+    }
+  });
 });
 
-function helmTemplate(): string {
+function helmTemplate(extraArgs: string[] = []): string {
   const result = Bun.spawnSync({
-    cmd: ["helm", "template", "mcp-gateway", "deploy/k8s/chart"],
+    cmd: ["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs],
     stdout: "pipe",
     stderr: "pipe",
   });
 
   expect(result.exitCode).toBe(0);
   return result.stdout.toString();
+}
+
+async function readExample(fileName: string): Promise<string> {
+  return Bun.file(`deploy/k8s/examples/${fileName}`).text();
+}
+
+async function readAllExampleFiles(): Promise<Map<string, string>> {
+  const files = [
+    "README.md",
+    "argocd-application.yaml",
+    "clustersecretstore-aws.yaml",
+    "flux-helmrelease.yaml",
+    "values-private-overlay.example.yaml",
+  ];
+  const contents = new Map<string, string>();
+
+  for (const file of files) {
+    contents.set(file, await readExample(file));
+  }
+
+  return contents;
 }

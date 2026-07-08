@@ -1,4 +1,5 @@
 {{- if .Values.dbMcp.enabled }}
+{{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "db-mcp" "values" .Values.dbMcp) }}
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -27,13 +28,26 @@ spec:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.dbMcp.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "db-mcp" "values" .Values.dbMcp) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.dbMcp.podSecurityContext | nindent 8 }}
       containers:
         - name: db-mcp
           image: {{ .Values.dbMcp.image }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.dbMcp.securityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.dbMcp.port }}
@@ -45,6 +59,10 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+          {{- with .Values.dbMcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service
