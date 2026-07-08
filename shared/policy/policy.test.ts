@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { AllowAllPolicy, createOpaPolicyFromUrl, OpaPolicyAdapter } from "./policy";
+import {
+  AllowAllPolicy,
+  CompositePolicy,
+  createOpaPolicyFromUrl,
+  createYamlPolicyFromString,
+  OpaPolicyAdapter,
+} from "./policy";
 
 describe("policy primitives", () => {
   const input = {
@@ -76,6 +82,86 @@ describe("policy primitives", () => {
     });
 
     expect(await policy.decide(input)).toEqual({
+      kind: "deny",
+      reason: "blocked by OPA",
+    });
+  });
+
+  test("evaluates YAML policy rules without code changes", async () => {
+    const policy = createYamlPolicyFromString(`
+default: deny
+rules:
+  - effect: allow
+    match:
+      actionClass: read
+  - effect: allow
+    match:
+      actionClass: write
+      service:
+        - docs
+        - sheets
+        - slides
+        - drive
+  - effect: approval_required
+    reason: Destructive Google Workspace actions require approval
+    match:
+      actionClass: destructive
+`);
+
+    expect(
+      await policy.decide({
+        ...input,
+        tool: "google_drive_files_list",
+        actionClass: "read",
+      }),
+    ).toEqual({ kind: "allow" });
+
+    expect(
+      await policy.decide({
+        ...input,
+        tool: "google_drive_files_delete",
+        actionClass: "destructive",
+      }),
+    ).toEqual({
+      kind: "approval_required",
+      reason: "Destructive Google Workspace actions require approval",
+    });
+
+    expect(
+      await policy.decide({
+        ...input,
+        tool: "google_gmail_threads_modify",
+        service: "gmail",
+        actionClass: "write",
+      }),
+    ).toEqual({
+      kind: "deny",
+      reason: "YAML policy default deny",
+    });
+  });
+
+  test("composes YAML and OPA policies with most restrictive result winning", async () => {
+    const localPolicy = createYamlPolicyFromString(`
+default: allow
+rules:
+  - effect: deny
+    reason: Deletes are disabled locally
+    match:
+      actionClass: destructive
+`);
+    const remotePolicy = new OpaPolicyAdapter(() => Promise.resolve({ result: { allow: true } }));
+
+    expect(await new CompositePolicy([localPolicy, remotePolicy]).decide(input)).toEqual({
+      kind: "deny",
+      reason: "Deletes are disabled locally",
+    });
+
+    const localAllow = createYamlPolicyFromString("default: allow\n");
+    const remoteDeny = new OpaPolicyAdapter(() =>
+      Promise.resolve({ result: { allow: false, reason: "blocked by OPA" } }),
+    );
+
+    expect(await new CompositePolicy([localAllow, remoteDeny]).decide(input)).toEqual({
       kind: "deny",
       reason: "blocked by OPA",
     });

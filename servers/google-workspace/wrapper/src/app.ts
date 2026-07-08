@@ -26,6 +26,7 @@ export interface Hop1IssuerConfig extends IssuerProfile {
 
 export interface PolicyConfig {
   opaUrl?: string;
+  yamlFile?: string;
 }
 
 export interface AuditConfig {
@@ -81,7 +82,13 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
     hop1: defaultHop1Issuer,
     hop1Issuers,
     oauth,
-    policy: env.OPA_POLICY_URL ? { opaUrl: env.OPA_POLICY_URL } : undefined,
+    policy:
+      env.OPA_POLICY_URL || env.GOOGLE_WORKSPACE_POLICY_FILE
+        ? {
+            opaUrl: env.OPA_POLICY_URL,
+            yamlFile: env.GOOGLE_WORKSPACE_POLICY_FILE,
+          }
+        : undefined,
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
   };
 }

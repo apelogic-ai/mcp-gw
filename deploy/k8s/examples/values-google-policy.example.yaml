@@ -1,0 +1,22 @@
+googleWorkspace:
+  policy:
+    enabled: true
+    mountPath: /etc/mcp-gw/google-workspace-policy.yaml
+    yaml: |
+      default: deny
+      rules:
+        - effect: allow
+          match:
+            actionClass: read
+        - effect: allow
+          match:
+            actionClass: write
+            service:
+              - docs
+              - sheets
+              - slides
+              - drive
+        - effect: approval_required
+          reason: Destructive Google Workspace actions require approval
+          match:
+            actionClass: destructive

@@ -1,4 +1,5 @@
 import type { JWK } from "jose";
+import { readFileSync } from "node:fs";
 
 import { JsonlAuditSink, type AuditSink } from "../../../../shared/audit/audit";
 import {
@@ -9,7 +10,12 @@ import {
 import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { GoogleTokenBroker } from "../../../../shared/oauth/token-broker";
 import type { OAuthTokenStore } from "../../../../shared/oauth/store";
-import { createOpaPolicyFromUrl, type ToolPolicy } from "../../../../shared/policy/policy";
+import {
+  CompositePolicy,
+  createOpaPolicyFromUrl,
+  createYamlPolicyFromString,
+  type ToolPolicy,
+} from "../../../../shared/policy/policy";
 import { createGoogleWorkspaceWrapperHandler, type WrapperConfig } from "./app";
 import { executeGwsTool } from "./executor/gws";
 
@@ -117,7 +123,18 @@ function createPolicy(
   config: WrapperConfig,
   fetchImpl: OAuthFetch | undefined,
 ): ToolPolicy | undefined {
-  return config.policy?.opaUrl
-    ? createOpaPolicyFromUrl(config.policy.opaUrl, fetchImpl)
-    : undefined;
+  const policies: ToolPolicy[] = [];
+
+  if (config.policy?.yamlFile) {
+    policies.push(createYamlPolicyFromString(readFileSync(config.policy.yamlFile, "utf8")));
+  }
+  if (config.policy?.opaUrl) {
+    policies.push(createOpaPolicyFromUrl(config.policy.opaUrl, fetchImpl));
+  }
+
+  if (policies.length === 0) {
+    return undefined;
+  }
+
+  return policies.length === 1 ? policies[0] : new CompositePolicy(policies);
 }

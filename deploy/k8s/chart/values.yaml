@@ -66,6 +66,10 @@ googleWorkspace:
     minReplicas: 2
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  policy:
+    enabled: false
+    mountPath: /etc/mcp-gw/google-workspace-policy.yaml
+    yaml: ""
   env:
     PORT: "8080"
     GWS_BINARY_PATH: /app/node_modules/.bin/gws
