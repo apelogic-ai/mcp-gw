@@ -93,6 +93,13 @@ digests, identity annotations, and secret-manager paths in a private values over
 AWS External Secrets, and private overlay examples are in
 [deploy/k8s/examples](deploy/k8s/examples).
 
+Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
+checked-in Google Workspace and db-mcp backends are examples of the pattern; additional MCP servers
+can be added by appending a target in an overlay.
+
+Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access internal through
+`kubectl port-forward` or a private overlay protected by corporate network controls and SSO.
+
 The deployment assets are templates. Replace placeholder domains, OAuth client IDs, redirect URIs,
 cloud role ARNs, image digests, and secret values for each environment. Do not commit real runtime
 secrets to this repository.

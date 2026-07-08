@@ -16,18 +16,20 @@ data:
     backends:
       mcp:
         targets:
-          - name: google-workspace
+{{- range .Values.agentgateway.backends }}
+{{- if .enabled }}
+{{- $host := .host | default "" }}
+{{- if not $host }}
+{{- $host = printf "http://%s-%s:%v%s" (include "mcp-gateway.fullname" $) .serviceName (.port | default 8080) (.path | default "/mcp") }}
+{{- end }}
+          - name: {{ .name }}
             policies:
               backendAuth:
                 passthrough: {}
             mcp:
-              host: http://{{ include "mcp-gateway.fullname" . }}-google-workspace:{{ .Values.googleWorkspace.port }}/mcp
-          - name: db-mcp
-            policies:
-              backendAuth:
-                passthrough: {}
-            mcp:
-              host: http://{{ include "mcp-gateway.fullname" . }}-db-mcp:{{ .Values.dbMcp.port }}/mcp
+              host: {{ $host }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

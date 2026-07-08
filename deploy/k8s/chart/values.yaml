@@ -7,6 +7,17 @@ agentgateway:
   image: ghcr.io/agentgateway/agentgateway:v1.1.0
   replicas: 2
   port: 8080
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: db-mcp
+      enabled: true
+      serviceName: db-mcp
+      port: 8080
+      path: /mcp
   serviceAccount:
     create: true
     annotations: {}
