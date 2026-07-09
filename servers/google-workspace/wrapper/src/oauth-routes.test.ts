@@ -129,12 +129,21 @@ describe("OAuth route handler", () => {
       email: "user@example.com",
     });
     const seen: { url?: string; body?: string } = {};
+    const verifiedTokens: string[] = [];
     const handler = createOAuthRouteHandler({
       authenticate: () => Promise.reject(new Error("token endpoint is unauthenticated")),
       config,
       scopes,
       stateStore: new InMemoryOAuthStateStore(),
       tokenStore,
+      verifyGoogleIdToken: (token) => {
+        verifiedTokens.push(token);
+        return Promise.resolve({
+          iss: "https://accounts.google.com",
+          sub: "google-subject",
+          email: "user@example.com",
+        });
+      },
       fetch: (url, init) => {
         seen.url = url;
         seen.body = init?.body instanceof URLSearchParams ? init.body.toString() : undefined;
@@ -166,6 +175,7 @@ describe("OAuth route handler", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(verifiedTokens).toEqual([idToken]);
     expect(seen.url).toBe("https://oauth2.googleapis.com/token");
     expect(new URLSearchParams(seen.body).get("client_secret")).toBe("client-secret");
     expect(new URLSearchParams(seen.body).get("redirect_uri")).toBe(
@@ -184,6 +194,55 @@ describe("OAuth route handler", () => {
       email: "user@example.com",
       scopesGranted: ["openid", "profile", "email"],
     });
+  });
+
+  test("rejects Claude token exchange when Google id_token verification fails", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const idToken = fakeJwt({
+      iss: "https://evil.example",
+      sub: "google-subject",
+      email: "user@example.com",
+    });
+    const handler = createOAuthRouteHandler({
+      authenticate: () => Promise.reject(new Error("token endpoint is unauthenticated")),
+      config,
+      scopes,
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+      verifyGoogleIdToken: () => Promise.reject(new Error("signature verification failed")),
+      fetch: () =>
+        Promise.resolve(
+          jsonResponse({
+            access_token: "google-access-token",
+            id_token: idToken,
+            refresh_token: "google-refresh-token",
+            expires_in: 3600,
+            scope: "openid profile email",
+            token_type: "Bearer",
+          }),
+        ),
+    });
+
+    const response = await handler(
+      new Request("https://dev.example.com/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: "code",
+          client_id: "client-id",
+          redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+          code_verifier: "verifier",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "Google id_token verification failed",
+    });
+    expect(await tokenStore.getAccount("https://accounts.google.com", "google-subject")).toBeNull();
   });
 
   test("rejects Claude token exchange for a different client id", async () => {

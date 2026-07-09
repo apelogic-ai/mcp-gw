@@ -31,6 +31,13 @@ variable "subnet_id" {
 variable "allowed_ingress_cidrs" {
   description = "CIDR blocks allowed to reach break-glass SSH and the temporary direct gateway port."
   type        = list(string)
+
+  validation {
+    condition = alltrue([
+      for cidr in var.allowed_ingress_cidrs : cidr != "0.0.0.0/0" && cidr != "::/0"
+    ])
+    error_message = "allowed_ingress_cidrs must not include public internet CIDRs. Use a narrow operator /32 or private CIDR."
+  }
 }
 
 variable "public_web_ingress_cidrs" {

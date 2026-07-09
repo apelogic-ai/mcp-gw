@@ -65,6 +65,10 @@ resource "aws_ecr_repository" "agentgateway_dev" {
   name                 = local.agentgateway_ecr_name
   image_tag_mutability = "MUTABLE"
 
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
   image_scanning_configuration {
     scan_on_push = true
   }
@@ -415,6 +419,12 @@ resource "aws_instance" "mcp_gateway_dev" {
     volume_size = var.dev_root_volume_size_gb
     volume_type = "gp3"
     encrypted   = true
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
   }
 
   user_data = <<-USERDATA
