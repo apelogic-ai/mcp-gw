@@ -1,4 +1,4 @@
-import { createLocalJWKSet, decodeJwt, jwtVerify, type JWTPayload, type JWK } from "jose";
+import { createLocalJWKSet, jwtVerify, type JWTPayload, type JWK } from "jose";
 
 export interface IssuerProfile {
   name: string;
@@ -57,22 +57,18 @@ export async function validateHop1JwtForIssuers(
   token: string,
   issuers: TrustedIssuer[],
 ): Promise<Hop1Identity> {
-  let claims: JWTPayload;
-  try {
-    claims = decodeJwt(token);
-  } catch (error) {
-    throw new Hop1ValidationError(
-      error instanceof Error ? error.message : "JWT issuer decode failed",
-    );
+  const errors: string[] = [];
+  for (const trusted of issuers) {
+    try {
+      return await validateHop1Jwt(token, trusted.profile, trusted.jwks);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
   }
 
-  const issuer = typeof claims.iss === "string" ? claims.iss : undefined;
-  const trusted = issuers.find((candidate) => candidate.profile.issuer === issuer);
-  if (!trusted) {
-    throw new Hop1ValidationError(`Untrusted issuer: ${issuer ?? "missing"}`);
-  }
-
-  return validateHop1Jwt(token, trusted.profile, trusted.jwks);
+  throw new Hop1ValidationError(
+    `JWT did not validate against any trusted issuer: ${errors[0] ?? "no issuers configured"}`,
+  );
 }
 
 function identityFromClaims(claims: JWTPayload, profile: IssuerProfile): Hop1Identity {

@@ -26,6 +26,21 @@ describe("deployment validation scripts", () => {
     expect(workflow).toContain("bun run deploy:check");
     expect(workflow).toContain("bun run integration:local");
   });
+
+  test("pins third-party GitHub Actions by immutable commit SHA", async () => {
+    const workflows = await Promise.all([
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+    ]);
+    const actionUses = workflows
+      .flatMap((workflow) => workflow.match(/uses:\s*[^@\s]+@[^\s]+/g) ?? [])
+      .map((match) => match.replace(/^uses:\s*/, ""));
+
+    expect(actionUses.length).toBeGreaterThan(0);
+    for (const use of actionUses) {
+      expect(use).toMatch(/@[a-f0-9]{40}$/);
+    }
+  });
 });
 
 async function expectExecutable(path: string): Promise<void> {

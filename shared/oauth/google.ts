@@ -29,6 +29,7 @@ export interface GoogleOAuthConfig {
   authorizationUrl?: string;
   tokenUrl?: string;
   userInfoUrl?: string;
+  googleJwksUrl?: string;
 }
 
 export type OAuthFetch = (url: string, init?: RequestInit) => Promise<Response>;

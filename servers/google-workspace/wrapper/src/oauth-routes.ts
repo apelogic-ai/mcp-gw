@@ -1,4 +1,4 @@
-import { decodeJwt } from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
 import { encryptSecret } from "../../../../shared/oauth/crypto";
@@ -21,6 +21,7 @@ export interface CreateOAuthRouteHandlerOptions {
   tokenStore: OAuthTokenStore;
   audit?: AuditSink;
   fetch?: OAuthFetch;
+  verifyGoogleIdToken?: GoogleIdTokenVerifier;
 }
 
 const JSON_HEADERS = {
@@ -38,6 +39,10 @@ interface GoogleTokenEndpointResponse {
   error_description?: string;
 }
 
+type GoogleIdTokenVerifier = (idToken: string, config: GoogleOAuthConfig) => Promise<JWTPayload>;
+
+const DEFAULT_GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+
 export function createOAuthRouteHandler(
   options: CreateOAuthRouteHandlerOptions,
 ): (request: Request) => Promise<Response> {
@@ -54,6 +59,7 @@ export function createOAuthRouteHandler(
         request,
         options.config,
         options.tokenStore,
+        options.verifyGoogleIdToken ?? verifyGoogleIdToken,
         options.fetch ?? fetch,
       );
     }
@@ -174,6 +180,7 @@ async function proxyClaudeTokenExchange(
   request: Request,
   config: GoogleOAuthConfig,
   tokenStore: OAuthTokenStore,
+  verifyIdToken: GoogleIdTokenVerifier,
   fetchImpl: OAuthFetch,
 ): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -205,7 +212,11 @@ async function proxyClaudeTokenExchange(
   }
 
   if (upstream.ok && body.id_token) {
-    await persistGoogleAccountFromTokenResponse(body, config, tokenStore);
+    try {
+      await persistGoogleAccountFromTokenResponse(body, config, tokenStore, verifyIdToken);
+    } catch {
+      return tokenError("invalid_grant", "Google id_token verification failed");
+    }
     body.access_token = body.id_token;
     body.token_type = body.token_type ?? "Bearer";
   }
@@ -220,12 +231,13 @@ async function persistGoogleAccountFromTokenResponse(
   body: GoogleTokenEndpointResponse,
   config: GoogleOAuthConfig,
   tokenStore: OAuthTokenStore,
+  verifyIdToken: GoogleIdTokenVerifier,
 ): Promise<void> {
   if (!body.id_token || !body.refresh_token) {
     return;
   }
 
-  const claims = decodeJwt(body.id_token);
+  const claims = await verifyIdToken(body.id_token, config);
   if (
     typeof claims.iss !== "string" ||
     typeof claims.sub !== "string" ||
@@ -245,6 +257,19 @@ async function persistGoogleAccountFromTokenResponse(
     createdAt: now,
     updatedAt: now,
   });
+}
+
+async function verifyGoogleIdToken(
+  idToken: string,
+  config: GoogleOAuthConfig,
+): Promise<JWTPayload> {
+  const jwks = createRemoteJWKSet(new URL(config.googleJwksUrl ?? DEFAULT_GOOGLE_JWKS_URL));
+  const result = await jwtVerify(idToken, jwks, {
+    issuer: ["https://accounts.google.com", "accounts.google.com"],
+    audience: config.clientId,
+  });
+
+  return result.payload;
 }
 
 async function authenticateRequest(
