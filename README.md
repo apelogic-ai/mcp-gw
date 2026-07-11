@@ -90,6 +90,13 @@ Deployment templates are provided for:
 - a single AWS Compose host under [deploy/infra](deploy/infra);
 - Kubernetes/Helm under [deploy/k8s](deploy/k8s).
 
+The checked-in deployment defaults pin the ApeLogic `agentgateway` fork image
+`ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1`. That fork includes the MCP
+multi-provider authentication support required for Claude, Burble, and other HOP-1 clients behind
+one `/mcp` endpoint. Do not replace it with upstream `ghcr.io/agentgateway/agentgateway:v1.1.0`
+unless upstream has accepted equivalent MCP authentication behavior. Production overlays should
+mirror or rebuild the pinned fork version into a private registry and pin by digest.
+
 The Kubernetes chart is intended for fork-and-overlay enterprise deployments. Keep
 [deploy/k8s/chart](deploy/k8s/chart) close to upstream, then put org-specific hostnames, image
 digests, identity annotations, and secret-manager paths in a private values overlay. Flux, Argo CD,

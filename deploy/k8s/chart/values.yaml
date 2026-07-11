@@ -4,7 +4,7 @@ global:
 
 agentgateway:
   enabled: true
-  image: ghcr.io/agentgateway/agentgateway:v1.1.0
+  image: ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1
   replicas: 2
   port: 8080
   backends:
