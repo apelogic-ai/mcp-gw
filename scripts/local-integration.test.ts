@@ -19,6 +19,9 @@ describe("local Docker integration smoke", () => {
     expect(fixture).toContain(".well-known/jwks.json");
     expect(smoke).toContain('ISSUER="http://host.docker.internal:$JWKS_PORT"');
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
+    expect(smoke).toContain(
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.1.0}",
+    );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
     expect(smoke).toContain("mcp-session-id");

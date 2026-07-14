@@ -32,6 +32,11 @@ the release tag, mirror images into private registries, and pin private image di
 overlays. Public image publishing and signing can be added once the registry, provenance, and support
 model are decided.
 
+The deployment templates also pin the required `agentgateway` fork version. For the `v0.1.x`
+release line, use `ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1` or an internally rebuilt
+image from the same fork revision. The upstream `ghcr.io/agentgateway/agentgateway:v1.1.0` image
+does not contain the MCP multi-provider authentication support this gateway expects.
+
 ## Cutting A Release
 
 1. Start from a clean `main`.
