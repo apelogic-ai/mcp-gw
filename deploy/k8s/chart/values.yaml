@@ -18,6 +18,11 @@ agentgateway:
       serviceName: db-mcp
       port: 8080
       path: /mcp
+    - name: github-mcp
+      enabled: false
+      serviceName: github-mcp
+      port: 8082
+      path: /mcp
   serviceAccount:
     create: true
     annotations: {}
@@ -115,3 +120,30 @@ dbMcp:
     name: db-mcp-runtime
     externalStore: aws-secrets-manager
     remoteKey: mcp-gateway/db-mcp
+
+githubMcp:
+  enabled: false
+  image: ghcr.io/github/github-mcp-server:v1.6.0
+  replicas: 2
+  port: 8082
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
+  hpa:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  env:
+    GITHUB_TOOLSETS: default,actions,code_security,discussions,notifications,orgs,projects
+    GITHUB_HOST: ""

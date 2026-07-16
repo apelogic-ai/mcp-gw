@@ -20,6 +20,13 @@ runtime manifests or install its own chart, then append an entry under
 rendered by this chart, or `host` for a fully qualified in-cluster MCP URL. See
 `values-extra-backend.example.yaml`.
 
+To enable the bundled official GitHub MCP server, use
+`values-github-mcp.example.yaml` as the overlay starting point. The upstream
+server expects a GitHub bearer token in the inbound `Authorization` header in
+HTTP mode, so production deployments still need a credential bridge that maps
+the authenticated HOP-1 principal to the user's GitHub credential before
+forwarding.
+
 To enforce Google Workspace tool policy without running an external policy
 service, enable `googleWorkspace.policy` and provide YAML policy content in a
 private values overlay. See `values-google-policy.example.yaml`.

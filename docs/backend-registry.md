@@ -35,14 +35,19 @@ bun run backends:check
 ## Docker Compose
 
 For a backend that runs in Compose, add a service fragment under
-`deploy/compose`. The db-mcp integration is the current optional backend
-example:
+`deploy/compose`. The db-mcp and official GitHub MCP integrations are optional
+backend examples:
 
 ```bash
 docker compose \
   -f deploy/compose/docker-compose.yaml \
   -f deploy/compose/docker-compose.db-mcp.yaml \
   --profile db-mcp up
+
+docker compose \
+  -f deploy/compose/docker-compose.yaml \
+  -f deploy/compose/docker-compose.github-mcp.yaml \
+  --profile github-mcp up
 ```
 
 Use the generated federated agentgateway config when optional backends should be
@@ -68,6 +73,10 @@ agentgateway:
 ```
 
 See `deploy/k8s/examples/values-extra-backend.example.yaml`.
+
+The official GitHub MCP server is already modeled in chart values as
+`githubMcp`, disabled by default. See
+`deploy/k8s/examples/values-github-mcp.example.yaml` for the overlay shape.
 
 ## Public Repo Safety
 

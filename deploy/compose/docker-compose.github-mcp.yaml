@@ -1,0 +1,21 @@
+services:
+  agentgateway:
+    volumes:
+      - ../../gateway/agentgateway/federated.yaml:/etc/agentgateway/config.yaml:ro
+    depends_on:
+      - google-workspace
+      - github-mcp
+
+  github-mcp:
+    profiles: ["github-mcp"]
+    image: ${GITHUB_MCP_IMAGE:-ghcr.io/github/github-mcp-server:v1.6.0}
+    command:
+      - http
+      - --port
+      - "8082"
+      - --base-path
+      - /mcp
+      - --scope-challenge
+    environment:
+      GITHUB_TOOLSETS: ${GITHUB_MCP_TOOLSETS:-default,actions,code_security,discussions,notifications,orgs,projects}
+      GITHUB_HOST: ${GITHUB_HOST:-}

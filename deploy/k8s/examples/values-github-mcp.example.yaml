@@ -1,0 +1,29 @@
+# Example values for enabling the optional official GitHub MCP backend.
+#
+# This example intentionally contains no tokens. The official GitHub MCP server
+# in HTTP mode reads GitHub credentials from the inbound Authorization header.
+# Production deployments need an MCP-GW credential bridge that resolves the
+# HOP-1 principal to a GitHub bearer token before forwarding.
+agentgateway:
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: db-mcp
+      enabled: true
+      serviceName: db-mcp
+      port: 8080
+      path: /mcp
+    - name: github-mcp
+      enabled: true
+      serviceName: github-mcp
+      port: 8082
+      path: /mcp
+
+githubMcp:
+  enabled: true
+  env:
+    GITHUB_TOOLSETS: default,actions,code_security,discussions,notifications,orgs,projects
+    GITHUB_HOST: ""
