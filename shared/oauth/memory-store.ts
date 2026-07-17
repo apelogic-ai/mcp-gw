@@ -1,5 +1,6 @@
 import type {
   OAuthAccountRecord,
+  OAuthProvider,
   OAuthStateRecord,
   OAuthStateStore,
   OAuthTokenStore,
@@ -34,17 +35,28 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
   private readonly accounts = new Map<string, OAuthAccountRecord>();
 
   saveAccount(record: OAuthAccountRecord): Promise<void> {
-    this.accounts.set(accountKey(record.hop1Issuer, record.hop1Subject), { ...record });
+    this.accounts.set(accountKey(record.provider, record.hop1Issuer, record.hop1Subject), {
+      ...record,
+    });
     return Promise.resolve();
   }
 
-  getAccount(hop1Issuer: string, hop1Subject: string): Promise<OAuthAccountRecord | null> {
-    const record = this.accounts.get(accountKey(hop1Issuer, hop1Subject));
+  getAccount(
+    hop1Issuer: string,
+    hop1Subject: string,
+    provider: OAuthProvider = "google",
+  ): Promise<OAuthAccountRecord | null> {
+    const record = this.accounts.get(accountKey(provider, hop1Issuer, hop1Subject));
     return Promise.resolve(record ? { ...record } : null);
   }
 
-  markRevoked(hop1Issuer: string, hop1Subject: string, revokedAt: Date): Promise<void> {
-    const key = accountKey(hop1Issuer, hop1Subject);
+  markRevoked(
+    hop1Issuer: string,
+    hop1Subject: string,
+    revokedAt: Date,
+    provider: OAuthProvider = "google",
+  ): Promise<void> {
+    const key = accountKey(provider, hop1Issuer, hop1Subject);
     const record = this.accounts.get(key);
     if (record) {
       this.accounts.set(key, {
@@ -57,6 +69,6 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
   }
 }
 
-function accountKey(hop1Issuer: string, hop1Subject: string): string {
-  return `${hop1Issuer}\n${hop1Subject}`;
+function accountKey(provider: OAuthProvider, hop1Issuer: string, hop1Subject: string): string {
+  return `${provider}\n${hop1Issuer}\n${hop1Subject}`;
 }

@@ -1,6 +1,7 @@
 import { hashState } from "./state";
 import type {
   OAuthAccountRecord,
+  OAuthProvider,
   OAuthStateRecord,
   OAuthStateStore,
   OAuthTokenStore,
@@ -81,7 +82,11 @@ DO UPDATE SET
     );
   }
 
-  async getAccount(hop1Issuer: string, hop1Subject: string): Promise<OAuthAccountRecord | null> {
+  async getAccount(
+    hop1Issuer: string,
+    hop1Subject: string,
+    provider: OAuthProvider = "google",
+  ): Promise<OAuthAccountRecord | null> {
     const result = await this.client.query(
       `
 SELECT
@@ -100,24 +105,29 @@ WHERE provider = $1
   AND hop1_subject = $3
 LIMIT 1
 `,
-      ["google", hop1Issuer, hop1Subject],
+      [provider, hop1Issuer, hop1Subject],
     );
 
     const row = result.rows[0];
     return row ? rowToAccount(row) : null;
   }
 
-  async markRevoked(hop1Issuer: string, hop1Subject: string, revokedAt: Date): Promise<void> {
+  async markRevoked(
+    hop1Issuer: string,
+    hop1Subject: string,
+    revokedAt: Date,
+    provider: OAuthProvider = "google",
+  ): Promise<void> {
     await this.client.query(
       `
 UPDATE oauth_accounts
 SET revoked_at = $1,
     updated_at = $1
-WHERE provider = 'google'
-  AND hop1_issuer = $2
-  AND hop1_subject = $3
+WHERE provider = $2
+  AND hop1_issuer = $3
+  AND hop1_subject = $4
 `,
-      [revokedAt, hop1Issuer, hop1Subject],
+      [revokedAt, provider, hop1Issuer, hop1Subject],
     );
   }
 }
@@ -203,7 +213,7 @@ WHERE state_hash = $2
 
 function rowToAccount(row: Record<string, unknown>): OAuthAccountRecord {
   return {
-    provider: "google",
+    provider: providerField(row, "provider"),
     hop1Issuer: stringField(row, "hop1_issuer"),
     hop1Subject: stringField(row, "hop1_subject"),
     email: stringField(row, "email"),
@@ -213,6 +223,15 @@ function rowToAccount(row: Record<string, unknown>): OAuthAccountRecord {
     updatedAt: dateField(row, "updated_at"),
     revokedAt: optionalDateField(row, "revoked_at"),
   };
+}
+
+function providerField(row: Record<string, unknown>, name: string): OAuthProvider {
+  const value = stringField(row, name);
+  if (value !== "google" && value !== "github") {
+    throw new Error(`Expected SQL field ${name} to be a supported OAuth provider`);
+  }
+
+  return value;
 }
 
 function rowToState(row: Record<string, unknown>): OAuthStateRecord {
