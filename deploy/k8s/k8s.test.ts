@@ -9,6 +9,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("image: ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1");
     expect(rendered).toContain("name: mcp-gateway-google-workspace");
     expect(rendered).toContain("name: mcp-gateway-db-mcp");
+    expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
     expect(rendered).toContain("kind: ExternalSecret");
     expect(rendered).toContain("kind: NetworkPolicy");
     expect(rendered).toContain("kind: HorizontalPodAutoscaler");
@@ -39,6 +40,23 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("host: http://mcp-gateway-db-mcp:8080/mcp");
     expect(rendered).toContain("name: enterprise-search");
     expect(rendered).toContain("host: http://enterprise-search.search.svc.cluster.local:8080/mcp");
+  });
+
+  test("renders optional official GitHub MCP workload and gateway target", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-gateway-github-mcp");
+    expect(rendered).toContain("image: ghcr.io/github/github-mcp-server:v1.6.0");
+    expect(rendered).toContain("name: github-mcp");
+    expect(rendered).toContain("host: http://mcp-gateway-github-mcp:8082/mcp");
+    expect(rendered).toContain("GITHUB_TOOLSETS");
+    expect(rendered).not.toContain("GITHUB_PERSONAL_ACCESS_TOKEN");
+    expect(rendered).toContain(
+      'value: "default,actions,code_security,discussions,notifications,orgs,projects"',
+    );
   });
 
   test("does not expose the agentgateway admin UI by default", async () => {

@@ -1,0 +1,4 @@
+name: github-mcp
+host: http://github-mcp:8082/mcp
+toolPrefix: github
+enabledByDefault: false

@@ -7,6 +7,7 @@ The project currently packages:
 
 - an `agentgateway` front door for remote MCP traffic and OAuth protected-resource metadata;
 - a Bun/TypeScript Google Workspace MCP wrapper;
+- an optional official GitHub MCP server backend for federated deployments;
 - per-user Google OAuth token storage with encrypted refresh tokens;
 - a `gws` subprocess executor using `GOOGLE_WORKSPACE_CLI_TOKEN` per call;
 - Docker Compose, Terraform, Ansible, and Kubernetes deployment templates;
@@ -104,9 +105,15 @@ AWS External Secrets, and private overlay examples are in
 [deploy/k8s/examples](deploy/k8s/examples).
 
 Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
-checked-in Google Workspace and db-mcp backends are examples of the pattern; additional MCP servers
-can be added by appending a target in an overlay. See
+checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern;
+additional MCP servers can be added by appending a target in an overlay. See
 [docs/backend-registry.md](docs/backend-registry.md).
+
+The optional GitHub MCP bundle uses the official
+`ghcr.io/github/github-mcp-server:v1.6.0` Streamable HTTP server. It is packaged as an MCP runtime
+backend, but production HOP-1 flows still need a credential bridge that maps the authenticated
+gateway principal to a GitHub bearer token before forwarding to the upstream GitHub server. See
+[servers/github-mcp/README.md](servers/github-mcp/README.md).
 
 Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access internal through
 `kubectl port-forward` or a private overlay protected by corporate network controls and SSO.

@@ -27,3 +27,9 @@ binds:
                           passthrough: {}
                       mcp:
                         host: http://db-mcp:8080/mcp
+                    - name: github-mcp
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://github-mcp:8082/mcp
