@@ -42,6 +42,7 @@ describe("local Docker integration smoke", () => {
     expect(config).toContain("backendAuth:");
     expect(config).toContain("passthrough: {}");
     expect(config).toContain("failureMode: failOpen");
+    expect(config).toContain("prefixMode: never");
     expect(config).not.toContain("prefixMode: always");
     expect(config).toContain("name: google");
     expect(config).not.toContain("name: google-workspace");

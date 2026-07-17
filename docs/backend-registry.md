@@ -36,18 +36,19 @@ is not used by the default DEV Compose deployment. Do not mount the federated
 config into the shared `/mcp` route unless every listed backend is deployed and
 the target fan-out behavior has been tested for that environment.
 
-Generated agentgateway configs set `failureMode: failOpen` on the MCP backend.
-That means an unavailable optional target is skipped during MCP initialization
-when at least one target is healthy. It does not make a missing backend usable;
-it prevents one broken optional backend from taking down the entire shared MCP
-route.
+Generated agentgateway configs set two MCP multiplexing controls:
 
-The generator does not set `prefixMode: always`. With one active MCP target,
-agentgateway leaves upstream tool names unchanged, so the Google-only route
-continues to expose existing names such as `google_drive_files_list`.
-Agentgateway prefixes tools when more than one MCP target is active. Use short,
-stable `toolPrefix` values and hand-test the resulting catalog before exposing a
-multi-target route to clients that cache tool permissions.
+- `failureMode: failOpen`: an unavailable optional target is skipped during MCP
+  initialization when at least one target is healthy. It does not make a missing
+  backend usable; it prevents one broken optional backend from taking down the
+  entire shared MCP route.
+- `prefixMode: never`: agentgateway routes by the exact advertised tool name and
+  forwards the original upstream tool name unchanged. Backend wrappers own stable provider prefixes
+  such as `google_*` and `github_*`; do not rely on agentgateway to synthesize or strip prefixes.
+
+Use short, stable `toolPrefix` values for target names, registry collision
+checks, and operator readability. Hand-test the resulting catalog before
+exposing a multi-target route to clients that cache tool permissions.
 
 ## Docker Compose
 
@@ -69,8 +70,8 @@ docker compose \
 
 These optional Compose overlays start backend runtime containers only. They do
 not mutate the shared agentgateway `/mcp` route. Expose optional backends through
-an explicitly tested agentgateway config, a dedicated MCP route, or a
-deployment-specific overlay.
+an explicitly tested agentgateway config or a deployment-specific overlay that
+keeps `prefixMode: never` and provider-owned tool prefixes intact.
 
 ## Kubernetes
 

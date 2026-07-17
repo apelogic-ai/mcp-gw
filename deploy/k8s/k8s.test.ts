@@ -38,6 +38,7 @@ describe("Kubernetes production chart", () => {
 
     expect(rendered).toContain("name: mcp-gateway-db-mcp");
     expect(rendered).toContain("failureMode: failOpen");
+    expect(rendered).toContain("prefixMode: never");
     expect(rendered).not.toContain("host: http://mcp-gateway-db-mcp:8080/mcp");
     expect(rendered).toContain("name: enterprise-search");
     expect(rendered).toContain("host: http://enterprise-search.search.svc.cluster.local:8080/mcp");

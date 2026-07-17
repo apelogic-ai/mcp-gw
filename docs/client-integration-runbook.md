@@ -217,11 +217,11 @@ MCP-GW uses agentgateway as the MCP front door. Agentgateway can multiplex more 
 backend behind the same `/mcp` endpoint, and deployment templates render those targets from the
 backend registry or Helm `agentgateway.backends` values.
 
-Single-backend deployments leave upstream tool names unchanged. For example, the default Google-only
-route exposes `google_drive_files_list`, not a gateway-prefixed variant. Multi-backend deployments
-may receive target prefixes from agentgateway to avoid collisions across providers. Validate the
-visible tool catalog and reconnect clients that cache tool permissions after changing the active
-backend set.
+MCP-GW deployment templates set `prefixMode: never`, so agentgateway routes by exact advertised
+tool name and forwards the original upstream tool name unchanged. Backend wrappers own stable
+provider prefixes, for example `google_drive_files_list` and `github_search_repositories`. Do not
+depend on agentgateway to add or strip prefixes. Validate the visible tool catalog and reconnect
+clients that cache tool permissions after changing the active backend set.
 
 Generated configs use `failureMode: failOpen` so one unavailable optional backend does not make
 every MCP initialization fail. It is still an operator error to advertise a backend whose runtime,

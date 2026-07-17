@@ -142,6 +142,7 @@ binds:
             backends:
               - mcp:
                   failureMode: failOpen
+                  prefixMode: never
                   targets:
                     - name: google
                       policies:

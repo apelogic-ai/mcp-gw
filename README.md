@@ -105,8 +105,10 @@ AWS External Secrets, and private overlay examples are in
 [deploy/k8s/examples](deploy/k8s/examples).
 
 Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
-checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern;
-additional MCP servers can be added by appending a target in an overlay. See
+checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern.
+Deployment templates set `prefixMode: never`, so each backend wrapper must expose globally unique,
+provider-prefixed tool names and agentgateway forwards those names unchanged. Additional MCP servers
+can be added by appending a target in an overlay. See
 [docs/backend-registry.md](docs/backend-registry.md).
 
 The optional GitHub MCP bundle uses the official

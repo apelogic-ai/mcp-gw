@@ -70,6 +70,7 @@ export function renderAgentgatewayConfig(
             backends:
               - mcp:
                   failureMode: failOpen
+                  prefixMode: never
                   targets:
 ${renderAgentgatewayTargets(descriptors, options)}
 `;

@@ -120,6 +120,7 @@ toolPrefix: google
     expect(rendered).toContain("exact: /.well-known/oauth-protected-resource/mcp");
     expect(rendered).toContain("allowHeaders: [mcp-protocol-version, content-type, authorization]");
     expect(rendered).toContain("failureMode: failOpen");
+    expect(rendered).toContain("prefixMode: never");
     expect(rendered).not.toContain("prefixMode: always");
     expect(rendered).toContain("targets:");
     expect(rendered).toContain("name: google");

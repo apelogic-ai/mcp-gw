@@ -16,6 +16,7 @@ data:
     backends:
       mcp:
         failureMode: failOpen
+        prefixMode: never
         targets:
 {{- range .Values.agentgateway.backends }}
 {{- if .enabled }}
