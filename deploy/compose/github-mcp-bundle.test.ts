@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 
 describe("GitHub MCP bundled backend", () => {
-  test("registers the GitHub wrapper as an optional federated backend", async () => {
+  test("keeps GitHub out of the default shared MCP route", async () => {
     const descriptor = await readFile("servers/github-mcp/backend.yaml", "utf8");
     const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
@@ -17,10 +17,12 @@ describe("GitHub MCP bundled backend", () => {
     expect(federated).toContain("host: http://github-wrapper:8080/mcp");
   });
 
-  test("defines a Compose profile for the GitHub wrapper and official upstream server", async () => {
+  test("defines a runtime-only Compose profile for the GitHub wrapper and official upstream server", async () => {
     const override = await readFile("deploy/compose/docker-compose.github-mcp.yaml", "utf8");
     const readme = await readFile("servers/github-mcp/README.md", "utf8");
 
+    expect(override).not.toContain("gateway/agentgateway/federated.yaml");
+    expect(override).not.toContain("/etc/agentgateway/config.yaml");
     expect(override).toContain("github-wrapper:");
     expect(override).toContain("dockerfile: servers/github-mcp/wrapper/Dockerfile");
     expect(override).toContain("GITHUB_MCP_UPSTREAM_URL");
@@ -38,9 +40,10 @@ describe("GitHub MCP bundled backend", () => {
     expect(override).toContain("/mcp");
     expect(override).toContain("GITHUB_TOOLSETS");
     expect(override).not.toContain("GITHUB_PERSONAL_ACCESS_TOKEN");
-    expect(override).toContain("gateway/agentgateway/federated.yaml");
     expect(override).toContain("github-wrapper");
     expect(readme).toContain("ghcr.io/github/github-mcp-server:v1.6.0");
+    expect(readme).toContain("runtime-only");
+    expect(readme).toContain("does not replace the agentgateway config");
     expect(readme).toContain("Authorization");
     expect(readme).toContain("Credential Boundary");
   });

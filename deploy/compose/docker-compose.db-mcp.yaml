@@ -1,11 +1,4 @@
 services:
-  agentgateway:
-    volumes:
-      - ../../gateway/agentgateway/federated.yaml:/etc/agentgateway/config.yaml:ro
-    depends_on:
-      - google-workspace
-      - db-mcp
-
   db-mcp:
     profiles: ["db-mcp"]
     build:

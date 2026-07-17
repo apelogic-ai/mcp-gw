@@ -151,14 +151,7 @@ binds:
 YAML
 
 if [[ "\${ENABLE_GITHUB_MCP:-0}" == "1" ]]; then
-cat >> "\$APP_DIR.next/deploy/compose/.agentgateway-dev.yaml" <<YAML
-                    - name: github-mcp
-                      policies:
-                        backendAuth:
-                          passthrough: {}
-                      mcp:
-                        host: http://github-wrapper:8080/mcp
-YAML
+  echo "GitHub MCP is deployed as a runtime-only DEV service; it is not attached to the shared /mcp route."
 fi
 
 cat > "\$APP_DIR.next/deploy/compose/.Caddyfile-dev" <<CADDY

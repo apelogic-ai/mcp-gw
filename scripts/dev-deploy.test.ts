@@ -39,7 +39,8 @@ describe("DEV deploy wrapper", () => {
     expect(deploy).toContain("AGENTGATEWAY_IMAGE");
     expect(deploy).toContain("ENABLE_GITHUB_MCP");
     expect(deploy).toContain("docker-compose.github-mcp.yaml");
-    expect(deploy).toContain("host: http://github-wrapper:8080/mcp");
+    expect(deploy).toContain("GitHub MCP is deployed as a runtime-only DEV service");
+    expect(deploy).not.toContain("host: http://github-wrapper:8080/mcp");
     expect(deploy).toContain("handle /oauth/github/*");
     expect(deploy).toContain("reverse_proxy github-wrapper:8080");
     expect(session).toContain('AWS_PROFILE="${AWS_PROFILE:-default}"');

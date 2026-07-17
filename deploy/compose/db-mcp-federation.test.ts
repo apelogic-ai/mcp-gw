@@ -16,11 +16,14 @@ describe("db-mcp federation backend", () => {
     expect(federated).toContain("targets:");
   });
 
-  test("defines an optional db-mcp compose override using HTTP MCP transport", async () => {
+  test("defines an optional db-mcp runtime override without mutating the shared MCP route", async () => {
     const override = await readFile("deploy/compose/docker-compose.db-mcp.yaml", "utf8");
     const dockerfile = await readFile("servers/db-mcp/Dockerfile", "utf8");
     const backend = await readFile("servers/db-mcp/backend.yaml", "utf8");
+    const docs = await readFile("docs/backend-registry.md", "utf8");
 
+    expect(override).not.toContain("gateway/agentgateway/federated.yaml");
+    expect(override).not.toContain("/etc/agentgateway/config.yaml");
     expect(override).toContain("db-mcp:");
     expect(override).toContain('profiles: ["db-mcp"]');
     expect(override).toContain("context: ${DB_MCP_REPO_PATH:-../../../db-mcp}");
@@ -28,9 +31,10 @@ describe("db-mcp federation backend", () => {
     expect(override).toContain("MCP_HOST: 0.0.0.0");
     expect(override).toContain('MCP_PORT: "8080"');
     expect(override).toContain("MCP_PATH: /mcp");
-    expect(override).toContain("gateway/agentgateway/federated.yaml");
     expect(dockerfile).toContain("uv sync --frozen --package db-mcp-server");
     expect(dockerfile).toContain('CMD ["uv", "run", "db-mcp-server"]');
     expect(backend).toContain("name: db-mcp");
+    expect(docs).toContain("runtime containers only");
+    expect(docs).toContain("not mutate the shared agentgateway `/mcp` route");
   });
 });
