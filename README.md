@@ -117,6 +117,8 @@ gateway principal to a GitHub bearer token before forwarding to the upstream Git
 
 Downstream provider credentials can be connected by an external control plane, internal portal, or
 future built-in UI. See [docs/provider-connection-flows.md](docs/provider-connection-flows.md).
+Enterprise MCP client integration guidance is in
+[docs/client-integration-runbook.md](docs/client-integration-runbook.md).
 
 Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access internal through
 `kubectl port-forward` or a private overlay protected by corporate network controls and SSO.
