@@ -23,7 +23,7 @@ describe("GitHub MCP wrapper main config", () => {
         redirectUri: "",
         tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
       },
-      githubScopes: ["repo", "read:org", "workflow", "notifications"],
+      githubScopes: ["repo", "read:org", "workflow", "notifications", "user:email"],
       aliases: {},
       policy: undefined,
       audit: undefined,

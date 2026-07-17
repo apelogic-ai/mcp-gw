@@ -44,7 +44,7 @@ export interface AuditConfig {
   jsonlPath?: string;
 }
 
-const DEFAULT_GITHUB_SCOPES = ["repo", "read:org", "workflow", "notifications"];
+const DEFAULT_GITHUB_SCOPES = ["repo", "read:org", "workflow", "notifications", "user:email"];
 const DEFAULT_UPSTREAM_URL = "http://github-mcp:8082/mcp";
 
 export function loadMainConfig(env: Record<string, string | undefined>): MainConfig {

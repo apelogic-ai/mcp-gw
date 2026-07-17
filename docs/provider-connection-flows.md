@@ -74,8 +74,8 @@ Example response:
 {
   "connected": true,
   "email": "user@example.com",
-  "scopesRequired": ["repo", "read:org", "workflow", "notifications"],
-  "scopesGranted": ["repo", "read:org", "workflow", "notifications"],
+  "scopesRequired": ["repo", "read:org", "workflow", "notifications", "user:email"],
+  "scopesGranted": ["repo", "read:org", "workflow", "notifications", "user:email"],
   "missingScopes": []
 }
 ```
@@ -112,7 +112,7 @@ ENABLE_GITHUB_MCP=1
 GITHUB_OAUTH_CLIENT_ID=<github-oauth-client-id>
 GITHUB_OAUTH_CLIENT_SECRET=<github-oauth-client-secret>
 GITHUB_OAUTH_REDIRECT_URI=https://mcp-gw.example.com/oauth/github/callback
-GITHUB_OAUTH_SCOPES="repo read:org workflow notifications"
+GITHUB_OAUTH_SCOPES="repo read:org workflow notifications user:email"
 GITHUB_TOKEN_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 ```
 

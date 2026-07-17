@@ -147,7 +147,7 @@ githubWrapper:
   env:
     PORT: "8080"
     GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
-    GITHUB_OAUTH_SCOPES: repo read:org workflow notifications
+    GITHUB_OAUTH_SCOPES: repo read:org workflow notifications user:email
     GITHUB_TOOL_ALIASES_JSON: "{}"
     HOP1_PROFILE: google
     HOP1_EMAIL_CLAIM: email
