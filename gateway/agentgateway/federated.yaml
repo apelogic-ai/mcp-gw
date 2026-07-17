@@ -14,20 +14,22 @@ binds:
                 exposeHeaders: ["Mcp-Session-Id"]
             backends:
               - mcp:
+                  prefixMode: always
+                  failureMode: failOpen
                   targets:
-                    - name: google-workspace
+                    - name: google
                       policies:
                         backendAuth:
                           passthrough: {}
                       mcp:
                         host: http://google-workspace:8080/mcp
-                    - name: db-mcp
+                    - name: db
                       policies:
                         backendAuth:
                           passthrough: {}
                       mcp:
                         host: http://db-mcp:8080/mcp
-                    - name: github-mcp
+                    - name: github
                       policies:
                         backendAuth:
                           passthrough: {}

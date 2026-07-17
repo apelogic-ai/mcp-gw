@@ -18,8 +18,26 @@ describe("backend registry config generation", () => {
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
 
     expect(dbDescriptor).toContain("enabledByDefault: false");
-    expect(base).not.toContain("name: db-mcp");
-    expect(federated).toContain("name: db-mcp");
+    expect(base).not.toContain("name: db");
+    expect(federated).toContain("name: db");
+  });
+
+  test("renders agentgateway multiplex controls for stable tool prefixes and optional backend resilience", async () => {
+    const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
+    const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
+
+    expect(base).toContain("prefixMode: always");
+    expect(base).toContain("failureMode: failOpen");
+    expect(base).toContain("name: google");
+    expect(base).not.toContain("name: google-workspace");
+
+    expect(federated).toContain("prefixMode: always");
+    expect(federated).toContain("failureMode: failOpen");
+    expect(federated).toContain("name: google");
+    expect(federated).toContain("name: github");
+    expect(federated).toContain("name: db");
+    expect(federated).not.toContain("name: github-mcp");
+    expect(federated).not.toContain("name: db-mcp");
   });
 
   test("documents the public backend onboarding contract", async () => {

@@ -12,8 +12,9 @@ describe("GitHub MCP bundled backend", () => {
     expect(descriptor).toContain("host: http://github-wrapper:8080/mcp");
     expect(descriptor).toContain("toolPrefix: github");
     expect(descriptor).toContain("enabledByDefault: false");
-    expect(base).not.toContain("name: github-mcp");
-    expect(federated).toContain("name: github-mcp");
+    expect(base).not.toContain("name: github");
+    expect(federated).toContain("name: github");
+    expect(federated).not.toContain("name: github-mcp");
     expect(federated).toContain("host: http://github-wrapper:8080/mcp");
   });
 

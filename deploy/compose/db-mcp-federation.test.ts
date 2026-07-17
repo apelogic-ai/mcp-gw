@@ -7,10 +7,11 @@ describe("db-mcp federation backend", () => {
     const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
 
-    expect(base).toContain("name: google-workspace");
-    expect(base).not.toContain("name: db-mcp");
-    expect(federated).toContain("name: google-workspace");
-    expect(federated).toContain("name: db-mcp");
+    expect(base).toContain("name: google");
+    expect(base).not.toContain("name: db");
+    expect(federated).toContain("name: google");
+    expect(federated).toContain("name: db");
+    expect(federated).not.toContain("name: db-mcp");
     expect(federated).toContain("host: http://db-mcp:8080/mcp");
     expect(federated).toContain("mcp:");
     expect(federated).toContain("targets:");
