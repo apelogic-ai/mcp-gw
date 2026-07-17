@@ -1,5 +1,6 @@
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../shared/audit/audit";
+import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import {
   AllowAllPolicy,
   type PolicyActionClass,
@@ -79,6 +80,10 @@ const LOCAL_TOOLS = [
     },
   },
 ];
+const SERVER_INFO = {
+  name: "github-mcp-wrapper",
+  version: "0.1.0",
+};
 
 export function createGithubMcpProxyHandler(
   options: CreateGithubMcpProxyHandlerOptions,
@@ -102,6 +107,18 @@ export function createGithubMcpProxyHandler(
 
     const body = await request.text();
     const method = parseMethod(body);
+    if (method?.isNotification) {
+      return new Response(null, { status: 202 });
+    }
+    if (method?.method === "initialize") {
+      return mcpResult(method.id, {
+        protocolVersion: "2025-06-18",
+        capabilities: {
+          tools: {},
+        },
+        serverInfo: SERVER_INFO,
+      });
+    }
     if (method?.method === "tools/list") {
       return handleToolsList(request, body, identity, method.id, options, fetchImpl);
     }
@@ -127,7 +144,7 @@ export function createGithubMcpProxyHandler(
       }
     }
 
-    const githubToken = await options.resolveGithubToken(identity);
+    const githubToken = await resolveGithubTokenOrUndefined(options, identity);
     if (!githubToken) {
       return unauthorized("GitHub account is not connected");
     }
@@ -188,7 +205,7 @@ async function handleToolsList(
   options: CreateGithubMcpProxyHandlerOptions,
   fetchImpl: GithubMcpProxyFetch,
 ): Promise<Response> {
-  const githubToken = await options.resolveGithubToken(identity);
+  const githubToken = await resolveGithubTokenOrUndefined(options, identity);
   if (!githubToken) {
     return mcpResult(id, { tools: LOCAL_TOOLS });
   }
@@ -207,6 +224,20 @@ async function handleToolsList(
     statusText: upstreamResponse.statusText,
     headers: responseHeaders(upstreamResponse),
   });
+}
+
+async function resolveGithubTokenOrUndefined(
+  options: CreateGithubMcpProxyHandlerOptions,
+  identity: Hop1Identity,
+): Promise<string | undefined> {
+  try {
+    return await options.resolveGithubToken(identity);
+  } catch (error) {
+    if (error instanceof GitHubOAuthError && error.code === "reauth_required") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function handleLocalToolCall(
@@ -256,7 +287,9 @@ async function handleLocalToolCall(
   return undefined;
 }
 
-function parseMethod(body: string): { id: JsonRpcId; method: string } | undefined {
+function parseMethod(
+  body: string,
+): { id: JsonRpcId; method: string; isNotification: boolean } | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
@@ -271,6 +304,7 @@ function parseMethod(body: string): { id: JsonRpcId; method: string } | undefine
   return {
     id: jsonRpcId(payload.id),
     method: payload.method,
+    isNotification: !Object.prototype.hasOwnProperty.call(payload, "id"),
   };
 }
 

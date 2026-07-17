@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { InMemoryAuditSink } from "../../../../shared/audit/audit";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
+import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import type { ToolPolicy, ToolPolicyInput } from "../../../../shared/policy/policy";
 import { createGithubMcpProxyHandler } from "./proxy";
 
@@ -157,6 +158,124 @@ describe("GitHub MCP proxy wrapper", () => {
         ],
       },
     });
+    expect(fetched).toBe(false);
+  });
+
+  test("advertises GitHub OAuth helper tools when token broker requires reauth", async () => {
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () =>
+        Promise.reject(new GitHubOAuthError("GitHub account must be connected", "reauth_required")),
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 14, method: "tools/list" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 14,
+      result: {
+        tools: [
+          expect.objectContaining({ name: "github_oauth_status" }),
+          expect.objectContaining({ name: "github_oauth_start" }),
+        ],
+      },
+    });
+    expect(fetched).toBe(false);
+  });
+
+  test("handles MCP initialize before GitHub is connected", async () => {
+    let resolvedToken = false;
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => {
+        resolvedToken = true;
+        return Promise.resolve(undefined);
+      },
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 21, method: "initialize" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 21,
+      result: {
+        protocolVersion: "2025-06-18",
+        capabilities: {
+          tools: {},
+        },
+        serverInfo: {
+          name: "github-mcp-wrapper",
+          version: "0.1.0",
+        },
+      },
+    });
+    expect(resolvedToken).toBe(false);
+    expect(fetched).toBe(false);
+  });
+
+  test("accepts MCP notifications before GitHub is connected", async () => {
+    let resolvedToken = false;
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => {
+        resolvedToken = true;
+        return Promise.resolve(undefined);
+      },
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.text()).toBe("");
+    expect(resolvedToken).toBe(false);
     expect(fetched).toBe(false);
   });
 

@@ -27,6 +27,8 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("mcp-session-id");
     expect(smoke).toContain("tools/list");
     expect(smoke).toContain("google_drive_files_list");
+    expect(smoke).toContain("LOCAL_INCLUDE_GITHUB");
+    expect(smoke).toContain("github_oauth_start");
   });
 
   test("mounts an authenticated local agentgateway config for the smoke path", async () => {
@@ -48,5 +50,28 @@ describe("local Docker integration smoke", () => {
     expect(config).not.toContain("name: google-workspace");
     expect(config).toContain("issuer: http://host.docker.internal:18080");
     expect(config).toContain("host: http://google-workspace:8080/mcp");
+  });
+
+  test("can opt into a local GitHub MCP backend smoke", async () => {
+    const smoke = await readFile("scripts/smoke-local-integration.sh", "utf8");
+    const override = await readFile(
+      "deploy/compose/docker-compose.local-github-smoke.yaml",
+      "utf8",
+    );
+    const config = await readFile("gateway/agentgateway/local-github-smoke.yaml", "utf8");
+
+    expect(smoke).toContain("LOCAL_GITHUB_COMPOSE_FILE");
+    expect(smoke).toContain("docker-compose.github-mcp.yaml");
+    expect(smoke).toContain("github-wrapper");
+    expect(smoke).toContain("github-mcp");
+    expect(smoke).toContain("GITHUB_TOKEN_ENCRYPTION_KEY");
+    expect(smoke).toContain("GITHUB_OAUTH_CLIENT_ID=local-github-client");
+    expect(override).toContain("gateway/agentgateway/local-github-smoke.yaml");
+    expect(override).toContain("host.docker.internal:host-gateway");
+    expect(config).toContain("name: google");
+    expect(config).toContain("name: github");
+    expect(config).toContain("host: http://github-wrapper:8080/mcp");
+    expect(config).toContain("mcpAuthentication:");
+    expect(config).toContain("failureMode: failOpen");
   });
 });
