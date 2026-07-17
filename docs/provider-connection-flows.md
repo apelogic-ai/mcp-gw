@@ -146,6 +146,11 @@ For each connected provider, the control plane must use the same stable HOP-1 id
 Use an immutable subject claim where possible. Emails are useful display attributes, but they can be
 renamed, reassigned, or represented differently across issuers.
 
+Provider account metadata can also differ from the HOP-1 identity. For example, a user's GitHub
+primary verified email may not match their enterprise email. MCP-GW stores the provider credential
+under the authenticated HOP-1 issuer and subject, and records the provider email only as account
+metadata.
+
 ## Client Support Matrix
 
 Clients that support MCP OAuth protected-resource discovery can authenticate directly to MCP-GW for

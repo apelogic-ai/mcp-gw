@@ -130,10 +130,6 @@ export async function completeGithubOAuth(
   const token = await exchangeCode(options, fetchImpl);
   const email = await fetchPrimaryVerifiedEmail(options.config, token.accessToken, fetchImpl);
 
-  if (email !== identity.email || email !== stateRecord.email) {
-    throw new GitHubOAuthError("Connected GitHub account email does not match", "email_mismatch");
-  }
-
   const now = new Date();
   await options.tokenStore.saveAccount({
     provider: "github",
