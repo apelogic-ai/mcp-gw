@@ -73,6 +73,9 @@ official upstream tool name before policy and forwarding.
 
 ## GitHub OAuth
 
+For the generic external control-plane contract, see
+[../../docs/provider-connection-flows.md](../../docs/provider-connection-flows.md).
+
 The wrapper exposes provider connection routes:
 
 ```text

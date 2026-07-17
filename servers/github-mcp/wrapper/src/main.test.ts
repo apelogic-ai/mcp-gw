@@ -66,7 +66,7 @@ describe("GitHub MCP wrapper main config", () => {
       ...baseEnv,
       HOP1_ISSUERS_JSON: JSON.stringify([
         {
-          name: "burble",
+          name: "portal",
           issuer: "https://issuer.example.com",
           jwksUrl: "https://issuer.example.com/jwks.json",
           audiences: ["https://mcp.example.com/mcp"],
@@ -78,7 +78,7 @@ describe("GitHub MCP wrapper main config", () => {
 
     expect(config.hop1Issuers).toEqual([
       {
-        name: "burble",
+        name: "portal",
         issuer: "https://issuer.example.com",
         jwksUrl: "https://issuer.example.com/jwks.json",
         audiences: ["https://mcp.example.com/mcp"],

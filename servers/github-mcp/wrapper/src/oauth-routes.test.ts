@@ -10,7 +10,7 @@ import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
 
 const identity: Hop1Identity = {
-  profile: "burble",
+  profile: "portal",
   issuer: "https://issuer.example.com",
   subject: "user-1",
   email: "user@example.com",
