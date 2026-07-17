@@ -22,16 +22,16 @@ describe("backend registry config generation", () => {
     expect(federated).toContain("name: db");
   });
 
-  test("renders agentgateway multiplex controls for stable tool prefixes and optional backend resilience", async () => {
+  test("renders agentgateway multiplex controls for optional backend resilience", async () => {
     const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
 
-    expect(base).toContain("prefixMode: always");
+    expect(base).not.toContain("prefixMode: always");
     expect(base).toContain("failureMode: failOpen");
     expect(base).toContain("name: google");
     expect(base).not.toContain("name: google-workspace");
 
-    expect(federated).toContain("prefixMode: always");
+    expect(federated).not.toContain("prefixMode: always");
     expect(federated).toContain("failureMode: failOpen");
     expect(federated).toContain("name: google");
     expect(federated).toContain("name: github");

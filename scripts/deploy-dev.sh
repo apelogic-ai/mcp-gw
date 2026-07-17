@@ -141,7 +141,6 @@ binds:
                   bearerMethodsSupported: [header]
             backends:
               - mcp:
-                  prefixMode: always
                   failureMode: failOpen
                   targets:
                     - name: google

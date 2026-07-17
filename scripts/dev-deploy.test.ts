@@ -76,7 +76,7 @@ describe("DEV deploy wrapper", () => {
     expect(gatewayTemplate).toContain("discoverable:");
     expect(gatewayTemplate).toContain("issuer: {{ provider.issuer }}");
     expect(gatewayTemplate).toContain("url: {{ provider.jwksUrl }}");
-    expect(gatewayTemplate).toContain("prefixMode: always");
+    expect(gatewayTemplate).not.toContain("prefixMode: always");
     expect(gatewayTemplate).toContain("failureMode: failOpen");
     expect(gatewayTemplate).toContain("name: google");
     expect(gatewayTemplate).not.toContain("name: google-workspace");

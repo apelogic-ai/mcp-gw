@@ -69,7 +69,6 @@ export function renderAgentgatewayConfig(
                 exposeHeaders: ["Mcp-Session-Id"]
             backends:
               - mcp:
-                  prefixMode: always
                   failureMode: failOpen
                   targets:
 ${renderAgentgatewayTargets(descriptors, options)}
