@@ -30,7 +30,10 @@ bun run backends:check
 ```
 
 `gateway/agentgateway/base.yaml` includes only default-enabled backends.
-`gateway/agentgateway/federated.yaml` includes optional backends as well.
+`gateway/agentgateway/federated.yaml` includes optional backends as well, but it
+is not used by the default DEV Compose deployment. Do not mount the federated
+config into the shared `/mcp` route unless every listed backend is deployed and
+the target fan-out behavior has been tested for that environment.
 
 ## Docker Compose
 
@@ -50,8 +53,10 @@ docker compose \
   --profile github-mcp up
 ```
 
-Use the generated federated agentgateway config when optional backends should be
-reachable.
+These optional Compose overlays start backend runtime containers only. They do
+not mutate the shared agentgateway `/mcp` route. Expose optional backends through
+a gateway router, a dedicated MCP route, or an explicitly tested environment
+overlay.
 
 ## Kubernetes
 

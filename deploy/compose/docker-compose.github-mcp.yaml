@@ -1,12 +1,4 @@
 services:
-  agentgateway:
-    volumes:
-      - ../../gateway/agentgateway/federated.yaml:/etc/agentgateway/config.yaml:ro
-    depends_on:
-      - google-workspace
-      - github-wrapper
-      - github-mcp
-
   github-wrapper:
     profiles: ["github-mcp"]
     build:

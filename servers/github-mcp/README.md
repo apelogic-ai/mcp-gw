@@ -4,9 +4,10 @@ This bundled backend runs the official GitHub MCP server:
 
 `ghcr.io/github/github-mcp-server:v1.6.0`
 
-The server is optional and is wired into the generated federated agentgateway
+The server is optional and is described in the generated federated agentgateway
 config as `github-mcp`. It is not included in the base Google Workspace-only
-config.
+config, and the DEV Compose overlay intentionally does not attach it to the
+shared `/mcp` route.
 
 Agentgateway does not call the official server directly. It routes to the
 `github-wrapper` service, which validates HOP-1 identity, resolves the user's
@@ -15,7 +16,7 @@ server with a GitHub bearer token.
 
 ## Docker Compose
 
-Run it with the federated Compose overlay:
+Run the GitHub wrapper and official upstream server with the Compose overlay:
 
 ```bash
 docker compose \
@@ -43,6 +44,11 @@ The wrapper container runs:
 ```bash
 bun run servers/github-mcp/wrapper/src/main.ts
 ```
+
+This overlay is runtime-only. It starts `github-wrapper` and `github-mcp`, but
+does not replace the agentgateway config or advertise GitHub tools on the shared
+`/mcp` endpoint. Attach GitHub through a gateway router, a dedicated MCP route,
+or an explicitly tested deployment overlay.
 
 Required wrapper environment:
 
