@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../identity/hop1";
 import { InMemoryOAuthStateStore, InMemoryOAuthTokenStore } from "./memory-store";
-import { GitHubOAuthError, GitHubTokenBroker, completeGithubOAuth, startGithubOAuth } from "./github";
+import {
+  GitHubOAuthError,
+  GitHubTokenBroker,
+  completeGithubOAuth,
+  startGithubOAuth,
+} from "./github";
 
 const identity: Hop1Identity = {
   profile: "test",

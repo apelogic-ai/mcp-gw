@@ -1,3 +1,134 @@
+{{- if .Values.githubWrapper.enabled }}
+{{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "github-wrapper" "values" .Values.githubWrapper) }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  secretStoreRef:
+    name: {{ .Values.githubWrapper.secretRef.externalStore }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ .Values.githubWrapper.secretRef.name }}
+  dataFrom:
+    - extract:
+        key: {{ .Values.githubWrapper.secretRef.remoteKey }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: github-wrapper
+spec:
+  replicas: {{ .Values.githubWrapper.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.githubWrapper.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "github-wrapper" "values" .Values.githubWrapper) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.githubWrapper.podSecurityContext | nindent 8 }}
+      containers:
+        - name: github-wrapper
+          image: {{ .Values.githubWrapper.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.githubWrapper.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.githubWrapper.port }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.githubWrapper.secretRef.name }}
+          env:
+            {{- range $name, $value := .Values.githubWrapper.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- with .Values.githubWrapper.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: github-wrapper
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.githubWrapper.port }}
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  minReplicas: {{ .Values.githubWrapper.hpa.minReplicas }}
+  maxReplicas: {{ .Values.githubWrapper.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.githubWrapper.hpa.targetCPUUtilizationPercentage }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agentgateway
+      ports:
+        - protocol: TCP
+          port: {{ .Values.githubWrapper.port }}
+---
+{{- end }}
 {{- if .Values.githubMcp.enabled }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "github-mcp" "values" .Values.githubMcp) }}
 apiVersion: apps/v1
@@ -113,7 +244,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: agentgateway
+              app.kubernetes.io/component: github-wrapper
       ports:
         - protocol: TCP
           port: {{ .Values.githubMcp.port }}

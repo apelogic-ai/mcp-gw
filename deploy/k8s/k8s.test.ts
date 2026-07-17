@@ -42,21 +42,26 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("host: http://enterprise-search.search.svc.cluster.local:8080/mcp");
   });
 
-  test("renders optional official GitHub MCP workload and gateway target", () => {
+  test("renders optional GitHub wrapper and internal official MCP workload", () => {
     const rendered = helmTemplate([
       "--values",
       "deploy/k8s/examples/values-github-mcp.example.yaml",
     ]);
 
+    expect(rendered).toContain("name: mcp-gateway-github-wrapper");
+    expect(rendered).toContain("image: mcp-gateway/github-wrapper:dev");
+    expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
+    expect(rendered).toContain("github-wrapper-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
     expect(rendered).toContain("image: ghcr.io/github/github-mcp-server:v1.6.0");
     expect(rendered).toContain("name: github-mcp");
-    expect(rendered).toContain("host: http://mcp-gateway-github-mcp:8082/mcp");
+    expect(rendered).toContain("host: http://mcp-gateway-github-wrapper:8080/mcp");
     expect(rendered).toContain("GITHUB_TOOLSETS");
     expect(rendered).not.toContain("GITHUB_PERSONAL_ACCESS_TOKEN");
     expect(rendered).toContain(
       'value: "default,actions,code_security,discussions,notifications,orgs,projects"',
     );
+    expect(rendered).toContain("app.kubernetes.io/component: github-wrapper");
   });
 
   test("does not expose the agentgateway admin UI by default", async () => {
@@ -155,6 +160,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "clustersecretstore-aws.yaml",
     "flux-helmrelease.yaml",
     "values-extra-backend.example.yaml",
+    "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
     "values-private-overlay.example.yaml",
   ];
