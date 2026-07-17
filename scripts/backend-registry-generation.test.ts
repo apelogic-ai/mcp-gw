@@ -46,6 +46,8 @@ describe("backend registry config generation", () => {
     expect(guide).toContain("servers/<backend>/backend.yaml");
     expect(guide).toContain("bun scripts/generate-agentgateway-config.ts");
     expect(guide).toContain("agentgateway.backends");
+    expect(guide).toContain("failureMode: failOpen");
+    expect(guide).toContain("Agentgateway prefixes tools when more than one MCP target is active");
     expect(guide).toContain("Do not commit runtime secrets");
   });
 });

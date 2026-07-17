@@ -132,6 +132,22 @@ Example generic call payload:
 
 The generic tool rejects unsupported/excluded Google Workspace scopes before token lookup.
 
+## Multi-Backend Routing
+
+MCP-GW uses agentgateway as the MCP front door. Agentgateway can multiplex more than one MCP
+backend behind the same `/mcp` endpoint, and deployment templates render those targets from the
+backend registry or Helm `agentgateway.backends` values.
+
+Single-backend deployments leave upstream tool names unchanged. For example, the default Google-only
+route exposes `google_drive_files_list`, not a gateway-prefixed variant. Multi-backend deployments
+may receive target prefixes from agentgateway to avoid collisions across providers. Validate the
+visible tool catalog and reconnect clients that cache tool permissions after changing the active
+backend set.
+
+Generated configs use `failureMode: failOpen` so one unavailable optional backend does not make
+every MCP initialization fail. It is still an operator error to advertise a backend whose runtime,
+credentials, or DNS are not deployed.
+
 ## Troubleshooting
 
 OAuth registration fails:
