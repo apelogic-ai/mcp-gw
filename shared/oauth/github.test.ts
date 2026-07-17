@@ -72,22 +72,26 @@ describe("GitHub OAuth flow", () => {
       config,
       stateStore,
       tokenStore,
-      fetch: async (url, init) => {
+      fetch: (url, init) => {
         seenRequests.push({ url, init });
         if (url === config.tokenUrl) {
-          return Response.json({
-            access_token: "github-user-token",
-            scope: "repo,read:org",
-          });
+          return Promise.resolve(
+            Response.json({
+              access_token: "github-user-token",
+              scope: "repo,read:org",
+            }),
+          );
         }
 
-        return Response.json([
-          {
-            email: "user@example.com",
-            primary: true,
-            verified: true,
-          },
-        ]);
+        return Promise.resolve(
+          Response.json([
+            {
+              email: "user@example.com",
+              primary: true,
+              verified: true,
+            },
+          ]),
+        );
       },
     });
 
@@ -118,24 +122,35 @@ describe("GitHub OAuth flow", () => {
       stateStore,
     });
 
-    await expect(
-      completeGithubOAuth({
+    let error: unknown;
+    try {
+      await completeGithubOAuth({
         identity,
         code: "oauth-code",
         state: started.state,
         config,
         stateStore,
         tokenStore,
-        fetch: async (url) => {
+        fetch: (url) => {
           if (url === config.tokenUrl) {
-            return Response.json({ access_token: "github-user-token", scope: "repo" });
+            return Promise.resolve(
+              Response.json({ access_token: "github-user-token", scope: "repo" }),
+            );
           }
 
-          return Response.json([{ email: "other@example.com", primary: true, verified: true }]);
+          return Promise.resolve(
+            Response.json([{ email: "other@example.com", primary: true, verified: true }]),
+          );
         },
-      }),
-    ).rejects.toThrow(
-      new GitHubOAuthError("Connected GitHub account email does not match", "email_mismatch"),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(GitHubOAuthError);
+    expect((error as GitHubOAuthError).code).toBe("email_mismatch");
+    expect((error as GitHubOAuthError).message).toBe(
+      "Connected GitHub account email does not match",
     );
   });
 });
@@ -157,23 +172,32 @@ describe("GitHub token broker", () => {
       config,
       stateStore,
       tokenStore,
-      fetch: async (url) =>
-        url === config.tokenUrl
-          ? Response.json({ access_token: "github-user-token", scope: "repo" })
-          : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({ access_token: "github-user-token", scope: "repo" })
+            : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+        ),
     });
 
     const broker = new GitHubTokenBroker({ config, tokenStore });
 
-    await expect(broker.getAccessToken(identity, ["repo"])).resolves.toBe("github-user-token");
+    expect(await broker.getAccessToken(identity, ["repo"])).toBe("github-user-token");
   });
 
   test("requires reauth when the stored token is missing requested scopes", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const broker = new GitHubTokenBroker({ config, tokenStore });
 
-    await expect(broker.getAccessToken(identity, ["repo"])).rejects.toThrow(
-      new GitHubOAuthError("GitHub account must be connected", "reauth_required"),
-    );
+    let error: unknown;
+    try {
+      await broker.getAccessToken(identity, ["repo"]);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(GitHubOAuthError);
+    expect((error as GitHubOAuthError).code).toBe("reauth_required");
+    expect((error as GitHubOAuthError).message).toBe("GitHub account must be connected");
   });
 });

@@ -24,6 +24,9 @@ describe("GitHub MCP wrapper main config", () => {
         tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
       },
       githubScopes: ["repo", "read:org", "workflow", "notifications"],
+      aliases: {},
+      policy: undefined,
+      audit: undefined,
       hop1Issuers: [
         {
           name: "google",
@@ -34,6 +37,27 @@ describe("GitHub MCP wrapper main config", () => {
           subjectClaim: undefined,
         },
       ],
+    });
+  });
+
+  test("loads optional policy, audit, and alias settings", () => {
+    const config = loadMainConfig({
+      ...baseEnv,
+      GITHUB_POLICY_FILE: "/etc/mcp-gw/github-policy.yaml",
+      OPA_POLICY_URL: "http://opa:8181/v1/data/mcp/allow",
+      AUDIT_LOG_PATH: "/var/log/mcp-gw/audit.jsonl",
+      GITHUB_TOOL_ALIASES_JSON: JSON.stringify({
+        github_issues_create: "github_create_issue",
+      }),
+    });
+
+    expect(config.policy).toEqual({
+      yamlFile: "/etc/mcp-gw/github-policy.yaml",
+      opaUrl: "http://opa:8181/v1/data/mcp/allow",
+    });
+    expect(config.audit).toEqual({ jsonlPath: "/var/log/mcp-gw/audit.jsonl" });
+    expect(config.aliases).toEqual({
+      github_issues_create: "github_create_issue",
     });
   });
 
