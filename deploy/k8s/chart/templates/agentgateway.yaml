@@ -15,6 +15,7 @@ data:
         protocol: HTTP
     backends:
       mcp:
+        failureMode: failOpen
         targets:
 {{- range .Values.agentgateway.backends }}
 {{- if .enabled }}
