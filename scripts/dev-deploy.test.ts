@@ -39,7 +39,7 @@ describe("DEV deploy wrapper", () => {
     expect(deploy).toContain("AGENTGATEWAY_IMAGE");
     expect(deploy).toContain("ENABLE_GITHUB_MCP");
     expect(deploy).toContain("docker-compose.github-mcp.yaml");
-    expect(deploy).toContain('name: github');
+    expect(deploy).toContain("name: github");
     expect(deploy).toContain("host: http://github-wrapper:8080/mcp");
     expect(deploy).not.toContain("GitHub MCP is deployed as a runtime-only DEV service");
     expect(deploy).not.toContain("host: http://db-mcp:8080/mcp");
