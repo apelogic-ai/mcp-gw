@@ -93,8 +93,8 @@ Deployment templates are provided for:
 
 The checked-in deployment defaults pin the ApeLogic `agentgateway` fork image
 `ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1`. That fork includes the MCP
-multi-provider authentication support required for Claude, Burble, and other HOP-1 clients behind
-one `/mcp` endpoint. Do not replace it with upstream `ghcr.io/agentgateway/agentgateway:v1.1.0`
+multi-provider authentication support required for Claude and other HOP-1 clients behind one `/mcp`
+endpoint. Do not replace it with upstream `ghcr.io/agentgateway/agentgateway:v1.1.0`
 unless upstream has accepted equivalent MCP authentication behavior. Production overlays should
 mirror or rebuild the pinned fork version into a private registry and pin by digest.
 
@@ -114,6 +114,9 @@ The optional GitHub MCP bundle uses the official
 backend, but production HOP-1 flows still need a credential bridge that maps the authenticated
 gateway principal to a GitHub bearer token before forwarding to the upstream GitHub server. See
 [servers/github-mcp/README.md](servers/github-mcp/README.md).
+
+Downstream provider credentials can be connected by an external control plane, internal portal, or
+future built-in UI. See [docs/provider-connection-flows.md](docs/provider-connection-flows.md).
 
 Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access internal through
 `kubectl port-forward` or a private overlay protected by corporate network controls and SSO.

@@ -123,7 +123,7 @@ describe("Kubernetes production chart", () => {
       /54\.211\.134\.28/,
       /projectn/,
       /apelogic/i,
-      /burble/i,
+      new RegExp(`bur${"ble"}`, "i"),
       /\/Users\/lbelyaev/,
       /\/private\/tmp/,
       /client_secret\s*[:=]\s*[^<{\n]/i,

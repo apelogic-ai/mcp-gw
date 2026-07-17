@@ -88,6 +88,9 @@ openssl rand -base64 32
 Multiple HOP-1 issuers can be configured with `HOP1_ISSUERS_JSON`; see
 `deploy/compose/.env.example`.
 
+Provider credentials for optional backends can be connected by an external control plane or internal
+portal. See [provider-connection-flows.md](provider-connection-flows.md).
+
 ## Client Connector Setup
 
 1. Create or edit a remote MCP connector in the client.
