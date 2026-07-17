@@ -47,7 +47,7 @@ fi
 
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.1.0}
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1}
 HOP1_PROFILE=local
 HOP1_ISSUER=$ISSUER
 HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json

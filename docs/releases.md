@@ -33,9 +33,9 @@ overlays. Public image publishing and signing can be added once the registry, pr
 model are decided.
 
 The deployment templates also pin the required `agentgateway` fork version. For the `v0.1.x`
-release line, use `ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1` or an internally rebuilt
-image from the same fork revision. The upstream `ghcr.io/agentgateway/agentgateway:v1.1.0` image
-does not contain the MCP multi-provider authentication support this gateway expects.
+release line, use `ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1` or an internally
+rebuilt image from the same fork revision. Older upstream images do not contain the MCP
+multi-provider authentication and `prefixMode: never` behavior this gateway expects.
 
 ## Cutting A Release
 
