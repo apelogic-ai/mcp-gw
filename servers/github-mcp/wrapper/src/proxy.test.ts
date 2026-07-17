@@ -75,7 +75,11 @@ describe("GitHub MCP proxy wrapper", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("mcp-session-id")).toBe("session-1");
-    expect(await response.json()).toEqual({ jsonrpc: "2.0", id: 1, result: { tools: [] } });
+    const responseBody = (await response.json()) as { result: { tools: { name: string }[] } };
+    expect(responseBody.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "github_oauth_status",
+      "github_oauth_start",
+    ]);
     expect(seenRequests).toHaveLength(1);
 
     const upstreamRequest = seenRequests[0];
@@ -116,6 +120,133 @@ describe("GitHub MCP proxy wrapper", () => {
         message: "Unauthorized: GitHub account is not connected",
       },
     });
+  });
+
+  test("advertises GitHub OAuth helper tools before GitHub is connected", async () => {
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 11, method: "tools/list" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 11,
+      result: {
+        tools: [
+          expect.objectContaining({ name: "github_oauth_status" }),
+          expect.objectContaining({ name: "github_oauth_start" }),
+        ],
+      },
+    });
+    expect(fetched).toBe(false);
+  });
+
+  test("prepends GitHub OAuth helper tools to connected upstream tool lists", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("gho_user_token"),
+      fetch: () =>
+        Promise.resolve(
+          Response.json({
+            jsonrpc: "2.0",
+            id: 12,
+            result: {
+              tools: [{ name: "github_list_pull_requests", inputSchema: { type: "object" } }],
+            },
+          }),
+        ),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 12, method: "tools/list" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "github_oauth_status",
+      "github_oauth_start",
+      "github_list_pull_requests",
+    ]);
+  });
+
+  test("handles GitHub OAuth helper tool calls without resolving GitHub credentials", async () => {
+    let resolvedToken = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => {
+        resolvedToken = true;
+        return Promise.resolve(undefined);
+      },
+      startOAuth: (requestIdentity, redirectAfter) => {
+        expect(requestIdentity).toBe(identity);
+        expect(redirectAfter).toBe("https://app.example.com/after");
+        return Promise.resolve({ authorizationUrl: "https://github.com/login/oauth/authorize" });
+      },
+      fetch: () => Promise.reject(new Error("should not fetch upstream")),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 13,
+          method: "tools/call",
+          params: {
+            name: "github_oauth_start",
+            arguments: { redirectAfter: "https://app.example.com/after" },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 13,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ authorizationUrl: "https://github.com/login/oauth/authorize" }),
+          },
+        ],
+      },
+    });
+    expect(resolvedToken).toBe(false);
   });
 
   test("preserves upstream MCP error responses", async () => {
