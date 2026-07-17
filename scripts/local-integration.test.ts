@@ -41,6 +41,10 @@ describe("local Docker integration smoke", () => {
     expect(config).toContain("mcpAuthentication:");
     expect(config).toContain("backendAuth:");
     expect(config).toContain("passthrough: {}");
+    expect(config).toContain("failureMode: failOpen");
+    expect(config).not.toContain("prefixMode: always");
+    expect(config).toContain("name: google");
+    expect(config).not.toContain("name: google-workspace");
     expect(config).toContain("issuer: http://host.docker.internal:18080");
     expect(config).toContain("host: http://google-workspace:8080/mcp");
   });

@@ -103,6 +103,12 @@ for _ in {1..60}; do
       --data "$TOOLS_PAYLOAD" || true
   )"
 
+  if [[ "$http_code" == "200" ]] && grep -q "google_google_" "$RESPONSE_FILE"; then
+    echo "Local integration smoke failed: Google-only route unexpectedly double-prefixed tools." >&2
+    cat "$RESPONSE_FILE" >&2 || true
+    exit 1
+  fi
+
   if [[ "$http_code" == "200" ]] && grep -q "google_drive_files_list" "$RESPONSE_FILE"; then
     echo "Local integration smoke passed: tools/list reached Google Workspace through agentgateway."
     exit 0
