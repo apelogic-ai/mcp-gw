@@ -99,6 +99,38 @@ describe("SQL OAuth token store", () => {
     });
   });
 
+  test("selects provider-specific OAuth account records", async () => {
+    const client = new RecordingSqlClient([
+      {
+        provider: "github",
+        hop1_issuer: "https://issuer.example.com",
+        hop1_subject: "subject",
+        email: "user@example.com",
+        scopes_granted: ["repo"],
+        encrypted_refresh_token: "encrypted-github-token",
+        created_at: new Date("2026-07-03T00:00:00.000Z"),
+        updated_at: new Date("2026-07-03T00:00:01.000Z"),
+        revoked_at: null,
+      },
+    ]);
+    const store = new SqlOAuthTokenStore(client);
+
+    const selected = await store.getAccount("https://issuer.example.com", "subject", "github");
+
+    expect(client.calls[0]?.params).toEqual(["github", "https://issuer.example.com", "subject"]);
+    expect(selected).toEqual({
+      provider: "github",
+      hop1Issuer: "https://issuer.example.com",
+      hop1Subject: "subject",
+      email: "user@example.com",
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: "encrypted-github-token",
+      createdAt: new Date("2026-07-03T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-03T00:00:01.000Z"),
+      revokedAt: undefined,
+    });
+  });
+
   test("marks accounts revoked", async () => {
     const client = new RecordingSqlClient();
     const store = new SqlOAuthTokenStore(client);
@@ -109,6 +141,7 @@ describe("SQL OAuth token store", () => {
     expect(client.calls[0]?.sql).toContain("UPDATE oauth_accounts");
     expect(client.calls[0]?.params).toEqual([
       revokedAt,
+      "google",
       "https://accounts.google.com",
       "google-subject",
     ]);

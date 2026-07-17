@@ -20,8 +20,8 @@ agentgateway:
       path: /mcp
     - name: github-mcp
       enabled: false
-      serviceName: github-mcp
-      port: 8082
+      serviceName: github-wrapper
+      port: 8080
       path: /mcp
   serviceAccount:
     create: true
@@ -120,6 +120,42 @@ dbMcp:
     name: db-mcp-runtime
     externalStore: aws-secrets-manager
     remoteKey: mcp-gateway/db-mcp
+
+githubWrapper:
+  enabled: false
+  image: mcp-gateway/github-wrapper:dev
+  replicas: 2
+  port: 8080
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
+  hpa:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  env:
+    PORT: "8080"
+    GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
+    GITHUB_OAUTH_SCOPES: repo read:org workflow notifications
+    GITHUB_TOOL_ALIASES_JSON: "{}"
+    HOP1_PROFILE: google
+    HOP1_EMAIL_CLAIM: email
+    HOP1_SUBJECT_CLAIM: sub
+  secretRef:
+    name: github-wrapper-runtime
+    externalStore: aws-secrets-manager
+    remoteKey: mcp-gateway/github-wrapper
 
 githubMcp:
   enabled: false

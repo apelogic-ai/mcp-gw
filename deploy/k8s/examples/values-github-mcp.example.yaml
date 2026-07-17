@@ -18,9 +18,15 @@ agentgateway:
       path: /mcp
     - name: github-mcp
       enabled: true
-      serviceName: github-mcp
-      port: 8082
+      serviceName: github-wrapper
+      port: 8080
       path: /mcp
+
+githubWrapper:
+  enabled: true
+  env:
+    GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
+    GITHUB_OAUTH_SCOPES: repo read:org workflow notifications
 
 githubMcp:
   enabled: true

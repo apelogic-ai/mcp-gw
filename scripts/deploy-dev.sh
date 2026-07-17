@@ -72,6 +72,16 @@ set -a
 set +a
 dev_host="\${GOOGLE_OAUTH_REDIRECT_URI#https://}"
 dev_host="\${dev_host%%/*}"
+compose_args=(
+  -f "\$APP_DIR/deploy/compose/docker-compose.yaml"
+  -f "\$APP_DIR/deploy/compose/docker-compose.dev.yaml"
+)
+compose_profiles=()
+
+if [[ "\${ENABLE_GITHUB_MCP:-0}" == "1" ]]; then
+  compose_args+=(-f "\$APP_DIR/deploy/compose/docker-compose.github-mcp.yaml")
+  compose_profiles+=(--profile github-mcp)
+fi
 
 if [[ "\${AGENTGATEWAY_IMAGE:-}" == *.dkr.ecr.*.amazonaws.com/* ]]; then
   ecr_registry="\${AGENTGATEWAY_IMAGE%%/*}"
@@ -140,6 +150,17 @@ binds:
                         host: http://google-workspace:8080/mcp
 YAML
 
+if [[ "\${ENABLE_GITHUB_MCP:-0}" == "1" ]]; then
+cat >> "\$APP_DIR.next/deploy/compose/.agentgateway-dev.yaml" <<YAML
+                    - name: github-mcp
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://github-wrapper:8080/mcp
+YAML
+fi
+
 cat > "\$APP_DIR.next/deploy/compose/.Caddyfile-dev" <<CADDY
 \$dev_host {
   encode zstd gzip
@@ -185,6 +206,10 @@ cat > "\$APP_DIR.next/deploy/compose/.Caddyfile-dev" <<CADDY
     reverse_proxy google-workspace:8080
   }
 
+  handle /oauth/github/* {
+    reverse_proxy github-wrapper:8080
+  }
+
   respond 404
 }
 CADDY
@@ -202,16 +227,16 @@ fi
 mv "\$APP_DIR.next" "\$APP_DIR"
 
 docker compose --env-file "\$APP_DIR/deploy/compose/.env" \\
-  -f "\$APP_DIR/deploy/compose/docker-compose.yaml" \\
-  -f "\$APP_DIR/deploy/compose/docker-compose.dev.yaml" config >/dev/null
+  "\${compose_args[@]}" \\
+  "\${compose_profiles[@]}" config >/dev/null
 
 docker compose --env-file "\$APP_DIR/deploy/compose/.env" \\
-  -f "\$APP_DIR/deploy/compose/docker-compose.yaml" \\
-  -f "\$APP_DIR/deploy/compose/docker-compose.dev.yaml" up -d --build
+  "\${compose_args[@]}" \\
+  "\${compose_profiles[@]}" up -d --build
 
 docker compose --env-file "\$APP_DIR/deploy/compose/.env" \\
-  -f "\$APP_DIR/deploy/compose/docker-compose.yaml" \\
-  -f "\$APP_DIR/deploy/compose/docker-compose.dev.yaml" ps
+  "\${compose_args[@]}" \\
+  "\${compose_profiles[@]}" ps
 
 status="\$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:\${GATEWAY_PORT:-8080}/mcp" || true)"
 if [[ "\$status" == "000" ]]; then

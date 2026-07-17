@@ -1,3 +1,5 @@
+export type OAuthProvider = "google" | "github";
+
 export interface OAuthStateRecord {
   stateHash: string;
   hop1Issuer: string;
@@ -15,7 +17,7 @@ export interface OAuthStateStore {
 }
 
 export interface OAuthAccountRecord {
-  provider: "google";
+  provider: OAuthProvider;
   hop1Issuer: string;
   hop1Subject: string;
   email: string;
@@ -28,6 +30,15 @@ export interface OAuthAccountRecord {
 
 export interface OAuthTokenStore {
   saveAccount(record: OAuthAccountRecord): Promise<void>;
-  getAccount(hop1Issuer: string, hop1Subject: string): Promise<OAuthAccountRecord | null>;
-  markRevoked(hop1Issuer: string, hop1Subject: string, revokedAt: Date): Promise<void>;
+  getAccount(
+    hop1Issuer: string,
+    hop1Subject: string,
+    provider?: OAuthProvider,
+  ): Promise<OAuthAccountRecord | null>;
+  markRevoked(
+    hop1Issuer: string,
+    hop1Subject: string,
+    revokedAt: Date,
+    provider?: OAuthProvider,
+  ): Promise<void>;
 }

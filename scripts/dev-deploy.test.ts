@@ -37,6 +37,11 @@ describe("DEV deploy wrapper", () => {
     expect(deploy).toContain("aws ecr get-login-password");
     expect(deploy).toContain("docker login --username AWS --password-stdin");
     expect(deploy).toContain("AGENTGATEWAY_IMAGE");
+    expect(deploy).toContain("ENABLE_GITHUB_MCP");
+    expect(deploy).toContain("docker-compose.github-mcp.yaml");
+    expect(deploy).toContain("host: http://github-wrapper:8080/mcp");
+    expect(deploy).toContain("handle /oauth/github/*");
+    expect(deploy).toContain("reverse_proxy github-wrapper:8080");
     expect(session).toContain('AWS_PROFILE="${AWS_PROFILE:-default}"');
     expect(session).toContain('AWS_REGION="${AWS_REGION:-us-east-1}"');
     expect(session).toContain(

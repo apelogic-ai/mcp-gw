@@ -4,6 +4,36 @@ services:
       - ../../gateway/agentgateway/federated.yaml:/etc/agentgateway/config.yaml:ro
     depends_on:
       - google-workspace
+      - github-wrapper
+      - github-mcp
+
+  github-wrapper:
+    profiles: ["github-mcp"]
+    build:
+      context: ../..
+      dockerfile: servers/github-mcp/wrapper/Dockerfile
+    environment:
+      PORT: "8080"
+      GITHUB_MCP_UPSTREAM_URL: ${GITHUB_MCP_UPSTREAM_URL:-http://github-mcp:8082/mcp}
+      GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-}
+      GITHUB_OAUTH_SCOPES: ${GITHUB_OAUTH_SCOPES:-repo read:org workflow notifications}
+      GITHUB_TOOL_ALIASES_JSON: ${GITHUB_TOOL_ALIASES_JSON:-{}}
+      GITHUB_POLICY_FILE: ${GITHUB_POLICY_FILE:-}
+      OPA_POLICY_URL: ${OPA_POLICY_URL:-}
+      AUDIT_LOG_PATH: ${AUDIT_LOG_PATH:-}
+      HOP1_PROFILE: ${HOP1_PROFILE:-google}
+      HOP1_ISSUER: ${HOP1_ISSUER}
+      HOP1_JWKS_URL: ${HOP1_JWKS_URL}
+      HOP1_AUDIENCE: ${HOP1_AUDIENCE}
+      HOP1_EMAIL_CLAIM: ${HOP1_EMAIL_CLAIM:-email}
+      HOP1_SUBJECT_CLAIM: ${HOP1_SUBJECT_CLAIM:-sub}
+      HOP1_ISSUERS_JSON: ${HOP1_ISSUERS_JSON:-}
+      TOKEN_STORE_DSN: ${TOKEN_STORE_DSN:-postgres://mcp:mcp@token-store:5432/mcp}
+    depends_on:
+      - token-store
       - github-mcp
 
   github-mcp:

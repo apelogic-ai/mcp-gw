@@ -1,4 +1,4 @@
 name: github-mcp
-host: http://github-mcp:8082/mcp
+host: http://github-wrapper:8080/mcp
 toolPrefix: github
 enabledByDefault: false

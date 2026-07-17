@@ -3,24 +3,29 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 
 describe("GitHub MCP bundled backend", () => {
-  test("registers official GitHub MCP as an optional federated backend", async () => {
+  test("registers the GitHub wrapper as an optional federated backend", async () => {
     const descriptor = await readFile("servers/github-mcp/backend.yaml", "utf8");
     const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
 
     expect(descriptor).toContain("name: github-mcp");
-    expect(descriptor).toContain("host: http://github-mcp:8082/mcp");
+    expect(descriptor).toContain("host: http://github-wrapper:8080/mcp");
     expect(descriptor).toContain("toolPrefix: github");
     expect(descriptor).toContain("enabledByDefault: false");
     expect(base).not.toContain("name: github-mcp");
     expect(federated).toContain("name: github-mcp");
-    expect(federated).toContain("host: http://github-mcp:8082/mcp");
+    expect(federated).toContain("host: http://github-wrapper:8080/mcp");
   });
 
-  test("defines a Compose profile for the official GitHub MCP server", async () => {
+  test("defines a Compose profile for the GitHub wrapper and official upstream server", async () => {
     const override = await readFile("deploy/compose/docker-compose.github-mcp.yaml", "utf8");
     const readme = await readFile("servers/github-mcp/README.md", "utf8");
 
+    expect(override).toContain("github-wrapper:");
+    expect(override).toContain("dockerfile: servers/github-mcp/wrapper/Dockerfile");
+    expect(override).toContain("GITHUB_MCP_UPSTREAM_URL");
+    expect(override).toContain("GITHUB_TOKEN_ENCRYPTION_KEY");
+    expect(override).toContain("TOKEN_STORE_DSN");
     expect(override).toContain("github-mcp:");
     expect(override).toContain('profiles: ["github-mcp"]');
     expect(override).toContain(
@@ -34,6 +39,7 @@ describe("GitHub MCP bundled backend", () => {
     expect(override).toContain("GITHUB_TOOLSETS");
     expect(override).not.toContain("GITHUB_PERSONAL_ACCESS_TOKEN");
     expect(override).toContain("gateway/agentgateway/federated.yaml");
+    expect(override).toContain("github-wrapper");
     expect(readme).toContain("ghcr.io/github/github-mcp-server:v1.6.0");
     expect(readme).toContain("Authorization");
     expect(readme).toContain("Credential Boundary");
