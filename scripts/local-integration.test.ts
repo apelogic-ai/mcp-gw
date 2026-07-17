@@ -20,7 +20,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('ISSUER="http://host.docker.internal:$JWKS_PORT"');
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.2.0}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -42,7 +42,7 @@ describe("local Docker integration smoke", () => {
     expect(config).toContain("backendAuth:");
     expect(config).toContain("passthrough: {}");
     expect(config).toContain("failureMode: failOpen");
-    expect(config).toContain("prefixMode: never");
+    expect(config).not.toContain("prefixMode:");
     expect(config).not.toContain("prefixMode: always");
     expect(config).toContain("name: google");
     expect(config).not.toContain("name: google-workspace");
