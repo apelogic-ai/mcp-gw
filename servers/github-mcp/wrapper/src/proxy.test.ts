@@ -95,6 +95,69 @@ describe("GitHub MCP proxy wrapper", () => {
     );
   });
 
+  test("merges GitHub OAuth helper tools into upstream SSE tools/list responses", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("gho_user_token"),
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            [
+              "event: message",
+              `data: ${JSON.stringify({
+                jsonrpc: "2.0",
+                id: 2,
+                result: {
+                  tools: [
+                    {
+                      name: "actions_list",
+                      description: "List GitHub Actions resources.",
+                      inputSchema: { type: "object" },
+                    },
+                  ],
+                },
+              })}`,
+              "",
+            ].join("\n"),
+            {
+              status: 200,
+              headers: {
+                "content-type": "text/event-stream",
+              },
+            },
+          ),
+        ),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+          "mcp-protocol-version": "2025-06-18",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    const body = await response.text();
+    const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
+    expect(dataLine).toBeDefined();
+
+    const payload = JSON.parse(dataLine?.slice("data: ".length) ?? "{}") as {
+      result: { tools: { name: string }[] };
+    };
+    expect(payload.result.tools.map((tool) => tool.name)).toEqual([
+      "github_oauth_status",
+      "github_oauth_start",
+      "actions_list",
+    ]);
+  });
+
   test("surfaces missing GitHub credentials as an MCP unauthorized error", async () => {
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",

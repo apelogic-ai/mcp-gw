@@ -313,11 +313,51 @@ function mergeToolsList(body: string): string {
   try {
     payload = JSON.parse(body) as unknown;
   } catch {
-    return body;
+    return mergeSseToolsList(body) ?? body;
   }
 
+  return JSON.stringify(mergeToolPayload(payload) ?? payload);
+}
+
+function mergeSseToolsList(body: string): string | undefined {
+  let changed = false;
+  const lines: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) {
+      lines.push(line);
+      continue;
+    }
+
+    const data = line.slice("data:".length).trimStart();
+    if (!data || data === "[DONE]") {
+      lines.push(line);
+      continue;
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(data) as unknown;
+    } catch {
+      lines.push(line);
+      continue;
+    }
+
+    const merged = mergeToolPayload(payload);
+    if (!merged) {
+      lines.push(line);
+      continue;
+    }
+
+    changed = true;
+    lines.push(`data: ${JSON.stringify(merged)}`);
+  }
+
+  return changed ? lines.join("\n") : undefined;
+}
+
+function mergeToolPayload(payload: unknown): Record<string, unknown> | undefined {
   if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
-    return body;
+    return undefined;
   }
 
   const upstreamTools = payload.result.tools as unknown[];
@@ -328,13 +368,13 @@ function mergeToolsList(body: string): string {
   );
   const localTools = LOCAL_TOOLS.filter((tool) => !existingNames.has(tool.name));
 
-  return JSON.stringify({
+  return {
     ...payload,
     result: {
       ...payload.result,
       tools: [...localTools, ...upstreamTools],
     },
-  });
+  };
 }
 
 function bearerToken(request: Request): string | undefined {
