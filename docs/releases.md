@@ -15,7 +15,7 @@ Use SemVer:
 - `PATCH`: bug fixes, documentation fixes, test improvements, and non-breaking deployment-template
   corrections.
 
-The current initial public release line is `v0.1.0`.
+The current public release line is `v0.2.0`.
 
 ## Release Artifacts
 
@@ -32,7 +32,7 @@ the release tag, mirror images into private registries, and pin private image di
 overlays. Public image publishing and signing can be added once the registry, provenance, and support
 model are decided.
 
-The deployment templates also pin the required `agentgateway` fork version. For the `v0.1.x`
+The deployment templates also pin the required `agentgateway` fork version. For the `v0.2.x`
 release line, use `ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1` or an internally
 rebuilt image from the same fork revision. Older upstream images do not contain the MCP
 multi-provider authentication and `prefixMode: never` behavior this gateway expects.

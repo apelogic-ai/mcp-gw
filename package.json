@@ -1,6 +1,6 @@
 {
   "name": "mcp-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remote MCP gateway and Google Workspace wrapper.",
   "license": "MIT",
   "private": true,
