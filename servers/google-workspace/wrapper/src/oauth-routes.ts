@@ -11,6 +11,7 @@ import {
   type GoogleOAuthConfig,
   type OAuthFetch,
 } from "../../../../shared/oauth/google";
+import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 
 export interface CreateOAuthRouteHandlerOptions {
@@ -88,7 +89,9 @@ export function createOAuthRouteHandler(
         status: "allow",
       });
 
-      return redirect(completed.redirectAfter ?? "/");
+      return completed.redirectAfter
+        ? redirect(completed.redirectAfter)
+        : oauthSuccessPage({ provider: "Google Workspace" });
     }
 
     const identity = await authenticateRequest(request, authenticate);

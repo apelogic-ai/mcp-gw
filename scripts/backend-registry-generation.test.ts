@@ -18,8 +18,28 @@ describe("backend registry config generation", () => {
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
 
     expect(dbDescriptor).toContain("enabledByDefault: false");
-    expect(base).not.toContain("name: db-mcp");
-    expect(federated).toContain("name: db-mcp");
+    expect(base).not.toContain("name: db");
+    expect(federated).toContain("name: db");
+  });
+
+  test("renders agentgateway multiplex controls for optional backend resilience", async () => {
+    const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
+    const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");
+
+    expect(base).toContain("failureMode: failOpen");
+    expect(base).toContain("prefixMode: never");
+    expect(base).not.toContain("prefixMode: always");
+    expect(base).toContain("name: google");
+    expect(base).not.toContain("name: google-workspace");
+
+    expect(federated).toContain("failureMode: failOpen");
+    expect(federated).toContain("prefixMode: never");
+    expect(federated).not.toContain("prefixMode: always");
+    expect(federated).toContain("name: google");
+    expect(federated).toContain("name: github");
+    expect(federated).toContain("name: db");
+    expect(federated).not.toContain("name: github-mcp");
+    expect(federated).not.toContain("name: db-mcp");
   });
 
   test("documents the public backend onboarding contract", async () => {
@@ -28,6 +48,9 @@ describe("backend registry config generation", () => {
     expect(guide).toContain("servers/<backend>/backend.yaml");
     expect(guide).toContain("bun scripts/generate-agentgateway-config.ts");
     expect(guide).toContain("agentgateway.backends");
+    expect(guide).toContain("failureMode: failOpen");
+    expect(guide).toContain("prefixMode: never");
+    expect(guide).toContain("Backend wrappers own stable provider prefixes");
     expect(guide).toContain("Do not commit runtime secrets");
   });
 });

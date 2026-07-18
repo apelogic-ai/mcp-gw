@@ -112,7 +112,7 @@ describe("GitHub OAuth flow", () => {
     expect(stored?.encryptedRefreshToken).not.toBe("github-user-token");
   });
 
-  test("rejects GitHub accounts with a mismatched primary email", async () => {
+  test("stores GitHub accounts whose primary email differs from HOP-1 email", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
     const started = await startGithubOAuth({
@@ -122,36 +122,29 @@ describe("GitHub OAuth flow", () => {
       stateStore,
     });
 
-    let error: unknown;
-    try {
-      await completeGithubOAuth({
-        identity,
-        code: "oauth-code",
-        state: started.state,
-        config,
-        stateStore,
-        tokenStore,
-        fetch: (url) => {
-          if (url === config.tokenUrl) {
-            return Promise.resolve(
-              Response.json({ access_token: "github-user-token", scope: "repo" }),
-            );
-          }
-
+    await completeGithubOAuth({
+      identity,
+      code: "oauth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: (url) => {
+        if (url === config.tokenUrl) {
           return Promise.resolve(
-            Response.json([{ email: "other@example.com", primary: true, verified: true }]),
+            Response.json({ access_token: "github-user-token", scope: "repo" }),
           );
-        },
-      });
-    } catch (caught) {
-      error = caught;
-    }
+        }
 
-    expect(error).toBeInstanceOf(GitHubOAuthError);
-    expect((error as GitHubOAuthError).code).toBe("email_mismatch");
-    expect((error as GitHubOAuthError).message).toBe(
-      "Connected GitHub account email does not match",
-    );
+        return Promise.resolve(
+          Response.json([{ email: "other@example.com", primary: true, verified: true }]),
+        );
+      },
+    });
+
+    const stored = await tokenStore.getAccount(identity.issuer, identity.subject, "github");
+    expect(stored?.email).toBe("other@example.com");
+    expect(stored?.hop1Subject).toBe(identity.subject);
   });
 });
 

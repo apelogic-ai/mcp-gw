@@ -39,8 +39,10 @@ describe("DEV deploy wrapper", () => {
     expect(deploy).toContain("AGENTGATEWAY_IMAGE");
     expect(deploy).toContain("ENABLE_GITHUB_MCP");
     expect(deploy).toContain("docker-compose.github-mcp.yaml");
-    expect(deploy).toContain("GitHub MCP is deployed as a runtime-only DEV service");
-    expect(deploy).not.toContain("host: http://github-wrapper:8080/mcp");
+    expect(deploy).toContain("name: github");
+    expect(deploy).toContain("host: http://github-wrapper:8080/mcp");
+    expect(deploy).not.toContain("GitHub MCP is deployed as a runtime-only DEV service");
+    expect(deploy).not.toContain("host: http://db-mcp:8080/mcp");
     expect(deploy).toContain("handle /oauth/github/*");
     expect(deploy).toContain("reverse_proxy github-wrapper:8080");
     expect(session).toContain('AWS_PROFILE="${AWS_PROFILE:-default}"');
@@ -74,6 +76,11 @@ describe("DEV deploy wrapper", () => {
     expect(gatewayTemplate).toContain("discoverable:");
     expect(gatewayTemplate).toContain("issuer: {{ provider.issuer }}");
     expect(gatewayTemplate).toContain("url: {{ provider.jwksUrl }}");
+    expect(gatewayTemplate).not.toContain("prefixMode: always");
+    expect(gatewayTemplate).toContain("failureMode: failOpen");
+    expect(gatewayTemplate).toContain("prefixMode: never");
+    expect(gatewayTemplate).toContain("name: google");
+    expect(gatewayTemplate).not.toContain("name: google-workspace");
     expect(gatewayTemplate).toContain("backendAuth:");
     expect(gatewayTemplate).toContain("passthrough: {}");
     expect(composeOverride).toContain(".agentgateway-dev.yaml");

@@ -1,5 +1,6 @@
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../shared/audit/audit";
+import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import {
   AllowAllPolicy,
   type PolicyActionClass,
@@ -11,6 +12,11 @@ export interface CreateGithubMcpProxyHandlerOptions {
   upstreamUrl: string;
   authenticate(token: string): Promise<Hop1Identity>;
   resolveGithubToken(identity: Hop1Identity): Promise<string | undefined>;
+  getOAuthStatus?(identity: Hop1Identity): Promise<GithubOAuthStatus>;
+  startOAuth?(
+    identity: Hop1Identity,
+    redirectAfter?: string,
+  ): Promise<{ authorizationUrl: string }>;
   githubScopes?: string[];
   aliases?: Record<string, string>;
   audit?: AuditSink;
@@ -19,6 +25,14 @@ export interface CreateGithubMcpProxyHandlerOptions {
 }
 
 export type GithubMcpProxyFetch = (request: Request) => Promise<Response>;
+
+export interface GithubOAuthStatus {
+  connected: boolean;
+  email?: string;
+  scopesRequired: string[];
+  scopesGranted: string[];
+  missingScopes: string[];
+}
 
 type JsonRpcId = string | number | null;
 
@@ -37,6 +51,39 @@ const JSON_HEADERS = {
 
 const FORWARDED_REQUEST_HEADERS = ["content-type", "mcp-protocol-version"];
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "mcp-session-id"];
+const LOCAL_TOOLS = [
+  {
+    name: "github_oauth_status",
+    description:
+      "Check whether the current MCP-GW user has connected a GitHub account for GitHub MCP tools.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "github_oauth_start",
+    description:
+      "Start GitHub OAuth connection for the current MCP-GW user and return a browser authorization URL.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        redirectAfter: {
+          type: "string",
+          description: "Optional URL to return to after GitHub OAuth completes.",
+        },
+      },
+      required: [],
+    },
+  },
+];
+const SERVER_INFO = {
+  name: "github-mcp-wrapper",
+  version: "0.1.0",
+};
 
 export function createGithubMcpProxyHandler(
   options: CreateGithubMcpProxyHandlerOptions,
@@ -59,7 +106,29 @@ export function createGithubMcpProxyHandler(
     }
 
     const body = await request.text();
+    const method = parseMethod(body);
+    if (method?.isNotification) {
+      return new Response(null, { status: 202 });
+    }
+    if (method?.method === "initialize") {
+      return mcpResult(method.id, {
+        protocolVersion: "2025-06-18",
+        capabilities: {
+          tools: {},
+        },
+        serverInfo: SERVER_INFO,
+      });
+    }
+    if (method?.method === "tools/list") {
+      return handleToolsList(request, body, identity, method.id, options, fetchImpl);
+    }
+
     const toolCall = parseToolCall(body, options.aliases ?? {});
+    const localTool = toolCall ? await handleLocalToolCall(toolCall, identity, options) : undefined;
+    if (localTool) {
+      return localTool;
+    }
+
     if (toolCall) {
       const decision = await policy.decide({
         principal: identity.email,
@@ -75,7 +144,7 @@ export function createGithubMcpProxyHandler(
       }
     }
 
-    const githubToken = await options.resolveGithubToken(identity);
+    const githubToken = await resolveGithubTokenOrUndefined(options, identity);
     if (!githubToken) {
       return unauthorized("GitHub account is not connected");
     }
@@ -125,6 +194,186 @@ export function createGithubMcpProxyHandler(
 
       return mcpError(toolCall?.id ?? null, -32000, "GitHub MCP upstream request failed");
     }
+  };
+}
+
+async function handleToolsList(
+  request: Request,
+  body: string,
+  identity: Hop1Identity,
+  id: JsonRpcId,
+  options: CreateGithubMcpProxyHandlerOptions,
+  fetchImpl: GithubMcpProxyFetch,
+): Promise<Response> {
+  const githubToken = await resolveGithubTokenOrUndefined(options, identity);
+  if (!githubToken) {
+    return mcpResult(id, { tools: LOCAL_TOOLS });
+  }
+
+  const upstreamResponse = await fetchImpl(
+    new Request(options.upstreamUrl, {
+      method: request.method,
+      headers: upstreamHeaders(request, githubToken),
+      body,
+    }),
+  );
+  const responseBody = await upstreamResponse.text();
+
+  return new Response(mergeToolsList(responseBody), {
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+    headers: responseHeaders(upstreamResponse),
+  });
+}
+
+async function resolveGithubTokenOrUndefined(
+  options: CreateGithubMcpProxyHandlerOptions,
+  identity: Hop1Identity,
+): Promise<string | undefined> {
+  try {
+    return await options.resolveGithubToken(identity);
+  } catch (error) {
+    if (error instanceof GitHubOAuthError && error.code === "reauth_required") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function handleLocalToolCall(
+  toolCall: ToolCallContext,
+  identity: Hop1Identity,
+  options: CreateGithubMcpProxyHandlerOptions,
+): Promise<Response | undefined> {
+  if (toolCall.toolName === "github_oauth_status") {
+    const status = (await options.getOAuthStatus?.(identity)) ?? {
+      connected: false,
+      scopesRequired: options.githubScopes ?? [],
+      scopesGranted: [],
+      missingScopes: options.githubScopes ?? [],
+    };
+
+    return mcpResult(toolCall.id, {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(status),
+        },
+      ],
+    });
+  }
+
+  if (toolCall.toolName === "github_oauth_start") {
+    if (!options.startOAuth) {
+      return mcpError(toolCall.id, -32000, "GitHub OAuth is not configured");
+    }
+
+    const redirectAfter =
+      typeof toolCall.args.redirectAfter === "string" && toolCall.args.redirectAfter.length > 0
+        ? toolCall.args.redirectAfter
+        : undefined;
+    const started = await options.startOAuth(identity, redirectAfter);
+
+    return mcpResult(toolCall.id, {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(started),
+        },
+      ],
+    });
+  }
+
+  return undefined;
+}
+
+function parseMethod(
+  body: string,
+): { id: JsonRpcId; method: string; isNotification: boolean } | undefined {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(payload) || typeof payload.method !== "string") {
+    return undefined;
+  }
+
+  return {
+    id: jsonRpcId(payload.id),
+    method: payload.method,
+    isNotification: !Object.prototype.hasOwnProperty.call(payload, "id"),
+  };
+}
+
+function mergeToolsList(body: string): string {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    return mergeSseToolsList(body) ?? body;
+  }
+
+  return JSON.stringify(mergeToolPayload(payload) ?? payload);
+}
+
+function mergeSseToolsList(body: string): string | undefined {
+  let changed = false;
+  const lines: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) {
+      lines.push(line);
+      continue;
+    }
+
+    const data = line.slice("data:".length).trimStart();
+    if (!data || data === "[DONE]") {
+      lines.push(line);
+      continue;
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(data) as unknown;
+    } catch {
+      lines.push(line);
+      continue;
+    }
+
+    const merged = mergeToolPayload(payload);
+    if (!merged) {
+      lines.push(line);
+      continue;
+    }
+
+    changed = true;
+    lines.push(`data: ${JSON.stringify(merged)}`);
+  }
+
+  return changed ? lines.join("\n") : undefined;
+}
+
+function mergeToolPayload(payload: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
+    return undefined;
+  }
+
+  const upstreamTools = payload.result.tools as unknown[];
+  const existingNames = new Set(
+    upstreamTools
+      .map((tool) => (isRecord(tool) && typeof tool.name === "string" ? tool.name : undefined))
+      .filter((name): name is string => Boolean(name)),
+  );
+  const localTools = LOCAL_TOOLS.filter((tool) => !existingNames.has(tool.name));
+
+  return {
+    ...payload,
+    result: {
+      ...payload.result,
+      tools: [...localTools, ...upstreamTools],
+    },
   };
 }
 
@@ -282,6 +531,20 @@ function mcpError(id: JsonRpcId, code: number, message: string, status = 200): R
     }),
     {
       status,
+      headers: JSON_HEADERS,
+    },
+  );
+}
+
+function mcpResult(id: JsonRpcId, result: Record<string, unknown>): Response {
+  return new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      result,
+    }),
+    {
+      status: 200,
       headers: JSON_HEADERS,
     },
   );

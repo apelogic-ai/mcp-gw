@@ -69,6 +69,8 @@ export function renderAgentgatewayConfig(
                 exposeHeaders: ["Mcp-Session-Id"]
             backends:
               - mcp:
+                  failureMode: failOpen
+                  prefixMode: never
                   targets:
 ${renderAgentgatewayTargets(descriptors, options)}
 `;
@@ -83,7 +85,7 @@ export function renderAgentgatewayTargets(
   return descriptors
     .filter((descriptor) => options.includeOptional === true || descriptor.enabledByDefault)
     .map(
-      (descriptor) => `                    - name: ${descriptor.name}
+      (descriptor) => `                    - name: ${descriptor.toolPrefix}
                       policies:
                         backendAuth:
                           passthrough: {}

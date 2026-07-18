@@ -92,11 +92,12 @@ Deployment templates are provided for:
 - Kubernetes/Helm under [deploy/k8s](deploy/k8s).
 
 The checked-in deployment defaults pin the ApeLogic `agentgateway` fork image
-`ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1`. That fork includes the MCP
-multi-provider authentication support required for Claude and other HOP-1 clients behind one `/mcp`
-endpoint. Do not replace it with upstream `ghcr.io/agentgateway/agentgateway:v1.1.0`
-unless upstream has accepted equivalent MCP authentication behavior. Production overlays should
-mirror or rebuild the pinned fork version into a private registry and pin by digest.
+`ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1`. That fork includes MCP
+multi-provider authentication plus upstream `prefixMode: never` routing support required for
+multiple HOP-1 clients and multiple MCP backends behind one `/mcp` endpoint. Do not replace it with
+upstream `agentgateway` unless upstream has accepted equivalent MCP authentication behavior.
+Production overlays should mirror or rebuild the pinned fork version into a private registry and pin
+by digest.
 
 The Kubernetes chart is intended for fork-and-overlay enterprise deployments. Keep
 [deploy/k8s/chart](deploy/k8s/chart) close to upstream, then put org-specific hostnames, image
@@ -105,8 +106,10 @@ AWS External Secrets, and private overlay examples are in
 [deploy/k8s/examples](deploy/k8s/examples).
 
 Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
-checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern;
-additional MCP servers can be added by appending a target in an overlay. See
+checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern.
+Deployment templates set `prefixMode: never`, so each backend wrapper must expose globally unique,
+provider-prefixed tool names and agentgateway forwards those names unchanged. Additional MCP servers
+can be added by appending a target in an overlay. See
 [docs/backend-registry.md](docs/backend-registry.md).
 
 The optional GitHub MCP bundle uses the official
@@ -117,6 +120,8 @@ gateway principal to a GitHub bearer token before forwarding to the upstream Git
 
 Downstream provider credentials can be connected by an external control plane, internal portal, or
 future built-in UI. See [docs/provider-connection-flows.md](docs/provider-connection-flows.md).
+Enterprise MCP client integration guidance is in
+[docs/client-integration-runbook.md](docs/client-integration-runbook.md).
 
 Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access internal through
 `kubectl port-forward` or a private overlay protected by corporate network controls and SSO.

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.yaml"
 LOCAL_COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.local-smoke.yaml"
+LOCAL_GITHUB_COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.local-github-smoke.yaml"
 WORK_DIR="${WORK_DIR:-/tmp/mcp-gw-local-integration}"
 JWKS_PORT="${JWKS_PORT:-18080}"
 GATEWAY_PORT="${GATEWAY_PORT:-18081}"
@@ -11,12 +12,24 @@ ISSUER="http://host.docker.internal:$JWKS_PORT"
 AUDIENCE="http://agentgateway:3000/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
 ENV_FILE="$WORK_DIR/compose.env"
+INCLUDE_GITHUB="${LOCAL_INCLUDE_GITHUB:-0}"
+COMPOSE_ARGS=(-f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE")
+COMPOSE_PROFILES=()
+COMPOSE_SERVICES=(token-store google-workspace agentgateway)
 
 mkdir -p "$WORK_DIR"
 
+compose_cmd() {
+  if [[ ${#COMPOSE_PROFILES[@]} -gt 0 ]]; then
+    docker compose --env-file "$ENV_FILE" "${COMPOSE_ARGS[@]}" "${COMPOSE_PROFILES[@]}" "$@"
+  else
+    docker compose --env-file "$ENV_FILE" "${COMPOSE_ARGS[@]}" "$@"
+  fi
+}
+
 cleanup() {
   if [[ "${KEEP_LOCAL_INTEGRATION:-0}" != "1" ]]; then
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+    compose_cmd down --remove-orphans >/dev/null 2>&1 || true
   fi
   if [[ -n "${FIXTURE_PID:-}" ]]; then
     kill "$FIXTURE_PID" >/dev/null 2>&1 || true
@@ -47,7 +60,7 @@ fi
 
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.1.0}
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.2.0}
 HOP1_PROFILE=local
 HOP1_ISSUER=$ISSUER
 HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json
@@ -60,10 +73,22 @@ GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/google/callback
 GOOGLE_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 GWS_BINARY_PATH=/app/node_modules/.bin/gws
 TOKEN_STORE_DSN=postgres://mcp:mcp@token-store:5432/mcp
+GITHUB_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+GITHUB_OAUTH_CLIENT_ID=local-github-client
+GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
+GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
 ENV
 
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE" config >/dev/null
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE" up -d --build token-store google-workspace agentgateway
+EXPECTED_TOOL="google_drive_files_list"
+if [[ "$INCLUDE_GITHUB" == "1" ]]; then
+  COMPOSE_ARGS+=(-f "$LOCAL_GITHUB_COMPOSE_FILE" -f "$ROOT_DIR/deploy/compose/docker-compose.github-mcp.yaml")
+  COMPOSE_PROFILES+=(--profile github-mcp)
+  COMPOSE_SERVICES+=(github-mcp github-wrapper)
+  EXPECTED_TOOL="github_oauth_start"
+fi
+
+compose_cmd config >/dev/null
+compose_cmd up -d --build "${COMPOSE_SERVICES[@]}"
 
 TOKEN="$(cat "$TOKEN_FILE")"
 INITIALIZE_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-gw-local-smoke","version":"0.1.0"}}}'
@@ -71,6 +96,7 @@ TOOLS_PAYLOAD='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 HEADERS_FILE="$WORK_DIR/initialize.headers"
 INITIALIZE_RESPONSE_FILE="$WORK_DIR/initialize.json"
 RESPONSE_FILE="$WORK_DIR/tools-list.json"
+rm -f "$HEADERS_FILE" "$INITIALIZE_RESPONSE_FILE" "$RESPONSE_FILE"
 
 for _ in {1..60}; do
   http_code="$(
@@ -103,17 +129,27 @@ for _ in {1..60}; do
       --data "$TOOLS_PAYLOAD" || true
   )"
 
-  if [[ "$http_code" == "200" ]] && grep -q "google_drive_files_list" "$RESPONSE_FILE"; then
-    echo "Local integration smoke passed: tools/list reached Google Workspace through agentgateway."
+  if [[ "$INCLUDE_GITHUB" != "1" ]] && [[ "$http_code" == "200" ]] && grep -q "google_google_" "$RESPONSE_FILE"; then
+    echo "Local integration smoke failed: Google-only route unexpectedly double-prefixed tools." >&2
+    cat "$RESPONSE_FILE" >&2 || true
+    exit 1
+  fi
+
+  if [[ "$http_code" == "200" ]] && grep -q "$EXPECTED_TOOL" "$RESPONSE_FILE"; then
+    if [[ "$INCLUDE_GITHUB" == "1" ]]; then
+      echo "Local integration smoke passed: tools/list reached GitHub OAuth helpers through agentgateway."
+    else
+      echo "Local integration smoke passed: tools/list reached Google Workspace through agentgateway."
+    fi
     exit 0
   fi
 
   sleep 2
 done
 
-echo "Local integration smoke failed: expected google_drive_files_list through gateway." >&2
+echo "Local integration smoke failed: expected $EXPECTED_TOOL through gateway." >&2
 echo "Last response:" >&2
 cat "$RESPONSE_FILE" >&2 || true
 echo >&2
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE" logs --tail=100 >&2 || true
+compose_cmd logs --tail=100 >&2 || true
 exit 1

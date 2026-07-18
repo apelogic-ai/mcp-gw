@@ -17,9 +17,10 @@ enabledByDefault: false
 
 Fields:
 
-- `name`: stable agentgateway target name.
+- `name`: stable backend descriptor name.
 - `host`: MCP HTTP endpoint used by Docker Compose generated configs.
-- `toolPrefix`: unique tool namespace prefix for collision checks and docs.
+- `toolPrefix`: unique tool namespace prefix for collision checks, docs, and
+  generated agentgateway target names.
 - `enabledByDefault`: whether the backend appears in the base gateway config.
 
 Run the generator after changing descriptors:
@@ -34,6 +35,20 @@ bun run backends:check
 is not used by the default DEV Compose deployment. Do not mount the federated
 config into the shared `/mcp` route unless every listed backend is deployed and
 the target fan-out behavior has been tested for that environment.
+
+Generated agentgateway configs set two MCP multiplexing controls:
+
+- `failureMode: failOpen`: an unavailable optional target is skipped during MCP
+  initialization when at least one target is healthy. It does not make a missing
+  backend usable; it prevents one broken optional backend from taking down the
+  entire shared MCP route.
+- `prefixMode: never`: agentgateway routes by the exact advertised tool name and
+  forwards the original upstream tool name unchanged. Backend wrappers own stable provider prefixes
+  such as `google_*` and `github_*`; do not rely on agentgateway to synthesize or strip prefixes.
+
+Use short, stable `toolPrefix` values for target names, registry collision
+checks, and operator readability. Hand-test the resulting catalog before
+exposing a multi-target route to clients that cache tool permissions.
 
 ## Docker Compose
 
@@ -55,8 +70,8 @@ docker compose \
 
 These optional Compose overlays start backend runtime containers only. They do
 not mutate the shared agentgateway `/mcp` route. Expose optional backends through
-a gateway router, a dedicated MCP route, or an explicitly tested environment
-overlay.
+an explicitly tested agentgateway config or a deployment-specific overlay that
+keeps `prefixMode: never` and provider-owned tool prefixes intact.
 
 ## Kubernetes
 

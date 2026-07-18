@@ -122,6 +122,34 @@ describe("GitHub OAuth routes", () => {
     });
   });
 
+  test("renders a success page when callback has no stored redirect target", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore: new InMemoryOAuthTokenStore(),
+      fetch: githubOAuthFetch(),
+    });
+
+    const start = await handler(
+      new Request("https://mcp.example.com/oauth/github/start", {
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state");
+    const callback = await handler(
+      new Request(`https://mcp.example.com/oauth/github/callback?code=code&state=${state ?? ""}`),
+    );
+
+    expect(callback.status).toBe(200);
+    expect(callback.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const html = await callback.text();
+    expect(html).toContain("<h1>GitHub connected</h1>");
+    expect(html).toContain("You can close this tab and return to your MCP client.");
+  });
+
   test("reports connection status and disconnects GitHub account", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();

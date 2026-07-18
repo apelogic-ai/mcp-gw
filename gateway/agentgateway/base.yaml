@@ -14,8 +14,10 @@ binds:
                 exposeHeaders: ["Mcp-Session-Id"]
             backends:
               - mcp:
+                  failureMode: failOpen
+                  prefixMode: never
                   targets:
-                    - name: google-workspace
+                    - name: google
                       policies:
                         backendAuth:
                           passthrough: {}

@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { Pool } from "pg";
 
 import { JsonlAuditSink, type AuditSink } from "../../../../shared/audit/audit";
-import { GitHubTokenBroker, type GitHubOAuthConfig } from "../../../../shared/oauth/github";
+import {
+  GitHubTokenBroker,
+  startGithubOAuth,
+  type GitHubOAuthConfig,
+} from "../../../../shared/oauth/github";
 import { createPostgresQueryClient } from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
 import {
@@ -40,7 +44,7 @@ export interface AuditConfig {
   jsonlPath?: string;
 }
 
-const DEFAULT_GITHUB_SCOPES = ["repo", "read:org", "workflow", "notifications"];
+const DEFAULT_GITHUB_SCOPES = ["repo", "read:org", "workflow", "notifications", "user:email"];
 const DEFAULT_UPSTREAM_URL = "http://github-mcp:8082/mcp";
 
 export function loadMainConfig(env: Record<string, string | undefined>): MainConfig {
@@ -74,6 +78,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
   });
   const queryClient = createPostgresQueryClient(pool);
   const tokenStore = new SqlOAuthTokenStore(queryClient);
+  const stateStore = new SqlOAuthStateStore(queryClient);
   const hop1Issuers = config.hop1Issuers.map((issuer) => ({
     profile: issuer,
     jwksProvider: createRemoteJwksProvider(issuer.jwksUrl),
@@ -88,7 +93,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     authenticate,
     config: config.githubOAuth,
     scopes: config.githubScopes,
-    stateStore: new SqlOAuthStateStore(queryClient),
+    stateStore,
     tokenStore,
     audit,
   });
@@ -96,6 +101,34 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     upstreamUrl: config.upstreamUrl,
     authenticate,
     resolveGithubToken: (identity) => tokenBroker.getAccessToken(identity, config.githubScopes),
+    getOAuthStatus: async (identity) => {
+      const account = await tokenStore.getAccount(identity.issuer, identity.subject, "github");
+      if (!account || account.revokedAt) {
+        return {
+          connected: false,
+          scopesRequired: config.githubScopes,
+          scopesGranted: [],
+          missingScopes: config.githubScopes,
+        };
+      }
+      const missingScopes = missingRequiredScopes(config.githubScopes, account.scopesGranted);
+
+      return {
+        connected: missingScopes.length === 0,
+        email: account.email,
+        scopesRequired: config.githubScopes,
+        scopesGranted: account.scopesGranted,
+        missingScopes,
+      };
+    },
+    startOAuth: async (identity, redirectAfter) =>
+      startGithubOAuth({
+        identity,
+        scopes: config.githubScopes,
+        config: config.githubOAuth,
+        stateStore,
+        redirectAfter,
+      }),
     githubScopes: config.githubScopes,
     aliases: config.aliases,
     audit,
@@ -229,6 +262,11 @@ function parseAliases(value: string | undefined): Record<string, string> {
   }
 
   return aliases;
+}
+
+function missingRequiredScopes(required: string[], granted: string[]): string[] {
+  const grantedSet = new Set(granted);
+  return required.filter((scope) => !grantedSet.has(scope));
 }
 
 if (import.meta.main) {

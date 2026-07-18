@@ -33,3 +33,9 @@ binds:
                           passthrough: {}
                       mcp:
                         host: http://google-workspace:8080/mcp
+                    - name: github
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://github-wrapper:8080/mcp

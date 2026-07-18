@@ -1,10 +1,23 @@
 # Client Integration Runbook
 
-Status: public template
+Status: public enterprise template
 
-This document describes how a remote MCP client can integrate with this gateway and the Google
-Workspace backend. Replace all placeholder domains, client IDs, and environment values for your
-deployment.
+This document describes how an enterprise MCP client, internal portal, or automation service can
+integrate with MCP-GW. Replace all placeholder domains, client IDs, and environment values for your
+deployment. Examples mention clients such as Claude or Codex, but the contract is agent-agnostic.
+
+## Integration Modes
+
+MCP-GW supports two common integration modes:
+
+- **Direct MCP client:** a client that supports remote MCP and OAuth protected-resource discovery
+  connects directly to `https://mcp.example.com/mcp`. Claude is an example of this pattern.
+- **Control-plane mediated client:** an internal portal, backend service, CLI, or agent platform
+  authenticates the user, starts provider connection flows, and calls MCP-GW with a HOP-1 bearer
+  token. Codex or an internal agent service can use this pattern.
+
+Both modes use the same provider credential model. MCP-GW owns downstream provider credentials and
+never requires the client to store Google or GitHub refresh tokens.
 
 ## MCP Endpoint
 
@@ -23,23 +36,55 @@ https://mcp.example.com/authorize
 https://mcp.example.com/token
 ```
 
+Provider-specific OAuth helper routes live under the same origin:
+
+```text
+https://mcp.example.com/oauth/google/start
+https://mcp.example.com/oauth/google/status
+https://mcp.example.com/oauth/google/disconnect
+https://mcp.example.com/oauth/github/start
+https://mcp.example.com/oauth/github/status
+https://mcp.example.com/oauth/github/disconnect
+```
+
 ## OAuth Model
 
 The integration uses two credential layers:
 
 - **HOP-1:** client-to-MCP authorization. The client obtains a bearer token for the MCP gateway
   audience and sends it to `/mcp`.
-- **HOP-2:** per-user Google Workspace access. The gateway stores an encrypted Google refresh token
-  and refreshes Google access tokens for tool execution.
+- **HOP-2/provider OAuth:** per-user provider access. The gateway stores encrypted provider refresh
+  tokens or provider credentials and refreshes provider access tokens for tool execution.
 
-For clients that support OAuth protected-resource discovery, configure the MCP server URL and the
-public OAuth client ID. Do not put the Google client secret into client-side settings. The server
-side `/token` endpoint injects the secret when it exchanges authorization codes.
+For direct MCP clients that support OAuth protected-resource discovery, configure the MCP server URL
+and the public OAuth client ID. Do not put the OAuth client secret into client-side settings. The
+server-side `/token` endpoint injects the secret when it exchanges authorization codes.
+
+For control-plane mediated clients, the control plane is responsible for issuing or acquiring the
+HOP-1 bearer token. MCP-GW validates that token against configured issuers and audiences, then maps
+the stable HOP-1 subject to provider credentials.
+
+## Identity Requirements
+
+Use one stable HOP-1 subject for provider connection and later MCP tool calls. Provider credentials
+are stored under the authenticated gateway principal, not under the downstream provider identity.
+
+Recommended HOP-1 token properties:
+
+```text
+issuer: https://idp.example.com
+audience: https://mcp.example.com/mcp
+subject: immutable user or service principal ID
+email: display email, if available
+```
+
+Emails are useful for display, but they should not be the only durable principal identifier when an
+issuer provides immutable user IDs.
 
 ## Google Cloud Setup
 
 In the Google Cloud project that owns the OAuth client, configure the OAuth client with redirect
-URIs for your MCP client and deployment callback:
+URIs for your direct MCP client callback, if any, and the MCP-GW provider callback:
 
 ```text
 https://<client-callback-host>/api/mcp/auth_callback
@@ -91,7 +136,7 @@ Multiple HOP-1 issuers can be configured with `HOP1_ISSUERS_JSON`; see
 Provider credentials for optional backends can be connected by an external control plane or internal
 portal. See [provider-connection-flows.md](provider-connection-flows.md).
 
-## Client Connector Setup
+## Direct Client Connector Setup
 
 1. Create or edit a remote MCP connector in the client.
 2. Set the MCP server URL to `https://mcp.example.com/mcp`.
@@ -102,6 +147,24 @@ portal. See [provider-connection-flows.md](provider-connection-flows.md).
 
 Clients may cache connector state. Disconnect/reconnect after changes to OAuth behavior, Google
 scopes, or the visible tool catalog.
+
+If the client also offers native Google, GitHub, or other provider connectors, decide whether those
+native connectors should be disconnected. Keeping both native and MCP-GW connectors enabled can
+produce duplicated tools and different policy behavior.
+
+## Control Plane Setup
+
+An internal portal, CLI, backend service, or agent platform can integrate without relying on the MCP
+client's interactive OAuth flow:
+
+1. Authenticate the user with the enterprise identity provider.
+2. Mint or obtain a HOP-1 bearer token whose audience is the MCP-GW `/mcp` URL.
+3. Start provider OAuth through MCP-GW with that bearer token.
+4. Store no downstream provider refresh token in the control plane.
+5. Call `/mcp` with the same HOP-1 principal when tools are used.
+
+See [Provider Connection Flows](provider-connection-flows.md) for provider start, callback, status,
+and disconnect examples.
 
 ## Tool Surface
 
@@ -131,6 +194,55 @@ Example generic call payload:
 ```
 
 The generic tool rejects unsupported/excluded Google Workspace scopes before token lookup.
+
+## GitHub Backend
+
+The optional GitHub backend packages the official GitHub MCP server behind an MCP-GW wrapper. The
+wrapper validates HOP-1, resolves the user's GitHub credential from MCP-GW-owned storage, and
+forwards calls to the official upstream server with a GitHub bearer token.
+
+For GitHub OAuth, register a GitHub OAuth app with:
+
+```text
+Homepage URL: https://mcp.example.com
+Authorization callback URL: https://mcp.example.com/oauth/github/callback
+```
+
+Then configure the gateway environment with the GitHub client ID, secret, callback URL, scopes, and
+token encryption key. See [servers/github-mcp/README.md](../servers/github-mcp/README.md).
+
+## Multi-Backend Routing
+
+MCP-GW uses agentgateway as the MCP front door. Agentgateway can multiplex more than one MCP
+backend behind the same `/mcp` endpoint, and deployment templates render those targets from the
+backend registry or Helm `agentgateway.backends` values.
+
+MCP-GW deployment templates set `prefixMode: never`, so agentgateway routes by exact advertised
+tool name and forwards the original upstream tool name unchanged. Backend wrappers own stable
+provider prefixes, for example `google_drive_files_list` and `github_search_repositories`. Do not
+depend on agentgateway to add or strip prefixes. Validate the visible tool catalog and reconnect
+clients that cache tool permissions after changing the active backend set.
+
+Generated configs use `failureMode: failOpen` so one unavailable optional backend does not make
+every MCP initialization fail. It is still an operator error to advertise a backend whose runtime,
+credentials, or DNS are not deployed.
+
+## Enterprise Deployment Checklist
+
+Before making MCP-GW available to users:
+
+- Choose a public HTTPS hostname, for example `https://mcp.example.com`.
+- Configure HOP-1 issuers, audiences, JWKS URLs, and stable principal claims.
+- Configure provider OAuth apps and register exact callback URLs.
+- Enable required provider APIs, such as Google Workspace APIs.
+- Generate and store provider token encryption keys in a secret manager.
+- Decide which MCP backends are enabled on the shared `/mcp` route.
+- Apply Google Workspace policy YAML or external OPA policy if required.
+- Keep agentgateway Admin UI internal; do not expose it on the public MCP ingress.
+- Validate the visible tool catalog in every target client.
+- Document reconnect expectations after OAuth scope or tool catalog changes.
+- Do not commit real `.env` files, OAuth secrets, token encryption keys, refresh tokens, Terraform
+  state, cloud account IDs, or production hostnames to a public repository.
 
 ## Troubleshooting
 

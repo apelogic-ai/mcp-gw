@@ -75,9 +75,9 @@ toolPrefix: google
       },
     ]);
 
-    expect(rendered).toContain("- name: google-workspace");
+    expect(rendered).toContain("- name: google");
     expect(rendered).toContain("host: http://google-workspace:8080/mcp");
-    expect(rendered).not.toContain("- name: db-mcp");
+    expect(rendered).not.toContain("- name: db");
   });
 
   test("renders optional agentgateway targets when requested", () => {
@@ -99,7 +99,7 @@ toolPrefix: google
       { includeOptional: true },
     );
 
-    expect(rendered).toContain("- name: db-mcp");
+    expect(rendered).toContain("- name: db");
     expect(rendered).toContain("host: http://db-mcp:8080/mcp");
     expect(rendered).toContain("backendAuth:");
     expect(rendered).toContain("passthrough: {}");
@@ -119,7 +119,11 @@ toolPrefix: google
     expect(rendered).toContain("exact: /mcp");
     expect(rendered).toContain("exact: /.well-known/oauth-protected-resource/mcp");
     expect(rendered).toContain("allowHeaders: [mcp-protocol-version, content-type, authorization]");
+    expect(rendered).toContain("failureMode: failOpen");
+    expect(rendered).toContain("prefixMode: never");
+    expect(rendered).not.toContain("prefixMode: always");
     expect(rendered).toContain("targets:");
-    expect(rendered).toContain("name: google-workspace");
+    expect(rendered).toContain("name: google");
+    expect(rendered).not.toContain("name: google-workspace");
   });
 });

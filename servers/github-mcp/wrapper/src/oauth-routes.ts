@@ -6,6 +6,7 @@ import {
   type GitHubOAuthConfig,
 } from "../../../../shared/oauth/github";
 import type { OAuthFetch } from "../../../../shared/oauth/google";
+import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 
 export interface CreateGitHubOAuthRouteHandlerOptions {
@@ -54,7 +55,9 @@ export function createGitHubOAuthRouteHandler(
         status: "allow",
       });
 
-      return redirect(completed.redirectAfter ?? "/");
+      return completed.redirectAfter
+        ? redirect(completed.redirectAfter)
+        : oauthSuccessPage({ provider: "GitHub" });
     }
 
     const identity = await authenticateRequest(request, authenticate);

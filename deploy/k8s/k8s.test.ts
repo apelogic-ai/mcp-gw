@@ -6,7 +6,7 @@ describe("Kubernetes production chart", () => {
 
     expect(rendered).toContain("kind: Deployment");
     expect(rendered).toContain("name: mcp-gateway-agentgateway");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/agentgateway:v1.1.0-apelogic.1");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1");
     expect(rendered).toContain("name: mcp-gateway-google-workspace");
     expect(rendered).toContain("name: mcp-gateway-db-mcp");
     expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
@@ -37,6 +37,8 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-db-mcp");
+    expect(rendered).toContain("failureMode: failOpen");
+    expect(rendered).toContain("prefixMode: never");
     expect(rendered).not.toContain("host: http://mcp-gateway-db-mcp:8080/mcp");
     expect(rendered).toContain("name: enterprise-search");
     expect(rendered).toContain("host: http://enterprise-search.search.svc.cluster.local:8080/mcp");

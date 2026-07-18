@@ -74,8 +74,8 @@ Example response:
 {
   "connected": true,
   "email": "user@example.com",
-  "scopesRequired": ["repo", "read:org", "workflow", "notifications"],
-  "scopesGranted": ["repo", "read:org", "workflow", "notifications"],
+  "scopesRequired": ["repo", "read:org", "workflow", "notifications", "user:email"],
+  "scopesGranted": ["repo", "read:org", "workflow", "notifications", "user:email"],
   "missingScopes": []
 }
 ```
@@ -112,7 +112,7 @@ ENABLE_GITHUB_MCP=1
 GITHUB_OAUTH_CLIENT_ID=<github-oauth-client-id>
 GITHUB_OAUTH_CLIENT_SECRET=<github-oauth-client-secret>
 GITHUB_OAUTH_REDIRECT_URI=https://mcp-gw.example.com/oauth/github/callback
-GITHUB_OAUTH_SCOPES="repo read:org workflow notifications"
+GITHUB_OAUTH_SCOPES="repo read:org workflow notifications user:email"
 GITHUB_TOKEN_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 ```
 
@@ -145,6 +145,11 @@ For each connected provider, the control plane must use the same stable HOP-1 id
 
 Use an immutable subject claim where possible. Emails are useful display attributes, but they can be
 renamed, reassigned, or represented differently across issuers.
+
+Provider account metadata can also differ from the HOP-1 identity. For example, a user's GitHub
+primary verified email may not match their enterprise email. MCP-GW stores the provider credential
+under the authenticated HOP-1 issuer and subject, and records the provider email only as account
+metadata.
 
 ## Client Support Matrix
 

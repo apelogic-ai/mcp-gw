@@ -1,0 +1,8 @@
+services:
+  agentgateway:
+    volumes:
+      - ../../gateway/agentgateway/local-github-smoke.yaml:/etc/agentgateway/config.yaml:ro
+
+  github-wrapper:
+    extra_hosts:
+      - host.docker.internal:host-gateway
