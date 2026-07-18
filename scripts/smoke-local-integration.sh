@@ -80,13 +80,21 @@ GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
 GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
 ENV
 
-EXPECTED_TOOL="google_oauth_start"
+EXPECTED_TOOLS=("google_oauth_start")
 if [[ "$INCLUDE_GITHUB" == "1" ]]; then
   COMPOSE_ARGS+=(-f "$LOCAL_GITHUB_COMPOSE_FILE" -f "$ROOT_DIR/deploy/compose/docker-compose.github-mcp.yaml")
   COMPOSE_PROFILES+=(--profile github-mcp)
   COMPOSE_SERVICES+=(github-mcp github-wrapper)
-  EXPECTED_TOOL="github_oauth_start"
+  EXPECTED_TOOLS+=("github_oauth_start")
 fi
+
+has_expected_tools() {
+  for expected_tool in "${EXPECTED_TOOLS[@]}"; do
+    if ! grep -q "$expected_tool" "$RESPONSE_FILE"; then
+      return 1
+    fi
+  done
+}
 
 compose_cmd config >/dev/null
 compose_cmd up -d --build "${COMPOSE_SERVICES[@]}"
@@ -136,7 +144,7 @@ for _ in {1..60}; do
     exit 1
   fi
 
-  if [[ "$http_code" == "200" ]] && grep -q "$EXPECTED_TOOL" "$RESPONSE_FILE"; then
+  if [[ "$http_code" == "200" ]] && has_expected_tools; then
     if [[ "$INCLUDE_GITHUB" == "1" ]]; then
       echo "Local integration smoke passed: tools/list reached GitHub OAuth helpers through agentgateway."
     else
@@ -148,7 +156,7 @@ for _ in {1..60}; do
   sleep 2
 done
 
-echo "Local integration smoke failed: expected $EXPECTED_TOOL through gateway." >&2
+echo "Local integration smoke failed: expected ${EXPECTED_TOOLS[*]} through gateway." >&2
 echo "Last response:" >&2
 cat "$RESPONSE_FILE" >&2 || true
 echo >&2
