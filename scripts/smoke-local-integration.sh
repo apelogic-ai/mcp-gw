@@ -65,6 +65,7 @@ HOP1_PROFILE=local
 HOP1_ISSUER=$ISSUER
 HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json
 HOP1_AUDIENCE=$AUDIENCE
+HOP1_OAUTH_SCOPES=openid email
 HOP1_EMAIL_CLAIM=email
 HOP1_SUBJECT_CLAIM=sub
 GOOGLE_OAUTH_CLIENT_ID=local-client
@@ -79,7 +80,7 @@ GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
 GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
 ENV
 
-EXPECTED_TOOL="google_drive_files_list"
+EXPECTED_TOOL="google_oauth_start"
 if [[ "$INCLUDE_GITHUB" == "1" ]]; then
   COMPOSE_ARGS+=(-f "$LOCAL_GITHUB_COMPOSE_FILE" -f "$ROOT_DIR/deploy/compose/docker-compose.github-mcp.yaml")
   COMPOSE_PROFILES+=(--profile github-mcp)
@@ -139,7 +140,7 @@ for _ in {1..60}; do
     if [[ "$INCLUDE_GITHUB" == "1" ]]; then
       echo "Local integration smoke passed: tools/list reached GitHub OAuth helpers through agentgateway."
     else
-      echo "Local integration smoke passed: tools/list reached Google Workspace through agentgateway."
+      echo "Local integration smoke passed: tools/list reached Google OAuth helpers through agentgateway."
     fi
     exit 0
   fi

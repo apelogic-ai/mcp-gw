@@ -13,6 +13,8 @@ describe("Docker Compose deployment skeleton", () => {
     expect(compose).toContain("token-store:");
     expect(compose).toContain("GWS_BINARY_PATH:");
     expect(compose).toContain("GOOGLE_OAUTH_CLIENT_ID:");
+    expect(compose).toContain("GOOGLE_OAUTH_SCOPES:");
+    expect(compose).toContain("HOP1_OAUTH_SCOPES:");
     expect(compose).toContain("HOP1_JWKS_URL:");
     expect(compose).toContain("HOP1_ISSUERS_JSON:");
     expect(compose).toContain("OPA_POLICY_URL:");
@@ -33,6 +35,7 @@ describe("Docker Compose deployment skeleton", () => {
     expect(envExample).toContain("HOP1_ISSUER=https://accounts.google.com");
     expect(envExample).toContain("HOP1_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs");
     expect(envExample).toContain("HOP1_AUDIENCE=");
+    expect(envExample).toContain("HOP1_OAUTH_SCOPES=openid email");
     expect(envExample).toContain("HOP1_ISSUERS_JSON=");
     expect(envExample).toContain("OPA_POLICY_URL=");
     expect(envExample).toContain("GOOGLE_WORKSPACE_POLICY_FILE=");

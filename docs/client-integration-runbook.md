@@ -56,6 +56,11 @@ The integration uses two credential layers:
 - **HOP-2/provider OAuth:** per-user provider access. The gateway stores encrypted provider refresh
   tokens or provider credentials and refreshes provider access tokens for tool execution.
 
+The initial direct-client flow is identity-only. It establishes a stable HOP-1 principal but does
+not grant Google Workspace, GitHub, or any other downstream provider access. Keep
+`HOP1_OAUTH_SCOPES` limited to identity claims such as `openid email`; configure provider scopes
+separately.
+
 For direct MCP clients that support OAuth protected-resource discovery, configure the MCP server URL
 and the public OAuth client ID. Do not put the OAuth client secret into client-side settings. The
 server-side `/token` endpoint injects the secret when it exchanges authorization codes.
@@ -120,6 +125,7 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 HOP1_ISSUER=<issuer-url>
 HOP1_JWKS_URL=<jwks-url>
 HOP1_AUDIENCE=<mcp-gateway-audience>
+HOP1_OAUTH_SCOPES="openid email"
 HOP1_EMAIL_CLAIM=email
 HOP1_SUBJECT_CLAIM=sub
 ```
@@ -142,8 +148,14 @@ portal. See [provider-connection-flows.md](provider-connection-flows.md).
 2. Set the MCP server URL to `https://mcp.example.com/mcp`.
 3. Set the OAuth client ID to the OAuth client configured for HOP-1.
 4. Do not configure the client secret in the remote client.
-5. Connect the connector and approve the Google consent screen.
-6. Confirm tools appear under the connector.
+5. Connect the connector and complete the identity-only gateway sign-in.
+6. Confirm the provider helpers `google_oauth_status`, `google_oauth_start`, and the equivalent
+   helpers for other enabled providers appear under the connector.
+7. Ask the agent to connect Google Workspace. It should call `google_oauth_start` and return an
+   authorization URL.
+8. Open the URL, approve Google Workspace access, and ask the client to refresh its tools.
+9. Confirm the full Google Workspace tool catalog appears. Repeat with `github_oauth_start` or other
+   provider helpers as needed.
 
 Clients may cache connector state. Disconnect/reconnect after changes to OAuth behavior, Google
 scopes, or the visible tool catalog.
@@ -168,7 +180,8 @@ and disconnect examples.
 
 ## Tool Surface
 
-The connector exposes:
+Before Google consent, the connector exposes `google_oauth_status` and `google_oauth_start`. After
+consent, it also exposes:
 
 - curated tools such as `google_drive_files_list`, `google_docs_get`, and
   `google_calendar_events_insert`;
@@ -264,7 +277,8 @@ Client connects but shows no tools:
 
 Tool call fails with `Google account must be reconnected`:
 
-- Confirm `/token` persists a Google `refresh_token`.
+- Confirm `google_oauth_start` completed and the provider callback persisted a Google
+  `refresh_token`.
 - Confirm `GOOGLE_TOKEN_ENCRYPTION_KEY` decodes to exactly 32 bytes.
 - Reconnect after changing token persistence or scopes.
 
