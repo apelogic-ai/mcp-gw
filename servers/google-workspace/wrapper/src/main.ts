@@ -14,6 +14,7 @@ import {
 export interface MainConfig {
   port: number;
   tokenStoreDsn: string;
+  hop1OAuthScopes: string[];
   googleOAuthScopes: string[];
   wrapper: WrapperConfig;
 }
@@ -30,6 +31,7 @@ const DEFAULT_GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/meetings.space.created",
 ];
+const DEFAULT_HOP1_OAUTH_SCOPES = ["openid", "email"];
 
 export function loadMainConfig(env: Record<string, string | undefined>): MainConfig {
   const wrapper = loadWrapperConfig(env);
@@ -37,6 +39,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
   return {
     port: Number(env.PORT ?? "8080"),
     tokenStoreDsn: requiredEnv(env, "TOKEN_STORE_DSN"),
+    hop1OAuthScopes: parseScopes(env.HOP1_OAUTH_SCOPES) ?? DEFAULT_HOP1_OAUTH_SCOPES,
     googleOAuthScopes: parseScopes(env.GOOGLE_OAUTH_SCOPES) ?? DEFAULT_GOOGLE_OAUTH_SCOPES,
     wrapper,
   };
@@ -62,6 +65,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
   const oauthRoutes = createOAuthRouteHandler({
     authenticate,
     config: config.wrapper.oauth,
+    hop1Scopes: config.hop1OAuthScopes,
     scopes: config.googleOAuthScopes,
     stateStore: new SqlOAuthStateStore(queryClient),
     tokenStore,
