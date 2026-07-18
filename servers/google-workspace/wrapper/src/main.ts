@@ -56,6 +56,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     jwksProvider: createRemoteJwksProvider(issuer.jwksUrl),
   }));
   const authenticate = createRuntimeAuthenticator({ issuers: hop1Issuers });
+  const stateStore = new SqlOAuthStateStore(queryClient);
   const audit = config.wrapper.audit?.jsonlPath
     ? new JsonlAuditSink(config.wrapper.audit.jsonlPath)
     : undefined;
@@ -67,7 +68,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     config: config.wrapper.oauth,
     hop1Scopes: config.hop1OAuthScopes,
     scopes: config.googleOAuthScopes,
-    stateStore: new SqlOAuthStateStore(queryClient),
+    stateStore,
     tokenStore,
     audit,
   });
@@ -77,6 +78,10 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     issuers: hop1Issuers,
     audit,
     policy,
+    providerOAuth: {
+      scopes: config.googleOAuthScopes,
+      stateStore,
+    },
   });
 
   return (request) => {

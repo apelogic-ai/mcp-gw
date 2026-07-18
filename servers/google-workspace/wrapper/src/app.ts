@@ -2,7 +2,7 @@ import type { Hop1Identity, IssuerProfile } from "../../../../shared/identity/ho
 import type { AuditSink } from "../../../../shared/audit/audit";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
-import type { WorkspaceToolExecutor } from "./google-workspace/registry";
+import type { GoogleOAuthStatus, WorkspaceToolExecutor } from "./google-workspace/registry";
 import { createGoogleWorkspaceRegistry } from "./google-workspace/registry";
 import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
 
@@ -38,6 +38,11 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
   audit?: AuditSink;
   policy?: ToolPolicy;
+  getOAuthStatus?: (identity: Hop1Identity) => Promise<GoogleOAuthStatus>;
+  startOAuth?: (
+    identity: Hop1Identity,
+    redirectAfter?: string,
+  ) => Promise<{ authorizationUrl: string }>;
   tokenBroker: {
     getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
   };
@@ -47,11 +52,13 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
 export function createGoogleWorkspaceWrapperHandler(
   options: CreateGoogleWorkspaceWrapperHandlerOptions,
 ): (request: Request) => Promise<Response> {
+  const startOAuth = options.startOAuth;
   return createAuthenticatedMcpHttpHandler({
     serverInfo: options.serverInfo,
     authenticate: (token) => options.authenticate(token),
-    registryFor: (identity) =>
-      createGoogleWorkspaceRegistry({
+    registryFor: async (identity) => {
+      const oauthStatus = await options.getOAuthStatus?.(identity);
+      return createGoogleWorkspaceRegistry({
         identity,
         audit: options.audit,
         policy: options.policy,
@@ -59,8 +66,16 @@ export function createGoogleWorkspaceWrapperHandler(
           getAccessToken: (requestIdentity, scopes) =>
             options.tokenBroker.getAccessToken(requestIdentity, scopes),
         },
+        oauth:
+          oauthStatus && startOAuth
+            ? {
+                status: oauthStatus,
+                startOAuth: (redirectAfter) => startOAuth(identity, redirectAfter),
+              }
+            : undefined,
         executor: options.executor,
-      }),
+      });
+    },
   });
 }
 
