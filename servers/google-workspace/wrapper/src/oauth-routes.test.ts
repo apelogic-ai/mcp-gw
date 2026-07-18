@@ -342,6 +342,34 @@ describe("OAuth route handler", () => {
     expect(audit.events[0]?.principal).toBe("user@example.com");
   });
 
+  test("renders a success page when callback has no stored redirect target", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const handler = createOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes,
+      stateStore,
+      tokenStore: new InMemoryOAuthTokenStore(),
+      fetch: successFetch,
+    });
+
+    const start = await handler(
+      new Request("https://dev.example.com/oauth/google/start", {
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state");
+    const callback = await handler(
+      new Request(`https://dev.example.com/oauth/google/callback?code=code&state=${state ?? ""}`),
+    );
+
+    expect(callback.status).toBe(200);
+    expect(callback.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const html = await callback.text();
+    expect(html).toContain("<h1>Google Workspace connected</h1>");
+    expect(html).toContain("You can close this tab and return to your MCP client.");
+  });
+
   test("reports connection status and disconnects", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
