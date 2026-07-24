@@ -9,7 +9,7 @@ export interface CatalogParam {
   description: string;
   type: "string" | "number" | "boolean" | "array" | "object";
   required: boolean;
-  items?: { type: "string" };
+  items?: Record<string, unknown>;
   additionalProperties?: boolean;
 }
 
@@ -52,6 +52,23 @@ export interface WorkspaceToolSpec {
 export function defineWorkspaceTool(spec: WorkspaceToolSpec): WorkspaceToolDefinition {
   const params = spec.params ?? [];
   const bodyParams = spec.bodyParams ?? [];
+  const uploadParams: CatalogParam[] = spec.supportsUpload
+    ? [
+        {
+          name: "uploadBase64",
+          description:
+            "Base64-encoded media content transferred inline to the MCP server for upload.",
+          type: "string",
+          required: false,
+        },
+        {
+          name: "uploadContentType",
+          description: "MIME type for uploaded media content.",
+          type: "string",
+          required: false,
+        },
+      ]
+    : [];
 
   return {
     name: spec.name,
@@ -71,7 +88,7 @@ export function defineWorkspaceTool(spec: WorkspaceToolSpec): WorkspaceToolDefin
     extraArgsParam: spec.extraArgsParam,
     resultMode: spec.resultMode ?? "json",
     annotations: annotationsForActionClass(spec.actionClass),
-    inputSchema: inputSchemaForParams([...params, ...bodyParams]),
+    inputSchema: inputSchemaForParams([...params, ...bodyParams, ...uploadParams]),
   };
 }
 

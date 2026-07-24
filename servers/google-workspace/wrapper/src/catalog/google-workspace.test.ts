@@ -58,6 +58,44 @@ describe("Google Workspace tool catalog", () => {
     expect(tool.inputSchema.properties).toHaveProperty("summary");
   });
 
+  test("represents structured convenience-tool bodies as JSON values", () => {
+    expect(
+      getGoogleWorkspaceTool("google_docs_batch_update").inputSchema.properties?.requests,
+    ).toMatchObject({
+      type: "array",
+      items: { type: "object" },
+    });
+    expect(
+      getGoogleWorkspaceTool("google_calendar_events_insert").inputSchema.properties?.start,
+    ).toMatchObject({
+      type: "object",
+    });
+    expect(
+      getGoogleWorkspaceTool("google_sheets_values_update").inputSchema.properties?.values,
+    ).toMatchObject({
+      type: "array",
+      items: { type: "array" },
+    });
+    expect(
+      getGoogleWorkspaceTool("google_gmail_drafts_create").inputSchema.properties?.message,
+    ).toMatchObject({
+      type: "object",
+    });
+  });
+
+  test("offers inline media on upload-capable tools", () => {
+    for (const name of ["google_drive_files_create", "gws_drive_files_create"]) {
+      const properties = getGoogleWorkspaceTool(name).inputSchema.properties;
+
+      expect(properties?.uploadBase64).toMatchObject({
+        type: "string",
+      });
+      expect(properties?.uploadContentType).toMatchObject({
+        type: "string",
+      });
+    }
+  });
+
   test("converts action classes to MCP annotations", () => {
     expect(getGoogleWorkspaceTool("google_drive_files_list").annotations).toEqual({
       readOnlyHint: true,
