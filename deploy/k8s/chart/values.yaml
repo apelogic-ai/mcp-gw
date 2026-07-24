@@ -79,6 +79,7 @@ googleWorkspace:
     PORT: "8080"
     GWS_BINARY_PATH: /app/node_modules/.bin/gws
     HOP1_PROFILE: google
+    HOP1_OAUTH_SCOPES: openid email
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
   secretRef:

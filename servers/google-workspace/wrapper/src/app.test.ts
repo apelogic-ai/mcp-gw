@@ -172,6 +172,54 @@ describe("Google Workspace wrapper app", () => {
     expect(executed).toHaveLength(1);
   });
 
+  test("resolves Google connection state per request and gates provider tools", async () => {
+    let connected = false;
+    const handler = createGoogleWorkspaceWrapperHandler({
+      serverInfo: { name: "google-workspace-wrapper", version: "0.1.0" },
+      authenticate: () => Promise.resolve(identity),
+      getOAuthStatus: () =>
+        Promise.resolve({
+          connected,
+          email: connected ? identity.email : undefined,
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: connected ? ["https://www.googleapis.com/auth/drive"] : [],
+          missingScopes: connected ? [] : ["https://www.googleapis.com/auth/drive"],
+        }),
+      startOAuth: () =>
+        Promise.resolve({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth" }),
+      tokenBroker: {
+        getAccessToken: () => Promise.resolve("google-access-token"),
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    const listTools = () =>
+      handler(
+        new Request("http://127.0.0.1/mcp", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer valid-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+        }),
+      );
+
+    const before = (await (await listTools()).json()) as {
+      result: { tools: { name: string }[] };
+    };
+    expect(before.result.tools.map((tool) => tool.name)).toEqual([
+      "google_oauth_status",
+      "google_oauth_start",
+    ]);
+
+    connected = true;
+    const after = (await (await listTools()).json()) as {
+      result: { tools: { name: string }[] };
+    };
+    expect(after.result.tools.map((tool) => tool.name)).toContain("google_drive_files_list");
+  });
+
   test("passes injected policy and audit sinks to request registries", async () => {
     const audit = new InMemoryAuditSink();
     const handler = createGoogleWorkspaceWrapperHandler({

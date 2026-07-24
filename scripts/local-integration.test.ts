@@ -26,9 +26,12 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('method":"initialize');
     expect(smoke).toContain("mcp-session-id");
     expect(smoke).toContain("tools/list");
-    expect(smoke).toContain("google_drive_files_list");
+    expect(smoke).toContain('EXPECTED_TOOLS=("google_oauth_start")');
+    expect(smoke).not.toContain('EXPECTED_TOOL="google_drive_files_list"');
     expect(smoke).toContain("LOCAL_INCLUDE_GITHUB");
     expect(smoke).toContain("github_oauth_start");
+    expect(smoke).toContain('EXPECTED_TOOLS+=("github_oauth_start")');
+    expect(smoke).toContain('for expected_tool in "${EXPECTED_TOOLS[@]}"');
   });
 
   test("mounts an authenticated local agentgateway config for the smoke path", async () => {

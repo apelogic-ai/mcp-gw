@@ -8,6 +8,8 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("name: mcp-gateway-agentgateway");
     expect(rendered).toContain("image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1");
     expect(rendered).toContain("name: mcp-gateway-google-workspace");
+    expect(rendered).toContain("name: HOP1_OAUTH_SCOPES");
+    expect(rendered).toContain('value: "openid email"');
     expect(rendered).toContain("name: mcp-gateway-db-mcp");
     expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
     expect(rendered).toContain("kind: ExternalSecret");

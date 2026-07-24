@@ -135,4 +135,27 @@ describe("authenticated MCP HTTP handler", () => {
       },
     });
   });
+
+  test("awaits provider connection state before creating the request registry", async () => {
+    const events: string[] = [];
+    const handler = createAuthenticatedMcpHttpHandler({
+      authenticate: () => Promise.resolve(identity),
+      registryFor: async (requestIdentity) => {
+        events.push(`status:${requestIdentity.subject}`);
+        await Promise.resolve();
+        return registryFor(requestIdentity);
+      },
+      serverInfo: { name: "server", version: "0.1.0" },
+    });
+
+    const response = await handler(
+      request({ jsonrpc: "2.0", id: "tools", method: "tools/list" }, "Bearer valid-token"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["status:google-subject"]);
+    expect(await response.json()).toMatchObject({
+      result: { tools: [expect.objectContaining({ name: "google_identity" })] },
+    });
+  });
 });

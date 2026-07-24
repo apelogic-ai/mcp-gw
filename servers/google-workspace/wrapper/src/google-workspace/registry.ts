@@ -13,6 +13,19 @@ import {
 import type { WorkspaceToolDefinition } from "../catalog/types";
 import type { ToolRegistry, ToolResult } from "../mcp/registry";
 
+export interface GoogleOAuthStatus {
+  connected: boolean;
+  email?: string;
+  scopesRequired: string[];
+  scopesGranted: string[];
+  missingScopes: string[];
+}
+
+export interface GoogleOAuthTools {
+  status: GoogleOAuthStatus;
+  startOAuth(redirectAfter?: string): Promise<{ authorizationUrl: string }>;
+}
+
 export interface AccessTokenBroker {
   getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
 }
@@ -29,6 +42,7 @@ export interface CreateGoogleWorkspaceRegistryOptions {
   identity: Hop1Identity;
   audit?: AuditSink;
   policy?: ToolPolicy;
+  oauth?: GoogleOAuthTools;
   tokenBroker: AccessTokenBroker;
   executor: WorkspaceToolExecutor;
 }
@@ -39,8 +53,25 @@ export function createGoogleWorkspaceRegistry(
   const policy = options.policy ?? new AllowAllPolicy();
 
   return {
-    listTools: () => listGoogleWorkspaceTools(),
+    listTools: () => {
+      if (!options.oauth) {
+        return listGoogleWorkspaceTools();
+      }
+
+      return options.oauth.status.connected
+        ? [...GOOGLE_OAUTH_TOOL_DEFINITIONS, ...listGoogleWorkspaceTools()]
+        : [...GOOGLE_OAUTH_TOOL_DEFINITIONS];
+    },
     callTool: async (name, args) => {
+      const oauthResult = await callGoogleOAuthTool(name, args, options.oauth);
+      if (oauthResult) {
+        return oauthResult;
+      }
+
+      if (options.oauth && !options.oauth.status.connected) {
+        throw new Error("Google Workspace account is not connected");
+      }
+
       const started = Date.now();
       const tool = getGoogleWorkspaceTool(name);
       validateRequiredArgs(tool, args);
@@ -92,6 +123,73 @@ export function createGoogleWorkspaceRegistry(
         return formatToolError(error);
       }
     },
+  };
+}
+
+const GOOGLE_OAUTH_TOOL_DEFINITIONS = [
+  {
+    name: "google_oauth_status",
+    description:
+      "Check whether the current MCP-GW user has connected Google Workspace for Google tools.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "google_oauth_start",
+    description:
+      "Start Google Workspace OAuth for the current MCP-GW user and return a browser authorization URL.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        redirectAfter: {
+          type: "string",
+          description: "Optional URL to return to after Google Workspace OAuth completes.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true },
+  },
+];
+
+async function callGoogleOAuthTool(
+  name: string,
+  args: Record<string, unknown>,
+  oauth: GoogleOAuthTools | undefined,
+): Promise<ToolResult | undefined> {
+  if (!oauth) {
+    return undefined;
+  }
+
+  if (name === "google_oauth_status") {
+    return formatCompactToolResult(oauth.status);
+  }
+
+  if (name === "google_oauth_start") {
+    const redirectAfter =
+      typeof args.redirectAfter === "string" && args.redirectAfter.length > 0
+        ? args.redirectAfter
+        : undefined;
+    return formatCompactToolResult(await oauth.startOAuth(redirectAfter));
+  }
+
+  return undefined;
+}
+
+function formatCompactToolResult(result: unknown): ToolResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(result),
+      },
+    ],
   };
 }
 

@@ -92,7 +92,7 @@ describe("OAuth route handler", () => {
     expect(response.status).toBe(401);
   });
 
-  test("expands Claude authorization requests to required Google Workspace scopes", async () => {
+  test("limits Claude authorization requests to HOP-1 identity scopes", async () => {
     const handler = createOAuthRouteHandler({
       authenticate: () => Promise.reject(new Error("authorize endpoint is unauthenticated")),
       config,
@@ -116,12 +116,12 @@ describe("OAuth route handler", () => {
     expect(location.searchParams.get("redirect_uri")).toBe(
       "https://claude.ai/api/mcp/auth_callback",
     );
-    expect(location.searchParams.get("scope")).toBe(scopes.join(" "));
+    expect(location.searchParams.get("scope")).toBe("openid email");
     expect(location.searchParams.get("access_type")).toBe("offline");
     expect(location.searchParams.get("prompt")).toBe("consent");
   });
 
-  test("proxies Claude token exchange with server-side Google client secret", async () => {
+  test("proxies Claude token exchange without creating a Google provider connection", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const idToken = fakeJwt({
       iss: "https://accounts.google.com",
@@ -188,12 +188,7 @@ describe("OAuth route handler", () => {
       refresh_token: "google-refresh-token",
       token_type: "Bearer",
     });
-    expect(
-      await tokenStore.getAccount("https://accounts.google.com", "google-subject"),
-    ).toMatchObject({
-      email: "user@example.com",
-      scopesGranted: ["openid", "profile", "email"],
-    });
+    expect(await tokenStore.getAccount("https://accounts.google.com", "google-subject")).toBeNull();
   });
 
   test("rejects Claude token exchange when Google id_token verification fails", async () => {

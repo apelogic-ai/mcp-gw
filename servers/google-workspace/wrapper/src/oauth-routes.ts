@@ -1,12 +1,10 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
-import { encryptSecret } from "../../../../shared/oauth/crypto";
 import {
   completeGoogleOAuth,
   DEFAULT_AUTHORIZATION_URL,
   DEFAULT_GOOGLE_TOKEN_URL,
-  scopeStringToArray,
   startGoogleOAuth,
   type GoogleOAuthConfig,
   type OAuthFetch,
@@ -17,6 +15,7 @@ import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/
 export interface CreateOAuthRouteHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
   config: GoogleOAuthConfig;
+  hop1Scopes?: string[];
   scopes: string[];
   stateStore: OAuthStateStore;
   tokenStore: OAuthTokenStore;
@@ -52,14 +51,17 @@ export function createOAuthRouteHandler(
   return async (request) => {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/authorize") {
-      return proxyClaudeAuthorizationRequest(url, options.config, options.scopes);
+      return proxyClaudeAuthorizationRequest(
+        url,
+        options.config,
+        options.hop1Scopes ?? ["openid", "email"],
+      );
     }
 
     if (request.method === "POST" && url.pathname === "/token") {
       return proxyClaudeTokenExchange(
         request,
         options.config,
-        options.tokenStore,
         options.verifyGoogleIdToken ?? verifyGoogleIdToken,
         options.fetch ?? fetch,
       );
@@ -182,7 +184,6 @@ function proxyClaudeAuthorizationRequest(
 async function proxyClaudeTokenExchange(
   request: Request,
   config: GoogleOAuthConfig,
-  tokenStore: OAuthTokenStore,
   verifyIdToken: GoogleIdTokenVerifier,
   fetchImpl: OAuthFetch,
 ): Promise<Response> {
@@ -216,7 +217,7 @@ async function proxyClaudeTokenExchange(
 
   if (upstream.ok && body.id_token) {
     try {
-      await persistGoogleAccountFromTokenResponse(body, config, tokenStore, verifyIdToken);
+      await verifyIdToken(body.id_token, config);
     } catch {
       return tokenError("invalid_grant", "Google id_token verification failed");
     }
@@ -227,38 +228,6 @@ async function proxyClaudeTokenExchange(
   return new Response(JSON.stringify(body), {
     status: upstream.status,
     headers: tokenResponseHeaders("application/json"),
-  });
-}
-
-async function persistGoogleAccountFromTokenResponse(
-  body: GoogleTokenEndpointResponse,
-  config: GoogleOAuthConfig,
-  tokenStore: OAuthTokenStore,
-  verifyIdToken: GoogleIdTokenVerifier,
-): Promise<void> {
-  if (!body.id_token || !body.refresh_token) {
-    return;
-  }
-
-  const claims = await verifyIdToken(body.id_token, config);
-  if (
-    typeof claims.iss !== "string" ||
-    typeof claims.sub !== "string" ||
-    typeof claims.email !== "string"
-  ) {
-    return;
-  }
-
-  const now = new Date();
-  await tokenStore.saveAccount({
-    provider: "google",
-    hop1Issuer: claims.iss,
-    hop1Subject: claims.sub,
-    email: claims.email,
-    scopesGranted: scopeStringToArray(body.scope),
-    encryptedRefreshToken: encryptSecret(body.refresh_token, config.tokenEncryptionKey),
-    createdAt: now,
-    updatedAt: now,
   });
 }
 

@@ -7,9 +7,9 @@ import {
   type Hop1Identity,
   type IssuerProfile,
 } from "../../../../shared/identity/hop1";
-import type { OAuthFetch } from "../../../../shared/oauth/google";
+import { startGoogleOAuth, type OAuthFetch } from "../../../../shared/oauth/google";
 import { GoogleTokenBroker } from "../../../../shared/oauth/token-broker";
-import type { OAuthTokenStore } from "../../../../shared/oauth/store";
+import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import {
   CompositePolicy,
   createOpaPolicyFromUrl,
@@ -37,6 +37,10 @@ export interface CreateRuntimeWrapperHandlerOptions {
   audit?: AuditSink;
   policy?: ToolPolicy;
   fetch?: OAuthFetch;
+  providerOAuth?: {
+    scopes: string[];
+    stateStore: OAuthStateStore;
+  };
 }
 
 export function createRuntimeAuthenticator(
@@ -57,6 +61,7 @@ export function createRuntimeAuthenticator(
 export function createRuntimeWrapperHandler(
   options: CreateRuntimeWrapperHandlerOptions,
 ): (request: Request) => Promise<Response> {
+  const providerOAuth = options.providerOAuth;
   const tokenBroker = new GoogleTokenBroker({
     config: options.config.oauth,
     tokenStore: options.tokenStore,
@@ -78,6 +83,41 @@ export function createRuntimeWrapperHandler(
     }),
     audit: options.audit ?? createAuditSink(options.config),
     policy: options.policy ?? createPolicy(options.config, options.fetch),
+    getOAuthStatus: providerOAuth
+      ? async (identity) => {
+          const account = await options.tokenStore.getAccount(
+            identity.issuer,
+            identity.subject,
+            "google",
+          );
+          if (!account || account.revokedAt) {
+            return {
+              connected: false,
+              scopesRequired: providerOAuth.scopes,
+              scopesGranted: [],
+              missingScopes: providerOAuth.scopes,
+            };
+          }
+          const missingScopes = missingRequiredScopes(providerOAuth.scopes, account.scopesGranted);
+          return {
+            connected: missingScopes.length === 0,
+            email: account.email,
+            scopesRequired: providerOAuth.scopes,
+            scopesGranted: account.scopesGranted,
+            missingScopes,
+          };
+        }
+      : undefined,
+    startOAuth: providerOAuth
+      ? (identity, redirectAfter) =>
+          startGoogleOAuth({
+            identity,
+            scopes: providerOAuth.scopes,
+            config: options.config.oauth,
+            stateStore: providerOAuth.stateStore,
+            redirectAfter,
+          })
+      : undefined,
     tokenBroker,
     executor: ({ tool, args, accessToken }) =>
       executeGwsTool({
@@ -87,6 +127,11 @@ export function createRuntimeWrapperHandler(
         gwsBinary: options.config.gwsBinary,
       }),
   });
+}
+
+function missingRequiredScopes(required: string[], granted: string[]): string[] {
+  const grantedSet = new Set(granted);
+  return required.filter((scope) => !grantedSet.has(scope));
 }
 
 export function createRemoteJwksProvider(
