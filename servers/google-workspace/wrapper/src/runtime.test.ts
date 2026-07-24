@@ -149,6 +149,7 @@ describe("runtime wrapper wiring", () => {
         oauth,
       },
       tokenStore,
+      providerOAuth: { scopes, stateStore },
       issuers: [{ profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) }],
       fetch: (url) => {
         if (url.includes("oauth2.googleapis.com/token")) {
@@ -216,6 +217,52 @@ describe("runtime wrapper wiring", () => {
         ],
       },
     });
+  });
+
+  test("exposes only Google OAuth helpers when the runtime principal has no provider grant", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const handler = createRuntimeWrapperHandler({
+      config: {
+        gwsBinary: await fakeGws(),
+        hop1,
+        hop1Issuers: [
+          {
+            ...hop1,
+            jwksUrl: "https://www.googleapis.com/oauth2/v3/certs",
+          },
+        ],
+        oauth: {
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          redirectUri: "https://dev.example.com/oauth/google/callback",
+          tokenEncryptionKey,
+        },
+      },
+      tokenStore,
+      providerOAuth: {
+        scopes: ["https://www.googleapis.com/auth/drive"],
+        stateStore,
+      },
+      issuers: [{ profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) }],
+    });
+
+    const response = await handler(
+      new Request("http://127.0.0.1/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${await signHop1Token()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+      }),
+    );
+
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    expect(body.result.tools.map((tool) => tool.name)).toEqual([
+      "google_oauth_status",
+      "google_oauth_start",
+    ]);
   });
 
   test("creates YAML, OPA policy, and JSONL audit sinks from runtime config", async () => {

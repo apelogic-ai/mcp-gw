@@ -9,6 +9,26 @@ OAuth credentials under that authenticated principal and uses them for later MCP
 This document describes the generic integration contract for deployments that do not use a built-in
 MCP-GW portal.
 
+## Provider-owned discovery
+
+After HOP-1 authentication, each enabled downstream provider advertises only its connection helpers
+until that user has granted provider access. Current helper pairs are:
+
+```text
+google_oauth_status   google_oauth_start
+github_oauth_status   github_oauth_start
+```
+
+The status tool reports whether the provider is connected and which scopes are missing. The start
+tool returns an `authorizationUrl` that an interactive agent can present to the user. The user opens
+that URL, approves the provider's consent screen, and returns to the agent. On the next
+`tools/list`, the provider wrapper advertises its helpers plus its full provider tool catalog.
+
+This is the required pattern for additional downstream providers: provider-prefixed status and
+start tools are always available; all data and mutation tools are gated by a credential stored for
+the authenticated HOP-1 principal. A provider grant must never be inferred from the initial gateway
+login.
+
 ## Credential Model
 
 MCP-GW uses two credential layers:
@@ -154,8 +174,9 @@ metadata.
 ## Client Support Matrix
 
 Clients that support MCP OAuth protected-resource discovery can authenticate directly to MCP-GW for
-the MCP connection. They may still need an external control plane to connect downstream providers
-that are not part of the MCP client's interactive OAuth flow.
+the MCP connection. Agents that can call tools and present links can complete downstream provider
+OAuth using the advertised provider helpers. Clients that cannot do that can use an external control
+plane and the equivalent HTTP routes.
 
 Headless clients and internal portals should use the provider connection routes directly with a
 trusted HOP-1 token.

@@ -9,7 +9,7 @@ interface ServerInfo {
 
 export interface CreateAuthenticatedMcpHttpHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
-  registryFor(identity: Hop1Identity): ToolRegistry;
+  registryFor(identity: Hop1Identity): ToolRegistry | Promise<ToolRegistry>;
   serverInfo: ServerInfo;
 }
 
@@ -34,7 +34,7 @@ export function createAuthenticatedMcpHttpHandler(
     }
 
     const handler = createMcpHttpHandler({
-      registry: options.registryFor(identity),
+      registry: await options.registryFor(identity),
       serverInfo: options.serverInfo,
     });
 

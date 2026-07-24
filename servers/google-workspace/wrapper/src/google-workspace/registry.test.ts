@@ -15,6 +15,79 @@ const identity: Hop1Identity = {
 };
 
 describe("Google Workspace request registry", () => {
+  test("advertises only Google OAuth helpers before provider consent", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      oauth: {
+        status: {
+          connected: false,
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: [],
+          missingScopes: ["https://www.googleapis.com/auth/drive"],
+        },
+        startOAuth: () =>
+          Promise.resolve({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth" }),
+      },
+      tokenBroker: {
+        getAccessToken: () => Promise.reject(new Error("token lookup should not run")),
+      },
+      executor: () => Promise.reject(new Error("executor should not run")),
+    });
+
+    expect(registry.listTools().map((tool) => tool.name)).toEqual([
+      "google_oauth_status",
+      "google_oauth_start",
+    ]);
+    expect(await registry.callTool("google_oauth_status", {})).toEqual({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            connected: false,
+            scopesRequired: ["https://www.googleapis.com/auth/drive"],
+            scopesGranted: [],
+            missingScopes: ["https://www.googleapis.com/auth/drive"],
+          }),
+        },
+      ],
+    });
+    expect(await registry.callTool("google_oauth_start", {})).toEqual({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          }),
+        },
+      ],
+    });
+  });
+
+  test("advertises OAuth helpers and the full Google catalog after consent", () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      oauth: {
+        status: {
+          connected: true,
+          email: identity.email,
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: ["https://www.googleapis.com/auth/drive"],
+          missingScopes: [],
+        },
+        startOAuth: () => Promise.reject(new Error("not used")),
+      },
+      tokenBroker: {
+        getAccessToken: () => Promise.resolve("unused"),
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    const names = registry.listTools().map((tool) => tool.name);
+    expect(names.slice(0, 2)).toEqual(["google_oauth_status", "google_oauth_start"]);
+    expect(names).toContain("google_drive_files_list");
+    expect(names).toContain("google_workspace_gws");
+  });
+
   test("lists catalog tools as MCP tools", () => {
     const registry = createGoogleWorkspaceRegistry({
       identity,

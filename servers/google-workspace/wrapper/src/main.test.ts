@@ -93,6 +93,45 @@ describe("wrapper main config", () => {
     ]);
   });
 
+  test("uses identity-only scopes for the initial MCP client connection", () => {
+    const config = loadMainConfig({
+      PORT: "9090",
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://dev.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://accounts.google.com",
+      HOP1_AUDIENCE: "mcp-gateway-dev",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
+      TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+    });
+
+    expect(config.hop1OAuthScopes).toEqual(["openid", "email"]);
+    expect(config.googleOAuthScopes).toContain("https://www.googleapis.com/auth/drive");
+  });
+
+  test("loads configurable HOP-1 identity scopes independently of provider consent", () => {
+    const config = loadMainConfig({
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://dev.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://accounts.google.com",
+      HOP1_AUDIENCE: "mcp-gateway-dev",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
+      TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+      HOP1_OAUTH_SCOPES: "openid,email",
+      GOOGLE_OAUTH_SCOPES: "openid https://www.googleapis.com/auth/drive",
+    });
+
+    expect(config.hop1OAuthScopes).toEqual(["openid", "email"]);
+    expect(config.googleOAuthScopes).toEqual(["openid", "https://www.googleapis.com/auth/drive"]);
+  });
+
   test("default Google OAuth scopes exclude legacy GData scopes rejected by Google OAuth", () => {
     const config = loadMainConfig({
       PORT: "9090",
