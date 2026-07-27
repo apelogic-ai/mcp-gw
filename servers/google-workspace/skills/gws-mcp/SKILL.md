@@ -34,7 +34,10 @@ Discovery tool arguments:
 - `format`: optional `json`, `table`, `yaml`, or `csv`.
 - `pageAll`, `pageLimit`, `pageDelay`: pagination flags.
 - `dryRun`: maps to `--dry-run`.
-- `upload`, `uploadContentType`, `output`, `sanitize`: matching `gws` flags.
+- `uploadBase64`: base64-encoded content transferred to the wrapper for media upload.
+- `uploadContentType`, `output`, `sanitize`: matching `gws` flags.
+- `upload`: advanced path inside the MCP server filesystem, not the agent's filesystem. Remote
+  clients should use `uploadBase64`.
 - `extraArgs`: advanced raw arguments appended after generated flags.
 
 Helper tools are named:
@@ -69,6 +72,8 @@ command. Prefer named tools because they carry generated scopes and clearer poli
   scope. Ask the user to disconnect/reconnect the connector after deployment has the scope.
 - `API not enabled`: the Google Cloud project must enable that API, for example `slides.googleapis.com`.
 - Validation errors mentioning `--params` or `--json`: fix the `params` or `json` object shape.
+- Upload path not found: do not pass an agent-local path through `upload`; encode the file and pass
+  it through `uploadBase64`. Inline uploads are limited to 10 MiB after decoding.
 - Empty/stale Claude tool list: disconnect/reconnect after backend tool-surface changes.
 
 For common recipes and examples, read `references/tool-patterns.md`.

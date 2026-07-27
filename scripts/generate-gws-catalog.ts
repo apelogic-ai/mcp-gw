@@ -498,7 +498,15 @@ export const GWS_GENERATED_TOOLS: WorkspaceToolDefinition[] = [
           ? [
               {
                 name: "upload",
-                description: "Local file path to upload as media content.",
+                description:
+                  "Path inside the MCP server filesystem to upload as media content. Remote clients should use uploadBase64.",
+                type: "string" as const,
+                required: false,
+              },
+              {
+                name: "uploadBase64",
+                description:
+                  "Base64-encoded media content transferred inline to the MCP server for upload.",
                 type: "string" as const,
                 required: false,
               },

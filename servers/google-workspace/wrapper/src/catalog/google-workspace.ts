@@ -80,6 +80,30 @@ const stringArrayParam = (name: string, description: string, required = false): 
   required,
 });
 
+const objectParam = (name: string, description: string, required = false): CatalogParam => ({
+  name,
+  description,
+  type: "object",
+  additionalProperties: true,
+  required,
+});
+
+const objectArrayParam = (name: string, description: string, required = false): CatalogParam => ({
+  name,
+  description,
+  type: "array",
+  items: { type: "object", additionalProperties: true },
+  required,
+});
+
+const nestedArrayParam = (name: string, description: string, required = false): CatalogParam => ({
+  name,
+  description,
+  type: "array",
+  items: { type: "array" },
+  required,
+});
+
 export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
   defineWorkspaceTool({
     name: "google_drive_files_list",
@@ -107,7 +131,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
     bodyParams: [
       stringParam("name", "File name.", true),
       stringParam("mimeType", "Target MIME type.", false),
-      stringParam("parents", "JSON array of parent folder IDs.", false),
+      stringArrayParam("parents", "Parent folder IDs."),
     ],
     defaultParams: DRIVE_SUPPORTS_ALL_DEFAULT,
     supportsUpload: true,
@@ -165,7 +189,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
       stringParam("userId", "Gmail user ID, usually me.", true),
       stringParam("q", "Gmail search query.", false),
       numberParam("maxResults", "Maximum messages to return."),
-      stringParam("labelIds", "Label IDs filter.", false),
+      stringArrayParam("labelIds", "Label IDs filter."),
     ],
   }),
   defineWorkspaceTool({
@@ -189,7 +213,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
     command: ["gmail", "users", "drafts", "create"],
     scopes: [GMAIL_SCOPE],
     params: [stringParam("userId", "Gmail user ID, usually me.", true)],
-    bodyParams: [stringParam("message", "Draft message resource as JSON.", true)],
+    bodyParams: [objectParam("message", "Draft message resource.", true)],
   }),
   defineWorkspaceTool({
     name: "google_gmail_threads_modify",
@@ -203,8 +227,8 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
       stringParam("id", "Thread ID.", true),
     ],
     bodyParams: [
-      stringParam("addLabelIds", "JSON array of labels to add.", false),
-      stringParam("removeLabelIds", "JSON array of labels to remove.", false),
+      stringArrayParam("addLabelIds", "Labels to add."),
+      stringArrayParam("removeLabelIds", "Labels to remove."),
     ],
   }),
   defineWorkspaceTool({
@@ -233,8 +257,8 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
     params: [stringParam("calendarId", "Calendar ID, usually primary.", true)],
     bodyParams: [
       stringParam("summary", "Event title.", true),
-      stringParam("start", "Start time object as JSON.", true),
-      stringParam("end", "End time object as JSON.", true),
+      objectParam("start", "Start time object.", true),
+      objectParam("end", "End time object.", true),
       stringParam("description", "Event description.", false),
       stringParam("location", "Event location.", false),
     ],
@@ -252,8 +276,8 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
     ],
     bodyParams: [
       stringParam("summary", "Event title.", false),
-      stringParam("start", "Start time object as JSON.", false),
-      stringParam("end", "End time object as JSON.", false),
+      objectParam("start", "Start time object."),
+      objectParam("end", "End time object."),
       stringParam("description", "Event description.", false),
     ],
   }),
@@ -295,7 +319,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
     command: ["docs", "documents", "batchUpdate"],
     scopes: [DOCS_SCOPE],
     params: [stringParam("documentId", "Google Doc ID.", true)],
-    bodyParams: [stringParam("requests", "Batch update requests as JSON.", true)],
+    bodyParams: [objectArrayParam("requests", "Batch update requests.", true)],
   }),
   defineWorkspaceTool({
     name: "google_sheets_get",
@@ -334,7 +358,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
       stringParam("range", "A1 notation range.", true),
       stringParam("valueInputOption", "RAW or USER_ENTERED.", true),
     ],
-    bodyParams: [stringParam("values", "2D values array as JSON.", true)],
+    bodyParams: [nestedArrayParam("values", "Two-dimensional values array.", true)],
   }),
   defineWorkspaceTool({
     name: "google_sheets_values_append",
@@ -348,7 +372,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
       stringParam("range", "A1 notation range.", true),
       stringParam("valueInputOption", "RAW or USER_ENTERED.", true),
     ],
-    bodyParams: [stringParam("values", "2D values array as JSON.", true)],
+    bodyParams: [nestedArrayParam("values", "Two-dimensional values array.", true)],
   }),
   defineWorkspaceTool({
     name: "google_tasks_tasklists_list",
@@ -413,7 +437,7 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
     actionClass: "write",
     command: ["meet", "spaces", "create"],
     scopes: [MEET_CREATED_SCOPE],
-    bodyParams: [stringParam("config", "Meet space config as JSON.", false)],
+    bodyParams: [objectParam("config", "Meet space config.")],
   }),
   defineWorkspaceTool({
     name: "google_workspace_gws",

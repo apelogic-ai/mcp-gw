@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -29,15 +29,20 @@ export interface ExecuteGwsToolOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_INLINE_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export async function executeGwsTool(options: ExecuteGwsToolOptions): Promise<unknown> {
   const homeDir = await mkdtemp(join(tmpdir(), "gws-home-"));
   const configDir = await mkdtemp(join(tmpdir(), "gws-config-"));
+  let uploadDir: string | undefined;
 
   try {
+    const prepared = await prepareInlineUpload(options.args);
+    uploadDir = prepared.uploadDir;
     const result = await spawnGws({
       ...options,
-      childArgs: buildGwsArgs(options.tool, options.args),
+      args: prepared.args,
+      childArgs: buildGwsArgs(options.tool, prepared.args),
       homeDir,
       configDir,
     });
@@ -55,6 +60,7 @@ export async function executeGwsTool(options: ExecuteGwsToolOptions): Promise<un
     await Promise.all([
       rm(homeDir, { recursive: true, force: true }),
       rm(configDir, { recursive: true, force: true }),
+      ...(uploadDir ? [rm(uploadDir, { recursive: true, force: true })] : []),
     ]);
   }
 }
@@ -84,8 +90,62 @@ export function buildGwsArgs(
     commandArgs.push("--json", JSON.stringify(body));
   }
 
+  if (tool.supportsUpload) {
+    appendOptionalStringFlag(commandArgs, "--upload", args, "upload");
+    appendOptionalStringFlag(commandArgs, "--upload-content-type", args, "uploadContentType");
+  }
+
   commandArgs.push("--format", "json");
   return commandArgs;
+}
+
+async function prepareInlineUpload(args: Record<string, unknown>): Promise<{
+  args: Record<string, unknown>;
+  uploadDir?: string;
+}> {
+  if (args.uploadBase64 === undefined) {
+    return { args };
+  }
+  if (args.upload !== undefined) {
+    throw new Error("upload and uploadBase64 cannot be used together");
+  }
+  if (typeof args.uploadBase64 !== "string") {
+    throw new Error("uploadBase64 must be a string");
+  }
+
+  const contents = decodeBase64(args.uploadBase64);
+  if (contents.byteLength > MAX_INLINE_UPLOAD_BYTES) {
+    throw new Error(`uploadBase64 exceeds the ${String(MAX_INLINE_UPLOAD_BYTES)} byte limit`);
+  }
+
+  const uploadDir = await mkdtemp(join(tmpdir(), "gws-upload-"));
+  const uploadPath = join(uploadDir, "upload.bin");
+  await writeFile(uploadPath, contents, { mode: 0o600 });
+
+  const preparedArgs: Record<string, unknown> = { ...args, upload: uploadPath };
+  delete preparedArgs.uploadBase64;
+  return { args: preparedArgs, uploadDir };
+}
+
+function decodeBase64(value: string): Buffer {
+  const normalized = value.trim().replaceAll("-", "+").replaceAll("_", "/");
+  const unpadded = normalized.replace(/=+$/, "");
+  if (
+    unpadded.length % 4 === 1 ||
+    !/^[A-Za-z0-9+/]*$/.test(unpadded) ||
+    !/^={0,2}$/.test(normalized.slice(unpadded.length))
+  ) {
+    throw new Error("uploadBase64 must contain valid base64 data");
+  }
+  if (Math.floor((unpadded.length * 3) / 4) > MAX_INLINE_UPLOAD_BYTES) {
+    throw new Error(`uploadBase64 exceeds the ${String(MAX_INLINE_UPLOAD_BYTES)} byte limit`);
+  }
+
+  const contents = Buffer.from(normalized, "base64");
+  if (contents.toString("base64").replace(/=+$/, "") !== unpadded) {
+    throw new Error("uploadBase64 must contain valid base64 data");
+  }
+  return contents;
 }
 
 function appendGeneratedGwsFlags(

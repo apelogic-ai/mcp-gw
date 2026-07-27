@@ -10,6 +10,8 @@ describe("Google Workspace MCP skill bundle", () => {
     expect(skill).toContain("google_workspace_gws");
     expect(skill).toContain("params");
     expect(skill).toContain("json");
+    expect(skill).toContain("uploadBase64");
+    expect(skill).toContain("server filesystem");
     expect(skill).toContain("args");
     expect(skill).toContain("reconnect");
   });
@@ -28,5 +30,7 @@ describe("Google Workspace MCP skill bundle", () => {
     expect(reference).toContain("slide_005");
     expect(reference).toContain("API disabled");
     expect(reference).toContain("missing scope");
+    expect(reference).toContain("Inline Drive Upload");
+    expect(reference).toContain("uploadBase64");
   });
 });

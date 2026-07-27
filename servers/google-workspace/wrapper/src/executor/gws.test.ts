@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -174,6 +175,100 @@ printf '{"page":1}\\n{"page":2}\\n'
       "--format",
       "json",
     ]);
+  });
+
+  test("preserves structured convenience-tool request bodies", () => {
+    expect(
+      buildGwsArgs(getGoogleWorkspaceTool("google_docs_batch_update"), {
+        documentId: "doc-1",
+        requests: [{ insertText: { text: "Hello", endOfSegmentLocation: {} } }],
+      }),
+    ).toEqual([
+      "docs",
+      "documents",
+      "batchUpdate",
+      "--params",
+      JSON.stringify({ documentId: "doc-1" }),
+      "--json",
+      JSON.stringify({
+        requests: [{ insertText: { text: "Hello", endOfSegmentLocation: {} } }],
+      }),
+      "--format",
+      "json",
+    ]);
+  });
+
+  test("stages inline upload bytes for gws and removes the temporary file", async () => {
+    const binary = await fakeGws(`
+node -e '
+  const fs = require("node:fs");
+  const argv = process.argv.slice(1);
+  const uploadPath = argv[argv.indexOf("--upload") + 1];
+  console.log(JSON.stringify({
+    argv,
+    uploadPath,
+    uploadBase64: fs.readFileSync(uploadPath).toString("base64")
+  }));
+' "$@"
+`);
+    const contents = Buffer.from("remote MCP upload");
+
+    const output = await executeGwsTool({
+      tool: getGoogleWorkspaceTool("gws_drive_files_create"),
+      args: {
+        params: { fields: "id,name" },
+        json: { name: "notes.txt" },
+        uploadBase64: contents.toString("base64"),
+        uploadContentType: "text/plain",
+      },
+      accessToken: "google-access-token",
+      gwsBinary: binary,
+    });
+    const result = JSON.parse(String(output)) as unknown;
+
+    expectRecord(result);
+    expect(result.uploadBase64).toBe(contents.toString("base64"));
+    expect(result.argv).toContain("--upload");
+    expect(result.argv).toContain("--upload-content-type");
+    expect(typeof result.uploadPath).toBe("string");
+    expect(existsSync(String(result.uploadPath))).toBe(false);
+  });
+
+  test("rejects ambiguous inline and server-path uploads", async () => {
+    const binary = await fakeGws("printf '{}'");
+
+    expect.assertions(1);
+    try {
+      await executeGwsTool({
+        tool: getGoogleWorkspaceTool("gws_drive_files_create"),
+        args: {
+          upload: "/tmp/server-file",
+          uploadBase64: Buffer.from("inline").toString("base64"),
+        },
+        accessToken: "google-access-token",
+        gwsBinary: binary,
+      });
+    } catch (error) {
+      expect((error as Error).message).toBe("upload and uploadBase64 cannot be used together");
+    }
+  });
+
+  test("rejects malformed inline upload data before spawning gws", async () => {
+    const binary = await fakeGws("exit 99");
+
+    expect.assertions(1);
+    try {
+      await executeGwsTool({
+        tool: getGoogleWorkspaceTool("gws_drive_files_create"),
+        args: {
+          uploadBase64: "not base64!",
+        },
+        accessToken: "google-access-token",
+        gwsBinary: binary,
+      });
+    } catch (error) {
+      expect((error as Error).message).toBe("uploadBase64 must contain valid base64 data");
+    }
   });
 
   test("builds gws argv for generated helper tools", () => {

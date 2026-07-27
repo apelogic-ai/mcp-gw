@@ -34,6 +34,27 @@ theme, sharing state, or internal document structure.
 }
 ```
 
+## Inline Drive Upload
+
+The Google Workspace wrapper runs in a different filesystem from the agent. Do not pass an
+agent-local path such as `/mnt/user-data/outputs/report.docx` through `upload`.
+
+Base64-encode the content and call an upload-capable method such as `gws_drive_files_create`:
+
+```json
+{
+  "json": {
+    "name": "report.docx"
+  },
+  "uploadBase64": "<base64-encoded file bytes>",
+  "uploadContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+}
+```
+
+The wrapper stages the decoded bytes in a private temporary file, invokes `gws`, and removes the
+file afterward. Inline uploads are limited to 10 MiB after decoding. The legacy `upload` argument
+addresses the MCP server filesystem, not the agent filesystem.
+
 ## Generic Passthrough
 
 Use `google_workspace_gws` for raw CLI cases:
