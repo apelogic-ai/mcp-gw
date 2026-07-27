@@ -88,6 +88,26 @@ describe("GitHub MCP wrapper main config", () => {
     ]);
   });
 
+  test("requires paired introspection URL and client credential", () => {
+    const introspectionEnv = {
+      ...baseEnv,
+      HOP1_INTROSPECTION_URL: "https://issuer.example.com/introspect",
+    };
+
+    expect(() => loadMainConfig(introspectionEnv)).toThrow(
+      "HOP1_INTROSPECTION_URL and HOP1_INTROSPECTION_CLIENT_CREDENTIAL must be set together",
+    );
+    expect(
+      loadMainConfig({
+        ...introspectionEnv,
+        HOP1_INTROSPECTION_CLIENT_CREDENTIAL: "gateway-credential",
+      }).hop1Issuers[0],
+    ).toMatchObject({
+      introspectionUrl: "https://issuer.example.com/introspect",
+      introspectionClientCredential: "gateway-credential",
+    });
+  });
+
   test("requires token store and HOP-1 issuer settings", () => {
     expect(() => loadMainConfig({ ...baseEnv, TOKEN_STORE_DSN: undefined })).toThrow(
       "Missing required env var: TOKEN_STORE_DSN",

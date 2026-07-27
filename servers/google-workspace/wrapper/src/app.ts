@@ -22,6 +22,8 @@ export interface WrapperConfig {
 
 export interface Hop1IssuerConfig extends IssuerProfile {
   jwksUrl: string;
+  introspectionUrl?: string;
+  introspectionClientCredential?: string;
 }
 
 export interface PolicyConfig {
@@ -118,6 +120,11 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
     return parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index));
   }
 
+  const introspection = introspectionConfig(
+    env.HOP1_INTROSPECTION_URL,
+    env.HOP1_INTROSPECTION_CLIENT_CREDENTIAL,
+    "HOP1_INTROSPECTION_URL and HOP1_INTROSPECTION_CLIENT_CREDENTIAL",
+  );
   return [
     {
       name: env.HOP1_PROFILE ?? "google",
@@ -129,6 +136,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
         .filter(Boolean),
       emailClaim: requiredEnv(env, "HOP1_EMAIL_CLAIM"),
       subjectClaim: env.HOP1_SUBJECT_CLAIM,
+      ...introspection,
     },
   ];
 }
@@ -144,6 +152,20 @@ function parseHop1IssuerConfig(value: unknown, index: number): Hop1IssuerConfig 
     throw new Error(`HOP1_ISSUERS_JSON[${String(index)}].audiences must be a string array`);
   }
   const audienceValues = audiences as string[];
+  const introspectionUrl =
+    typeof record.introspectionUrl === "string" && record.introspectionUrl.length > 0
+      ? record.introspectionUrl
+      : undefined;
+  const introspectionClientCredential =
+    typeof record.introspectionClientCredential === "string" &&
+    record.introspectionClientCredential.length > 0
+      ? record.introspectionClientCredential
+      : undefined;
+  const introspection = introspectionConfig(
+    introspectionUrl,
+    introspectionClientCredential,
+    `HOP1_ISSUERS_JSON[${String(index)}].introspectionUrl and introspectionClientCredential`,
+  );
 
   return {
     name: stringField(record, "name", index),
@@ -155,7 +177,24 @@ function parseHop1IssuerConfig(value: unknown, index: number): Hop1IssuerConfig 
       typeof record.subjectClaim === "string" && record.subjectClaim.length > 0
         ? record.subjectClaim
         : undefined,
+    ...introspection,
   };
+}
+
+function introspectionConfig(
+  url: string | undefined,
+  clientCredential: string | undefined,
+  names: string,
+): Pick<Hop1IssuerConfig, "introspectionUrl" | "introspectionClientCredential"> {
+  if (Boolean(url) !== Boolean(clientCredential)) {
+    throw new Error(`${names} must be set together`);
+  }
+  return url && clientCredential
+    ? {
+        introspectionUrl: url,
+        introspectionClientCredential: clientCredential,
+      }
+    : {};
 }
 
 function stringField(record: Record<string, unknown>, name: string, index: number): string {

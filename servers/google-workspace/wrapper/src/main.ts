@@ -54,6 +54,13 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
   const hop1Issuers = config.wrapper.hop1Issuers.map((issuer) => ({
     profile: issuer,
     jwksProvider: createRemoteJwksProvider(issuer.jwksUrl),
+    introspection:
+      issuer.introspectionUrl && issuer.introspectionClientCredential
+        ? {
+            url: issuer.introspectionUrl,
+            clientCredential: issuer.introspectionClientCredential,
+          }
+        : undefined,
   }));
   const authenticate = createRuntimeAuthenticator({ issuers: hop1Issuers });
   const stateStore = new SqlOAuthStateStore(queryClient);

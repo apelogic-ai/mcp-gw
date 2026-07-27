@@ -90,6 +90,34 @@ describe("Google Workspace wrapper app", () => {
     ]);
   });
 
+  test("requires paired introspection URL and client credential", () => {
+    const base = {
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://dev.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://issuer.example.com",
+      HOP1_AUDIENCE: "mcp-gateway-dev",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_JWKS_URL: "https://issuer.example.com/.well-known/jwks.json",
+      HOP1_INTROSPECTION_URL: "https://issuer.example.com/introspect",
+    };
+
+    expect(() => loadWrapperConfig(base)).toThrow(
+      "HOP1_INTROSPECTION_URL and HOP1_INTROSPECTION_CLIENT_CREDENTIAL must be set together",
+    );
+    expect(
+      loadWrapperConfig({
+        ...base,
+        HOP1_INTROSPECTION_CLIENT_CREDENTIAL: "gateway-credential",
+      }).hop1Issuers[0],
+    ).toMatchObject({
+      introspectionUrl: "https://issuer.example.com/introspect",
+      introspectionClientCredential: "gateway-credential",
+    });
+  });
+
   test("loads optional policy and audit wiring from environment", () => {
     const config = loadWrapperConfig({
       GOOGLE_OAUTH_CLIENT_ID: "client-id",

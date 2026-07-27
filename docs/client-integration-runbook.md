@@ -128,6 +128,8 @@ HOP1_AUDIENCE=<mcp-gateway-audience>
 HOP1_OAUTH_SCOPES="openid email"
 HOP1_EMAIL_CLAIM=email
 HOP1_SUBJECT_CLAIM=sub
+HOP1_INTROSPECTION_URL=<issuer-introspection-url>
+HOP1_INTROSPECTION_CLIENT_CREDENTIAL=<gateway-only-credential>
 ```
 
 `GOOGLE_TOKEN_ENCRYPTION_KEY` must decode to exactly 32 bytes:
@@ -138,6 +140,11 @@ openssl rand -base64 32
 
 Multiple HOP-1 issuers can be configured with `HOP1_ISSUERS_JSON`; see
 `deploy/compose/.env.example`.
+
+For issuers that require immediate revocation, set both introspection values.
+The wrapper then performs authenticated, fail-closed introspection after local
+JWT validation on every HOP-1-authenticated request. Keep the client credential
+in the deployment secret store; never place its value in source.
 
 Provider credentials for optional backends can be connected by an external control plane or internal
 portal. See [provider-connection-flows.md](provider-connection-flows.md).

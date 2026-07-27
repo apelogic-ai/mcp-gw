@@ -9,7 +9,12 @@ import {
   InMemoryOAuthTokenStore,
 } from "../../../../shared/oauth/memory-store";
 import { completeGoogleOAuth, startGoogleOAuth } from "../../../../shared/oauth/google";
-import { createRuntimeAuthenticator, createRuntimeWrapperHandler } from "./runtime";
+import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
+import {
+  createRuntimeAuthenticator,
+  createRuntimeWrapperHandler,
+  type RuntimeTrustedIssuer,
+} from "./runtime";
 
 let privateKey: CryptoKey;
 let publicJwk: JWK;
@@ -92,6 +97,70 @@ describe("runtime wrapper wiring", () => {
       email: "partner@example.com",
       subject: "partner-user",
     });
+  });
+
+  test("rejects a locally valid HOP-1 when issuer introspection says inactive", async () => {
+    const token = await signHop1Token();
+    const issuer: RuntimeTrustedIssuer = {
+      profile: hop1,
+      jwksProvider: () => Promise.resolve([publicJwk]),
+      introspection: {
+        url: "https://accounts.google.com/introspect",
+        clientCredential: "gateway-credential",
+        fetch: (input: string | URL | Request, init?: RequestInit) => {
+          expect(input).toBe("https://accounts.google.com/introspect");
+          expect(new Headers(init?.headers).get("authorization")).toBe("Bearer gateway-credential");
+          expect(init?.body).toBe(`token=${token}`);
+          return Promise.resolve(Response.json({ active: false }));
+        },
+      },
+    };
+    const authenticate = createRuntimeAuthenticator({ issuers: [issuer] });
+
+    expect.assertions(4);
+    try {
+      await authenticate(token);
+    } catch (error) {
+      expect((error as Error).message).toBe("HOP-1 token is inactive");
+    }
+  });
+
+  test("rejects a revoked HOP-1 through the real MCP request path", async () => {
+    const token = await signHop1Token();
+    let active = true;
+    const issuer: RuntimeTrustedIssuer = {
+      profile: hop1,
+      jwksProvider: () => Promise.resolve([publicJwk]),
+      introspection: {
+        url: "https://accounts.google.com/introspect",
+        clientCredential: "gateway-credential",
+        fetch: () => Promise.resolve(Response.json({ active })),
+      },
+    };
+    const handler = createAuthenticatedMcpHttpHandler({
+      authenticate: createRuntimeAuthenticator({ issuers: [issuer] }),
+      registryFor: () => ({
+        listTools: () => [],
+        callTool: () => Promise.reject(new Error("no tool should run")),
+      }),
+      serverInfo: { name: "test-wrapper", version: "0.1.0" },
+    });
+    const request = () =>
+      new Request("https://mcp.example.com/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+
+    const beforeRevocation = await handler(request());
+    active = false;
+    const afterRevocation = await handler(request());
+
+    expect(beforeRevocation.status).toBe(200);
+    expect(afterRevocation.status).toBe(401);
   });
 
   test("serves an authenticated MCP tool call through token broker and gws executor", async () => {

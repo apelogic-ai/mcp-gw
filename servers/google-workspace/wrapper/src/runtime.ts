@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { JsonlAuditSink, type AuditSink } from "../../../../shared/audit/audit";
 import {
+  Hop1ValidationError,
   validateHop1JwtForIssuers,
   type Hop1Identity,
   type IssuerProfile,
@@ -24,7 +25,19 @@ export type JwksProvider = () => Promise<JWK[]>;
 export interface RuntimeTrustedIssuer {
   profile: IssuerProfile;
   jwksProvider: JwksProvider;
+  introspection?: RuntimeIntrospectionConfig;
 }
+
+export interface RuntimeIntrospectionConfig {
+  url: string;
+  clientCredential: string;
+  fetch?: RuntimeIntrospectionFetch;
+}
+
+export type RuntimeIntrospectionFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export interface CreateRuntimeAuthenticatorOptions {
   issuers: RuntimeTrustedIssuer[];
@@ -46,8 +59,8 @@ export interface CreateRuntimeWrapperHandlerOptions {
 export function createRuntimeAuthenticator(
   options: CreateRuntimeAuthenticatorOptions,
 ): (token: string) => Promise<Hop1Identity> {
-  return async (token) =>
-    validateHop1JwtForIssuers(
+  return async (token) => {
+    const identity = await validateHop1JwtForIssuers(
       token,
       await Promise.all(
         options.issuers.map(async (issuer) => ({
@@ -56,6 +69,18 @@ export function createRuntimeAuthenticator(
         })),
       ),
     );
+    const issuer = options.issuers.find(
+      (candidate) =>
+        candidate.profile.name === identity.profile && candidate.profile.issuer === identity.issuer,
+    );
+    if (!issuer) {
+      throw new Hop1ValidationError("Validated HOP-1 issuer is not configured");
+    }
+    if (issuer.introspection) {
+      await requireActiveIntrospection(token, issuer.introspection);
+    }
+    return identity;
+  };
 }
 
 export function createRuntimeWrapperHandler(
@@ -79,6 +104,13 @@ export function createRuntimeWrapperHandler(
         options.config.hop1Issuers.map((issuer) => ({
           profile: issuer,
           jwksProvider: createRemoteJwksProvider(issuer.jwksUrl),
+          introspection:
+            issuer.introspectionUrl && issuer.introspectionClientCredential
+              ? {
+                  url: issuer.introspectionUrl,
+                  clientCredential: issuer.introspectionClientCredential,
+                }
+              : undefined,
         })),
     }),
     audit: options.audit ?? createAuditSink(options.config),
@@ -132,6 +164,43 @@ export function createRuntimeWrapperHandler(
 function missingRequiredScopes(required: string[], granted: string[]): string[] {
   const grantedSet = new Set(granted);
   return required.filter((scope) => !grantedSet.has(scope));
+}
+
+async function requireActiveIntrospection(
+  token: string,
+  config: RuntimeIntrospectionConfig,
+): Promise<void> {
+  const fetchImpl = config.fetch ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(config.url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.clientCredential}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ token }).toString(),
+    });
+  } catch {
+    throw new Hop1ValidationError("HOP-1 introspection is unavailable");
+  }
+  if (!response.ok) {
+    throw new Hop1ValidationError("HOP-1 introspection is unavailable");
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Hop1ValidationError("HOP-1 introspection returned an invalid response");
+  }
+  if (!isRecord(body) || body.active !== true) {
+    throw new Hop1ValidationError("HOP-1 token is inactive");
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function createRemoteJwksProvider(
