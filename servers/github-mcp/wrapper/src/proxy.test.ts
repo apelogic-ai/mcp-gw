@@ -532,7 +532,11 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(policyInputs).toEqual([
       {
         principal: "user@example.com",
-        tokenClaims: identityWithAuthority.claims,
+        tokenClaims: {
+          ...identityWithAuthority.claims,
+          email: "user@example.com",
+          sub: "user-123",
+        },
         tool: "github_create_issue",
         service: "github",
         actionClass: "write",

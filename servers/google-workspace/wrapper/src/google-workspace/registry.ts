@@ -1,4 +1,4 @@
-import type { Hop1Identity } from "../../../../../shared/identity/hop1";
+import { normalizedHop1Claims, type Hop1Identity } from "../../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../../shared/audit/audit";
 import {
   AllowAllPolicy,
@@ -78,7 +78,7 @@ export function createGoogleWorkspaceRegistry(
 
       const decision = await policy.decide({
         principal: options.identity.email,
-        tokenClaims: options.identity.claims,
+        tokenClaims: normalizedHop1Claims(options.identity),
         tool: tool.name,
         service: tool.service,
         actionClass: tool.actionClass,

@@ -21,6 +21,14 @@ export interface TrustedIssuer {
   jwks: JWK[];
 }
 
+export function normalizedHop1Claims(identity: Hop1Identity): JWTPayload {
+  return {
+    ...identity.claims,
+    email: identity.email,
+    sub: identity.subject,
+  };
+}
+
 export class Hop1ValidationError extends Error {
   constructor(message: string) {
     super(message);
