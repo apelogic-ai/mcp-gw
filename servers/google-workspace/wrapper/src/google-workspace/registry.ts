@@ -78,6 +78,7 @@ export function createGoogleWorkspaceRegistry(
 
       const decision = await policy.decide({
         principal: options.identity.email,
+        tokenClaims: options.identity.claims,
         tool: tool.name,
         service: tool.service,
         actionClass: tool.actionClass,

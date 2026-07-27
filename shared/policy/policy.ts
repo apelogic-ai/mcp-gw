@@ -5,6 +5,7 @@ export type PolicyActionClass = "read" | "write" | "destructive";
 
 export interface ToolPolicyInput {
   principal: string;
+  tokenClaims: Record<string, unknown>;
   tool: string;
   service: string;
   actionClass: PolicyActionClass;

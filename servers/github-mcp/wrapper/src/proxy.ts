@@ -132,6 +132,7 @@ export function createGithubMcpProxyHandler(
     if (toolCall) {
       const decision = await policy.decide({
         principal: identity.email,
+        tokenClaims: identity.claims,
         tool: toolCall.toolName,
         service: "github",
         actionClass: toolCall.actionClass,

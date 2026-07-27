@@ -470,9 +470,26 @@ describe("GitHub MCP proxy wrapper", () => {
   test("denies tool calls before resolving GitHub credentials when policy rejects them", async () => {
     const policyInputs: ToolPolicyInput[] = [];
     const audit = new InMemoryAuditSink();
+    const identityWithAuthority = {
+      ...identity,
+      claims: {
+        steward: {
+          acting_as: "user",
+          runtime_uid: "runtime-uid-a",
+          tools: [
+            {
+              provider: "github",
+              resource: "github_create_issue",
+              action: "write",
+            },
+          ],
+          version: 1,
+        },
+      },
+    };
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
-      authenticate: () => Promise.resolve(identity),
+      authenticate: () => Promise.resolve(identityWithAuthority),
       resolveGithubToken: () => Promise.reject(new Error("should not resolve token")),
       githubScopes: ["repo"],
       audit,
@@ -515,6 +532,7 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(policyInputs).toEqual([
       {
         principal: "user@example.com",
+        tokenClaims: identityWithAuthority.claims,
         tool: "github_create_issue",
         service: "github",
         actionClass: "write",
