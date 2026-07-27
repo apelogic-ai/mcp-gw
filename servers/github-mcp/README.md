@@ -59,10 +59,13 @@ GITHUB_OAUTH_CLIENT_ID
 GITHUB_OAUTH_CLIENT_SECRET
 GITHUB_OAUTH_REDIRECT_URI
 HOP1_ISSUER / HOP1_JWKS_URL / HOP1_AUDIENCE / HOP1_EMAIL_CLAIM
+HOP1_INTROSPECTION_URL / HOP1_INTROSPECTION_CLIENT_CREDENTIAL
 ```
 
 `HOP1_ISSUERS_JSON` can replace the single-issuer variables for multi-issuer
-deployments.
+deployments. Introspection is optional per issuer; when configured, every
+authenticated request fails closed unless the issuer confirms the HOP-1 is
+still active.
 
 Optional guardrail environment:
 
