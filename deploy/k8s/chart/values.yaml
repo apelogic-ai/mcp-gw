@@ -7,6 +7,20 @@ agentgateway:
   image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1
   replicas: 2
   port: 8080
+  mcpAuthentication:
+    mode: strict
+    issuer: https://accounts.google.com
+    audiences:
+      - https://mcp.example.com/mcp
+    jwksUrl: https://www.googleapis.com/oauth2/v3/certs
+    providers: []
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported:
+        - openid
+        - email
+      bearerMethodsSupported:
+        - header
   backends:
     - name: google-workspace
       enabled: true

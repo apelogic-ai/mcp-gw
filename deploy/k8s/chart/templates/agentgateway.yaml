@@ -9,27 +9,51 @@ metadata:
     app.kubernetes.io/component: agentgateway
 data:
   config.yaml: |
-    listeners:
-      - name: public-mcp
-        port: {{ .Values.agentgateway.port }}
-        protocol: HTTP
-    backends:
-      mcp:
-        failureMode: failOpen
-        prefixMode: never
-        targets:
+    binds:
+      - port: {{ .Values.agentgateway.port }}
+        listeners:
+          - routes:
+              - matches:
+                  - path:
+                      exact: /mcp
+                  - path:
+                      exact: /.well-known/oauth-protected-resource/mcp
+                policies:
+                  cors:
+                    allowOrigins: ["*"]
+                    allowHeaders: [mcp-protocol-version, content-type, authorization]
+                    exposeHeaders: ["Mcp-Session-Id"]
+                  mcpAuthentication:
+                    mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
+{{- if .Values.agentgateway.mcpAuthentication.providers }}
+                    providers:
+{{ toYaml .Values.agentgateway.mcpAuthentication.providers | nindent 22 }}
+{{- else }}
+                    issuer: {{ .Values.agentgateway.mcpAuthentication.issuer }}
+                    audiences:
+{{ toYaml .Values.agentgateway.mcpAuthentication.audiences | nindent 22 }}
+                    jwks:
+                      url: {{ .Values.agentgateway.mcpAuthentication.jwksUrl }}
+{{- end }}
+                    resourceMetadata:
+{{ toYaml .Values.agentgateway.mcpAuthentication.resourceMetadata | nindent 22 }}
+                backends:
+                  - mcp:
+                      failureMode: failOpen
+                      prefixMode: never
+                      targets:
 {{- range .Values.agentgateway.backends }}
 {{- if .enabled }}
 {{- $host := .host | default "" }}
 {{- if not $host }}
 {{- $host = printf "http://%s-%s:%v%s" (include "mcp-gateway.fullname" $) .serviceName (.port | default 8080) (.path | default "/mcp") }}
 {{- end }}
-          - name: {{ .name }}
-            policies:
-              backendAuth:
-                passthrough: {}
-            mcp:
-              host: {{ $host }}
+                        - name: {{ .name }}
+                          policies:
+                            backendAuth:
+                              passthrough: {}
+                          mcp:
+                            host: {{ $host }}
 {{- end }}
 {{- end }}
 ---

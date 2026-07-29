@@ -87,6 +87,7 @@ describe("DEV infrastructure skeleton", () => {
     const inventory = await readFile("deploy/infra/ansible/inventory.example.ini", "utf8");
     const playbook = await readFile("deploy/infra/ansible/deploy-compose.yml", "utf8");
     const envTemplate = await readFile("deploy/infra/ansible/env.j2", "utf8");
+    const gatewayTemplate = await readFile("deploy/infra/ansible/agentgateway-dev.yaml.j2", "utf8");
 
     expect(inventory).toContain("[mcp_gateway_dev]");
     expect(playbook).toContain("Install Docker");
@@ -96,5 +97,7 @@ describe("DEV infrastructure skeleton", () => {
     expect(playbook).toContain("scripts/smoke-compose.sh");
     expect(envTemplate).toContain("HOP1_OAUTH_SCOPES={{ hop1_oauth_scopes");
     expect(envTemplate).toContain("GOOGLE_OAUTH_SCOPES={{ google_oauth_scopes");
+    expect(gatewayTemplate).toContain("hop1_oauth_scopes");
+    expect(gatewayTemplate).not.toContain("scopesSupported: [read:all]");
   });
 });
