@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { parse } from "yaml";
 
 describe("release metadata", () => {
   test("documents the release process and current package version", async () => {
@@ -41,5 +42,18 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("bun run deploy:check");
     expect(releaseWorkflow).toContain("gh release create");
     expect(releaseWorkflow).toContain("--generate-notes");
+  });
+
+  test("keeps Helm chart versions aligned with the package release", async () => {
+    const [packageJson, chartYaml] = await Promise.all([
+      readFile("package.json", "utf8"),
+      readFile("deploy/k8s/chart/Chart.yaml", "utf8"),
+    ]);
+
+    const packageVersion = (JSON.parse(packageJson) as { version: string }).version;
+    const chart = parse(chartYaml) as { version: string; appVersion: string };
+
+    expect(chart.version).toBe(packageVersion);
+    expect(chart.appVersion).toBe(packageVersion);
   });
 });

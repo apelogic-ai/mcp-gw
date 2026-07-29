@@ -15,7 +15,7 @@ Use SemVer:
 - `PATCH`: bug fixes, documentation fixes, test improvements, and non-breaking deployment-template
   corrections.
 
-The current public release line is `v0.2.0`.
+The current public release line is `v0.2.1`.
 
 ## Release Artifacts
 
