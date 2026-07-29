@@ -1,4 +1,4 @@
-import type { Hop1Identity } from "../../../../shared/identity/hop1";
+import { normalizedHop1Claims, type Hop1Identity } from "../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../shared/audit/audit";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import {
@@ -132,6 +132,7 @@ export function createGithubMcpProxyHandler(
     if (toolCall) {
       const decision = await policy.decide({
         principal: identity.email,
+        tokenClaims: normalizedHop1Claims(identity),
         tool: toolCall.toolName,
         service: "github",
         actionClass: toolCall.actionClass,

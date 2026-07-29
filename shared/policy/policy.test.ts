@@ -11,6 +11,13 @@ import {
 describe("policy primitives", () => {
   const input = {
     principal: "user@example.com",
+    tokenClaims: {
+      steward: {
+        acting_as: "user",
+        runtime_uid: "runtime-uid-a",
+        version: 1,
+      },
+    },
     tool: "google_drive_files_delete",
     service: "drive",
     actionClass: "destructive" as const,
@@ -28,6 +35,7 @@ describe("policy primitives", () => {
   test("maps OPA allow responses to policy decisions without exposing raw args", async () => {
     const adapter = new OpaPolicyAdapter((request) => {
       expect(request.input.tool).toBe("google_drive_files_delete");
+      expect(request.input.tokenClaims).toEqual(input.tokenClaims);
       expect(request.input.args).toEqual({
         fileId: "file-123",
         accessToken: "[redacted]",
