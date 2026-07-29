@@ -141,6 +141,12 @@ openssl rand -base64 32
 Multiple HOP-1 issuers can be configured with `HOP1_ISSUERS_JSON`; see
 `deploy/compose/.env.example`.
 
+Agentgateway protected-resource metadata must advertise the same identity
+scopes as `HOP1_OAUTH_SCOPES`. The deployment renderers derive
+`scopesSupported` from that setting; do not replace it with application
+permissions such as `read:all`. Google Workspace, GitHub, and other provider
+permissions belong to their separate downstream consent flows.
+
 For issuers that require immediate revocation, set both introspection values.
 The wrapper then performs authenticated, fail-closed introspection after local
 JWT validation on every HOP-1-authenticated request. Keep the client credential

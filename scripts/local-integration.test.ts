@@ -52,6 +52,8 @@ describe("local Docker integration smoke", () => {
     expect(config).toContain("name: google");
     expect(config).not.toContain("name: google-workspace");
     expect(config).toContain("issuer: http://host.docker.internal:18080");
+    expect(config).toContain("scopesSupported: [openid, email]");
+    expect(config).not.toContain("scopesSupported: [read:all]");
     expect(config).toContain("host: http://google-workspace:8080/mcp");
   });
 
@@ -75,6 +77,8 @@ describe("local Docker integration smoke", () => {
     expect(config).toContain("name: github");
     expect(config).toContain("host: http://github-wrapper:8080/mcp");
     expect(config).toContain("mcpAuthentication:");
+    expect(config).toContain("scopesSupported: [openid, email]");
+    expect(config).not.toContain("scopesSupported: [read:all]");
     expect(config).toContain("failureMode: failOpen");
   });
 });

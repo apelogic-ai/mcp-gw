@@ -12,7 +12,11 @@ Recommended shape:
    private branch.
 4. Replace placeholders for hostnames, image digests, secret-store names,
    cloud role annotations, and secret-manager keys.
-5. Reconcile with Flux or Argo CD using the examples in this directory.
+5. Set `agentgateway.mcpAuthentication.audiences` and
+   `agentgateway.mcpAuthentication.resourceMetadata.resource` to the public MCP
+   URL. Keep `resourceMetadata.scopesSupported` aligned with the wrappers'
+   `HOP1_OAUTH_SCOPES`; the default identity scopes are `openid` and `email`.
+6. Reconcile with Flux or Argo CD using the examples in this directory.
 
 To add an MCP backend behind the same public `/mcp` endpoint, add the backend
 runtime manifests or install its own chart, then append an entry under

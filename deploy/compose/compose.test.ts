@@ -92,6 +92,9 @@ describe("Docker Compose deployment skeleton", () => {
     expect(deploy).toContain("reverse_proxy google-workspace:8080");
     expect(deploy).toContain("oauth-authorization-server");
     expect(deploy).toContain("AGENTGATEWAY_MCP_AUTH_YAML");
+    expect(deploy).toContain("AGENTGATEWAY_MCP_SCOPES_YAML");
+    expect(deploy).toContain('os.environ.get("HOP1_OAUTH_SCOPES", "openid email")');
+    expect(deploy).not.toContain("scopesSupported: [read:all]");
     expect(deploy).toContain("HOP1_ISSUERS_JSON");
     expect(deploy).not.toContain("respond `");
   });

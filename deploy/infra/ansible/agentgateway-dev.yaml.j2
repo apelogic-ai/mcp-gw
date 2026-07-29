@@ -36,7 +36,7 @@ binds:
 {% endif %}
                 resourceMetadata:
                   resource: {{ hop1_resource | default(hop1_audience) }}
-                  scopesSupported: [read:all]
+                  scopesSupported: {{ (hop1_oauth_scopes | default('openid email')).replace(',', ' ').split() | to_json }}
                   bearerMethodsSupported: [header]
             backends:
               - mcp:

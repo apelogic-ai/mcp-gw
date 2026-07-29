@@ -11,6 +11,16 @@ global:
 agentgateway:
   image: ghcr.io/example/agentgateway@sha256:0000000000000000000000000000000000000000000000000000000000000000
   replicas: 3
+  mcpAuthentication:
+    audiences:
+      - https://mcp-gateway.internal.example.com/mcp
+    resourceMetadata:
+      resource: https://mcp-gateway.internal.example.com/mcp
+      scopesSupported:
+        - openid
+        - email
+      bearerMethodsSupported:
+        - header
   serviceAccount:
     annotations:
       eks.amazonaws.com/role-arn: arn:aws:iam::<aws-account-id>:role/mcp-gateway-agentgateway

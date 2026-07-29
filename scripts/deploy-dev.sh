@@ -117,6 +117,27 @@ else:
 PY
 )"
 
+AGENTGATEWAY_MCP_SCOPES_YAML="\$(python3 - <<'PY'
+import json
+import os
+import re
+
+scopes = [
+    scope
+    for scope in re.split(
+        r"[\s,]+",
+        os.environ.get("HOP1_OAUTH_SCOPES", "openid email").strip(),
+    )
+    if scope
+]
+if not scopes:
+    raise SystemExit("HOP1_OAUTH_SCOPES must contain at least one identity scope")
+
+for scope in scopes:
+    print(f"                    - {json.dumps(scope)}")
+PY
+)"
+
 cat > "\$APP_DIR.next/deploy/compose/.agentgateway-dev.yaml" <<YAML
 binds:
   - port: 3000
@@ -137,7 +158,8 @@ binds:
 \${AGENTGATEWAY_MCP_AUTH_YAML}
                 resourceMetadata:
                   resource: \${HOP1_AUDIENCE}
-                  scopesSupported: [read:all]
+                  scopesSupported:
+\${AGENTGATEWAY_MCP_SCOPES_YAML}
                   bearerMethodsSupported: [header]
             backends:
               - mcp:
