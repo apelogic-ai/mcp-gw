@@ -10,6 +10,21 @@ human-maintained compatibility summary.
 
 - No unreleased changes yet.
 
+## [0.2.1] - 2026-07-29
+
+- Separated gateway authentication from downstream provider consent so Google Workspace and GitHub
+  use the same explicit per-provider OAuth helper flow.
+- Fixed generated Google Workspace tools to accept structured request bodies and improved upload
+  handling and guidance.
+- Added configured HOP-1 issuer introspection and exposed verified identity claims to YAML tool
+  policies.
+- Fixed HOP-1 protected-resource metadata to advertise the configured identity scopes, including
+  consistent Docker Compose, Ansible, Helm, and local integration behavior.
+- Added Helm rendering for front-door MCP authentication and aligned Helm chart release metadata
+  with the source release.
+- No data migration is required. Existing clients only need to reconnect if they cached invalid
+  protected-resource metadata from an affected deployment.
+
 ## [0.2.0] - 2026-07-18
 
 - Added optional official GitHub MCP backend bundling through the MCP-GW backend registry.
@@ -36,6 +51,7 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/apelogic-ai/mcp-gw/releases/tag/v0.1.0
