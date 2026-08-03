@@ -22,11 +22,17 @@ describe("release metadata", () => {
     expect(changelog).toContain(`## [${parsedPackage.version}]`);
     expect(releaseDocs).toContain("SemVer");
     expect(releaseDocs).toContain(`v${parsedPackage.version}`);
+    expect(releaseDocs).toContain("OCI Helm chart");
+    expect(releaseDocs).toContain("SBOM");
+    expect(releaseDocs).toContain("provenance");
+    expect(releaseDocs).toContain("vulnerability report");
     expect(readme).toContain("docs/releases.md");
     expect(skill).toContain("name: mcp-gw-release");
     expect(skill).toContain("bun run release:check");
     expect(skill).toContain("git tag -a vX.Y.Z");
     expect(skill).toContain("Do not include private DEV hostnames");
+    expect(skill).toContain("OCI Helm chart");
+    expect(skill).toContain("image digests");
   });
 
   test("runs release metadata checks in CI and on version tags", async () => {
@@ -42,6 +48,7 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("bun run deploy:check");
     expect(releaseWorkflow).toContain("gh release create");
     expect(releaseWorkflow).toContain("--generate-notes");
+    expect(releaseWorkflow).toContain("release-handoff.md");
   });
 
   test("keeps Helm chart versions aligned with the package release", async () => {

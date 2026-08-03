@@ -91,25 +91,18 @@ cloud credentials.
 
 ## Deployment
 
-Deployment templates are provided for:
+Deployment assets are provided for:
 
-- local and DEV-style Docker Compose under [deploy/compose](deploy/compose);
-- a single AWS Compose host under [deploy/infra](deploy/infra);
+- local Docker Compose under [deploy/compose](deploy/compose);
 - Kubernetes/Helm under [deploy/k8s](deploy/k8s).
 
-The checked-in deployment defaults pin the ApeLogic `agentgateway` fork image
-`ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1`. That fork includes MCP
-multi-provider authentication plus upstream `prefixMode: never` routing support required for
-multiple HOP-1 clients and multiple MCP backends behind one `/mcp` endpoint. Do not replace it with
-upstream `agentgateway` unless upstream has accepted equivalent MCP authentication behavior.
-Production overlays should mirror or rebuild the pinned fork version into a private registry and pin
-by digest.
+Tagged releases publish a compatible `mcp-gw-agentgateway` image alongside the provider wrappers.
+Production overlays should pin the exact image digests recorded in the release handoff.
 
-The Kubernetes chart is intended for fork-and-overlay enterprise deployments. Keep
-[deploy/k8s/chart](deploy/k8s/chart) close to upstream, then put org-specific hostnames, image
-digests, identity annotations, and secret-manager paths in a private values overlay. Flux, Argo CD,
-AWS External Secrets, and private overlay examples are in
-[deploy/k8s/examples](deploy/k8s/examples).
+The Kubernetes chart is intended for chart-plus-private-values enterprise deployments. Put
+organization-specific hostnames, image digests, identity annotations, existing Secret references,
+and scheduling policy in a private values overlay. Flux, Argo CD, and private overlay examples are
+in [deploy/k8s/examples](deploy/k8s/examples).
 
 Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
 checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern.
@@ -133,14 +126,14 @@ Agentgateway has an Admin UI, but this chart does not expose it. Keep UI access 
 `kubectl port-forward` or a private overlay protected by corporate network controls and SSO.
 
 The deployment assets are templates. Replace placeholder domains, OAuth client IDs, redirect URIs,
-cloud role ARNs, image digests, and secret values for each environment. Do not commit real runtime
+image digests, and existing Secret references for each environment. Do not commit real runtime
 secrets to this repository.
 
 ## Releases
 
-Releases are SemVer Git tags with GitHub Releases. Enterprise forks should pin upstream release tags,
-mirror or rebuild artifacts into private registries, and keep private deployment overlays outside the
-public repo. See [docs/releases.md](docs/releases.md) and the bundled release-agent skill at
+Releases are SemVer Git tags with an OCI Helm chart, digest-addressable images, supply-chain evidence,
+and a generated GitHub Release handoff. Keep private deployment overlays outside the public repo. See
+[docs/releases.md](docs/releases.md) and the bundled release-agent skill at
 [skills/mcp-gw-release/SKILL.md](skills/mcp-gw-release/SKILL.md).
 
 ## License

@@ -9,15 +9,15 @@ Use this skill when preparing a release or reviewing whether a release is ready.
 
 ## Release Model
 
-MCP Gateway releases are enterprise-consumable source and deployment-template snapshots. They are not
-SaaS deploy markers.
+MCP Gateway releases are enterprise-consumable OCI Helm chart and immutable image distributions. They
+are not SaaS deploy markers.
 
 Treat a release as the boundary an organization can:
 
-- fork or mirror;
 - scan and audit;
-- build into private images;
-- pin in Helm, Flux, Argo CD, Terraform, Ansible, and Docker Compose workflows;
+- pin by OCI chart version and image digests;
+- mirror exact image digests when private registries are required;
+- configure through a private Helm values overlay;
 - promote through internal environments.
 
 ## Versioning
@@ -72,8 +72,10 @@ git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-The `Release` workflow reruns quality gates, deployment validation, local MCP integration smoke, and
-release metadata validation before creating the GitHub Release.
+The `Release` workflow reruns quality gates, deployment validation, local and Kubernetes integration
+smoke tests, and release metadata validation. It then publishes the OCI Helm chart and first-party
+images, generates SBOM and vulnerability evidence, creates provenance attestations, verifies public
+artifact access, and creates the GitHub Release with a generated handoff.
 
 ## Release Notes
 
@@ -86,6 +88,7 @@ Call out:
 - migrations or re-auth/reconnect requirements;
 - new optional services such as OPA;
 - known limitations and manual enterprise actions.
+- OCI Helm chart coordinates and immutable image digests from the generated release handoff.
 
 Do not include private DEV hostnames, secrets, customer domains, internal account IDs, private
 artifact bucket names, or live OAuth credentials.

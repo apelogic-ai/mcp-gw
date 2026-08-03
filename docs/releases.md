@@ -1,8 +1,9 @@
 # Releases
 
-MCP Gateway is intended to be forked, pinned, mirrored, and deployed by enterprise teams. Releases
-give those teams a stable source and deployment-template boundary to promote through their own
-environments.
+MCP Gateway releases are environment-neutral product artifacts that an external GitOps repository
+can consume directly. Organization-specific domains, issuers, Secret names, enabled adapters,
+sizing, and scheduling remain in a private values overlay; deployment teams do not patch or fork the
+public chart.
 
 ## Versioning
 
@@ -19,23 +20,24 @@ The current public release line is `v0.2.1`.
 
 ## Release Artifacts
 
-Each release should provide:
+Each tagged release provides:
 
 - an annotated Git tag named `vX.Y.Z`;
-- a GitHub Release generated from that tag;
-- the source archive GitHub attaches to the release;
-- the matching Helm chart, Compose files, Terraform, and Ansible templates from that tag;
-- release notes calling out operator-impacting changes and required migration steps.
+- an OCI Helm chart at `oci://ghcr.io/apelogic-ai/charts/mcp-gateway`;
+- immutable, digest-addressable agentgateway, Google Workspace wrapper, and GitHub wrapper images;
+- an SPDX JSON SBOM and JSON vulnerability report for every first-party image;
+- GitHub build provenance attestations for image and chart digests;
+- a generated release handoff recording exact coordinates, digests, ports, probes, and Secret keys;
+- a GitHub Release containing the handoff and supply-chain evidence.
 
-Container images are intentionally not part of the first release contract. Enterprises can build from
-the release tag, mirror images into private registries, and pin private image digests in their
-overlays. Public image publishing and signing can be added once the registry, provenance, and support
-model are decided.
+Release tags are convenient selectors. Production overlays should pin the image digests recorded in
+the release handoff, or mirror those exact digests into an approved private registry. The release
+workflow also verifies that the chart and first-party images can be fetched anonymously before it
+creates the GitHub Release.
 
-The deployment templates also pin the required `agentgateway` fork version. For the `v0.2.x`
-release line, use `ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1` or an internally
-rebuilt image from the same fork revision. Older upstream images do not contain the MCP
-multi-provider authentication and `prefixMode: never` behavior this gateway expects.
+The release-owned `mcp-gw-agentgateway` image is built from the exact compatible source revision
+declared in the release workflow. It contains the MCP multi-provider authentication and routing
+behavior expected by this chart.
 
 ## Cutting A Release
 
@@ -59,11 +61,13 @@ multi-provider authentication and `prefixMode: never` behavior this gateway expe
    git push origin vX.Y.Z
    ```
 
-7. Wait for the `Release` workflow to pass. It reruns CI and deployment-template checks, then creates
-   the GitHub Release with generated notes.
+7. Wait for the `Release` workflow to pass. It validates the product, runs Kubernetes smoke tests,
+   publishes and attests the OCI artifacts, verifies anonymous access, and creates the GitHub
+   Release.
 
-## Forking Guidance
+## GitOps Consumption
 
-Downstream enterprise forks should pin upstream tags, not moving branches, when promoting to internal
-environments. Private overlays should remain outside this public repository and should pin images by
-digest after the organization rebuilds or mirrors the release artifacts.
+External GitOps repositories should reference the OCI Helm chart version and maintain a private
+values overlay. Pin every image by digest using the release handoff. Mirroring is supported through
+the image repository and digest overrides, but source patches are not required. See
+[release-handoff.md](release-handoff.md) for the stable operator contract.

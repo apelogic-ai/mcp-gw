@@ -8,8 +8,8 @@ hop1:
 agentgateway:
   enabled: true
   image:
-    repository: ghcr.io/apelogic-ai/agentgateway
-    tag: v2026.07.17-apelogic.1
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: ""
     digest: ""
   replicas: 1
   port: 8080
