@@ -13,6 +13,9 @@ describe("Kubernetes smoke test", () => {
     expect(smoke).toContain("global.imagePullPolicy");
     expect(smoke).toContain("UNAVAILABLE_ISSUER_STATUS");
     expect(smoke).toContain('[[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]');
+    expect(smoke).toContain("Kubernetes smoke failed; collecting namespace diagnostics");
+    expect(smoke).toContain('kubectl describe deployment "$RELEASE_NAME-agentgateway"');
+    expect(smoke).toContain('kubectl logs "deployment/$RELEASE_NAME-agentgateway"');
   });
 
   test("runs the Kubernetes smoke in GitHub CI", async () => {
@@ -20,7 +23,7 @@ describe("Kubernetes smoke test", () => {
 
     expect(workflow).toContain("helm/kind-action@");
     expect(workflow).toContain("repository: apelogic-ai/agentgateway");
-    expect(workflow).toContain("ref: 551c9c608c67df85e1ca60d8c611badf5e069681");
+    expect(workflow).toContain("ref: cb2fffdafe3d5e31216c82e9d16641c5f6a47cb8");
     expect(workflow).toContain("docker/build-push-action@");
     expect(workflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
     expect(workflow).toContain("bun run integration:k8s");

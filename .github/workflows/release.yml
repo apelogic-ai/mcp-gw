@@ -49,7 +49,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: apelogic-ai/agentgateway
-          ref: 551c9c608c67df85e1ca60d8c611badf5e069681
+          ref: cb2fffdafe3d5e31216c82e9d16641c5f6a47cb8
           path: .build/agentgateway
 
       - name: Set up Docker Buildx
@@ -63,7 +63,7 @@ jobs:
           tags: mcp-gw-agentgateway:smoke
           build-args: |
             VERSION=smoke
-            GIT_REVISION=551c9c608c67df85e1ca60d8c611badf5e069681
+            GIT_REVISION=cb2fffdafe3d5e31216c82e9d16641c5f6a47cb8
           cache-from: type=gha,scope=agentgateway-smoke
           cache-to: type=gha,mode=max,scope=agentgateway-smoke
 
@@ -122,7 +122,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: apelogic-ai/agentgateway
-          ref: 551c9c608c67df85e1ca60d8c611badf5e069681
+          ref: cb2fffdafe3d5e31216c82e9d16641c5f6a47cb8
           path: .release/agentgateway
 
       - name: Set up Docker Buildx

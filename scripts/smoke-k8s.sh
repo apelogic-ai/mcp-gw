@@ -15,7 +15,28 @@ cleanup() {
     kind delete cluster --name "$CLUSTER_NAME" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+
+diagnose() {
+  echo "Kubernetes smoke failed; collecting namespace diagnostics" >&2
+  kubectl get all --namespace "$NAMESPACE" -o wide >&2 || true
+  kubectl describe deployment "$RELEASE_NAME-agentgateway" --namespace "$NAMESPACE" >&2 || true
+  kubectl get configmap "$RELEASE_NAME-agentgateway-config" --namespace "$NAMESPACE" -o yaml >&2 || true
+  kubectl logs "deployment/$RELEASE_NAME-agentgateway" \
+    --namespace "$NAMESPACE" \
+    --all-containers \
+    --tail=200 >&2 || true
+}
+
+finish() {
+  local status=$?
+  trap - EXIT
+  if [[ "$status" -ne 0 ]]; then
+    diagnose
+  fi
+  cleanup
+  exit "$status"
+}
+trap finish EXIT
 
 if [[ "${K8S_SMOKE_CREATE_CLUSTER:-false}" == "true" ]]; then
   kind create cluster --name "$CLUSTER_NAME" --wait 120s
