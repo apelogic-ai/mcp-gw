@@ -116,7 +116,7 @@ spec:
           securityContext:
             {{- toYaml .Values.agentgateway.securityContext | nindent 12 }}
           args:
-            - --config
+            - --file
             - /etc/agentgateway/config.yaml
           ports:
             - name: http

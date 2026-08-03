@@ -15,6 +15,8 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
     expect(rendered).not.toContain("kind: Ingress");
+    expect(rendered).toContain("- --file");
+    expect(rendered).not.toContain("- --config");
     expect(rendered).not.toMatch(/apelogic\.io/i);
     expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
     expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
