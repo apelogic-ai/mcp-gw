@@ -179,7 +179,7 @@ describe("Kubernetes production chart", () => {
     });
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("agentgateway.replicas");
+    expect(result.stderr.toString()).toMatch(/agentgateway(?:\.|\/)replicas/);
   });
 
   test("ships Flux and Argo CD consumer examples", async () => {
