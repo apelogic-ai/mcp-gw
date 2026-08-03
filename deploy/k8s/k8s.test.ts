@@ -1,34 +1,45 @@
 import { describe, expect, test } from "bun:test";
 
 describe("Kubernetes production chart", () => {
-  test("renders gateway public ingress and internal backend workloads", () => {
+  test("renders an environment-neutral gateway with no enabled backends or public ingress", () => {
     const rendered = helmTemplate();
 
     expect(rendered).toContain("kind: Deployment");
     expect(rendered).toContain("name: mcp-gateway-agentgateway");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1");
-    expect(rendered).toContain("mcpAuthentication:");
-    expect(rendered).toContain("scopesSupported:");
-    expect(rendered).toContain("- openid");
-    expect(rendered).toContain("- email");
-    expect(rendered).not.toContain("read:all");
-    expect(rendered).toContain("name: mcp-gateway-google-workspace");
-    expect(rendered).toContain("name: HOP1_OAUTH_SCOPES");
-    expect(rendered).toContain('value: "openid email"');
-    expect(rendered).toContain("name: mcp-gateway-db-mcp");
+    expect(rendered).toContain("type: ClusterIP");
+    expect(rendered).not.toContain("name: mcp-gateway-google-workspace");
+    expect(rendered).not.toContain("name: mcp-gateway-db-mcp");
     expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
-    expect(rendered).toContain("kind: ExternalSecret");
+    expect(rendered).not.toContain("kind: ExternalSecret");
     expect(rendered).toContain("kind: NetworkPolicy");
-    expect(rendered).toContain("kind: HorizontalPodAutoscaler");
-    expect(rendered).toContain("kind: PodDisruptionBudget");
-    expect(rendered).toContain("kind: Ingress");
-    expect(rendered).toContain("name: mcp-gateway-agentgateway");
-    expect(rendered).not.toContain("name: mcp-gateway-google-workspace-ingress");
-    expect(rendered).not.toContain("name: mcp-gateway-db-mcp-ingress");
+    expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
+    expect(rendered).not.toContain("kind: PodDisruptionBudget");
+    expect(rendered).not.toContain("kind: Ingress");
+    expect(rendered).toContain("- --file");
+    expect(rendered).not.toContain("- --config");
+    expect(rendered).not.toMatch(/apelogic\.io/i);
+    expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
+    expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
+  });
+
+  test("uses existing Kubernetes Secrets without creating provider-specific secret resources", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-private-overlay.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-runtime");
+    expect(rendered).toContain("secretRef:");
+    expect(rendered).not.toContain("kind: ExternalSecret");
+    expect(rendered).not.toContain("secretStoreRef:");
+    expect(rendered).not.toContain("remoteKey:");
   });
 
   test("uses component-scoped selectors so workloads cannot overlap", () => {
-    const rendered = helmTemplate();
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-private-overlay.example.yaml",
+    ]);
 
     expect(rendered).toContain("app.kubernetes.io/component: agentgateway");
     expect(rendered).toContain("app.kubernetes.io/component: google-workspace");
@@ -43,7 +54,7 @@ describe("Kubernetes production chart", () => {
       "deploy/k8s/examples/values-extra-backend.example.yaml",
     ]);
 
-    expect(rendered).toContain("name: mcp-gateway-db-mcp");
+    expect(rendered).not.toContain("name: mcp-gateway-db-mcp");
     expect(rendered).toContain("failureMode: failOpen");
     expect(rendered).toContain("prefixMode: never");
     expect(rendered).not.toContain("host: http://mcp-gateway-db-mcp:8080/mcp");
@@ -58,9 +69,9 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: mcp-gateway/github-wrapper:dev");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.2.1");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
-    expect(rendered).toContain("github-wrapper-runtime");
+    expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
     expect(rendered).toContain("image: ghcr.io/github/github-mcp-server:v1.6.0");
     expect(rendered).toContain("name: github-mcp");
@@ -107,22 +118,85 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("ghcr.io/example/mcp-gateway-google-workspace");
     expect(rendered).toContain("ghcr.io/example/mcp-gateway-db-mcp");
     expect(rendered).toContain("ghcr.io/example/agentgateway");
-    expect(rendered).toContain("mcp-gateway/prod/google-workspace");
-    expect(rendered).toContain("mcp-gateway/prod/db-mcp");
+    expect(rendered).toContain("name: mcp-runtime");
+  });
+
+  test("supports the complete environment-owned workload contract", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-enterprise-contract.example.yaml",
+    ]);
+
+    expect(rendered).toContain(
+      "image: ghcr.io/example/agentgateway@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    expect(rendered).toContain("type: ClusterIP");
+    expect(rendered).toContain("replicas: 2");
+    expect(rendered).toContain("name: existing-agentgateway-sa");
+    expect(rendered).toContain("identity.example.com/workload: gateway");
+    expect(rendered).toContain("nodeSelector:");
+    expect(rendered).toContain("kubernetes.io/os: linux");
+    expect(rendered).toContain("tolerations:");
+    expect(rendered).toContain("affinity:");
+    expect(rendered).toContain("topologySpreadConstraints:");
+    expect(rendered).toContain("livenessProbe:");
+    expect(rendered).toContain("readinessProbe:");
+    expect(rendered).toContain("kind: HorizontalPodAutoscaler");
+    expect(rendered).toContain("kind: PodDisruptionBudget");
+  });
+
+  test("renders multiple HOP-1 issuers and secret-backed introspection credentials", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-enterprise-contract.example.yaml",
+    ]);
+
+    expect(rendered).toContain("issuer: https://identity.example.com");
+    expect(rendered).toContain("issuer: https://automation.example.com");
+    expect(rendered).toContain("url: https://identity.example.com/.well-known/jwks.json");
+    expect(rendered).toContain("HOP1_ISSUERS_JSON");
+    expect(rendered).toContain("introspectionClientCredentialEnv");
+    expect(rendered).toContain("HOP1_INTROSPECTION_CREDENTIAL_1");
+    expect(rendered).toContain("secretKeyRef:");
+    expect(rendered).toContain("name: identity-runtime");
+    expect(rendered).toContain("key: introspection-client-credential");
+    expect(rendered).not.toContain('introspectionClientCredential":"');
+  });
+
+  test("ships a JSON schema that rejects invalid chart values", async () => {
+    const schema = await Bun.file("deploy/k8s/chart/values.schema.json").json();
+    expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "helm",
+        "template",
+        "mcp-gateway",
+        "deploy/k8s/chart",
+        "--set-string",
+        "agentgateway.replicas=not-a-number",
+      ],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toMatch(/agentgateway(?:\.|\/)replicas/);
   });
 
   test("ships Flux and Argo CD consumer examples", async () => {
     const flux = await readExample("flux-helmrelease.yaml");
     const argo = await readExample("argocd-application.yaml");
-    const secretStore = await readExample("clustersecretstore-aws.yaml");
 
     expect(flux).toContain("kind: HelmRelease");
-    expect(flux).toContain("kind: GitRepository");
-    expect(flux).toContain("valuesFiles:");
+    expect(flux).toContain("kind: OCIRepository");
+    expect(flux).toContain("oci://ghcr.io/apelogic-ai/charts/mcp-gateway");
+    expect(flux).toContain("chartRef:");
+    expect(flux).toContain("valuesFrom:");
     expect(argo).toContain("kind: Application");
-    expect(argo).toContain("path: deploy/k8s/chart");
-    expect(secretStore).toContain("kind: ClusterSecretStore");
-    expect(secretStore).toContain("service: SecretsManager");
+    expect(argo).toContain("repoURL: ghcr.io/apelogic-ai/charts");
+    expect(argo).toContain("chart: mcp-gateway");
+    expect(argo).toContain("$values/");
   });
 
   test("public deployment examples do not contain private environment values", async () => {
@@ -130,8 +204,7 @@ describe("Kubernetes production chart", () => {
     const privatePatterns = [
       /18\.210\.100\.44/,
       /54\.211\.134\.28/,
-      /projectn/,
-      /apelogic/i,
+      new RegExp(["project", "n"].join(""), "i"),
       new RegExp(`bur${"ble"}`, "i"),
       /\/Users\/lbelyaev/,
       /\/private\/tmp/,
@@ -166,9 +239,9 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
   const files = [
     "README.md",
     "argocd-application.yaml",
-    "clustersecretstore-aws.yaml",
     "flux-helmrelease.yaml",
     "values-extra-backend.example.yaml",
+    "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
     "values-private-overlay.example.yaml",

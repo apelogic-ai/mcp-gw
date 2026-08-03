@@ -1,0 +1,79 @@
+# Complete generic values contract example. Keep environment-specific values in
+# a private GitOps repository and pass that file to the published OCI chart.
+hop1:
+  issuers:
+    - name: workforce
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      discoverable: true
+      clientId: mcp-gateway
+      emailClaim: email
+      subjectClaim: sub
+    - name: automation
+      issuer: https://automation.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://automation.example.com/.well-known/jwks.json
+      discoverable: false
+      emailClaim: email
+      subjectClaim: sub
+      introspection:
+        url: https://automation.example.com/oauth2/introspect
+        credentialSecretKeyRef:
+          name: identity-runtime
+          key: introspection-client-credential
+
+agentgateway:
+  image:
+    repository: ghcr.io/example/agentgateway
+    tag: ""
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  replicas: 2
+  service:
+    type: ClusterIP
+  serviceAccount:
+    create: true
+    name: existing-agentgateway-sa
+    annotations:
+      identity.example.com/workload: gateway
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  hpa:
+    enabled: false
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: integration
+      effect: NoSchedule
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution: []
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: agentgateway
+
+googleWorkspace:
+  enabled: true
+  image:
+    repository: ghcr.io/example/google-workspace-wrapper
+    tag: 1.2.3
+    digest: ""
+  secretRef:
+    name: provider-runtime
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5

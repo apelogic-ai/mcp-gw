@@ -25,7 +25,20 @@ data:
                     exposeHeaders: ["Mcp-Session-Id"]
                   mcpAuthentication:
                     mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
-{{- if .Values.agentgateway.mcpAuthentication.providers }}
+{{- if .Values.hop1.issuers }}
+                    providers:
+{{- range .Values.hop1.issuers }}
+                      - issuer: {{ .issuer }}
+                        audiences:
+{{ toYaml .audiences | nindent 26 }}
+                        jwks:
+                          url: {{ .jwksUrl }}
+                        discoverable: {{ .discoverable | default false }}
+{{- with .clientId }}
+                        clientId: {{ . }}
+{{- end }}
+{{- end }}
+{{- else if .Values.agentgateway.mcpAuthentication.providers }}
                     providers:
 {{ toYaml .Values.agentgateway.mcpAuthentication.providers | nindent 22 }}
 {{- else }}
@@ -41,9 +54,15 @@ data:
                   - mcp:
                       failureMode: failOpen
                       prefixMode: never
-                      targets:
+{{- $enabledBackends := list }}
 {{- range .Values.agentgateway.backends }}
 {{- if .enabled }}
+{{- $enabledBackends = append $enabledBackends . }}
+{{- end }}
+{{- end }}
+{{- if $enabledBackends }}
+                      targets:
+{{- range $enabledBackends }}
 {{- $host := .host | default "" }}
 {{- if not $host }}
 {{- $host = printf "http://%s-%s:%v%s" (include "mcp-gateway.fullname" $) .serviceName (.port | default 8080) (.path | default "/mcp") }}
@@ -55,6 +74,8 @@ data:
                           mcp:
                             host: {{ $host }}
 {{- end }}
+{{- else }}
+                      targets: []
 {{- end }}
 ---
 apiVersion: apps/v1
@@ -65,7 +86,9 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
 spec:
+  {{- if not .Values.agentgateway.hpa.enabled }}
   replicas: {{ .Values.agentgateway.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 6 }}
@@ -85,18 +108,20 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.agentgateway.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.agentgateway | nindent 6 }}
       containers:
         - name: agentgateway
-          image: {{ .Values.agentgateway.image }}
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.agentgateway.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.agentgateway.securityContext | nindent 12 }}
           args:
-            - --config
+            - --file
             - /etc/agentgateway/config.yaml
           ports:
             - name: http
               containerPort: {{ .Values.agentgateway.port }}
+          {{- include "mcp-gateway.probes" .Values.agentgateway | nindent 10 }}
           volumeMounts:
             - name: config
               mountPath: /etc/agentgateway/config.yaml
@@ -119,7 +144,7 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
 spec:
-  type: ClusterIP
+  type: {{ .Values.agentgateway.service.type }}
   selector:
     {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 4 }}
   ports:
@@ -160,6 +185,7 @@ spec:
                   name: http
 {{- end }}
 ---
+{{- if .Values.agentgateway.hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -179,16 +205,19 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.agentgateway.hpa.targetCPUUtilizationPercentage }}
 ---
+{{- end }}
+{{- if .Values.agentgateway.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "mcp-gateway.fullname" . }}-agentgateway
 spec:
-  minAvailable: 1
+  minAvailable: {{ .Values.agentgateway.pdb.minAvailable }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 6 }}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

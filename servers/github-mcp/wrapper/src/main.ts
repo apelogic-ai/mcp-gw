@@ -176,7 +176,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       throw new Error("HOP1_ISSUERS_JSON must be a non-empty array");
     }
 
-    return parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index));
+    return parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env));
   }
 
   const introspection = introspectionConfig(
@@ -200,7 +200,11 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
   ];
 }
 
-function parseHop1IssuerConfig(value: unknown, index: number): Hop1IssuerConfig {
+function parseHop1IssuerConfig(
+  value: unknown,
+  index: number,
+  env: Record<string, string | undefined>,
+): Hop1IssuerConfig {
   if (!value || typeof value !== "object") {
     throw new Error(`HOP1_ISSUERS_JSON[${String(index)}] must be an object`);
   }
@@ -215,11 +219,18 @@ function parseHop1IssuerConfig(value: unknown, index: number): Hop1IssuerConfig 
     typeof record.introspectionUrl === "string" && record.introspectionUrl.length > 0
       ? record.introspectionUrl
       : undefined;
-  const introspectionClientCredential =
+  const literalIntrospectionClientCredential =
     typeof record.introspectionClientCredential === "string" &&
     record.introspectionClientCredential.length > 0
       ? record.introspectionClientCredential
       : undefined;
+  const credentialEnv =
+    typeof record.introspectionClientCredentialEnv === "string" &&
+    record.introspectionClientCredentialEnv.length > 0
+      ? record.introspectionClientCredentialEnv
+      : undefined;
+  const introspectionClientCredential =
+    literalIntrospectionClientCredential ?? (credentialEnv ? env[credentialEnv] : undefined);
   const introspection = introspectionConfig(
     introspectionUrl,
     introspectionClientCredential,

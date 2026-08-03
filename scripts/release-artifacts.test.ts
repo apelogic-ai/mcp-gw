@@ -1,0 +1,82 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
+import { generateReleaseHandoff } from "./generate-release-handoff";
+
+describe("release artifacts", () => {
+  test("publishes immutable images and an OCI Helm chart with supply-chain evidence", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+
+    expect(workflow).toContain("packages: write");
+    expect(workflow).toContain("id-token: write");
+    expect(workflow).toContain("attestations: write");
+    expect(workflow).toContain("mcp-gw-agentgateway");
+    expect(workflow).toContain("mcp-gw-google-workspace");
+    expect(workflow).toContain("mcp-gw-github-wrapper");
+    expect(workflow).toContain("docker/build-push-action@");
+    expect(workflow).toContain("actions/attest-build-provenance@");
+    expect(workflow).toContain("anchore/sbom-action@");
+    expect(workflow).toContain("aquasecurity/trivy-action@");
+    expect(workflow).toContain("helm push");
+    expect(workflow).toContain("oci://ghcr.io/${{ github.repository_owner }}/charts");
+    expect(workflow).toContain("generate-release-handoff.ts");
+    expect(workflow).toContain('VERSION="${GITHUB_REF_NAME#v}"');
+    expect(workflow).toContain("steps.version.outputs.version");
+    expect(workflow).not.toContain("matrix.repository }}:${{ github.ref_name }}");
+    expect(workflow).toContain("Verify public artifact access");
+    expect(workflow).toContain("docker buildx imagetools inspect");
+    expect(workflow).toContain("helm pull");
+    expect(workflow).not.toContain(":latest");
+  });
+
+  test("defaults the chart to release-owned images without mutable tags", async () => {
+    const values = await readFile("deploy/k8s/chart/values.yaml", "utf8");
+
+    expect(values).toContain("repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway");
+    expect(values).not.toContain("repository: ghcr.io/apelogic-ai/agentgateway");
+    expect(values).not.toContain("v2026.07.17-apelogic.1");
+  });
+
+  test("generates an operator handoff from release digests", async () => {
+    const artifactsDirectory = await mkdtemp(join(tmpdir(), "mcp-gw-release-"));
+    const outputPath = join(artifactsDirectory, "release-handoff.md");
+    const digest = `sha256:${"a".repeat(64)}`;
+
+    await Promise.all(
+      ["agentgateway", "google-workspace", "github-wrapper", "helm-chart"].map((name) =>
+        writeFile(join(artifactsDirectory, `${name}.digest`), `${digest}\n`),
+      ),
+    );
+
+    await generateReleaseHandoff({
+      artifactsDirectory,
+      outputPath,
+      owner: "example",
+      version: "1.2.3",
+    });
+
+    const handoff = await readFile(outputPath, "utf8");
+    expect(handoff).toContain("oci://ghcr.io/example/charts/mcp-gateway");
+    expect(handoff).toContain(`ghcr.io/example/mcp-gw-agentgateway@${digest}`);
+    expect(handoff).toContain(`ghcr.io/example/mcp-gw-google-workspace@${digest}`);
+    expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-wrapper@${digest}`);
+    expect(handoff).toContain("TOKEN_STORE_DSN");
+    expect(handoff).toContain("GOOGLE_OAUTH_CLIENT_SECRET");
+    expect(handoff).toContain("GITHUB_OAUTH_CLIENT_SECRET");
+    expect(handoff).toContain("readiness");
+    expect(handoff).toContain("8080");
+  });
+
+  test("documents the static release handoff contract", async () => {
+    const handoff = await readFile("docs/release-handoff.md", "utf8");
+
+    expect(handoff).toContain("OCI chart");
+    expect(handoff).toContain("SBOM");
+    expect(handoff).toContain("provenance");
+    expect(handoff).toContain("vulnerability");
+    expect(handoff).toContain("existing Kubernetes Secret");
+    expect(handoff).toContain("TOKEN_STORE_DSN");
+    expect(handoff).toContain("private values overlay");
+  });
+});

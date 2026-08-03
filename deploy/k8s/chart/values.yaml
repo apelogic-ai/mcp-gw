@@ -2,10 +2,16 @@ global:
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
+hop1:
+  issuers: []
+
 agentgateway:
   enabled: true
-  image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1
-  replicas: 2
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: ""
+    digest: ""
+  replicas: 1
   port: 8080
   mcpAuthentication:
     mode: strict
@@ -23,12 +29,12 @@ agentgateway:
         - header
   backends:
     - name: google-workspace
-      enabled: true
+      enabled: false
       serviceName: google-workspace
       port: 8080
       path: /mcp
     - name: db-mcp
-      enabled: true
+      enabled: false
       serviceName: db-mcp
       port: 8080
       path: /mcp
@@ -51,21 +57,47 @@ agentgateway:
       drop:
         - ALL
   resources: {}
+  service:
+    type: ClusterIP
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   ingress:
-    enabled: true
+    enabled: false
     host: mcp.example.com
     className: ""
     annotations: {}
     tls: []
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
 
 googleWorkspace:
-  enabled: true
-  image: mcp-gateway/google-workspace:dev
-  replicas: 2
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: ""
+    digest: ""
+  replicas: 1
   port: 8080
   serviceAccount:
     create: true
@@ -81,10 +113,31 @@ googleWorkspace:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   policy:
     enabled: false
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml
@@ -97,14 +150,15 @@ googleWorkspace:
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
-    name: google-workspace-runtime
-    externalStore: aws-secrets-manager
-    remoteKey: mcp-gateway/google-workspace
+    name: ""
 
 dbMcp:
-  enabled: true
-  image: mcp-gateway/db-mcp:dev
-  replicas: 2
+  enabled: false
+  image:
+    repository: registry.example.com/mcp/db-mcp
+    tag: ""
+    digest: ""
+  replicas: 1
   port: 8080
   serviceAccount:
     create: true
@@ -120,10 +174,31 @@ dbMcp:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   env:
     MCP_TRANSPORT: http
     MCP_HOST: 0.0.0.0
@@ -132,14 +207,15 @@ dbMcp:
     TOOL_MODE: shell
     TOOL_PROFILE: query
   secretRef:
-    name: db-mcp-runtime
-    externalStore: aws-secrets-manager
-    remoteKey: mcp-gateway/db-mcp
+    name: ""
 
 githubWrapper:
   enabled: false
-  image: mcp-gateway/github-wrapper:dev
-  replicas: 2
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-github-wrapper
+    tag: ""
+    digest: ""
+  replicas: 1
   port: 8080
   serviceAccount:
     create: true
@@ -155,10 +231,31 @@ githubWrapper:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   env:
     PORT: "8080"
     GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
@@ -168,14 +265,15 @@ githubWrapper:
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
-    name: github-wrapper-runtime
-    externalStore: aws-secrets-manager
-    remoteKey: mcp-gateway/github-wrapper
+    name: ""
 
 githubMcp:
   enabled: false
-  image: ghcr.io/github/github-mcp-server:v1.6.0
-  replicas: 2
+  image:
+    repository: ghcr.io/github/github-mcp-server
+    tag: v1.6.0
+    digest: ""
+  replicas: 1
   port: 8082
   serviceAccount:
     create: true
@@ -191,10 +289,31 @@ githubMcp:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   env:
     GITHUB_TOOLSETS: default,actions,code_security,discussions,notifications,orgs,projects
     GITHUB_HOST: ""

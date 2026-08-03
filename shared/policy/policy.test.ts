@@ -12,7 +12,7 @@ describe("policy primitives", () => {
   const input = {
     principal: "user@example.com",
     tokenClaims: {
-      steward: {
+      controlPlane: {
         acting_as: "user",
         runtime_uid: "runtime-uid-a",
         version: 1,
