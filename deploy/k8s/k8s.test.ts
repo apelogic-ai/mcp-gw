@@ -67,7 +67,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: mcp-gateway/github-wrapper:dev");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.2.1");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
@@ -117,6 +117,69 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("ghcr.io/example/mcp-gateway-db-mcp");
     expect(rendered).toContain("ghcr.io/example/agentgateway");
     expect(rendered).toContain("name: mcp-runtime");
+  });
+
+  test("supports the complete environment-owned workload contract", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-enterprise-contract.example.yaml",
+    ]);
+
+    expect(rendered).toContain(
+      "image: ghcr.io/example/agentgateway@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    expect(rendered).toContain("type: ClusterIP");
+    expect(rendered).toContain("replicas: 2");
+    expect(rendered).toContain("name: existing-agentgateway-sa");
+    expect(rendered).toContain("identity.example.com/workload: gateway");
+    expect(rendered).toContain("nodeSelector:");
+    expect(rendered).toContain("kubernetes.io/os: linux");
+    expect(rendered).toContain("tolerations:");
+    expect(rendered).toContain("affinity:");
+    expect(rendered).toContain("topologySpreadConstraints:");
+    expect(rendered).toContain("livenessProbe:");
+    expect(rendered).toContain("readinessProbe:");
+    expect(rendered).toContain("kind: HorizontalPodAutoscaler");
+    expect(rendered).toContain("kind: PodDisruptionBudget");
+  });
+
+  test("renders multiple HOP-1 issuers and secret-backed introspection credentials", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-enterprise-contract.example.yaml",
+    ]);
+
+    expect(rendered).toContain("issuer: https://identity.example.com");
+    expect(rendered).toContain("issuer: https://automation.example.com");
+    expect(rendered).toContain("url: https://identity.example.com/.well-known/jwks.json");
+    expect(rendered).toContain("HOP1_ISSUERS_JSON");
+    expect(rendered).toContain("introspectionClientCredentialEnv");
+    expect(rendered).toContain("HOP1_INTROSPECTION_CREDENTIAL_1");
+    expect(rendered).toContain("secretKeyRef:");
+    expect(rendered).toContain("name: identity-runtime");
+    expect(rendered).toContain("key: introspection-client-credential");
+    expect(rendered).not.toContain("introspectionClientCredential\":\"");
+  });
+
+  test("ships a JSON schema that rejects invalid chart values", async () => {
+    const schema = await Bun.file("deploy/k8s/chart/values.schema.json").json();
+    expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "helm",
+        "template",
+        "mcp-gateway",
+        "deploy/k8s/chart",
+        "--set-string",
+        "agentgateway.replicas=not-a-number",
+      ],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("agentgateway.replicas");
   });
 
   test("ships Flux and Argo CD consumer examples", async () => {
@@ -173,6 +236,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "argocd-application.yaml",
     "flux-helmrelease.yaml",
     "values-extra-backend.example.yaml",
+    "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
     "values-private-overlay.example.yaml",

@@ -2,9 +2,15 @@ global:
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
+hop1:
+  issuers: []
+
 agentgateway:
   enabled: true
-  image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1
+  image:
+    repository: ghcr.io/apelogic-ai/agentgateway
+    tag: v2026.07.17-apelogic.1
+    digest: ""
   replicas: 1
   port: 8080
   mcpAuthentication:
@@ -51,6 +57,25 @@ agentgateway:
       drop:
         - ALL
   resources: {}
+  service:
+    type: ClusterIP
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   ingress:
     enabled: false
     host: mcp.example.com
@@ -68,7 +93,10 @@ agentgateway:
 
 googleWorkspace:
   enabled: false
-  image: mcp-gateway/google-workspace:dev
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: ""
+    digest: ""
   replicas: 1
   port: 8080
   serviceAccount:
@@ -85,6 +113,23 @@ googleWorkspace:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
     enabled: false
     minReplicas: 1
@@ -109,7 +154,10 @@ googleWorkspace:
 
 dbMcp:
   enabled: false
-  image: mcp-gateway/db-mcp:dev
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-db-mcp
+    tag: ""
+    digest: ""
   replicas: 1
   port: 8080
   serviceAccount:
@@ -126,6 +174,23 @@ dbMcp:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
     enabled: false
     minReplicas: 1
@@ -146,7 +211,10 @@ dbMcp:
 
 githubWrapper:
   enabled: false
-  image: mcp-gateway/github-wrapper:dev
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-github-wrapper
+    tag: ""
+    digest: ""
   replicas: 1
   port: 8080
   serviceAccount:
@@ -163,6 +231,23 @@ githubWrapper:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
     enabled: false
     minReplicas: 1
@@ -184,7 +269,10 @@ githubWrapper:
 
 githubMcp:
   enabled: false
-  image: ghcr.io/github/github-mcp-server:v1.6.0
+  image:
+    repository: ghcr.io/github/github-mcp-server
+    tag: v1.6.0
+    digest: ""
   replicas: 1
   port: 8082
   serviceAccount:
@@ -201,6 +289,23 @@ githubMcp:
       drop:
         - ALL
   resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
   hpa:
     enabled: false
     minReplicas: 1

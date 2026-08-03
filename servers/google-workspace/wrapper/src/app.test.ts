@@ -118,6 +118,32 @@ describe("Google Workspace wrapper app", () => {
     });
   });
 
+  test("resolves per-issuer introspection credentials from environment references", () => {
+    const config = loadWrapperConfig({
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://mcp.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUERS_JSON: JSON.stringify([
+        {
+          name: "workforce",
+          issuer: "https://identity.example.com",
+          jwksUrl: "https://identity.example.com/.well-known/jwks.json",
+          audiences: ["https://mcp.example.com/mcp"],
+          emailClaim: "email",
+          introspectionUrl: "https://identity.example.com/introspect",
+          introspectionClientCredentialEnv: "HOP1_INTROSPECTION_CREDENTIAL_0",
+        },
+      ]),
+      HOP1_INTROSPECTION_CREDENTIAL_0: "secret-from-kubernetes",
+    });
+
+    expect(config.hop1Issuers[0]?.introspectionClientCredential).toBe(
+      "secret-from-kubernetes",
+    );
+  });
+
   test("loads optional policy and audit wiring from environment", () => {
     const config = loadWrapperConfig({
       GOOGLE_OAUTH_CLIENT_ID: "client-id",

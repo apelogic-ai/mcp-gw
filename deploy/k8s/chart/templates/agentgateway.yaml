@@ -25,7 +25,20 @@ data:
                     exposeHeaders: ["Mcp-Session-Id"]
                   mcpAuthentication:
                     mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
-{{- if .Values.agentgateway.mcpAuthentication.providers }}
+{{- if .Values.hop1.issuers }}
+                    providers:
+{{- range .Values.hop1.issuers }}
+                      - issuer: {{ .issuer }}
+                        audiences:
+{{ toYaml .audiences | nindent 26 }}
+                        jwks:
+                          url: {{ .jwksUrl }}
+                        discoverable: {{ .discoverable | default false }}
+{{- with .clientId }}
+                        clientId: {{ . }}
+{{- end }}
+{{- end }}
+{{- else if .Values.agentgateway.mcpAuthentication.providers }}
                     providers:
 {{ toYaml .Values.agentgateway.mcpAuthentication.providers | nindent 22 }}
 {{- else }}
@@ -73,7 +86,9 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
 spec:
+  {{- if not .Values.agentgateway.hpa.enabled }}
   replicas: {{ .Values.agentgateway.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 6 }}
@@ -93,9 +108,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.agentgateway.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.agentgateway | nindent 6 }}
       containers:
         - name: agentgateway
-          image: {{ .Values.agentgateway.image }}
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.agentgateway.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.agentgateway.securityContext | nindent 12 }}
@@ -105,6 +121,7 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.agentgateway.port }}
+          {{- include "mcp-gateway.probes" .Values.agentgateway | nindent 10 }}
           volumeMounts:
             - name: config
               mountPath: /etc/agentgateway/config.yaml
@@ -127,7 +144,7 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
 spec:
-  type: ClusterIP
+  type: {{ .Values.agentgateway.service.type }}
   selector:
     {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 4 }}
   ports:

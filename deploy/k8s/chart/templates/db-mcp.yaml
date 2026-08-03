@@ -8,7 +8,9 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: db-mcp
 spec:
+  {{- if not .Values.dbMcp.hpa.enabled }}
   replicas: {{ .Values.dbMcp.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
@@ -28,15 +30,17 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.dbMcp.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.dbMcp | nindent 6 }}
       containers:
         - name: db-mcp
-          image: {{ .Values.dbMcp.image }}
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.dbMcp.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.dbMcp.securityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.dbMcp.port }}
+          {{- include "mcp-gateway.probes" .Values.dbMcp | nindent 10 }}
           {{- with .Values.dbMcp.secretRef.name }}
           envFrom:
             - secretRef:

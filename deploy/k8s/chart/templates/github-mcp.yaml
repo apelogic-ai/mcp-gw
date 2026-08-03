@@ -8,7 +8,9 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: github-wrapper
 spec:
+  {{- if not .Values.githubWrapper.hpa.enabled }}
   replicas: {{ .Values.githubWrapper.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
@@ -28,9 +30,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.githubWrapper.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.githubWrapper | nindent 6 }}
       containers:
         - name: github-wrapper
-          image: {{ .Values.githubWrapper.image }}
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubWrapper.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.githubWrapper.securityContext | nindent 12 }}
@@ -43,10 +46,24 @@ spec:
                 name: {{ . }}
           {{- end }}
           env:
+            {{- if .Values.hop1.issuers }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+            {{- range $index, $issuer := .Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- range $name, $value := .Values.githubWrapper.env }}
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+          {{- include "mcp-gateway.probes" .Values.githubWrapper | nindent 10 }}
           {{- with .Values.githubWrapper.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -131,7 +148,9 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: github-mcp
 spec:
+  {{- if not .Values.githubMcp.hpa.enabled }}
   replicas: {{ .Values.githubMcp.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-mcp") | nindent 6 }}
@@ -151,9 +170,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.githubMcp.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.githubMcp | nindent 6 }}
       containers:
         - name: github-mcp
-          image: {{ .Values.githubMcp.image }}
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubMcp.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.githubMcp.securityContext | nindent 12 }}
@@ -167,6 +187,7 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.githubMcp.port }}
+          {{- include "mcp-gateway.probes" .Values.githubMcp | nindent 10 }}
           env:
             {{- range $name, $value := .Values.githubMcp.env }}
             - name: {{ $name }}

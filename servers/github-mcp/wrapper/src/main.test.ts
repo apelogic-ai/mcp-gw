@@ -108,6 +108,28 @@ describe("GitHub MCP wrapper main config", () => {
     });
   });
 
+  test("resolves per-issuer introspection credentials from environment references", () => {
+    const config = loadMainConfig({
+      ...baseEnv,
+      HOP1_ISSUERS_JSON: JSON.stringify([
+        {
+          name: "workforce",
+          issuer: "https://identity.example.com",
+          jwksUrl: "https://identity.example.com/.well-known/jwks.json",
+          audiences: ["https://mcp.example.com/mcp"],
+          emailClaim: "email",
+          introspectionUrl: "https://identity.example.com/introspect",
+          introspectionClientCredentialEnv: "HOP1_INTROSPECTION_CREDENTIAL_0",
+        },
+      ]),
+      HOP1_INTROSPECTION_CREDENTIAL_0: "secret-from-kubernetes",
+    });
+
+    expect(config.hop1Issuers[0]?.introspectionClientCredential).toBe(
+      "secret-from-kubernetes",
+    );
+  });
+
   test("requires token store and HOP-1 issuer settings", () => {
     expect(() => loadMainConfig({ ...baseEnv, TOKEN_STORE_DSN: undefined })).toThrow(
       "Missing required env var: TOKEN_STORE_DSN",

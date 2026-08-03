@@ -21,7 +21,9 @@ metadata:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: google-workspace
 spec:
+  {{- if not .Values.googleWorkspace.hpa.enabled }}
   replicas: {{ .Values.googleWorkspace.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
@@ -41,9 +43,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.googleWorkspace.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.googleWorkspace | nindent 6 }}
       containers:
         - name: google-workspace
-          image: {{ .Values.googleWorkspace.image }}
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.googleWorkspace.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext:
             {{- toYaml .Values.googleWorkspace.securityContext | nindent 12 }}
@@ -56,6 +59,19 @@ spec:
                 name: {{ . }}
           {{- end }}
           env:
+            {{- if .Values.hop1.issuers }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+            {{- range $index, $issuer := .Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- range $name, $value := .Values.googleWorkspace.env }}
             - name: {{ $name }}
               value: {{ $value | quote }}
@@ -64,6 +80,7 @@ spec:
             - name: GOOGLE_WORKSPACE_POLICY_FILE
               value: {{ .Values.googleWorkspace.policy.mountPath | quote }}
             {{- end }}
+          {{- include "mcp-gateway.probes" .Values.googleWorkspace | nindent 10 }}
           {{- if .Values.googleWorkspace.policy.enabled }}
           volumeMounts:
             - name: google-workspace-policy
