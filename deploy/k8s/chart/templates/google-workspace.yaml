@@ -13,20 +13,6 @@ data:
 {{ .Values.googleWorkspace.policy.yaml | nindent 4 }}
 ---
 {{- end }}
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
-spec:
-  secretStoreRef:
-    name: {{ .Values.googleWorkspace.secretRef.externalStore }}
-    kind: ClusterSecretStore
-  target:
-    name: {{ .Values.googleWorkspace.secretRef.name }}
-  dataFrom:
-    - extract:
-        key: {{ .Values.googleWorkspace.secretRef.remoteKey }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,9 +50,11 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.googleWorkspace.port }}
+          {{- with .Values.googleWorkspace.secretRef.name }}
           envFrom:
             - secretRef:
-                name: {{ .Values.googleWorkspace.secretRef.name }}
+                name: {{ . }}
+          {{- end }}
           env:
             {{- range $name, $value := .Values.googleWorkspace.env }}
             - name: {{ $name }}
@@ -110,6 +98,7 @@ spec:
       port: {{ .Values.googleWorkspace.port }}
       targetPort: http
 ---
+{{- if .Values.googleWorkspace.hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -129,16 +118,19 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.googleWorkspace.hpa.targetCPUUtilizationPercentage }}
 ---
+{{- end }}
+{{- if .Values.googleWorkspace.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "mcp-gateway.fullname" . }}-google-workspace
 spec:
-  minAvailable: 1
+  minAvailable: {{ .Values.googleWorkspace.pdb.minAvailable }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

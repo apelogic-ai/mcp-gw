@@ -1,4 +1,13 @@
+agentgateway:
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+
 googleWorkspace:
+  enabled: true
   policy:
     enabled: true
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml

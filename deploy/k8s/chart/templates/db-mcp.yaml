@@ -1,19 +1,5 @@
 {{- if .Values.dbMcp.enabled }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "db-mcp" "values" .Values.dbMcp) }}
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
-spec:
-  secretStoreRef:
-    name: {{ .Values.dbMcp.secretRef.externalStore }}
-    kind: ClusterSecretStore
-  target:
-    name: {{ .Values.dbMcp.secretRef.name }}
-  dataFrom:
-    - extract:
-        key: {{ .Values.dbMcp.secretRef.remoteKey }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,9 +37,11 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.dbMcp.port }}
+          {{- with .Values.dbMcp.secretRef.name }}
           envFrom:
             - secretRef:
-                name: {{ .Values.dbMcp.secretRef.name }}
+                name: {{ . }}
+          {{- end }}
           env:
             {{- range $name, $value := .Values.dbMcp.env }}
             - name: {{ $name }}
@@ -80,6 +68,7 @@ spec:
       port: {{ .Values.dbMcp.port }}
       targetPort: http
 ---
+{{- if .Values.dbMcp.hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -99,16 +88,19 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.dbMcp.hpa.targetCPUUtilizationPercentage }}
 ---
+{{- end }}
+{{- if .Values.dbMcp.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "mcp-gateway.fullname" . }}-db-mcp
 spec:
-  minAvailable: 1
+  minAvailable: {{ .Values.dbMcp.pdb.minAvailable }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

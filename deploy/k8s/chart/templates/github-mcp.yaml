@@ -1,19 +1,5 @@
 {{- if .Values.githubWrapper.enabled }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "github-wrapper" "values" .Values.githubWrapper) }}
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
-spec:
-  secretStoreRef:
-    name: {{ .Values.githubWrapper.secretRef.externalStore }}
-    kind: ClusterSecretStore
-  target:
-    name: {{ .Values.githubWrapper.secretRef.name }}
-  dataFrom:
-    - extract:
-        key: {{ .Values.githubWrapper.secretRef.remoteKey }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,9 +37,11 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.githubWrapper.port }}
+          {{- with .Values.githubWrapper.secretRef.name }}
           envFrom:
             - secretRef:
-                name: {{ .Values.githubWrapper.secretRef.name }}
+                name: {{ . }}
+          {{- end }}
           env:
             {{- range $name, $value := .Values.githubWrapper.env }}
             - name: {{ $name }}
@@ -80,6 +68,7 @@ spec:
       port: {{ .Values.githubWrapper.port }}
       targetPort: http
 ---
+{{- if .Values.githubWrapper.hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -99,16 +88,19 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.githubWrapper.hpa.targetCPUUtilizationPercentage }}
 ---
+{{- end }}
+{{- if .Values.githubWrapper.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
 spec:
-  minAvailable: 1
+  minAvailable: {{ .Values.githubWrapper.pdb.minAvailable }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -201,6 +193,7 @@ spec:
       port: {{ .Values.githubMcp.port }}
       targetPort: http
 ---
+{{- if .Values.githubMcp.hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -220,16 +213,19 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.githubMcp.hpa.targetCPUUtilizationPercentage }}
 ---
+{{- end }}
+{{- if .Values.githubMcp.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "mcp-gateway.fullname" . }}-github-mcp
 spec:
-  minAvailable: 1
+  minAvailable: {{ .Values.githubMcp.pdb.minAvailable }}
   selector:
     matchLabels:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-mcp") | nindent 6 }}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

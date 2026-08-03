@@ -5,7 +5,7 @@ global:
 agentgateway:
   enabled: true
   image: ghcr.io/apelogic-ai/agentgateway:v2026.07.17-apelogic.1
-  replicas: 2
+  replicas: 1
   port: 8080
   mcpAuthentication:
     mode: strict
@@ -23,12 +23,12 @@ agentgateway:
         - header
   backends:
     - name: google-workspace
-      enabled: true
+      enabled: false
       serviceName: google-workspace
       port: 8080
       path: /mcp
     - name: db-mcp
-      enabled: true
+      enabled: false
       serviceName: db-mcp
       port: 8080
       path: /mcp
@@ -52,20 +52,24 @@ agentgateway:
         - ALL
   resources: {}
   ingress:
-    enabled: true
+    enabled: false
     host: mcp.example.com
     className: ""
     annotations: {}
     tls: []
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
 
 googleWorkspace:
-  enabled: true
+  enabled: false
   image: mcp-gateway/google-workspace:dev
-  replicas: 2
+  replicas: 1
   port: 8080
   serviceAccount:
     create: true
@@ -82,9 +86,13 @@ googleWorkspace:
         - ALL
   resources: {}
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   policy:
     enabled: false
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml
@@ -97,14 +105,12 @@ googleWorkspace:
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
-    name: google-workspace-runtime
-    externalStore: aws-secrets-manager
-    remoteKey: mcp-gateway/google-workspace
+    name: ""
 
 dbMcp:
-  enabled: true
+  enabled: false
   image: mcp-gateway/db-mcp:dev
-  replicas: 2
+  replicas: 1
   port: 8080
   serviceAccount:
     create: true
@@ -121,9 +127,13 @@ dbMcp:
         - ALL
   resources: {}
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   env:
     MCP_TRANSPORT: http
     MCP_HOST: 0.0.0.0
@@ -132,14 +142,12 @@ dbMcp:
     TOOL_MODE: shell
     TOOL_PROFILE: query
   secretRef:
-    name: db-mcp-runtime
-    externalStore: aws-secrets-manager
-    remoteKey: mcp-gateway/db-mcp
+    name: ""
 
 githubWrapper:
   enabled: false
   image: mcp-gateway/github-wrapper:dev
-  replicas: 2
+  replicas: 1
   port: 8080
   serviceAccount:
     create: true
@@ -156,9 +164,13 @@ githubWrapper:
         - ALL
   resources: {}
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   env:
     PORT: "8080"
     GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
@@ -168,14 +180,12 @@ githubWrapper:
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
-    name: github-wrapper-runtime
-    externalStore: aws-secrets-manager
-    remoteKey: mcp-gateway/github-wrapper
+    name: ""
 
 githubMcp:
   enabled: false
   image: ghcr.io/github/github-mcp-server:v1.6.0
-  replicas: 2
+  replicas: 1
   port: 8082
   serviceAccount:
     create: true
@@ -192,9 +202,13 @@ githubMcp:
         - ALL
   resources: {}
   hpa:
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
   env:
     GITHUB_TOOLSETS: default,actions,code_security,discussions,notifications,orgs,projects
     GITHUB_HOST: ""

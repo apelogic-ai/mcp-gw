@@ -1,15 +1,12 @@
 # Enterprise Kubernetes Examples
 
-These files show how an organization can fork this repository, keep the shared
-Helm chart public or upstream-aligned, and place environment-specific values in
-a private overlay.
+These files show how an organization can consume the versioned Helm chart and
+place environment-specific values in a private GitOps repository.
 
 Recommended shape:
 
-1. Fork the repo.
-2. Keep `deploy/k8s/chart` close to upstream.
-3. Copy `values-private-overlay.example.yaml` into a private config repo or
-   private branch.
+1. Pin a released OCI chart version.
+2. Copy `values-private-overlay.example.yaml` into a private config repo.
 4. Replace placeholders for hostnames, image digests, secret-store names,
    cloud role annotations, and secret-manager keys.
 5. Set `agentgateway.mcpAuthentication.audiences` and
@@ -42,9 +39,10 @@ upstream Kubernetes docs describe it as read-only and accessed with
 persistent UI endpoint, put that in a private overlay with internal networking,
 corporate SSO, and an allowlist.
 
-Runtime secrets are expected to be provided through the External Secrets
-Operator. Do not commit OAuth client secrets, token encryption keys, refresh
+Runtime secrets are referenced as existing Kubernetes Secrets. Create or
+reconcile those Secrets from the organization's chosen secret manager outside
+this chart. Do not commit OAuth client secrets, token encryption keys, refresh
 tokens, database passwords, or private JWKS material.
 
 The public chart intentionally exposes only generic placeholders such as
-`<org>`, `<aws-account-id>`, and `<mcp-hostname>`.
+`<org>` and `<mcp-hostname>`.
