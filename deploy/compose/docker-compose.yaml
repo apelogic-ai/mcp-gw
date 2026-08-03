@@ -1,6 +1,6 @@
 services:
   agentgateway:
-    image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.2}
+    image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.3}
     command:
       - --file
       - /etc/agentgateway/config.yaml

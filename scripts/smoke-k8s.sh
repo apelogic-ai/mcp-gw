@@ -69,19 +69,21 @@ kubectl rollout status \
 # A syntactically valid JWT selects the unavailable issuer. Signature
 # verification must fail closed without changing Deployment readiness.
 UNAVAILABLE_ISSUER_TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6InNtb2tlIn0.eyJpc3MiOiJodHRwczovL3VuYXZhaWxhYmxlLmV4YW1wbGUuY29tIiwiYXVkIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIiwic3ViIjoic21va2UiLCJlbWFpbCI6InNtb2tlQGV4YW1wbGUuY29tIiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl"
-UNAVAILABLE_ISSUER_STATUS="$(kubectl run mcp-auth-probe \
+UNAVAILABLE_ISSUER_OUTPUT="$(kubectl run mcp-auth-probe \
   --namespace "$NAMESPACE" \
   --image=curlimages/curl:8.16.0 \
   --restart=Never \
   --rm \
   --attach \
   --quiet \
-  --command -- curl -sS -o /dev/null -w '%{http_code}' \
+  --command -- curl -sS -o /dev/null -w 'MCP_STATUS:%{http_code}\n' \
   -X POST \
   -H "authorization: Bearer $UNAVAILABLE_ISSUER_TOKEN" \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"k8s-smoke","version":"1.0.0"}}}' \
   "http://$RELEASE_NAME-agentgateway.$NAMESPACE.svc.cluster.local:8080/mcp")"
+UNAVAILABLE_ISSUER_STATUS="$(printf '%s\n' "$UNAVAILABLE_ISSUER_OUTPUT" | \
+  sed -n 's/.*MCP_STATUS:\([0-9][0-9][0-9]\).*/\1/p' | tail -n 1)"
 
 [[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]
 kubectl get deployment "$RELEASE_NAME-agentgateway" --namespace "$NAMESPACE" \

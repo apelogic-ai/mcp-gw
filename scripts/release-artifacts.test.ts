@@ -30,6 +30,19 @@ describe("release artifacts", () => {
     expect(workflow).not.toContain(":latest");
   });
 
+  test("authenticates OCI chart provenance pushes through Docker credentials", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const publishChart = workflow.slice(
+      workflow.indexOf("  publish-chart:"),
+      workflow.indexOf("  release:"),
+    );
+
+    expect(publishChart).toContain("docker/login-action@");
+    expect(publishChart.indexOf("docker/login-action@")).toBeLessThan(
+      publishChart.indexOf("Attest chart provenance"),
+    );
+  });
+
   test("defaults the chart to release-owned images without mutable tags", async () => {
     const values = await readFile("deploy/k8s/chart/values.yaml", "utf8");
 

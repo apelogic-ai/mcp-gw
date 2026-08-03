@@ -10,6 +10,15 @@ human-maintained compatibility summary.
 
 - No unreleased changes yet.
 
+## [0.2.3] - 2026-08-03
+
+- Fixed OCI Helm chart provenance publishing by providing GHCR credentials through Docker's
+  credential store as required by the GitHub attestation action.
+- Hardened the Kubernetes issuer-isolation smoke test to extract a labeled HTTP status instead of
+  comparing status output mixed with `kubectl` lifecycle messages.
+- Superseded the incomplete `v0.2.2` publication, which did not produce chart provenance, pass the
+  anonymous artifact gate, or create a GitHub Release.
+
 ## [0.2.2] - 2026-08-03
 
 - Published an environment-neutral Kubernetes release contract with a JSON values schema, generic
@@ -68,7 +77,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.1.0...v0.2.0
