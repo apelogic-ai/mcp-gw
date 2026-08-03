@@ -21,6 +21,9 @@ describe("release artifacts", () => {
     expect(workflow).toContain("helm push");
     expect(workflow).toContain("oci://ghcr.io/${{ github.repository_owner }}/charts");
     expect(workflow).toContain("generate-release-handoff.ts");
+    expect(workflow).toContain('VERSION="${GITHUB_REF_NAME#v}"');
+    expect(workflow).toContain("steps.version.outputs.version");
+    expect(workflow).not.toContain("matrix.repository }}:${{ github.ref_name }}");
     expect(workflow).toContain("Verify public artifact access");
     expect(workflow).toContain("docker buildx imagetools inspect");
     expect(workflow).toContain("helm pull");

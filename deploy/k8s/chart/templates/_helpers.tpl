@@ -68,9 +68,9 @@ metadata:
 {{- if kindIs "string" $image -}}
 {{- $image -}}
 {{- else if $image.digest -}}
-{{- printf "%s@%s" $image.repository $image.digest -}}
+{{- printf "%s@%s" (required "image.repository is required when a component is enabled" $image.repository) $image.digest -}}
 {{- else -}}
-{{- printf "%s:%s" $image.repository ($image.tag | default .root.Chart.AppVersion) -}}
+{{- printf "%s:%s" (required "image.repository is required when a component is enabled" $image.repository) ($image.tag | default .root.Chart.AppVersion) -}}
 {{- end -}}
 {{- end -}}
 

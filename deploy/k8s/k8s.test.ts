@@ -16,7 +16,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
     expect(rendered).not.toContain("kind: Ingress");
     expect(rendered).not.toMatch(/apelogic\.io/i);
-    expect(rendered).not.toMatch(/arn:aws/i);
+    expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
     expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
   });
 
@@ -187,10 +187,14 @@ describe("Kubernetes production chart", () => {
     const argo = await readExample("argocd-application.yaml");
 
     expect(flux).toContain("kind: HelmRelease");
-    expect(flux).toContain("kind: GitRepository");
-    expect(flux).toContain("valuesFiles:");
+    expect(flux).toContain("kind: OCIRepository");
+    expect(flux).toContain("oci://ghcr.io/apelogic-ai/charts/mcp-gateway");
+    expect(flux).toContain("chartRef:");
+    expect(flux).toContain("valuesFrom:");
     expect(argo).toContain("kind: Application");
-    expect(argo).toContain("path: deploy/k8s/chart");
+    expect(argo).toContain("repoURL: ghcr.io/apelogic-ai/charts");
+    expect(argo).toContain("chart: mcp-gateway");
+    expect(argo).toContain("$values/");
   });
 
   test("public deployment examples do not contain private environment values", async () => {
@@ -198,8 +202,7 @@ describe("Kubernetes production chart", () => {
     const privatePatterns = [
       /18\.210\.100\.44/,
       /54\.211\.134\.28/,
-      /projectn/,
-      /apelogic/i,
+      new RegExp(["project", "n"].join(""), "i"),
       new RegExp(`bur${"ble"}`, "i"),
       /\/Users\/lbelyaev/,
       /\/private\/tmp/,

@@ -136,9 +136,9 @@ TDD checks:
 - sensitive values are not logged.
 - policy behavior does not depend on Claude-specific approvals.
 
-## Slice 7: Docker Compose local and DEV
+## Slice 7: Docker Compose local testbed
 
-Goal: run the gateway, wrapper, token store, and optional backends locally and on the AWS DEV box.
+Goal: run the gateway, wrapper, token store, and optional backends locally.
 
 Deliverables:
 
@@ -170,41 +170,33 @@ TDD/checks:
 - db-mcp target can be toggled on/off.
 - identity reaches db-mcp when enabled.
 
-## Slice 9: Terraform and Ansible
+## Slice 9: Deployment ownership boundary
 
-Goal: prepare infrastructure and deployment automation for DEV on the AWS box.
+Goal: publish an environment-neutral product contract while keeping infrastructure in the consuming
+organization's private infrastructure and GitOps repositories.
 
 Deliverables:
 
-- Terraform module for required AWS resources around the DEV host, DNS/TLS hooks, security groups,
-  and future EKS/RDS boundaries.
-- EC2 instance profile with AWS Systems Manager Session Manager enabled as the canonical operator
-  access path.
-- Public SSH disabled by default, with an explicit `/32` break-glass switch while Ansible deploys
-  still use rsync over SSH.
-- Temporary DEV OAuth callback uses the Terraform-emitted
-  `mcp_gateway_dev_google_oauth_redirect_uri` until stable DNS is assigned.
-- Ansible playbook for Docker, compose deployment, env files, secrets handoff, service restart, and
-  smoke checks.
-- Inventory example for the AWS DEV box.
+- OCI Helm chart and immutable image coordinates.
+- Generic values for issuers, backends, ingress, service accounts, existing Secrets, and workloads.
+- Private-values examples with placeholder domains and identifiers only.
+- Release handoff for external GitOps consumers.
 
 TDD/checks:
 
-- `terraform fmt -check` and `terraform validate` where credentials are not required.
-- `ansible-lint` or syntax checks for playbooks.
-- `aws --profile <profile> --region <region> ssm start-session --target <instance-id>` is documented
-  and scriptable.
-- deployment smoke command is documented and scriptable.
+- public files contain no environment identifiers or cloud provisioning resources.
+- a private values file configures the complete deployment without chart patches.
+- chart lint, render, and Kubernetes smoke checks are scriptable.
 
 ## Slice 10: Kubernetes production shape
 
-Goal: create the EKS-ready chart and render-time safety checks.
+Goal: create a portable Kubernetes chart and render-time safety checks.
 
 Deliverables:
 
 - Umbrella Helm chart.
 - Per-server values blocks.
-- ExternalSecret, NetworkPolicy, HPA/PDB, Service, Deployment, and Ingress templates.
+- Existing Secret references, NetworkPolicy, HPA/PDB, Service, Deployment, and Ingress templates.
 - Rendered-manifest selector-disjointness check.
 
 TDD/checks:

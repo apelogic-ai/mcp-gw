@@ -11,7 +11,7 @@ The project currently packages:
 - per-user Google OAuth token storage with encrypted refresh tokens;
 - provider-owned OAuth helpers that expose each downstream tool catalog only after per-user consent;
 - a `gws` subprocess executor using `GOOGLE_WORKSPACE_CLI_TOKEN` per call;
-- Docker Compose, Terraform, Ansible, and Kubernetes deployment templates;
+- local Docker Compose and an environment-neutral Kubernetes release contract;
 - tests, linting, formatting, and CI wiring.
 
 ## Architecture
@@ -86,8 +86,7 @@ Copy the compose environment template and fill in local values:
 cp deploy/compose/.env.example deploy/compose/.env
 ```
 
-Do not commit real `.env` files, OAuth client secrets, token encryption keys, Terraform state, or
-cloud credentials.
+Do not commit real `.env` files, OAuth client secrets, token encryption keys, or cloud credentials.
 
 ## Deployment
 

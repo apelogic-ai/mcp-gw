@@ -7,8 +7,8 @@ Recommended shape:
 
 1. Pin a released OCI chart version.
 2. Copy `values-private-overlay.example.yaml` into a private config repo.
-3. Replace placeholders for hostnames, image digests, secret-store names,
-   cloud role annotations, and secret-manager keys.
+3. Replace placeholders for hostnames, image digests, service-account annotations,
+   existing Kubernetes Secret names, sizing, and scheduling policy.
 4. Set `agentgateway.mcpAuthentication.audiences` and
    `agentgateway.mcpAuthentication.resourceMetadata.resource` to the public MCP
    URL. Keep `resourceMetadata.scopesSupported` aligned with the wrappers'
@@ -44,5 +44,4 @@ reconcile those Secrets from the organization's chosen secret manager outside
 this chart. Do not commit OAuth client secrets, token encryption keys, refresh
 tokens, database passwords, or private JWKS material.
 
-The public chart intentionally exposes only generic placeholders such as
-`<org>` and `<mcp-hostname>`.
+The public chart and examples contain only generic public coordinates and placeholder values.

@@ -8,7 +8,7 @@ Use this checklist before making the repository public or accepting outside cont
 - Run a full git-history secret scan with a tool such as `gitleaks` or `trufflehog`.
 - Confirm no live environment URLs, account IDs, OAuth client IDs, SSO profile names, email
   addresses, private hostnames, or private repo paths remain in tracked files.
-- Confirm `.env`, Terraform state, key files, and cloud credentials are ignored and not present in
+- Confirm `.env`, infrastructure state, key files, and cloud credentials are ignored and not present in
   git history.
 - Review `NOTICE.md` for third-party attribution requirements.
 - Review Google OAuth scopes and consent-screen verification requirements for the intended audience.

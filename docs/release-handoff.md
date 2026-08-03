@@ -16,6 +16,9 @@ stable information an external GitOps repository can rely on.
 The official GitHub MCP Server is an external dependency. Operators should pin or mirror it by digest
 in private values just like any other externally maintained image.
 
+The optional `dbMcp` adapter is also externally supplied. Its public default repository is a
+placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` before enabling it.
+
 ## Network And Health Contract
 
 | Component                  | Port | MCP path | Exposure                    |

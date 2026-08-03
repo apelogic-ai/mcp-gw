@@ -135,6 +135,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve release version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build and publish immutable image
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
@@ -142,7 +148,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}:${{ github.ref_name }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}:${{ steps.version.outputs.version }}
           build-args: |
             VERSION=${{ github.ref_name }}
             GIT_REVISION=${{ github.sha }}

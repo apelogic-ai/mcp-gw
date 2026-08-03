@@ -45,6 +45,9 @@ helm upgrade --install mcp-gateway ${chart} \\
 The chart also references the separately maintained official GitHub MCP Server image. Pin or mirror
 that image by digest in the private values overlay.
 
+The optional \`dbMcp\` adapter is externally supplied. Set its image repository and digest in the
+private values overlay before enabling it.
+
 ## Runtime Contract
 
 - agentgateway: TCP \`8080\`, public MCP path \`/mcp\`.

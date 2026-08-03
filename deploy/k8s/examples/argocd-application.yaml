@@ -1,5 +1,4 @@
-# EXAMPLE - Argo CD Application for an organization's private fork.
-# Replace placeholders and keep environment-specific values in private overlays.
+# EXAMPLE - Argo CD consumes the public OCI chart and values from a private config repository.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -7,26 +6,16 @@ metadata:
   namespace: argocd
 spec:
   project: default
-  source:
-    repoURL: https://github.com/<org>/mcp-gw.git
-    targetRevision: main
-    path: deploy/k8s/chart
-    helm:
-      valueFiles:
-        - values.yaml
-        - ../examples/values-private-overlay.example.yaml
-      values: |
-        agentgateway:
-          ingress:
-            host: <mcp-hostname>
-        googleWorkspace:
-          secretRef:
-            externalStore: <cluster-secret-store-name>
-            remoteKey: <secret-manager-path-for-google-workspace-runtime>
-        dbMcp:
-          secretRef:
-            externalStore: <cluster-secret-store-name>
-            remoteKey: <secret-manager-path-for-db-mcp-runtime>
+  sources:
+    - repoURL: ghcr.io/apelogic-ai/charts
+      chart: mcp-gateway
+      targetRevision: 0.2.1
+      helm:
+        valueFiles:
+          - $values/environments/production/mcp-gateway-values.yaml
+    - repoURL: https://github.com/example/enterprise-gitops.git
+      targetRevision: main
+      ref: values
   destination:
     server: https://kubernetes.default.svc
     namespace: mcp-gateway

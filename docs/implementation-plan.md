@@ -82,9 +82,9 @@ details.
 
 ### 7. Deployment Templates
 
-- Docker Compose for local and single-host deployments.
-- Terraform and Ansible for an AWS Compose host.
-- Helm templates for Kubernetes.
+- Docker Compose for local development and integration tests.
+- Environment-neutral Helm templates for Kubernetes.
+- Cloud infrastructure and environment overlays owned by external private repositories.
 
 ## Data Model
 

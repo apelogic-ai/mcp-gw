@@ -20,13 +20,13 @@ Never commit:
 - Google refresh tokens or access tokens;
 - `GOOGLE_TOKEN_ENCRYPTION_KEY`;
 - `.env` files with real values;
-- Terraform state or variable files containing secrets;
-- AWS credentials, SSH keys, or service account keys.
+- infrastructure state or variable files containing secrets;
+- cloud credentials, SSH keys, or service account keys.
 
 Run a history secret scan before making any fork or mirror public.
 
 ## Deployment Defaults
 
-Example compose and Terraform files are development templates. Production deployments should review
-network ingress, database credentials, token encryption, audit retention, OAuth scopes, and policy
-defaults before use.
+Local Compose files are development templates. Production deployments should use the released Helm
+chart with private values and review network ingress, database credentials, token encryption, audit
+retention, OAuth scopes, and policy defaults before use.

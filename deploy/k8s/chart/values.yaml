@@ -155,7 +155,7 @@ googleWorkspace:
 dbMcp:
   enabled: false
   image:
-    repository: ghcr.io/apelogic-ai/mcp-gw-db-mcp
+    repository: registry.example.com/mcp/db-mcp
     tag: ""
     digest: ""
   replicas: 1

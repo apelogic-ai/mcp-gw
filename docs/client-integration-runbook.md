@@ -267,8 +267,8 @@ Before making MCP-GW available to users:
 - Keep agentgateway Admin UI internal; do not expose it on the public MCP ingress.
 - Validate the visible tool catalog in every target client.
 - Document reconnect expectations after OAuth scope or tool catalog changes.
-- Do not commit real `.env` files, OAuth secrets, token encryption keys, refresh tokens, Terraform
-  state, cloud account IDs, or production hostnames to a public repository.
+- Do not commit real `.env` files, OAuth secrets, token encryption keys, refresh tokens,
+  infrastructure state, cloud account IDs, or production hostnames to a public repository.
 
 ## Troubleshooting
 
@@ -305,10 +305,12 @@ Tool call fails with a `gws` runtime error:
 
 ## Useful Commands
 
-Deploy with a private env file:
+Render the released chart with a private values file:
 
 ```bash
-DEV_ENV_FILE=/path/to/private.env AWS_PROFILE=<profile> AWS_REGION=<region> bun run deploy:dev
+helm template mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
+  --version 0.2.1 \
+  --values private-values.yaml
 ```
 
 Smoke unauthenticated MCP challenge:

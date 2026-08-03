@@ -44,8 +44,8 @@ The default tool surface is focused on Google Workspace collaboration products:
 
 The generated catalog is filtered to avoid exposing admin, Chat, Classroom, Cloud Platform,
 contacts/directory, Forms, Keep, Groups, Apps Script, and user-profile-detail scopes by default.
-Deployments can intentionally fork or reconfigure the surface, but public defaults should remain
-reviewable and consentable.
+Deployments can intentionally reconfigure the surface through private values, but public defaults
+should remain reviewable and consentable.
 
 ## Policy and Audit
 
@@ -56,9 +56,9 @@ decision, status, latency, and result size without storing raw tokens.
 
 ## Deployment Shapes
 
-- Docker Compose for local and DEV-style deployments.
-- Terraform and Ansible for a single AWS Compose host.
-- Helm chart templates for Kubernetes.
+- Docker Compose for local development and integration tests.
+- Environment-neutral Helm chart templates for Kubernetes.
+- Cloud infrastructure and environment overlays maintained outside the public product repository.
 
 Only the gateway should be public. Backend wrappers and token stores should remain private network
 services.

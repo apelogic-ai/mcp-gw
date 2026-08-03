@@ -473,7 +473,7 @@ describe("GitHub MCP proxy wrapper", () => {
     const identityWithAuthority = {
       ...identity,
       claims: {
-        steward: {
+        controlPlane: {
           acting_as: "user",
           runtime_uid: "runtime-uid-a",
           tools: [
