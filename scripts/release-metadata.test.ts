@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
+  const expectedVersion = "0.2.2";
+
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
       readFile("package.json", "utf8"),
@@ -16,6 +18,7 @@ describe("release metadata", () => {
       scripts: Record<string, string>;
     };
 
+    expect(parsedPackage.version).toBe(expectedVersion);
     expect(parsedPackage.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(parsedPackage.scripts["release:check"]).toBe("bun scripts/check-release-metadata.ts");
     expect(changelog).toContain("## [Unreleased]");
@@ -62,5 +65,21 @@ describe("release metadata", () => {
 
     expect(chart.version).toBe(packageVersion);
     expect(chart.appVersion).toBe(packageVersion);
+  });
+
+  test("keeps public deployment examples on the current release", async () => {
+    const [compose, composeEnv, argo, flux, runbook] = await Promise.all([
+      readFile("deploy/compose/docker-compose.yaml", "utf8"),
+      readFile("deploy/compose/.env.example", "utf8"),
+      readFile("deploy/k8s/examples/argocd-application.yaml", "utf8"),
+      readFile("deploy/k8s/examples/flux-helmrelease.yaml", "utf8"),
+      readFile("docs/client-integration-runbook.md", "utf8"),
+    ]);
+
+    expect(compose).toContain(`mcp-gw-agentgateway:${expectedVersion}`);
+    expect(composeEnv).toContain(`mcp-gw-agentgateway:${expectedVersion}`);
+    expect(argo).toContain(`targetRevision: ${expectedVersion}`);
+    expect(flux).toContain(`tag: ${expectedVersion}`);
+    expect(runbook).toContain(`--version ${expectedVersion}`);
   });
 });

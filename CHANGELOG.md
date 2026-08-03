@@ -10,6 +10,23 @@ human-maintained compatibility summary.
 
 - No unreleased changes yet.
 
+## [0.2.2] - 2026-08-03
+
+- Published an environment-neutral Kubernetes release contract with a JSON values schema, generic
+  issuer and backend configuration, existing Secret references, and private-overlay examples for
+  Flux and Argo CD.
+- Added image repository, tag, and digest overrides plus configurable ingress, service accounts,
+  replicas, resources, autoscaling, disruption budgets, scheduling, and health probes.
+- Added immutable OCI release artifacts with per-image SBOMs, vulnerability reports, provenance,
+  digest handoff metadata, and anonymous GHCR-access verification.
+- Isolated unavailable JWKS providers so requests for an affected issuer fail closed without making
+  the gateway unready for healthy issuers; failed JWKS resources continue retrying.
+- Added Kubernetes integration smoke coverage for issuer isolation and corrected agentgateway to
+  load its generated configuration with the file-based CLI option.
+- Removed environment-owned AWS, Ansible, host, and deployment configuration from the public
+  product repository. Private infrastructure and environment policy now remain in external
+  infrastructure and GitOps repositories.
+
 ## [0.2.1] - 2026-07-29
 
 - Separated gateway authentication from downstream provider consent so Google Workspace and GitHub
@@ -51,7 +68,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/apelogic-ai/mcp-gw/releases/tag/v0.1.0
