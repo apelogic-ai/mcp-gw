@@ -215,10 +215,17 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
 
-      - name: Log in to GHCR
+      - name: Log in to GHCR for Helm
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Log in to GHCR for provenance
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package and publish OCI chart
         id: chart

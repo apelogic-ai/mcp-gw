@@ -12,6 +12,8 @@ describe("Kubernetes smoke test", () => {
     expect(smoke).toContain("K8S_SMOKE_AGENTGATEWAY_REPOSITORY");
     expect(smoke).toContain("global.imagePullPolicy");
     expect(smoke).toContain("UNAVAILABLE_ISSUER_STATUS");
+    expect(smoke).toContain("MCP_STATUS:%{http_code}");
+    expect(smoke).toContain("sed -n");
     expect(smoke).toContain('[[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]');
     expect(smoke).toContain("Kubernetes smoke failed; collecting namespace diagnostics");
     expect(smoke).toContain('kubectl describe deployment "$RELEASE_NAME-agentgateway"');
