@@ -99,6 +99,45 @@ describe("runtime wrapper wiring", () => {
     });
   });
 
+  test("does not contact an unavailable issuer when another issuer matches the token", async () => {
+    let unavailableIssuerCalls = 0;
+    const authenticate = createRuntimeAuthenticator({
+      issuers: [
+        {
+          profile: {
+            name: "unavailable",
+            issuer: "https://unavailable.example.com",
+            audiences: ["mcp-gateway-dev"],
+            emailClaim: "email",
+          },
+          jwksProvider: () => {
+            unavailableIssuerCalls += 1;
+            return Promise.reject(new Error("issuer unavailable"));
+          },
+        },
+        { profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) },
+      ],
+    });
+
+    const authenticated = await authenticate(await signHop1Token());
+
+    expect(authenticated.profile).toBe("google");
+    expect(unavailableIssuerCalls).toBe(0);
+  });
+
+  test("fails closed when the token's configured issuer is unavailable", async () => {
+    const authenticate = createRuntimeAuthenticator({
+      issuers: [
+        {
+          profile: hop1,
+          jwksProvider: () => Promise.reject(new Error("issuer unavailable")),
+        },
+      ],
+    });
+
+    expect(authenticate(await signHop1Token())).rejects.toThrow("HOP-1 issuer is unavailable");
+  });
+
   test("rejects a locally valid HOP-1 when issuer introspection says inactive", async () => {
     const token = await signHop1Token();
     const issuer: RuntimeTrustedIssuer = {

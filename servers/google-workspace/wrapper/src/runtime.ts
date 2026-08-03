@@ -1,10 +1,10 @@
-import type { JWK } from "jose";
+import { decodeJwt, type JWK } from "jose";
 import { readFileSync } from "node:fs";
 
 import { JsonlAuditSink, type AuditSink } from "../../../../shared/audit/audit";
 import {
   Hop1ValidationError,
-  validateHop1JwtForIssuers,
+  validateHop1Jwt,
   type Hop1Identity,
   type IssuerProfile,
 } from "../../../../shared/identity/hop1";
@@ -60,26 +60,51 @@ export function createRuntimeAuthenticator(
   options: CreateRuntimeAuthenticatorOptions,
 ): (token: string) => Promise<Hop1Identity> {
   return async (token) => {
-    const identity = await validateHop1JwtForIssuers(
-      token,
-      await Promise.all(
-        options.issuers.map(async (issuer) => ({
-          profile: issuer.profile,
-          jwks: await issuer.jwksProvider(),
-        })),
-      ),
-    );
-    const issuer = options.issuers.find(
-      (candidate) =>
-        candidate.profile.name === identity.profile && candidate.profile.issuer === identity.issuer,
-    );
-    if (!issuer) {
-      throw new Hop1ValidationError("Validated HOP-1 issuer is not configured");
+    let tokenIssuer: string | undefined;
+    try {
+      tokenIssuer = decodeJwt(token).iss;
+    } catch {
+      throw new Hop1ValidationError("HOP-1 token is malformed");
     }
-    if (issuer.introspection) {
-      await requireActiveIntrospection(token, issuer.introspection);
+    if (!tokenIssuer) {
+      throw new Hop1ValidationError("HOP-1 token is missing its issuer");
     }
-    return identity;
+
+    const candidates = options.issuers.filter((issuer) => issuer.profile.issuer === tokenIssuer);
+    if (candidates.length === 0) {
+      throw new Hop1ValidationError("HOP-1 issuer is not trusted");
+    }
+
+    const validationErrors: string[] = [];
+    let unavailableIssuers = 0;
+    for (const issuer of candidates) {
+      let jwks: JWK[];
+      try {
+        jwks = await issuer.jwksProvider();
+      } catch {
+        unavailableIssuers += 1;
+        continue;
+      }
+
+      let identity: Hop1Identity;
+      try {
+        identity = await validateHop1Jwt(token, issuer.profile, jwks);
+      } catch (error) {
+        validationErrors.push(error instanceof Error ? error.message : String(error));
+        continue;
+      }
+      if (issuer.introspection) {
+        await requireActiveIntrospection(token, issuer.introspection);
+      }
+      return identity;
+    }
+
+    if (unavailableIssuers === candidates.length) {
+      throw new Hop1ValidationError("HOP-1 issuer is unavailable");
+    }
+    throw new Hop1ValidationError(
+      `HOP-1 token validation failed: ${validationErrors[0] ?? "no matching issuer profile"}`,
+    );
   };
 }
 

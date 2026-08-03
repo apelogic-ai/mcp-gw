@@ -125,9 +125,7 @@ describe("GitHub MCP wrapper main config", () => {
       HOP1_INTROSPECTION_CREDENTIAL_0: "secret-from-kubernetes",
     });
 
-    expect(config.hop1Issuers[0]?.introspectionClientCredential).toBe(
-      "secret-from-kubernetes",
-    );
+    expect(config.hop1Issuers[0]?.introspectionClientCredential).toBe("secret-from-kubernetes");
   });
 
   test("requires token store and HOP-1 issuer settings", () => {

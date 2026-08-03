@@ -158,7 +158,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("secretKeyRef:");
     expect(rendered).toContain("name: identity-runtime");
     expect(rendered).toContain("key: introspection-client-credential");
-    expect(rendered).not.toContain("introspectionClientCredential\":\"");
+    expect(rendered).not.toContain('introspectionClientCredential":"');
   });
 
   test("ships a JSON schema that rejects invalid chart values", async () => {

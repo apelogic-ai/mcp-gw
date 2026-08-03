@@ -7,13 +7,13 @@ Recommended shape:
 
 1. Pin a released OCI chart version.
 2. Copy `values-private-overlay.example.yaml` into a private config repo.
-4. Replace placeholders for hostnames, image digests, secret-store names,
+3. Replace placeholders for hostnames, image digests, secret-store names,
    cloud role annotations, and secret-manager keys.
-5. Set `agentgateway.mcpAuthentication.audiences` and
+4. Set `agentgateway.mcpAuthentication.audiences` and
    `agentgateway.mcpAuthentication.resourceMetadata.resource` to the public MCP
    URL. Keep `resourceMetadata.scopesSupported` aligned with the wrappers'
    `HOP1_OAUTH_SCOPES`; the default identity scopes are `openid` and `email`.
-6. Reconcile with Flux or Argo CD using the examples in this directory.
+5. Reconcile with Flux or Argo CD using the examples in this directory.
 
 To add an MCP backend behind the same public `/mcp` endpoint, add the backend
 runtime manifests or install its own chart, then append an entry under

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CHART_DIR="$ROOT_DIR/deploy/k8s/chart"
+VALUES_FILE="$ROOT_DIR/deploy/k8s/examples/values-k8s-smoke.yaml"
+RELEASE_NAME="${K8S_SMOKE_RELEASE_NAME:-mcp-gateway-smoke}"
+NAMESPACE="${K8S_SMOKE_NAMESPACE:-mcp-gateway-smoke}"
+CLUSTER_NAME="${K8S_SMOKE_CLUSTER_NAME:-mcp-gateway-smoke}"
+CREATED_CLUSTER=false
+
+cleanup() {
+  helm uninstall "$RELEASE_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1 || true
+  if [[ "$CREATED_CLUSTER" == "true" ]]; then
+    kind delete cluster --name "$CLUSTER_NAME" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+if [[ "${K8S_SMOKE_CREATE_CLUSTER:-false}" == "true" ]]; then
+  kind create cluster --name "$CLUSTER_NAME" --wait 120s
+  CREATED_CLUSTER=true
+fi
+
+HELM_IMAGE_ARGS=()
+if [[ -n "${K8S_SMOKE_AGENTGATEWAY_REPOSITORY:-}" ]]; then
+  : "${K8S_SMOKE_AGENTGATEWAY_TAG:?K8S_SMOKE_AGENTGATEWAY_TAG is required when overriding the repository}"
+  HELM_IMAGE_ARGS+=(
+    --set-string "agentgateway.image.repository=$K8S_SMOKE_AGENTGATEWAY_REPOSITORY"
+    --set-string "agentgateway.image.tag=$K8S_SMOKE_AGENTGATEWAY_TAG"
+    --set-string "global.imagePullPolicy=Never"
+  )
+fi
+
+helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
+  --namespace "$NAMESPACE" \
+  --create-namespace \
+  --values "$VALUES_FILE" \
+  "${HELM_IMAGE_ARGS[@]}" \
+  --wait \
+  --timeout 3m
+
+kubectl rollout status \
+  "deployment/$RELEASE_NAME-agentgateway" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+
+# A syntactically valid JWT selects the unavailable issuer. Signature
+# verification must fail closed without changing Deployment readiness.
+UNAVAILABLE_ISSUER_TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6InNtb2tlIn0.eyJpc3MiOiJodHRwczovL3VuYXZhaWxhYmxlLmV4YW1wbGUuY29tIiwiYXVkIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIiwic3ViIjoic21va2UiLCJlbWFpbCI6InNtb2tlQGV4YW1wbGUuY29tIiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl"
+UNAVAILABLE_ISSUER_STATUS="$(kubectl run mcp-auth-probe \
+  --namespace "$NAMESPACE" \
+  --image=curlimages/curl:8.16.0 \
+  --restart=Never \
+  --rm \
+  --attach \
+  --quiet \
+  --command -- curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST \
+  -H "authorization: Bearer $UNAVAILABLE_ISSUER_TOKEN" \
+  -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"k8s-smoke","version":"1.0.0"}}}' \
+  "http://$RELEASE_NAME-agentgateway.$NAMESPACE.svc.cluster.local:8080/mcp")"
+
+[[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]
+kubectl get deployment "$RELEASE_NAME-agentgateway" --namespace "$NAMESPACE" \
+  -o jsonpath='{.status.readyReplicas}' | grep -Eq '^[1-9][0-9]*$'
