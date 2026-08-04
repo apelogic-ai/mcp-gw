@@ -176,13 +176,15 @@ spec:
     - host: {{ .Values.agentgateway.ingress.host }}
       http:
         paths:
-          - path: /mcp
+{{- range .Values.agentgateway.ingress.paths }}
+          - path: {{ . }}
             pathType: Prefix
             backend:
               service:
-                name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+                name: {{ include "mcp-gateway.fullname" $ }}-agentgateway
                 port:
                   name: http
+{{- end }}
 {{- end }}
 ---
 {{- if .Values.agentgateway.hpa.enabled }}

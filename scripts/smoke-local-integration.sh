@@ -96,6 +96,45 @@ has_expected_tools() {
   done
 }
 
+auth_status() {
+  local token="${1:-}"
+  if [[ -n "$token" ]]; then
+    curl -sS -o /dev/null -w "%{http_code}" \
+      -X POST "http://127.0.0.1:$GATEWAY_PORT/mcp" \
+      -H "authorization: Bearer $token" \
+      -H "accept: application/json, text/event-stream" \
+      -H "content-type: application/json" \
+      -H "mcp-protocol-version: 2025-06-18" \
+      --data "$INITIALIZE_PAYLOAD"
+    return
+  fi
+
+  curl -sS -o /dev/null -w "%{http_code}" \
+    -X POST "http://127.0.0.1:$GATEWAY_PORT/mcp" \
+    -H "accept: application/json, text/event-stream" \
+    -H "content-type: application/json" \
+    -H "mcp-protocol-version: 2025-06-18" \
+    --data "$INITIALIZE_PAYLOAD"
+}
+
+assert_rejected_without_token() {
+  [[ "$(auth_status)" == "401" ]]
+}
+
+assert_rejected_token() {
+  local label="$1"
+  local token
+  token="$(cat "$TOKEN_FILE.$label")"
+  [[ "$(auth_status "$token")" == "401" ]]
+}
+
+assert_public_metadata() {
+  local status
+  status="$(curl -sS -o "$WORK_DIR/resource-metadata.json" -w "%{http_code}" \
+    "http://127.0.0.1:$GATEWAY_PORT/.well-known/oauth-protected-resource/mcp")"
+  [[ "$status" == "200" ]]
+}
+
 compose_cmd config >/dev/null
 compose_cmd up -d --build "${COMPOSE_SERVICES[@]}"
 
@@ -145,6 +184,13 @@ for _ in {1..60}; do
   fi
 
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
+    assert_rejected_without_token
+    assert_rejected_token expired
+    assert_rejected_token wrong-issuer
+    assert_rejected_token wrong-audience
+    assert_rejected_token invalid-signature
+    assert_public_metadata
+
     if [[ "$INCLUDE_GITHUB" == "1" ]]; then
       echo "Local integration smoke passed: tools/list reached GitHub OAuth helpers through agentgateway."
     else

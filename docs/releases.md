@@ -16,7 +16,7 @@ Use SemVer:
 - `PATCH`: bug fixes, documentation fixes, test improvements, and non-breaking deployment-template
   corrections.
 
-The current public release line is `v0.2.3`.
+The current public release line is `v0.2.4`.
 
 ## Release Artifacts
 
@@ -29,6 +29,13 @@ Each tagged release provides:
 - GitHub build provenance attestations for image and chart digests;
 - a generated release handoff recording exact coordinates, digests, ports, probes, and Secret keys;
 - a GitHub Release containing the handoff and supply-chain evidence.
+
+Repositories that require a private registry can opt into release promotion through GitHub
+repository variables. The release workflow copies the approved agentgateway and chart manifests to
+the configured OCI repositories, verifies that the destination digests match the public release,
+and uploads a private handoff artifact containing signatures, certificates, provenance, SBOMs,
+vulnerability reports, and immutable coordinates. Registry locations and IAM role identifiers are
+deployment configuration and are never committed to this repository.
 
 Release tags are convenient selectors. Production overlays should pin the image digests recorded in
 the release handoff, or mirror those exact digests into an approved private registry. The release

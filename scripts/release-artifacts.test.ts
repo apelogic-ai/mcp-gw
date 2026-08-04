@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { generatePrivateReleaseHandoff } from "./generate-private-release-handoff";
 import { generateReleaseHandoff } from "./generate-release-handoff";
 
 describe("release artifacts", () => {
@@ -41,6 +42,83 @@ describe("release artifacts", () => {
     expect(publishChart.indexOf("docker/login-action@")).toBeLessThan(
       publishChart.indexOf("Attest chart provenance"),
     );
+  });
+
+  test("optionally promotes exact approved image and chart manifests to ECR", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const promotion = workflow.slice(
+      workflow.indexOf("  promote-ecr:"),
+      workflow.indexOf("  release:"),
+    );
+
+    expect(promotion).toContain("vars.ECR_PROMOTION_ENABLED == 'true'");
+    expect(promotion).toContain("AWS_RELEASE_ROLE_ARN");
+    expect(promotion).toContain("MCP_GW_ECR_IMAGE_REPOSITORY");
+    expect(promotion).toContain("MCP_GW_ECR_CHART_REPOSITORY");
+    expect(promotion).toContain("aws-actions/configure-aws-credentials@");
+    expect(promotion).toContain("oras-project/setup-oras@");
+    expect(promotion).toContain("oras cp");
+    expect(promotion).toContain("cosign sign --yes");
+    expect(promotion).toContain("--output-signature dist/ecr-agentgateway.sig");
+    expect(promotion).toContain("--output-certificate dist/ecr-helm-chart.pem");
+    expect(promotion).not.toContain("cosign verify");
+    expect(promotion).not.toMatch(/outputs\.[a-z]+-[a-z-]+/);
+    expect(promotion).toContain('test "$IMAGE_DIGEST" = "$SOURCE_IMAGE_DIGEST"');
+    expect(promotion).toContain('test "$CHART_DIGEST" = "$SOURCE_CHART_DIGEST"');
+    expect(promotion).toContain("ecr-release-handoff");
+    expect(promotion).not.toMatch(/\b\d{12}\b/);
+  });
+
+  test("blocks the public release when configured ECR promotion fails", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const release = workflow.slice(workflow.indexOf("  release:"));
+
+    expect(release).toContain("promote-ecr");
+    expect(release).toContain("needs.promote-ecr.result == 'success'");
+    expect(release).toContain("needs.promote-ecr.result == 'skipped'");
+  });
+
+  test("publishes chart SBOM and vulnerability evidence", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const publishChart = workflow.slice(
+      workflow.indexOf("  publish-chart:"),
+      workflow.indexOf("  promote-ecr:"),
+    );
+
+    expect(publishChart).toContain("helm-chart.spdx.json");
+    expect(publishChart).toContain("helm-chart.vulnerabilities.json");
+    expect(publishChart).toContain("anchore/sbom-action@");
+    expect(publishChart).toContain("aquasecurity/trivy-action@");
+  });
+
+  test("generates a complete private registry handoff", async () => {
+    const artifactsDirectory = await mkdtemp(join(tmpdir(), "mcp-gw-ecr-release-"));
+    const outputPath = join(artifactsDirectory, "ecr-release-handoff.md");
+    const imageDigest = `sha256:${"a".repeat(64)}`;
+    const chartDigest = `sha256:${"b".repeat(64)}`;
+    await writeFile(join(artifactsDirectory, "ecr-agentgateway.digest"), `${imageDigest}\n`);
+    await writeFile(join(artifactsDirectory, "ecr-helm-chart.digest"), `${chartDigest}\n`);
+
+    await generatePrivateReleaseHandoff({
+      artifactsDirectory,
+      chartRepository: "registry.example.com/charts/mcp-gw",
+      imageRepository: "registry.example.com/mcp-gw",
+      outputPath,
+      releaseCommit: "0123456789abcdef",
+      version: "1.2.3",
+    });
+
+    const handoff = await readFile(outputPath, "utf8");
+    expect(handoff).toContain("registry.example.com/mcp-gw@" + imageDigest);
+    expect(handoff).toContain("registry.example.com/charts/mcp-gw@" + chartDigest);
+    expect(handoff).toContain("0123456789abcdef");
+    expect(handoff).toContain("ecr-agentgateway.sig");
+    expect(handoff).toContain("ecr-agentgateway.pem");
+    expect(handoff).toContain("ecr-agentgateway.provenance.json");
+    expect(handoff).toContain("agentgateway.spdx.json");
+    expect(handoff).toContain("agentgateway.vulnerabilities.json");
+    expect(handoff).toContain("helm-chart.spdx.json");
+    expect(handoff).toContain("helm-chart.vulnerabilities.json");
   });
 
   test("defaults the chart to release-owned images without mutable tags", async () => {

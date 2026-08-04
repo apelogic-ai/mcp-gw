@@ -12,12 +12,24 @@ describe("Kubernetes smoke test", () => {
     expect(smoke).toContain("K8S_SMOKE_AGENTGATEWAY_REPOSITORY");
     expect(smoke).toContain("global.imagePullPolicy");
     expect(smoke).toContain("UNAVAILABLE_ISSUER_STATUS");
+    expect(smoke).toContain("METADATA_STATUS");
     expect(smoke).toContain("MCP_STATUS:%{http_code}");
     expect(smoke).toContain("sed -n");
     expect(smoke).toContain('[[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]');
+    expect(smoke).toContain('[[ "$METADATA_STATUS" == "200" ]]');
     expect(smoke).toContain("Kubernetes smoke failed; collecting namespace diagnostics");
     expect(smoke).toContain('kubectl describe deployment "$RELEASE_NAME-agentgateway"');
     expect(smoke).toContain('kubectl logs "deployment/$RELEASE_NAME-agentgateway"');
+  });
+
+  test("renders public MCP and unauthenticated metadata ingress paths", async () => {
+    const template = await readFile("deploy/k8s/chart/templates/agentgateway.yaml", "utf8");
+    const values = await readFile("deploy/k8s/chart/values.yaml", "utf8");
+
+    expect(values).toContain("paths:");
+    expect(values).toContain("- /mcp");
+    expect(values).toContain("- /.well-known/oauth-protected-resource/mcp");
+    expect(template).toContain("range .Values.agentgateway.ingress.paths");
   });
 
   test("runs the Kubernetes smoke in GitHub CI", async () => {

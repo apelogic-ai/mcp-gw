@@ -202,7 +202,17 @@
             },
             "backends": { "type": "array", "items": { "type": "object" } },
             "mcpAuthentication": { "type": "object" },
-            "ingress": { "type": "object" }
+            "ingress": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "paths": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string", "pattern": "^/" }
+                }
+              }
+            }
           }
         }
       ]
