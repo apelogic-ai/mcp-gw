@@ -10,6 +10,18 @@ human-maintained compatibility summary.
 
 - No unreleased changes yet.
 
+## [0.2.4] - 2026-08-04
+
+- Added an optional, environment-neutral release promotion job that copies the approved
+  agentgateway image and OCI Helm chart into configured private ECR repositories without changing
+  their digests.
+- Added keyless signatures, ECR provenance bundles, chart SBOM and vulnerability evidence, and a
+  private registry handoff artifact containing immutable coordinates and the release commit.
+- Expanded authentication release coverage for missing, expired, wrong-issuer, wrong-audience, and
+  invalid-signature tokens while preserving unauthenticated protected-resource metadata.
+- Verified that an unavailable issuer JWKS endpoint fails affected requests closed without making
+  the gateway deployment unready.
+
 ## [0.2.3] - 2026-08-03
 
 - Fixed OCI Helm chart provenance publishing by providing GHCR credentials through Docker's
@@ -77,7 +89,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.0...v0.2.1
