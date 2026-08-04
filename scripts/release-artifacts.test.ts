@@ -43,6 +43,41 @@ describe("release artifacts", () => {
     );
   });
 
+  test("optionally promotes exact approved image and chart manifests to ECR", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const promotion = workflow.slice(
+      workflow.indexOf("  promote-ecr:"),
+      workflow.indexOf("  release:"),
+    );
+
+    expect(promotion).toContain("vars.ECR_PROMOTION_ENABLED == 'true'");
+    expect(promotion).toContain("AWS_RELEASE_ROLE_ARN");
+    expect(promotion).toContain("MCP_GW_ECR_IMAGE_REPOSITORY");
+    expect(promotion).toContain("MCP_GW_ECR_CHART_REPOSITORY");
+    expect(promotion).toContain("aws-actions/configure-aws-credentials@");
+    expect(promotion).toContain("oras-project/setup-oras@");
+    expect(promotion).toContain("oras cp");
+    expect(promotion).toContain("cosign sign --yes");
+    expect(promotion).toContain("--output-signature dist/ecr-agentgateway.sig");
+    expect(promotion).toContain("--output-certificate dist/ecr-helm-chart.pem");
+    expect(promotion).not.toContain("cosign verify");
+    expect(promotion).not.toMatch(/outputs\.[a-z]+-[a-z-]+/);
+    expect(promotion).toContain('test "$IMAGE_DIGEST" = "$SOURCE_IMAGE_DIGEST"');
+    expect(promotion).toContain('test "$CHART_DIGEST" = "$SOURCE_CHART_DIGEST"');
+    expect(promotion).toContain("ecr-release-handoff");
+    expect(promotion).not.toContain("663383948333");
+    expect(promotion).not.toContain("dev.apelogic");
+  });
+
+  test("blocks the public release when configured ECR promotion fails", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const release = workflow.slice(workflow.indexOf("  release:"));
+
+    expect(release).toContain("promote-ecr");
+    expect(release).toContain("needs.promote-ecr.result == 'success'");
+    expect(release).toContain("needs.promote-ecr.result == 'skipped'");
+  });
+
   test("defaults the chart to release-owned images without mutable tags", async () => {
     const values = await readFile("deploy/k8s/chart/values.yaml", "utf8");
 
