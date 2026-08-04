@@ -15,6 +15,7 @@ interface Args {
 
 const args = parseArgs(process.argv.slice(2));
 const keyPair = await generateKeyPair("RS256", { extractable: true });
+const invalidKeyPair = await generateKeyPair("RS256");
 const publicJwk = await exportJWK(keyPair.publicKey);
 const kid = "local-hop1";
 const jwks = {
@@ -28,19 +29,19 @@ const jwks = {
   ],
 };
 
-const token = await new SignJWT({
-  email: args.email,
-})
-  .setProtectedHeader({ alg: "RS256", kid })
-  .setIssuer(args.issuer)
-  .setSubject("local-hop1-user")
-  .setAudience(args.audience)
-  .setJti(randomUUID())
-  .setIssuedAt()
-  .setExpirationTime("10m")
-  .sign(keyPair.privateKey);
+const token = await signToken({});
+const expiredToken = await signToken({ expirationTime: Math.floor(Date.now() / 1000) - 60 });
+const wrongIssuerToken = await signToken({ issuer: `${args.issuer}/wrong` });
+const wrongAudienceToken = await signToken({ audience: `${args.audience}/wrong` });
+const invalidSignatureToken = await signToken({ privateKey: invalidKeyPair.privateKey });
 
-await writeFile(args.tokenFile, token, "utf8");
+await Promise.all([
+  writeFile(args.tokenFile, token, "utf8"),
+  writeFile(`${args.tokenFile}.expired`, expiredToken, "utf8"),
+  writeFile(`${args.tokenFile}.wrong-issuer`, wrongIssuerToken, "utf8"),
+  writeFile(`${args.tokenFile}.wrong-audience`, wrongAudienceToken, "utf8"),
+  writeFile(`${args.tokenFile}.invalid-signature`, invalidSignatureToken, "utf8"),
+]);
 
 Bun.serve({
   port: args.port,
@@ -59,6 +60,25 @@ Bun.serve({
 });
 
 console.log(`HOP-1 fixture listening on ${args.issuer}`);
+
+interface TokenOverrides {
+  audience?: string;
+  expirationTime?: number | string;
+  issuer?: string;
+  privateKey?: CryptoKey;
+}
+
+async function signToken(overrides: TokenOverrides): Promise<string> {
+  return new SignJWT({ email: args.email })
+    .setProtectedHeader({ alg: "RS256", kid })
+    .setIssuer(overrides.issuer ?? args.issuer)
+    .setSubject("local-hop1-user")
+    .setAudience(overrides.audience ?? args.audience)
+    .setJti(randomUUID())
+    .setIssuedAt()
+    .setExpirationTime(overrides.expirationTime ?? "10m")
+    .sign(overrides.privateKey ?? keyPair.privateKey);
+}
 
 function parseArgs(argv: string[]): Args {
   const values = new Map<string, string>();

@@ -32,6 +32,16 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("github_oauth_start");
     expect(smoke).toContain('EXPECTED_TOOLS+=("github_oauth_start")');
     expect(smoke).toContain('for expected_tool in "${EXPECTED_TOOLS[@]}"');
+    expect(smoke).toContain("assert_rejected_without_token");
+    expect(smoke).toContain("assert_rejected_token expired");
+    expect(smoke).toContain("assert_rejected_token wrong-issuer");
+    expect(smoke).toContain("assert_rejected_token wrong-audience");
+    expect(smoke).toContain("assert_rejected_token invalid-signature");
+    expect(smoke).toContain("assert_public_metadata");
+    expect(fixture).toContain("`${args.tokenFile}.expired`");
+    expect(fixture).toContain("`${args.tokenFile}.wrong-issuer`");
+    expect(fixture).toContain("`${args.tokenFile}.wrong-audience`");
+    expect(fixture).toContain("`${args.tokenFile}.invalid-signature`");
   });
 
   test("mounts an authenticated local agentgateway config for the smoke path", async () => {

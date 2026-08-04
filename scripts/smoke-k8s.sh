@@ -66,6 +66,20 @@ kubectl rollout status \
   --namespace "$NAMESPACE" \
   --timeout=120s
 
+METADATA_OUTPUT="$(kubectl run mcp-metadata-probe \
+  --namespace "$NAMESPACE" \
+  --image=curlimages/curl:8.16.0 \
+  --restart=Never \
+  --rm \
+  --attach \
+  --quiet \
+  --command -- curl -sS -o /dev/null -w 'METADATA_STATUS:%{http_code}\n' \
+  "http://$RELEASE_NAME-agentgateway.$NAMESPACE.svc.cluster.local:8080/.well-known/oauth-protected-resource/mcp")"
+METADATA_STATUS="$(printf '%s\n' "$METADATA_OUTPUT" | \
+  sed -n 's/.*METADATA_STATUS:\([0-9][0-9][0-9]\).*/\1/p' | tail -n 1)"
+
+[[ "$METADATA_STATUS" == "200" ]]
+
 # A syntactically valid JWT selects the unavailable issuer. Signature
 # verification must fail closed without changing Deployment readiness.
 UNAVAILABLE_ISSUER_TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6InNtb2tlIn0.eyJpc3MiOiJodHRwczovL3VuYXZhaWxhYmxlLmV4YW1wbGUuY29tIiwiYXVkIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIiwic3ViIjoic21va2UiLCJlbWFpbCI6InNtb2tlQGV4YW1wbGUuY29tIiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl"

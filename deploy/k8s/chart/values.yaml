@@ -81,6 +81,9 @@ agentgateway:
     host: mcp.example.com
     className: ""
     annotations: {}
+    paths:
+      - /mcp
+      - /.well-known/oauth-protected-resource/mcp
     tls: []
   hpa:
     enabled: false
