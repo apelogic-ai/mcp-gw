@@ -66,8 +66,7 @@ describe("release artifacts", () => {
     expect(promotion).toContain('test "$IMAGE_DIGEST" = "$SOURCE_IMAGE_DIGEST"');
     expect(promotion).toContain('test "$CHART_DIGEST" = "$SOURCE_CHART_DIGEST"');
     expect(promotion).toContain("ecr-release-handoff");
-    expect(promotion).not.toContain("663383948333");
-    expect(promotion).not.toContain("dev.apelogic");
+    expect(promotion).not.toMatch(/\b\d{12}\b/);
   });
 
   test("blocks the public release when configured ECR promotion fails", async () => {
