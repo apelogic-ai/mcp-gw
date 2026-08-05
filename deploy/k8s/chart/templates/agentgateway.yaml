@@ -1,4 +1,10 @@
 {{- if .Values.agentgateway.enabled }}
+{{- $introspectionIssuers := list }}
+{{- range $index, $issuer := .Values.hop1.issuers }}
+{{- with $issuer.introspection }}
+{{- $introspectionIssuers = append $introspectionIssuers (dict "index" $index "config" .) }}
+{{- end }}
+{{- end }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "agentgateway" "values" .Values.agentgateway) }}
 apiVersion: v1
 kind: ConfigMap
@@ -27,15 +33,22 @@ data:
                     mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
 {{- if .Values.hop1.issuers }}
                     providers:
-{{- range .Values.hop1.issuers }}
-                      - issuer: {{ .issuer }}
+{{- range $index, $issuer := .Values.hop1.issuers }}
+                      - issuer: {{ $issuer.issuer }}
                         audiences:
-{{ toYaml .audiences | nindent 26 }}
+{{ toYaml $issuer.audiences | nindent 26 }}
+                        allowedAlgorithms:
+{{ toYaml $issuer.allowedAlgorithms | nindent 26 }}
                         jwks:
-                          url: {{ .jwksUrl }}
-                        discoverable: {{ .discoverable | default false }}
-{{- with .clientId }}
+                          url: {{ $issuer.jwksUrl }}
+                        discoverable: {{ $issuer.discoverable | default false }}
+{{- with $issuer.clientId }}
                         clientId: {{ . }}
+{{- end }}
+{{- with $issuer.introspection }}
+                        introspection:
+                          url: {{ .url }}
+                          credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-{{ $index }}
 {{- end }}
 {{- end }}
 {{- else if .Values.agentgateway.mcpAuthentication.providers }}
@@ -129,6 +142,11 @@ spec:
               mountPath: /etc/agentgateway/config.yaml
               subPath: config.yaml
               readOnly: true
+          {{- if $introspectionIssuers }}
+            - name: hop1-introspection
+              mountPath: /var/run/secrets/mcp-gateway/introspection
+              readOnly: true
+          {{- end }}
           {{- with .Values.agentgateway.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -137,6 +155,20 @@ spec:
         - name: config
           configMap:
             name: {{ include "mcp-gateway.fullname" . }}-agentgateway-config
+      {{- if $introspectionIssuers }}
+        - name: hop1-introspection
+          projected:
+            defaultMode: 0400
+            sources:
+          {{- range $entry := $introspectionIssuers }}
+              - secret:
+                  name: {{ $entry.config.credentialSecretKeyRef.name }}
+                  optional: true
+                  items:
+                    - key: {{ $entry.config.credentialSecretKeyRef.key }}
+                      path: issuer-{{ $entry.index }}
+          {{- end }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

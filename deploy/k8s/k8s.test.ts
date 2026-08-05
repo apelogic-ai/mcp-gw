@@ -153,7 +153,16 @@ describe("Kubernetes production chart", () => {
 
     expect(rendered).toContain("issuer: https://identity.example.com");
     expect(rendered).toContain("issuer: https://automation.example.com");
+    expect(rendered).toContain("allowedAlgorithms:");
+    expect(rendered).toContain("- EdDSA");
     expect(rendered).toContain("url: https://identity.example.com/.well-known/jwks.json");
+    expect(rendered).toContain("url: https://automation.example.com/oauth2/introspect");
+    expect(rendered).toContain(
+      "credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-1",
+    );
+    expect(rendered).toContain("name: hop1-introspection");
+    expect(rendered).toContain("mountPath: /var/run/secrets/mcp-gateway/introspection");
+    expect(rendered).toContain("path: issuer-1");
     expect(rendered).toContain("HOP1_ISSUERS_JSON");
     expect(rendered).toContain("introspectionClientCredentialEnv");
     expect(rendered).toContain("HOP1_INTROSPECTION_CREDENTIAL_1");
@@ -161,6 +170,51 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("name: identity-runtime");
     expect(rendered).toContain("key: introspection-client-credential");
     expect(rendered).not.toContain('introspectionClientCredential":"');
+
+    const configStart = rendered.indexOf("config.yaml: |");
+    const config = rendered.slice(configStart, rendered.indexOf("\n---\n# Source:", configStart));
+    expect(config).not.toContain("identity-runtime");
+    expect(config).not.toContain("introspection-client-credential");
+  });
+
+  test("rejects issuer profiles without a non-empty algorithm allowlist", () => {
+    const issuer = {
+      name: "fixture",
+      issuer: "https://issuer.example.com",
+      audiences: ["https://mcp.example.com/mcp"],
+      jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
+    };
+
+    const missing = helmTemplateResult(["--set-json", `hop1.issuers=[${JSON.stringify(issuer)}]`]);
+    expect(missing.exitCode).not.toBe(0);
+    expect(missing.stderr.toString()).toMatch(/allowedAlgorithms/);
+
+    const empty = helmTemplateResult([
+      "--set-json",
+      `hop1.issuers=[${JSON.stringify({ ...issuer, allowedAlgorithms: [] })}]`,
+    ]);
+    expect(empty.exitCode).not.toBe(0);
+    expect(empty.stderr.toString()).toMatch(/allowedAlgorithms/);
+  });
+
+  test("rejects malformed introspection secret references", () => {
+    const result = helmTemplateResult([
+      "--set-json",
+      `hop1.issuers=[${JSON.stringify({
+        name: "fixture",
+        issuer: "https://issuer.example.com",
+        audiences: ["https://mcp.example.com/mcp"],
+        jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
+        allowedAlgorithms: ["EdDSA"],
+        introspection: {
+          url: "https://issuer.example.com/oauth/introspect",
+          credentialSecretKeyRef: { name: "", key: "credential" },
+        },
+      })}]`,
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toMatch(/credentialSecretKeyRef/);
   });
 
   test("normalizes one issuer to failure-isolated provider configuration", () => {
@@ -234,14 +288,18 @@ describe("Kubernetes production chart", () => {
 });
 
 function helmTemplate(extraArgs: string[] = []): string {
-  const result = Bun.spawnSync({
+  const result = helmTemplateResult(extraArgs);
+
+  expect(result.exitCode).toBe(0);
+  return result.stdout.toString();
+}
+
+function helmTemplateResult(extraArgs: string[] = []): Bun.SyncSubprocess<"pipe", "pipe"> {
+  return Bun.spawnSync({
     cmd: ["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs],
     stdout: "pipe",
     stderr: "pipe",
   });
-
-  expect(result.exitCode).toBe(0);
-  return result.stdout.toString();
 }
 
 async function readExample(fileName: string): Promise<string> {

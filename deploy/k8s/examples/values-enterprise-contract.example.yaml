@@ -7,6 +7,8 @@ hop1:
       audiences:
         - https://mcp.example.com/mcp
       jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
       discoverable: true
       clientId: mcp-gateway
       emailClaim: email
@@ -16,6 +18,8 @@ hop1:
       audiences:
         - https://mcp.example.com/mcp
       jwksUrl: https://automation.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
       discoverable: false
       emailClaim: email
       subjectClaim: sub
