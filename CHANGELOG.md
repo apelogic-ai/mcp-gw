@@ -8,6 +8,8 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-08-04
+
 ### Fixed
 
 - Normalized one-issuer Helm values to agentgateway's failure-isolated provider configuration so
@@ -93,7 +95,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.1...v0.2.2
