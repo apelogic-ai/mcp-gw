@@ -3,6 +3,11 @@ import { Pool } from "pg";
 
 import { JsonlAuditSink, type AuditSink } from "../../../../shared/audit/audit";
 import {
+  HOP1_SUPPORTED_ALGORITHMS,
+  type Hop1Algorithm,
+  type Hop1IssuerConfig,
+} from "../../../../shared/identity/hop1";
+import {
   GitHubTokenBroker,
   startGithubOAuth,
   type GitHubOAuthConfig,
@@ -15,7 +20,6 @@ import {
   createYamlPolicyFromString,
   type ToolPolicy,
 } from "../../../../shared/policy/policy";
-import type { Hop1IssuerConfig } from "../../../google-workspace/wrapper/src/app";
 import {
   createRuntimeAuthenticator,
   createRemoteJwksProvider,
@@ -186,13 +190,17 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
   );
   return [
     {
-      name: env.HOP1_PROFILE ?? "google",
+      name: env.HOP1_PROFILE ?? "issuer",
       issuer: requiredEnv(env, "HOP1_ISSUER"),
       jwksUrl: requiredEnv(env, "HOP1_JWKS_URL"),
       audiences: requiredEnv(env, "HOP1_AUDIENCE")
         .split(",")
         .map((audience) => audience.trim())
         .filter(Boolean),
+      allowedAlgorithms: parseAllowedAlgorithms(
+        requiredEnv(env, "HOP1_ALLOWED_ALGORITHMS").split(/[\s,]+/),
+        "HOP1_ALLOWED_ALGORITHMS",
+      ),
       emailClaim: requiredEnv(env, "HOP1_EMAIL_CLAIM"),
       subjectClaim: env.HOP1_SUBJECT_CLAIM,
       ...introspection,
@@ -215,6 +223,10 @@ function parseHop1IssuerConfig(
     throw new Error(`HOP1_ISSUERS_JSON[${String(index)}].audiences must be a string array`);
   }
   const audienceValues = audiences as string[];
+  const allowedAlgorithms = parseAllowedAlgorithms(
+    record.allowedAlgorithms,
+    `HOP1_ISSUERS_JSON[${String(index)}].allowedAlgorithms`,
+  );
   const introspectionUrl =
     typeof record.introspectionUrl === "string" && record.introspectionUrl.length > 0
       ? record.introspectionUrl
@@ -242,6 +254,7 @@ function parseHop1IssuerConfig(
     issuer: stringField(record, "issuer", index),
     jwksUrl: stringField(record, "jwksUrl", index),
     audiences: audienceValues,
+    allowedAlgorithms,
     emailClaim: stringField(record, "emailClaim", index),
     subjectClaim:
       typeof record.subjectClaim === "string" && record.subjectClaim.length > 0
@@ -249,6 +262,22 @@ function parseHop1IssuerConfig(
         : undefined,
     ...introspection,
   };
+}
+
+function parseAllowedAlgorithms(value: unknown, name: string): Hop1Algorithm[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some(
+      (algorithm) =>
+        typeof algorithm !== "string" ||
+        !HOP1_SUPPORTED_ALGORITHMS.includes(algorithm as Hop1Algorithm),
+    )
+  ) {
+    throw new Error(`${name} must be a non-empty string array of supported algorithms`);
+  }
+
+  return value as Hop1Algorithm[];
 }
 
 function introspectionConfig(

@@ -10,36 +10,47 @@ import {
 
 let privateKey: CryptoKey;
 let publicJwk: JWK;
+let disallowedPrivateKey: CryptoKey;
+let disallowedPublicJwk: JWK;
 
-const googleProfile: IssuerProfile = {
-  name: "google",
-  issuer: "https://accounts.google.com",
+const fixtureProfile: IssuerProfile = {
+  name: "fixture-primary",
+  issuer: "https://identity.example.com",
   audiences: ["mcp-gateway-dev"],
+  allowedAlgorithms: ["EdDSA"],
   emailClaim: "email",
 };
 
-const oktaProfile: IssuerProfile = {
-  name: "okta",
-  issuer: "https://client.okta.example/oauth2/default",
+const alternateProfile: IssuerProfile = {
+  name: "fixture-alternate",
+  issuer: "https://alternate.identity.example.com",
   audiences: ["mcp-gateway-dev"],
+  allowedAlgorithms: ["EdDSA"],
   emailClaim: "preferred_username",
   subjectClaim: "sub",
 };
 
 beforeAll(async () => {
-  const pair = await generateKeyPair("RS256", { extractable: true });
+  const pair = await generateKeyPair("EdDSA", { extractable: true });
   privateKey = pair.privateKey;
   publicJwk = {
     ...(await exportJWK(pair.publicKey)),
-    alg: "RS256",
+    alg: "EdDSA",
     kid: "test-key",
+    use: "sig",
+  };
+  const disallowedPair = await generateKeyPair("RS256", { extractable: true });
+  disallowedPrivateKey = disallowedPair.privateKey;
+  disallowedPublicJwk = {
+    ...(await exportJWK(disallowedPair.publicKey)),
+    kid: "disallowed-key",
     use: "sig",
   };
 });
 
 async function signToken(claims: Record<string, unknown>): Promise<string> {
   return new SignJWT(claims)
-    .setProtectedHeader({ alg: "RS256", kid: "test-key" })
+    .setProtectedHeader({ alg: "EdDSA", kid: "test-key" })
     .setIssuedAt()
     .setExpirationTime("5m")
     .sign(privateKey);
@@ -49,11 +60,12 @@ async function expectHop1Rejection(
   token: string,
   profile: IssuerProfile,
   expectedMessage?: string,
+  jwks: JWK[] = [publicJwk],
 ): Promise<void> {
   expect.assertions(expectedMessage ? 2 : 1);
 
   try {
-    await validateHop1Jwt(token, profile, [publicJwk]);
+    await validateHop1Jwt(token, profile, jwks);
   } catch (error) {
     expect(error).toBeInstanceOf(Hop1ValidationError);
     if (expectedMessage) {
@@ -63,41 +75,41 @@ async function expectHop1Rejection(
 }
 
 describe("HOP-1 JWT validation", () => {
-  test("accepts a valid Google OIDC token and extracts email identity", async () => {
+  test("accepts a valid token from a generic configured issuer", async () => {
     const token = await signToken({
-      iss: "https://accounts.google.com",
+      iss: fixtureProfile.issuer,
       aud: "mcp-gateway-dev",
-      sub: "google-subject",
+      sub: "fixture-subject",
       email: "user@example.com",
     });
 
-    const identity = await validateHop1Jwt(token, googleProfile, [publicJwk]);
+    const identity = await validateHop1Jwt(token, fixtureProfile, [publicJwk]);
 
     expect(identity).toEqual({
-      issuer: "https://accounts.google.com",
-      subject: "google-subject",
+      issuer: fixtureProfile.issuer,
+      subject: "fixture-subject",
       email: "user@example.com",
-      profile: "google",
+      profile: fixtureProfile.name,
       claims: identity.claims,
     });
     expect(identity.claims.email).toBe("user@example.com");
   });
 
-  test("supports Okta-shaped claim mapping without changing callers", async () => {
+  test("supports alternate claim mapping without changing callers", async () => {
     const token = await signToken({
-      iss: "https://client.okta.example/oauth2/default",
+      iss: alternateProfile.issuer,
       aud: "mcp-gateway-dev",
       sub: "okta-subject",
       preferred_username: "user@example.com",
     });
 
-    const identity = await validateHop1Jwt(token, oktaProfile, [publicJwk]);
+    const identity = await validateHop1Jwt(token, alternateProfile, [publicJwk]);
 
     expect(identity).toMatchObject({
-      issuer: "https://client.okta.example/oauth2/default",
+      issuer: alternateProfile.issuer,
       subject: "okta-subject",
       email: "user@example.com",
-      profile: "okta",
+      profile: alternateProfile.name,
     });
   });
 
@@ -110,12 +122,13 @@ describe("HOP-1 JWT validation", () => {
     });
 
     const identity = await validateHop1JwtForIssuers(token, [
-      { profile: googleProfile, jwks: [publicJwk] },
+      { profile: fixtureProfile, jwks: [publicJwk] },
       {
         profile: {
           name: "partner",
           issuer: "https://partner.example.com",
           audiences: ["mcp-gateway-dev"],
+          allowedAlgorithms: ["EdDSA"],
           emailClaim: "email",
           subjectClaim: "sub",
         },
@@ -131,6 +144,21 @@ describe("HOP-1 JWT validation", () => {
     });
   });
 
+  test("rejects a valid signature made with an algorithm outside the issuer allowlist", async () => {
+    const token = await new SignJWT({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      sub: "subject",
+      email: "user@example.com",
+    })
+      .setProtectedHeader({ alg: "RS256", kid: "disallowed-key" })
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(disallowedPrivateKey);
+
+    await expectHop1Rejection(token, fixtureProfile, undefined, [disallowedPublicJwk]);
+  });
+
   test("rejects the wrong issuer", async () => {
     const token = await signToken({
       iss: "https://evil.example",
@@ -139,27 +167,27 @@ describe("HOP-1 JWT validation", () => {
       email: "user@example.com",
     });
 
-    await expectHop1Rejection(token, googleProfile);
+    await expectHop1Rejection(token, fixtureProfile);
   });
 
   test("rejects the wrong audience", async () => {
     const token = await signToken({
-      iss: "https://accounts.google.com",
+      iss: fixtureProfile.issuer,
       aud: "other-audience",
       sub: "subject",
       email: "user@example.com",
     });
 
-    await expectHop1Rejection(token, googleProfile);
+    await expectHop1Rejection(token, fixtureProfile);
   });
 
   test("rejects tokens without an email claim", async () => {
     const token = await signToken({
-      iss: "https://accounts.google.com",
+      iss: fixtureProfile.issuer,
       aud: "mcp-gateway-dev",
       sub: "subject",
     });
 
-    await expectHop1Rejection(token, googleProfile, "JWT missing required email claim: email");
+    await expectHop1Rejection(token, fixtureProfile, "JWT missing required email claim: email");
   });
 });

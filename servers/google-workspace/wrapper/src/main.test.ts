@@ -14,6 +14,7 @@ describe("wrapper main config", () => {
         HOP1_ISSUER: "https://accounts.google.com",
         HOP1_AUDIENCE: "mcp-gateway-dev",
         HOP1_EMAIL_CLAIM: "email",
+        HOP1_ALLOWED_ALGORITHMS: "RS256",
       }),
     ).toThrow("Missing required env var: HOP1_JWKS_URL");
   });
@@ -29,6 +30,7 @@ describe("wrapper main config", () => {
         HOP1_ISSUER: "https://accounts.google.com",
         HOP1_AUDIENCE: "mcp-gateway-dev",
         HOP1_EMAIL_CLAIM: "email",
+        HOP1_ALLOWED_ALGORITHMS: "RS256",
         HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       }),
     ).toThrow("Missing required env var: TOKEN_STORE_DSN");
@@ -46,6 +48,7 @@ describe("wrapper main config", () => {
         HOP1_ISSUER: "https://accounts.google.com",
         HOP1_AUDIENCE: "mcp-gateway-dev",
         HOP1_EMAIL_CLAIM: "email",
+        HOP1_ALLOWED_ALGORITHMS: "RS256",
         HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
         TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
       }),
@@ -75,6 +78,7 @@ describe("wrapper main config", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
     });
@@ -104,6 +108,7 @@ describe("wrapper main config", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
     });
@@ -122,6 +127,7 @@ describe("wrapper main config", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
       HOP1_OAUTH_SCOPES: "openid,email",
@@ -143,6 +149,7 @@ describe("wrapper main config", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
     });
@@ -170,6 +177,7 @@ describe("wrapper main config", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
     });
@@ -211,6 +219,7 @@ describe("wrapper main config", () => {
         HOP1_ISSUER: "https://accounts.google.com",
         HOP1_AUDIENCE: "mcp-gateway-dev",
         HOP1_EMAIL_CLAIM: "email",
+        HOP1_ALLOWED_ALGORITHMS: "RS256",
         HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
         TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
         GOOGLE_OAUTH_SCOPES:
@@ -238,6 +247,7 @@ describe("wrapper main config", () => {
             issuer: "https://accounts.google.com",
             jwksUrl: "https://www.googleapis.com/oauth2/v3/certs",
             audiences: ["mcp-gateway-dev"],
+            allowedAlgorithms: ["RS256"],
             emailClaim: "email",
           },
           {
@@ -245,6 +255,7 @@ describe("wrapper main config", () => {
             issuer: "https://partner.example.com",
             jwksUrl: "https://partner.example.com/.well-known/jwks.json",
             audiences: ["mcp-gateway-dev"],
+            allowedAlgorithms: ["RS256"],
             emailClaim: "email",
           },
         ]),
