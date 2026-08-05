@@ -1,9 +1,19 @@
+hop1:
+  issuers:
+    - name: unavailable-fixture
+      issuer: https://unavailable.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: http://127.0.0.1:9/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      discoverable: true
+      emailClaim: email
+      subjectClaim: sub
+
 agentgateway:
+  enabled: true
   mcpAuthentication:
-    issuer: https://unavailable.example.com
-    audiences:
-      - https://mcp.example.com/mcp
-    jwksUrl: http://127.0.0.1:9/.well-known/jwks.json
     resourceMetadata:
       resource: https://mcp.example.com/mcp
       scopesSupported:

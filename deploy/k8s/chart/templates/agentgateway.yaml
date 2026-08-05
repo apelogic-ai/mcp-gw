@@ -1,4 +1,7 @@
 {{- if .Values.agentgateway.enabled }}
+{{- if not .Values.hop1.issuers }}
+{{- fail "hop1.issuers must contain at least one issuer when agentgateway is enabled" }}
+{{- end }}
 {{- $introspectionIssuers := list }}
 {{- range $index, $issuer := .Values.hop1.issuers }}
 {{- with $issuer.introspection }}
@@ -31,7 +34,6 @@ data:
                     exposeHeaders: ["Mcp-Session-Id"]
                   mcpAuthentication:
                     mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
-{{- if .Values.hop1.issuers }}
                     providers:
 {{- range $index, $issuer := .Values.hop1.issuers }}
                       - issuer: {{ $issuer.issuer }}
@@ -50,18 +52,6 @@ data:
                           url: {{ .url }}
                           credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-{{ $index }}
 {{- end }}
-{{- end }}
-{{- else if .Values.agentgateway.mcpAuthentication.providers }}
-                    providers:
-{{ toYaml .Values.agentgateway.mcpAuthentication.providers | nindent 22 }}
-{{- else }}
-                    providers:
-                      - issuer: {{ .Values.agentgateway.mcpAuthentication.issuer }}
-                        audiences:
-{{ toYaml .Values.agentgateway.mcpAuthentication.audiences | nindent 26 }}
-                        jwks:
-                          url: {{ .Values.agentgateway.mcpAuthentication.jwksUrl }}
-                        discoverable: true
 {{- end }}
                     resourceMetadata:
 {{ toYaml .Values.agentgateway.mcpAuthentication.resourceMetadata | nindent 22 }}

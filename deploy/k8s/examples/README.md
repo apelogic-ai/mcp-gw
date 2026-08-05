@@ -9,7 +9,8 @@ Recommended shape:
 2. Copy `values-private-overlay.example.yaml` into a private config repo.
 3. Replace placeholders for hostnames, image digests, service-account annotations,
    existing Kubernetes Secret names, sizing, and scheduling policy.
-4. Set `agentgateway.mcpAuthentication.audiences` and
+4. Set `hop1.issuers` to the deployment-owned issuer, audience, JWKS URL, and
+   non-empty algorithm allowlist. Set
    `agentgateway.mcpAuthentication.resourceMetadata.resource` to the public MCP
    URL. Keep `resourceMetadata.scopesSupported` aligned with the wrappers'
    `HOP1_OAUTH_SCOPES`; the default identity scopes are `openid` and `email`.
@@ -43,5 +44,11 @@ Runtime secrets are referenced as existing Kubernetes Secrets. Create or
 reconcile those Secrets from the organization's chosen secret manager outside
 this chart. Do not commit OAuth client secrets, token encryption keys, refresh
 tokens, database passwords, or private JWKS material.
+
+The chart enables no workload by default. Enabling agentgateway or an
+authenticated wrapper without at least one complete `hop1.issuers` profile is
+a schema error. The file `values-enterprise-contract.example.yaml` is a
+non-deployable test fixture that demonstrates the complete values shape; do not
+use its fixture coordinates as deployment configuration.
 
 The public chart and examples contain only generic public coordinates and placeholder values.

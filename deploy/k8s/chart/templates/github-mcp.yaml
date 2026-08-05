@@ -1,4 +1,7 @@
 {{- if .Values.githubWrapper.enabled }}
+{{- if not .Values.hop1.issuers }}
+{{- fail "hop1.issuers must contain at least one issuer when githubWrapper is enabled" }}
+{{- end }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "github-wrapper" "values" .Values.githubWrapper) }}
 apiVersion: apps/v1
 kind: Deployment

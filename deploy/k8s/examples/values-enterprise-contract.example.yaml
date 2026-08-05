@@ -1,5 +1,5 @@
-# Complete generic values contract example. Keep environment-specific values in
-# a private GitOps repository and pass that file to the published OCI chart.
+# Non-deployable contract fixture used by chart tests. Private GitOps must provide
+# real issuer, audience, JWKS, Secret, sizing, and scheduling values.
 hop1:
   issuers:
     - name: workforce
@@ -30,6 +30,7 @@ hop1:
           key: introspection-client-credential
 
 agentgateway:
+  enabled: true
   image:
     repository: ghcr.io/example/agentgateway
     tag: ""

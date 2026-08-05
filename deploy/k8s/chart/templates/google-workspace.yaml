@@ -1,4 +1,7 @@
 {{- if .Values.googleWorkspace.enabled }}
+{{- if not .Values.hop1.issuers }}
+{{- fail "hop1.issuers must contain at least one issuer when googleWorkspace is enabled" }}
+{{- end }}
 {{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "google-workspace" "values" .Values.googleWorkspace) }}
 {{- if .Values.googleWorkspace.policy.enabled }}
 apiVersion: v1

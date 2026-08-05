@@ -4,6 +4,50 @@
   "title": "mcp-gateway Helm values",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {
+            "required": ["agentgateway"],
+            "properties": {
+              "agentgateway": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              }
+            }
+          },
+          {
+            "required": ["googleWorkspace"],
+            "properties": {
+              "googleWorkspace": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              }
+            }
+          },
+          {
+            "required": ["githubWrapper"],
+            "properties": {
+              "githubWrapper": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "required": ["hop1"],
+        "properties": {
+          "hop1": {
+            "required": ["issuers"],
+            "properties": { "issuers": { "minItems": 1 } }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "global": {
       "type": "object",

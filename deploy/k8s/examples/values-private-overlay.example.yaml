@@ -9,6 +9,7 @@ global:
     - name: private-registry-pull
 
 agentgateway:
+  enabled: true
   image: ghcr.io/example/agentgateway@sha256:0000000000000000000000000000000000000000000000000000000000000000
   replicas: 3
   backends:
@@ -23,8 +24,6 @@ agentgateway:
       port: 8080
       path: /mcp
   mcpAuthentication:
-    audiences:
-      - https://mcp-gateway.internal.example.com/mcp
     resourceMetadata:
       resource: https://mcp-gateway.internal.example.com/mcp
       scopesSupported:

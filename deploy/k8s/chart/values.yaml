@@ -6,7 +6,7 @@ hop1:
   issuers: []
 
 agentgateway:
-  enabled: true
+  enabled: false
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
     tag: ""
@@ -15,13 +15,8 @@ agentgateway:
   port: 8080
   mcpAuthentication:
     mode: strict
-    issuer: https://accounts.google.com
-    audiences:
-      - https://mcp.example.com/mcp
-    jwksUrl: https://www.googleapis.com/oauth2/v3/certs
-    providers: []
     resourceMetadata:
-      resource: https://mcp.example.com/mcp
+      resource: ""
       scopesSupported:
         - openid
         - email
@@ -148,7 +143,6 @@ googleWorkspace:
   env:
     PORT: "8080"
     GWS_BINARY_PATH: /app/node_modules/.bin/gws
-    HOP1_PROFILE: google
     HOP1_OAUTH_SCOPES: openid email
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
@@ -264,7 +258,6 @@ githubWrapper:
     GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
     GITHUB_OAUTH_SCOPES: repo read:org workflow notifications user:email
     GITHUB_TOOL_ALIASES_JSON: "{}"
-    HOP1_PROFILE: google
     HOP1_EMAIL_CLAIM: email
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
