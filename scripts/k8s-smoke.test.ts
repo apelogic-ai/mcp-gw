@@ -1,7 +1,51 @@
-import { access, constants, readFile } from "node:fs/promises";
+import { access, chmod, constants, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 describe("Kubernetes smoke test", () => {
+  test("runs without image overrides on Bash 3", async () => {
+    const mockBin = await mkdtemp(join(tmpdir(), "mcp-gw-k8s-smoke-"));
+
+    try {
+      const helm = join(mockBin, "helm");
+      const kubectl = join(mockBin, "kubectl");
+      await writeFile(helm, "#!/bin/sh\nexit 0\n");
+      await writeFile(
+        kubectl,
+        `#!/bin/sh
+case "$*" in
+  "logs mcp-metadata-probe"*) echo 'METADATA_STATUS:200' ;;
+  "logs mcp-auth-probe"*) echo 'MCP_STATUS:401' ;;
+  "get deployment"*) printf '1' ;;
+esac
+exit 0
+`,
+      );
+      await Promise.all([chmod(helm, 0o755), chmod(kubectl, 0o755)]);
+
+      const smokeProcess = Bun.spawn(["/bin/bash", "scripts/smoke-k8s.sh"], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: `${mockBin}:${process.env.PATH}`,
+          K8S_SMOKE_CREATE_CLUSTER: "false",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+      const [exitCode, stderr] = await Promise.all([
+        smokeProcess.exited,
+        new Response(smokeProcess.stderr).text(),
+      ]);
+
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+    } finally {
+      await rm(mockBin, { force: true, recursive: true });
+    }
+  });
+
   test("installs the chart and verifies unavailable issuers fail closed", async () => {
     await access("scripts/smoke-k8s.sh", constants.X_OK);
     const smoke = await readFile("scripts/smoke-k8s.sh", "utf8");
@@ -15,6 +59,12 @@ describe("Kubernetes smoke test", () => {
     expect(smoke).toContain("METADATA_STATUS");
     expect(smoke).toContain("MCP_STATUS:%{http_code}");
     expect(smoke).toContain("sed -n");
+    expect(smoke).toContain("run_probe() {");
+    expect(smoke).toContain("kubectl wait");
+    expect(smoke).toContain('kubectl logs "$pod_name"');
+    expect(smoke).toContain('kubectl delete pod "$pod_name"');
+    expect(smoke).not.toContain("--attach");
+    expect(smoke).not.toContain("--rm");
     expect(smoke).toContain('[[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]');
     expect(smoke).toContain('[[ "$METADATA_STATUS" == "200" ]]');
     expect(smoke).toContain("Kubernetes smoke failed; collecting namespace diagnostics");

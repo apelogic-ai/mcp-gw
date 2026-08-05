@@ -163,6 +163,19 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain('introspectionClientCredential":"');
   });
 
+  test("normalizes one issuer to failure-isolated provider configuration", () => {
+    const rendered = helmTemplate(["--values", "deploy/k8s/examples/values-k8s-smoke.yaml"]);
+    const config = rendered.slice(
+      rendered.indexOf("config.yaml: |"),
+      rendered.indexOf("---\napiVersion: apps/v1"),
+    );
+
+    expect(config).toContain("mcpAuthentication:");
+    expect(config).toContain("providers:");
+    expect(config).toContain("- issuer: https://unavailable.example.com");
+    expect(config).not.toMatch(/\n\s+issuer: https:\/\/unavailable\.example\.com/);
+  });
+
   test("ships a JSON schema that rejects invalid chart values", async () => {
     const schema = await Bun.file("deploy/k8s/chart/values.schema.json").json();
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");

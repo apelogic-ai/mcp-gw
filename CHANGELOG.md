@@ -8,7 +8,11 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
-- No unreleased changes yet.
+### Fixed
+
+- Normalized one-issuer Helm values to agentgateway's failure-isolated provider configuration so
+  an unavailable remote JWKS endpoint fails affected requests closed without blocking gateway
+  startup or readiness.
 
 ## [0.2.4] - 2026-08-04
 

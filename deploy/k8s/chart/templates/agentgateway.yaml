@@ -42,11 +42,13 @@ data:
                     providers:
 {{ toYaml .Values.agentgateway.mcpAuthentication.providers | nindent 22 }}
 {{- else }}
-                    issuer: {{ .Values.agentgateway.mcpAuthentication.issuer }}
-                    audiences:
-{{ toYaml .Values.agentgateway.mcpAuthentication.audiences | nindent 22 }}
-                    jwks:
-                      url: {{ .Values.agentgateway.mcpAuthentication.jwksUrl }}
+                    providers:
+                      - issuer: {{ .Values.agentgateway.mcpAuthentication.issuer }}
+                        audiences:
+{{ toYaml .Values.agentgateway.mcpAuthentication.audiences | nindent 26 }}
+                        jwks:
+                          url: {{ .Values.agentgateway.mcpAuthentication.jwksUrl }}
+                        discoverable: true
 {{- end }}
                     resourceMetadata:
 {{ toYaml .Values.agentgateway.mcpAuthentication.resourceMetadata | nindent 22 }}

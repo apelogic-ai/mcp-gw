@@ -17,7 +17,13 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", ".terraform"]);
-const INTERNAL_PRODUCT_NAMES = [`bur${"ble"}`];
+const INTERNAL_PRODUCT_NAMES = [
+  `bur${"ble"}`,
+  `ste${"ward"}`,
+  `ape${"gpt"}`,
+  `semantic-${"grid"}`,
+  `ob${"server"}`,
+];
 const PRIVATE_ENVIRONMENT_PATTERNS = [
   /apelogic\.io/i,
   new RegExp(["arn", "aws"].join(":"), "i"),

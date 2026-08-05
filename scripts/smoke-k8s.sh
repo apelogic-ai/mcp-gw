@@ -10,6 +10,10 @@ CLUSTER_NAME="${K8S_SMOKE_CLUSTER_NAME:-mcp-gateway-smoke}"
 CREATED_CLUSTER=false
 
 cleanup() {
+  kubectl delete pod mcp-metadata-probe mcp-auth-probe \
+    --namespace "$NAMESPACE" \
+    --ignore-not-found \
+    --wait=false >/dev/null 2>&1 || true
   helm uninstall "$RELEASE_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1 || true
   if [[ "$CREATED_CLUSTER" == "true" ]]; then
     kind delete cluster --name "$CLUSTER_NAME" >/dev/null 2>&1 || true
@@ -43,37 +47,60 @@ if [[ "${K8S_SMOKE_CREATE_CLUSTER:-false}" == "true" ]]; then
   CREATED_CLUSTER=true
 fi
 
-HELM_IMAGE_ARGS=()
+install_chart() {
+  helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
+    --namespace "$NAMESPACE" \
+    --create-namespace \
+    --values "$VALUES_FILE" \
+    "$@" \
+    --wait \
+    --timeout 3m
+}
+
+run_probe() {
+  local pod_name="$1"
+  local image="$2"
+  shift 2
+
+  kubectl delete pod "$pod_name" \
+    --namespace "$NAMESPACE" \
+    --ignore-not-found \
+    --wait=true >/dev/null
+  kubectl run "$pod_name" \
+    --namespace "$NAMESPACE" \
+    --image="$image" \
+    --restart=Never \
+    --command -- "$@" >/dev/null
+  kubectl wait \
+    --namespace "$NAMESPACE" \
+    --for=jsonpath='{.status.phase}'=Succeeded \
+    "pod/$pod_name" \
+    --timeout=60s >/dev/null
+  kubectl logs "$pod_name" --namespace "$NAMESPACE"
+  kubectl delete pod "$pod_name" \
+    --namespace "$NAMESPACE" \
+    --wait=false >/dev/null
+}
+
 if [[ -n "${K8S_SMOKE_AGENTGATEWAY_REPOSITORY:-}" ]]; then
   : "${K8S_SMOKE_AGENTGATEWAY_TAG:?K8S_SMOKE_AGENTGATEWAY_TAG is required when overriding the repository}"
-  HELM_IMAGE_ARGS+=(
-    --set-string "agentgateway.image.repository=$K8S_SMOKE_AGENTGATEWAY_REPOSITORY"
-    --set-string "agentgateway.image.tag=$K8S_SMOKE_AGENTGATEWAY_TAG"
+  install_chart \
+    --set-string "agentgateway.image.repository=$K8S_SMOKE_AGENTGATEWAY_REPOSITORY" \
+    --set-string "agentgateway.image.tag=$K8S_SMOKE_AGENTGATEWAY_TAG" \
     --set-string "global.imagePullPolicy=Never"
-  )
+else
+  install_chart
 fi
-
-helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
-  --namespace "$NAMESPACE" \
-  --create-namespace \
-  --values "$VALUES_FILE" \
-  "${HELM_IMAGE_ARGS[@]}" \
-  --wait \
-  --timeout 3m
 
 kubectl rollout status \
   "deployment/$RELEASE_NAME-agentgateway" \
   --namespace "$NAMESPACE" \
   --timeout=120s
 
-METADATA_OUTPUT="$(kubectl run mcp-metadata-probe \
-  --namespace "$NAMESPACE" \
-  --image=curlimages/curl:8.16.0 \
-  --restart=Never \
-  --rm \
-  --attach \
-  --quiet \
-  --command -- curl -sS -o /dev/null -w 'METADATA_STATUS:%{http_code}\n' \
+METADATA_OUTPUT="$(run_probe \
+  mcp-metadata-probe \
+  curlimages/curl:8.16.0 \
+  curl -sS -o /dev/null -w 'METADATA_STATUS:%{http_code}\n' \
   "http://$RELEASE_NAME-agentgateway.$NAMESPACE.svc.cluster.local:8080/.well-known/oauth-protected-resource/mcp")"
 METADATA_STATUS="$(printf '%s\n' "$METADATA_OUTPUT" | \
   sed -n 's/.*METADATA_STATUS:\([0-9][0-9][0-9]\).*/\1/p' | tail -n 1)"
@@ -83,14 +110,10 @@ METADATA_STATUS="$(printf '%s\n' "$METADATA_OUTPUT" | \
 # A syntactically valid JWT selects the unavailable issuer. Signature
 # verification must fail closed without changing Deployment readiness.
 UNAVAILABLE_ISSUER_TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6InNtb2tlIn0.eyJpc3MiOiJodHRwczovL3VuYXZhaWxhYmxlLmV4YW1wbGUuY29tIiwiYXVkIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIiwic3ViIjoic21va2UiLCJlbWFpbCI6InNtb2tlQGV4YW1wbGUuY29tIiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl"
-UNAVAILABLE_ISSUER_OUTPUT="$(kubectl run mcp-auth-probe \
-  --namespace "$NAMESPACE" \
-  --image=curlimages/curl:8.16.0 \
-  --restart=Never \
-  --rm \
-  --attach \
-  --quiet \
-  --command -- curl -sS -o /dev/null -w 'MCP_STATUS:%{http_code}\n' \
+UNAVAILABLE_ISSUER_OUTPUT="$(run_probe \
+  mcp-auth-probe \
+  curlimages/curl:8.16.0 \
+  curl -sS -o /dev/null -w 'MCP_STATUS:%{http_code}\n' \
   -X POST \
   -H "authorization: Bearer $UNAVAILABLE_ISSUER_TOKEN" \
   -H 'content-type: application/json' \
