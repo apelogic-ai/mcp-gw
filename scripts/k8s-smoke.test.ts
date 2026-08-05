@@ -15,8 +15,8 @@ describe("Kubernetes smoke test", () => {
         kubectl,
         `#!/bin/sh
 case "$*" in
-  *mcp-metadata-probe*) echo 'METADATA_STATUS:200' ;;
-  *mcp-auth-probe*) echo 'MCP_STATUS:401' ;;
+  "logs mcp-metadata-probe"*) echo 'METADATA_STATUS:200' ;;
+  "logs mcp-auth-probe"*) echo 'MCP_STATUS:401' ;;
   "get deployment"*) printf '1' ;;
 esac
 exit 0
@@ -59,6 +59,12 @@ exit 0
     expect(smoke).toContain("METADATA_STATUS");
     expect(smoke).toContain("MCP_STATUS:%{http_code}");
     expect(smoke).toContain("sed -n");
+    expect(smoke).toContain("run_probe() {");
+    expect(smoke).toContain("kubectl wait");
+    expect(smoke).toContain('kubectl logs "$pod_name"');
+    expect(smoke).toContain('kubectl delete pod "$pod_name"');
+    expect(smoke).not.toContain("--attach");
+    expect(smoke).not.toContain("--rm");
     expect(smoke).toContain('[[ "$UNAVAILABLE_ISSUER_STATUS" == "401" ]]');
     expect(smoke).toContain('[[ "$METADATA_STATUS" == "200" ]]');
     expect(smoke).toContain("Kubernetes smoke failed; collecting namespace diagnostics");
