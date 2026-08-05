@@ -43,23 +43,25 @@ if [[ "${K8S_SMOKE_CREATE_CLUSTER:-false}" == "true" ]]; then
   CREATED_CLUSTER=true
 fi
 
-HELM_IMAGE_ARGS=()
+install_chart() {
+  helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
+    --namespace "$NAMESPACE" \
+    --create-namespace \
+    --values "$VALUES_FILE" \
+    "$@" \
+    --wait \
+    --timeout 3m
+}
+
 if [[ -n "${K8S_SMOKE_AGENTGATEWAY_REPOSITORY:-}" ]]; then
   : "${K8S_SMOKE_AGENTGATEWAY_TAG:?K8S_SMOKE_AGENTGATEWAY_TAG is required when overriding the repository}"
-  HELM_IMAGE_ARGS+=(
-    --set-string "agentgateway.image.repository=$K8S_SMOKE_AGENTGATEWAY_REPOSITORY"
-    --set-string "agentgateway.image.tag=$K8S_SMOKE_AGENTGATEWAY_TAG"
+  install_chart \
+    --set-string "agentgateway.image.repository=$K8S_SMOKE_AGENTGATEWAY_REPOSITORY" \
+    --set-string "agentgateway.image.tag=$K8S_SMOKE_AGENTGATEWAY_TAG" \
     --set-string "global.imagePullPolicy=Never"
-  )
+else
+  install_chart
 fi
-
-helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
-  --namespace "$NAMESPACE" \
-  --create-namespace \
-  --values "$VALUES_FILE" \
-  "${HELM_IMAGE_ARGS[@]}" \
-  --wait \
-  --timeout 3m
 
 kubectl rollout status \
   "deployment/$RELEASE_NAME-agentgateway" \
