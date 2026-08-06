@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
+import type { IssuerProfile } from "../../../../shared/identity/hop1";
 import {
   InMemoryOAuthStateStore,
   InMemoryOAuthTokenStore,
@@ -20,10 +21,11 @@ let privateKey: CryptoKey;
 let publicJwk: JWK;
 
 const tokenEncryptionKey = Buffer.alloc(32, 9).toString("base64");
-const hop1 = {
+const hop1: IssuerProfile = {
   name: "google",
   issuer: "https://accounts.google.com",
   audiences: ["mcp-gateway-dev"],
+  allowedAlgorithms: ["RS256"],
   emailClaim: "email",
 };
 
@@ -76,6 +78,7 @@ describe("runtime wrapper wiring", () => {
             name: "partner",
             issuer: "https://partner.example.com",
             audiences: ["mcp-gateway-dev"],
+            allowedAlgorithms: ["RS256"],
             emailClaim: "email",
           },
           jwksProvider: () => Promise.resolve([publicJwk]),
@@ -108,6 +111,7 @@ describe("runtime wrapper wiring", () => {
             name: "unavailable",
             issuer: "https://unavailable.example.com",
             audiences: ["mcp-gateway-dev"],
+            allowedAlgorithms: ["RS256"],
             emailClaim: "email",
           },
           jwksProvider: () => {
@@ -161,6 +165,29 @@ describe("runtime wrapper wiring", () => {
       await authenticate(token);
     } catch (error) {
       expect((error as Error).message).toBe("HOP-1 token is inactive");
+    }
+  });
+
+  test("fails closed when issuer introspection exceeds its deadline", async () => {
+    const issuer: RuntimeTrustedIssuer = {
+      profile: hop1,
+      jwksProvider: () => Promise.resolve([publicJwk]),
+      introspection: {
+        url: "https://identity.example.com/introspect",
+        clientCredential: "gateway-credential",
+        timeoutMs: 5,
+        fetch: (_input, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+          }),
+      },
+    };
+
+    expect.assertions(1);
+    try {
+      await createRuntimeAuthenticator({ issuers: [issuer] })(await signHop1Token());
+    } catch (error) {
+      expect((error as Error).message).toBe("HOP-1 introspection is unavailable");
     }
   });
 

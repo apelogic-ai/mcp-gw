@@ -9,6 +9,7 @@ const baseEnv = {
   HOP1_JWKS_URL: "https://issuer.example.com/.well-known/jwks.json",
   HOP1_AUDIENCE: "https://mcp.example.com/mcp",
   HOP1_EMAIL_CLAIM: "email",
+  HOP1_ALLOWED_ALGORITHMS: "RS256",
 };
 
 describe("GitHub MCP wrapper main config", () => {
@@ -29,10 +30,11 @@ describe("GitHub MCP wrapper main config", () => {
       audit: undefined,
       hop1Issuers: [
         {
-          name: "google",
+          name: "issuer",
           issuer: "https://issuer.example.com",
           jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
           audiences: ["https://mcp.example.com/mcp"],
+          allowedAlgorithms: ["RS256"],
           emailClaim: "email",
           subjectClaim: undefined,
         },
@@ -70,6 +72,7 @@ describe("GitHub MCP wrapper main config", () => {
           issuer: "https://issuer.example.com",
           jwksUrl: "https://issuer.example.com/jwks.json",
           audiences: ["https://mcp.example.com/mcp"],
+          allowedAlgorithms: ["RS256"],
           emailClaim: "email",
           subjectClaim: "sub",
         },
@@ -82,6 +85,7 @@ describe("GitHub MCP wrapper main config", () => {
         issuer: "https://issuer.example.com",
         jwksUrl: "https://issuer.example.com/jwks.json",
         audiences: ["https://mcp.example.com/mcp"],
+        allowedAlgorithms: ["RS256"],
         emailClaim: "email",
         subjectClaim: "sub",
       },
@@ -117,6 +121,7 @@ describe("GitHub MCP wrapper main config", () => {
           issuer: "https://identity.example.com",
           jwksUrl: "https://identity.example.com/.well-known/jwks.json",
           audiences: ["https://mcp.example.com/mcp"],
+          allowedAlgorithms: ["RS256"],
           emailClaim: "email",
           introspectionUrl: "https://identity.example.com/introspect",
           introspectionClientCredentialEnv: "HOP1_INTROSPECTION_CREDENTIAL_0",
@@ -126,6 +131,26 @@ describe("GitHub MCP wrapper main config", () => {
     });
 
     expect(config.hop1Issuers[0]?.introspectionClientCredential).toBe("secret-from-kubernetes");
+  });
+
+  test("rejects issuer profiles without a non-empty algorithm allowlist", () => {
+    const issuer = {
+      name: "fixture",
+      issuer: "https://identity.example.com",
+      jwksUrl: "https://identity.example.com/.well-known/jwks.json",
+      audiences: ["https://mcp.example.com/mcp"],
+      emailClaim: "email",
+    };
+
+    expect(() =>
+      loadMainConfig({ ...baseEnv, HOP1_ISSUERS_JSON: JSON.stringify([issuer]) }),
+    ).toThrow("allowedAlgorithms must be a non-empty string array");
+    expect(() =>
+      loadMainConfig({
+        ...baseEnv,
+        HOP1_ISSUERS_JSON: JSON.stringify([{ ...issuer, allowedAlgorithms: [] }]),
+      }),
+    ).toThrow("allowedAlgorithms must be a non-empty string array");
   });
 
   test("requires token store and HOP-1 issuer settings", () => {

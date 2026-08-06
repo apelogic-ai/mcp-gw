@@ -16,6 +16,7 @@ describe("Docker Compose deployment skeleton", () => {
     expect(compose).toContain("GOOGLE_OAUTH_SCOPES:");
     expect(compose).toContain("HOP1_OAUTH_SCOPES:");
     expect(compose).toContain("HOP1_JWKS_URL:");
+    expect(compose).toContain("HOP1_ALLOWED_ALGORITHMS:");
     expect(compose).toContain("HOP1_ISSUERS_JSON:");
     expect(compose).toContain("OPA_POLICY_URL:");
     expect(compose).toContain("GOOGLE_WORKSPACE_POLICY_FILE:");
@@ -32,9 +33,11 @@ describe("Docker Compose deployment skeleton", () => {
       "AGENTGATEWAY_IMAGE=ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.5",
     );
     expect(envExample).toContain("GOOGLE_TOKEN_ENCRYPTION_KEY=");
-    expect(envExample).toContain("HOP1_ISSUER=https://accounts.google.com");
-    expect(envExample).toContain("HOP1_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs");
+    expect(envExample).toContain("HOP1_PROFILE=");
+    expect(envExample).toContain("HOP1_ISSUER=");
+    expect(envExample).toContain("HOP1_JWKS_URL=");
     expect(envExample).toContain("HOP1_AUDIENCE=");
+    expect(envExample).toContain("HOP1_ALLOWED_ALGORITHMS=");
     expect(envExample).toContain("HOP1_OAUTH_SCOPES=openid email");
     expect(envExample).toContain("HOP1_ISSUERS_JSON=");
     expect(envExample).toContain("OPA_POLICY_URL=");
@@ -44,6 +47,8 @@ describe("Docker Compose deployment skeleton", () => {
       "GOOGLE_OAUTH_REDIRECT_URI=https://mcp.example.com/oauth/google/callback",
     );
     expect(envExample).toContain("TOKEN_STORE_DSN=postgres://mcp:mcp@token-store:5432/mcp");
+    expect(envExample).not.toContain("HOP1_PROFILE=google");
+    expect(envExample).not.toContain("HOP1_ISSUER=https://accounts.google.com");
   });
 
   test("has a Dockerfile that runs the Google Workspace wrapper entrypoint", async () => {

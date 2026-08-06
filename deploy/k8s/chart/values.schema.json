@@ -4,6 +4,50 @@
   "title": "mcp-gateway Helm values",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {
+            "required": ["agentgateway"],
+            "properties": {
+              "agentgateway": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              }
+            }
+          },
+          {
+            "required": ["googleWorkspace"],
+            "properties": {
+              "googleWorkspace": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              }
+            }
+          },
+          {
+            "required": ["githubWrapper"],
+            "properties": {
+              "githubWrapper": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "required": ["hop1"],
+        "properties": {
+          "hop1": {
+            "required": ["issuers"],
+            "properties": { "issuers": { "minItems": 1 } }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "global": {
       "type": "object",
@@ -64,7 +108,7 @@
     "issuer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "issuer", "audiences", "jwksUrl"],
+      "required": ["name", "issuer", "audiences", "jwksUrl", "allowedAlgorithms"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "issuer": { "type": "string", "format": "uri" },
@@ -74,6 +118,24 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "jwksUrl": { "type": "string", "format": "uri" },
+        "allowedAlgorithms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "RS256",
+              "RS384",
+              "RS512",
+              "PS256",
+              "PS384",
+              "PS512",
+              "ES256",
+              "ES384",
+              "EdDSA"
+            ]
+          }
+        },
         "discoverable": { "type": "boolean" },
         "clientId": { "type": "string" },
         "emailClaim": { "type": "string", "minLength": 1 },

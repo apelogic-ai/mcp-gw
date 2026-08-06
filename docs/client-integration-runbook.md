@@ -125,6 +125,7 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 HOP1_ISSUER=<issuer-url>
 HOP1_JWKS_URL=<jwks-url>
 HOP1_AUDIENCE=<mcp-gateway-audience>
+HOP1_ALLOWED_ALGORITHMS=<comma-separated-algorithm-allowlist>
 HOP1_OAUTH_SCOPES="openid email"
 HOP1_EMAIL_CLAIM=email
 HOP1_SUBJECT_CLAIM=sub
@@ -141,13 +142,17 @@ openssl rand -base64 32
 Multiple HOP-1 issuers can be configured with `HOP1_ISSUERS_JSON`; see
 `deploy/compose/.env.example`.
 
+Each issuer profile must define a non-empty `allowedAlgorithms` list matching
+the algorithms that deployment trusts that issuer to use. MCP-GW does not
+choose an algorithm for a deployment.
+
 Agentgateway protected-resource metadata must advertise the same identity
 scopes as `HOP1_OAUTH_SCOPES`. The deployment renderers derive
 `scopesSupported` from that setting; do not replace it with application
 permissions such as `read:all`. Google Workspace, GitHub, and other provider
 permissions belong to their separate downstream consent flows.
 
-For issuers that require immediate revocation, set both introspection values.
+For issuers that require online status or immediate revocation, set both introspection values.
 The wrapper then performs authenticated, fail-closed introspection after local
 JWT validation on every HOP-1-authenticated request. Keep the client credential
 in the deployment secret store; never place its value in source.

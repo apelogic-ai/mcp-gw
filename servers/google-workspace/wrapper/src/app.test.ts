@@ -23,6 +23,7 @@ describe("Google Workspace wrapper app", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
     });
 
@@ -58,6 +59,7 @@ describe("Google Workspace wrapper app", () => {
           issuer: "https://accounts.google.com",
           jwksUrl: "https://www.googleapis.com/oauth2/v3/certs",
           audiences: ["mcp-gateway-dev"],
+          allowedAlgorithms: ["RS256"],
           emailClaim: "email",
         },
         {
@@ -65,6 +67,7 @@ describe("Google Workspace wrapper app", () => {
           issuer: "https://partner.example.com",
           jwksUrl: "https://partner.example.com/.well-known/jwks.json",
           audiences: ["mcp-gateway-dev"],
+          allowedAlgorithms: ["RS256"],
           emailClaim: "email",
           subjectClaim: "sub",
         },
@@ -77,6 +80,7 @@ describe("Google Workspace wrapper app", () => {
         issuer: "https://accounts.google.com",
         jwksUrl: "https://www.googleapis.com/oauth2/v3/certs",
         audiences: ["mcp-gateway-dev"],
+        allowedAlgorithms: ["RS256"],
         emailClaim: "email",
       },
       {
@@ -84,6 +88,7 @@ describe("Google Workspace wrapper app", () => {
         issuer: "https://partner.example.com",
         jwksUrl: "https://partner.example.com/.well-known/jwks.json",
         audiences: ["mcp-gateway-dev"],
+        allowedAlgorithms: ["RS256"],
         emailClaim: "email",
         subjectClaim: "sub",
       },
@@ -100,6 +105,7 @@ describe("Google Workspace wrapper app", () => {
       HOP1_ISSUER: "https://issuer.example.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://issuer.example.com/.well-known/jwks.json",
       HOP1_INTROSPECTION_URL: "https://issuer.example.com/introspect",
     };
@@ -131,6 +137,7 @@ describe("Google Workspace wrapper app", () => {
           issuer: "https://identity.example.com",
           jwksUrl: "https://identity.example.com/.well-known/jwks.json",
           audiences: ["https://mcp.example.com/mcp"],
+          allowedAlgorithms: ["RS256"],
           emailClaim: "email",
           introspectionUrl: "https://identity.example.com/introspect",
           introspectionClientCredentialEnv: "HOP1_INTROSPECTION_CREDENTIAL_0",
@@ -140,6 +147,33 @@ describe("Google Workspace wrapper app", () => {
     });
 
     expect(config.hop1Issuers[0]?.introspectionClientCredential).toBe("secret-from-kubernetes");
+  });
+
+  test("rejects issuer profiles without a non-empty algorithm allowlist", () => {
+    const base = {
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://mcp.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+    };
+    const issuer = {
+      name: "fixture",
+      issuer: "https://identity.example.com",
+      jwksUrl: "https://identity.example.com/.well-known/jwks.json",
+      audiences: ["https://mcp.example.com/mcp"],
+      emailClaim: "email",
+    };
+
+    expect(() =>
+      loadWrapperConfig({ ...base, HOP1_ISSUERS_JSON: JSON.stringify([issuer]) }),
+    ).toThrow("allowedAlgorithms must be a non-empty string array");
+    expect(() =>
+      loadWrapperConfig({
+        ...base,
+        HOP1_ISSUERS_JSON: JSON.stringify([{ ...issuer, allowedAlgorithms: [] }]),
+      }),
+    ).toThrow("allowedAlgorithms must be a non-empty string array");
   });
 
   test("loads optional policy and audit wiring from environment", () => {
@@ -152,6 +186,7 @@ describe("Google Workspace wrapper app", () => {
       HOP1_ISSUER: "https://accounts.google.com",
       HOP1_AUDIENCE: "mcp-gateway-dev",
       HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
       HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
       OPA_POLICY_URL: "http://opa:8181/v1/data/mcp/allow",
       GOOGLE_WORKSPACE_POLICY_FILE: "/etc/mcp-gw/google-workspace-policy.yaml",

@@ -32,6 +32,7 @@ export interface RuntimeIntrospectionConfig {
   url: string;
   clientCredential: string;
   fetch?: RuntimeIntrospectionFetch;
+  timeoutMs?: number;
 }
 
 export type RuntimeIntrospectionFetch = (
@@ -205,6 +206,7 @@ async function requireActiveIntrospection(
         "content-type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({ token }).toString(),
+      signal: AbortSignal.timeout(config.timeoutMs ?? 5_000),
     });
   } catch {
     throw new Hop1ValidationError("HOP-1 introspection is unavailable");

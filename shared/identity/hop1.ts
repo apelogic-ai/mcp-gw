@@ -1,11 +1,32 @@
 import { createLocalJWKSet, jwtVerify, type JWTPayload, type JWK } from "jose";
 
+export const HOP1_SUPPORTED_ALGORITHMS = [
+  "RS256",
+  "RS384",
+  "RS512",
+  "PS256",
+  "PS384",
+  "PS512",
+  "ES256",
+  "ES384",
+  "EdDSA",
+] as const;
+
+export type Hop1Algorithm = (typeof HOP1_SUPPORTED_ALGORITHMS)[number];
+
 export interface IssuerProfile {
   name: string;
   issuer: string;
   audiences: string[];
+  allowedAlgorithms: Hop1Algorithm[];
   emailClaim: string;
   subjectClaim?: string;
+}
+
+export interface Hop1IssuerConfig extends IssuerProfile {
+  jwksUrl: string;
+  introspectionUrl?: string;
+  introspectionClientCredential?: string;
 }
 
 export interface Hop1Identity {
@@ -49,6 +70,7 @@ export async function validateHop1Jwt(
     const result = await jwtVerify(token, keySet, {
       issuer: profile.issuer,
       audience: profile.audiences,
+      algorithms: profile.allowedAlgorithms,
     });
 
     return identityFromClaims(result.payload, profile);

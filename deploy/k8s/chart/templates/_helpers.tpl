@@ -5,7 +5,7 @@
 {{- define "mcp-gateway.hop1IssuersJson" -}}
 {{- $profiles := list -}}
 {{- range $index, $issuer := . -}}
-{{- $profile := dict "name" $issuer.name "issuer" $issuer.issuer "jwksUrl" $issuer.jwksUrl "audiences" $issuer.audiences "emailClaim" ($issuer.emailClaim | default "email") "subjectClaim" ($issuer.subjectClaim | default "sub") -}}
+{{- $profile := dict "name" $issuer.name "issuer" $issuer.issuer "jwksUrl" $issuer.jwksUrl "audiences" $issuer.audiences "allowedAlgorithms" $issuer.allowedAlgorithms "emailClaim" ($issuer.emailClaim | default "email") "subjectClaim" ($issuer.subjectClaim | default "sub") -}}
 {{- with $issuer.introspection -}}
 {{- $_ := set $profile "introspectionUrl" .url -}}
 {{- $_ := set $profile "introspectionClientCredentialEnv" (printf "HOP1_INTROSPECTION_CREDENTIAL_%d" $index) -}}

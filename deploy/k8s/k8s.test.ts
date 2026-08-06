@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
 describe("Kubernetes production chart", () => {
-  test("renders an environment-neutral gateway with no enabled backends or public ingress", () => {
+  test("renders no workloads or identity choices by default", async () => {
     const rendered = helmTemplate();
+    const values = await Bun.file("deploy/k8s/chart/values.yaml").text();
 
-    expect(rendered).toContain("kind: Deployment");
-    expect(rendered).toContain("name: mcp-gateway-agentgateway");
-    expect(rendered).toContain("type: ClusterIP");
+    expect(rendered).not.toContain("kind: Deployment");
     expect(rendered).not.toContain("name: mcp-gateway-google-workspace");
     expect(rendered).not.toContain("name: mcp-gateway-db-mcp");
     expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
     expect(rendered).not.toContain("kind: ExternalSecret");
-    expect(rendered).toContain("kind: NetworkPolicy");
     expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
     expect(rendered).not.toContain("kind: Ingress");
-    expect(rendered).toContain("- --file");
-    expect(rendered).not.toContain("- --config");
+    expect(values).not.toMatch(/^\s+issuer:\s+/m);
+    expect(values).not.toMatch(/^\s+audiences:\s*$/m);
+    expect(values).not.toMatch(/^\s+jwksUrl:\s+/m);
+    expect(values).not.toMatch(/^\s+allowedAlgorithms:\s*$/m);
     expect(rendered).not.toMatch(/apelogic\.io/i);
     expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
     expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
@@ -24,6 +24,8 @@ describe("Kubernetes production chart", () => {
 
   test("uses existing Kubernetes Secrets without creating provider-specific secret resources", () => {
     const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
       "--values",
       "deploy/k8s/examples/values-private-overlay.example.yaml",
     ]);
@@ -38,6 +40,8 @@ describe("Kubernetes production chart", () => {
   test("uses component-scoped selectors so workloads cannot overlap", () => {
     const rendered = helmTemplate([
       "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
       "deploy/k8s/examples/values-private-overlay.example.yaml",
     ]);
 
@@ -50,6 +54,8 @@ describe("Kubernetes production chart", () => {
 
   test("renders agentgateway MCP backend targets from values", () => {
     const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
       "--values",
       "deploy/k8s/examples/values-extra-backend.example.yaml",
     ]);
@@ -64,6 +70,8 @@ describe("Kubernetes production chart", () => {
 
   test("renders optional GitHub wrapper and internal official MCP workload", () => {
     const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
       "--values",
       "deploy/k8s/examples/values-github-mcp.example.yaml",
     ]);
@@ -85,7 +93,7 @@ describe("Kubernetes production chart", () => {
   });
 
   test("does not expose the agentgateway admin UI by default", async () => {
-    const rendered = helmTemplate();
+    const rendered = helmTemplate(["--values", "deploy/k8s/examples/values-k8s-smoke.yaml"]);
     const examplesReadme = await readExample("README.md");
 
     expect(rendered).not.toContain("port: 15000");
@@ -96,6 +104,8 @@ describe("Kubernetes production chart", () => {
 
   test("renders Google Workspace YAML policy from values", () => {
     const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
       "--values",
       "deploy/k8s/examples/values-google-policy.example.yaml",
     ]);
@@ -109,6 +119,8 @@ describe("Kubernetes production chart", () => {
 
   test("renders with the private overlay example values", () => {
     const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
       "--values",
       "deploy/k8s/examples/values-private-overlay.example.yaml",
     ]);
@@ -153,7 +165,16 @@ describe("Kubernetes production chart", () => {
 
     expect(rendered).toContain("issuer: https://identity.example.com");
     expect(rendered).toContain("issuer: https://automation.example.com");
+    expect(rendered).toContain("allowedAlgorithms:");
+    expect(rendered).toContain("- EdDSA");
     expect(rendered).toContain("url: https://identity.example.com/.well-known/jwks.json");
+    expect(rendered).toContain("url: https://automation.example.com/oauth2/introspect");
+    expect(rendered).toContain(
+      "credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-1",
+    );
+    expect(rendered).toContain("name: hop1-introspection");
+    expect(rendered).toContain("mountPath: /var/run/secrets/mcp-gateway/introspection");
+    expect(rendered).toContain("path: issuer-1");
     expect(rendered).toContain("HOP1_ISSUERS_JSON");
     expect(rendered).toContain("introspectionClientCredentialEnv");
     expect(rendered).toContain("HOP1_INTROSPECTION_CREDENTIAL_1");
@@ -161,6 +182,60 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("name: identity-runtime");
     expect(rendered).toContain("key: introspection-client-credential");
     expect(rendered).not.toContain('introspectionClientCredential":"');
+
+    const configStart = rendered.indexOf("config.yaml: |");
+    const config = rendered.slice(configStart, rendered.indexOf("\n---\n# Source:", configStart));
+    expect(config).not.toContain("identity-runtime");
+    expect(config).not.toContain("introspection-client-credential");
+  });
+
+  test("rejects issuer profiles without a non-empty algorithm allowlist", () => {
+    const issuer = {
+      name: "fixture",
+      issuer: "https://issuer.example.com",
+      audiences: ["https://mcp.example.com/mcp"],
+      jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
+    };
+
+    const missing = helmTemplateResult(["--set-json", `hop1.issuers=[${JSON.stringify(issuer)}]`]);
+    expect(missing.exitCode).not.toBe(0);
+    expect(missing.stderr.toString()).toMatch(/allowedAlgorithms/);
+
+    const empty = helmTemplateResult([
+      "--set-json",
+      `hop1.issuers=[${JSON.stringify({ ...issuer, allowedAlgorithms: [] })}]`,
+    ]);
+    expect(empty.exitCode).not.toBe(0);
+    expect(empty.stderr.toString()).toMatch(/allowedAlgorithms/);
+  });
+
+  test("rejects enabled authenticated workloads without an issuer profile", () => {
+    for (const component of ["agentgateway", "googleWorkspace", "githubWrapper"]) {
+      const result = helmTemplateResult(["--set", `${component}.enabled=true`]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/hop1(?:\.|\/)issuers/);
+    }
+  });
+
+  test("rejects malformed introspection secret references", () => {
+    const result = helmTemplateResult([
+      "--set-json",
+      `hop1.issuers=[${JSON.stringify({
+        name: "fixture",
+        issuer: "https://issuer.example.com",
+        audiences: ["https://mcp.example.com/mcp"],
+        jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
+        allowedAlgorithms: ["EdDSA"],
+        introspection: {
+          url: "https://issuer.example.com/oauth/introspect",
+          credentialSecretKeyRef: { name: "", key: "credential" },
+        },
+      })}]`,
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toMatch(/credentialSecretKeyRef/);
   });
 
   test("normalizes one issuer to failure-isolated provider configuration", () => {
@@ -234,14 +309,18 @@ describe("Kubernetes production chart", () => {
 });
 
 function helmTemplate(extraArgs: string[] = []): string {
-  const result = Bun.spawnSync({
+  const result = helmTemplateResult(extraArgs);
+
+  expect(result.exitCode).toBe(0);
+  return result.stdout.toString();
+}
+
+function helmTemplateResult(extraArgs: string[] = []): Bun.SyncSubprocess<"pipe", "pipe"> {
+  return Bun.spawnSync({
     cmd: ["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs],
     stdout: "pipe",
     stderr: "pipe",
   });
-
-  expect(result.exitCode).toBe(0);
-  return result.stdout.toString();
 }
 
 async function readExample(fileName: string): Promise<string> {

@@ -6,8 +6,7 @@ This bundled backend runs the official GitHub MCP server:
 
 The server is optional and is described in the generated federated agentgateway
 config as `github-mcp`. It is not included in the base Google Workspace-only
-config, and the DEV Compose overlay intentionally does not attach it to the
-shared `/mcp` route.
+config. A deployment overlay attaches it to the shared `/mcp` route.
 
 Agentgateway does not call the official server directly. It routes to the
 `github-wrapper` service, which validates HOP-1 identity, resolves the user's
@@ -46,9 +45,9 @@ bun run servers/github-mcp/wrapper/src/main.ts
 ```
 
 This overlay is runtime-only. It starts `github-wrapper` and `github-mcp`, but
-does not replace the agentgateway config or advertise GitHub tools on the shared
-`/mcp` endpoint. Attach GitHub through a gateway router, a dedicated MCP route,
-or an explicitly tested deployment overlay.
+does not replace the agentgateway config. Add the wrapper as a backend target in
+the deployment's federated agentgateway configuration to advertise its tools on
+the shared `/mcp` endpoint.
 
 Required wrapper environment:
 
@@ -58,14 +57,15 @@ GITHUB_TOKEN_ENCRYPTION_KEY
 GITHUB_OAUTH_CLIENT_ID
 GITHUB_OAUTH_CLIENT_SECRET
 GITHUB_OAUTH_REDIRECT_URI
-HOP1_ISSUER / HOP1_JWKS_URL / HOP1_AUDIENCE / HOP1_EMAIL_CLAIM
+HOP1_ISSUER / HOP1_JWKS_URL / HOP1_AUDIENCE / HOP1_ALLOWED_ALGORITHMS
+HOP1_EMAIL_CLAIM
 HOP1_INTROSPECTION_URL / HOP1_INTROSPECTION_CLIENT_CREDENTIAL
 ```
 
 `HOP1_ISSUERS_JSON` can replace the single-issuer variables for multi-issuer
 deployments. Introspection is optional per issuer; when configured, every
 authenticated request fails closed unless the issuer confirms the HOP-1 is
-still active.
+still active. Every issuer must declare a non-empty algorithm allowlist.
 
 Optional guardrail environment:
 
