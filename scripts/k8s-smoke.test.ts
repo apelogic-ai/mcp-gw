@@ -87,7 +87,7 @@ exit 0
 
     expect(workflow).toContain("helm/kind-action@");
     expect(workflow).toContain("repository: apelogic-ai/agentgateway");
-    expect(workflow).toContain("ref: cb2fffdafe3d5e31216c82e9d16641c5f6a47cb8");
+    expect(workflow).toContain("ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43");
     expect(workflow).toContain("docker/build-push-action@");
     expect(workflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
     expect(workflow).toContain("bun run integration:k8s");
