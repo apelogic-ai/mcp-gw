@@ -8,6 +8,29 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-05
+
+### Security
+
+- Added a required, deployment-owned JWT algorithm allowlist to every configured HOP-1 issuer
+  profile and enforced it in agentgateway and wrapper validation paths.
+- Added optional authenticated token introspection with fail-closed handling for unavailable
+  services, invalid credentials, and inactive tokens.
+- Enforced exact issuer and audience matching alongside JWKS signature validation and algorithm
+  restrictions.
+
+### Changed
+
+- Rendered generic issuer introspection and Secret-backed credentials into the active agentgateway
+  configuration while keeping public chart defaults environment-neutral.
+- Pinned the release-owned agentgateway build to the merged issuer-enforcement implementation.
+
+### Upgrade Notes
+
+- Private overlays that configure HOP-1 issuers must add a non-empty
+  `hop1.issuers[].allowedAlgorithms` list before upgrading. Profiles that enable introspection must
+  also reference an existing Kubernetes Secret containing the introspection credential.
+
 ## [0.2.5] - 2026-08-04
 
 ### Fixed
@@ -80,7 +103,7 @@ human-maintained compatibility summary.
   remain advertised after GitHub is connected.
 - Added generic provider connection flow documentation for clients that integrate with MCP-GW
   without a bundled application control plane.
-- Pinned the required ApeLogic agentgateway fork version containing multi-provider MCP
+- Pinned the required project-maintained agentgateway build containing multi-provider MCP
   authentication and exact-name routing support.
 - Improved DEV, Compose, Kubernetes, and local smoke-test coverage for optional GitHub and
   federated backend deployments.
@@ -95,7 +118,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.2...v0.2.3
