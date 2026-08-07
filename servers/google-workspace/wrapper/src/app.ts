@@ -88,6 +88,9 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
     clientSecret: requiredEnv(env, "GOOGLE_OAUTH_CLIENT_SECRET"),
     redirectUri: requiredEnv(env, "GOOGLE_OAUTH_REDIRECT_URI"),
     tokenEncryptionKey: requiredEnv(env, "GOOGLE_TOKEN_ENCRYPTION_KEY"),
+    authorizationUrl: optionalEnv(env, "GOOGLE_OAUTH_AUTHORIZATION_URL"),
+    tokenUrl: optionalEnv(env, "GOOGLE_OAUTH_TOKEN_URL"),
+    userInfoUrl: optionalEnv(env, "GOOGLE_OAUTH_USERINFO_URL"),
   };
   const hop1Issuers = loadHop1Issuers(env);
   const defaultHop1Issuer = hop1Issuers[0];
@@ -109,6 +112,14 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
         : undefined,
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
   };
+}
+
+function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
+  const value = env[name]?.trim();
+  if (!value) {
+    return undefined;
+  }
+  return value;
 }
 
 function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerConfig[] {

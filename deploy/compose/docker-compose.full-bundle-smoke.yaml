@@ -1,0 +1,143 @@
+services:
+  agentgateway:
+    image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.6}
+    command: [--file, /etc/agentgateway/config.yaml]
+    ports:
+      - "${GATEWAY_PORT:-18181}:3000"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ../../gateway/agentgateway/local-full-bundle-smoke.yaml:/etc/agentgateway/config.yaml:ro
+    depends_on:
+      google-workspace:
+        condition: service_started
+      github-wrapper:
+        condition: service_started
+
+  token-store:
+    build:
+      context: ./fixtures/postgres-tls
+    environment:
+      POSTGRES_DB: mcp
+      POSTGRES_USER: mcp
+      POSTGRES_PASSWORD: mcp
+    command:
+      - postgres
+      - -c
+      - ssl=on
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U mcp -d mcp]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - token-store-tls:/var/lib/postgresql/tls
+
+  oauth-migrations:
+    build:
+      context: ../..
+      dockerfile: servers/google-workspace/wrapper/Dockerfile
+    command: [bun, shared/oauth/migrate.ts]
+    environment:
+      TOKEN_STORE_DSN: postgres://mcp:mcp@token-store:5432/mcp?sslmode=verify-full&sslrootcert=/tls/ca.crt
+    volumes:
+      - token-store-tls:/tls:ro
+    depends_on:
+      token-store:
+        condition: service_healthy
+
+  provider-fixture:
+    image: oven/bun:1.2.21
+    command: [bun, /fixtures/provider-fixture.ts]
+    environment:
+      PORT: "8090"
+      FIXTURE_EMAIL: local.user@example.com
+      FIXTURE_GOOGLE_SCOPES: https://www.googleapis.com/auth/drive
+      FIXTURE_GITHUB_SCOPES: repo read:org
+    volumes:
+      - ../../scripts/fixtures:/fixtures:ro
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - await fetch('http://127.0.0.1:8090/health').then(r => { if (!r.ok) process.exit(1) })
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  google-workspace:
+    build:
+      context: ../..
+      dockerfile: servers/google-workspace/wrapper/Dockerfile
+    ports:
+      - "${GOOGLE_WRAPPER_PORT:-18182}:8080"
+    environment:
+      PORT: "8080"
+      GWS_BINARY_PATH: /fixtures/fake-gws.sh
+      GOOGLE_OAUTH_CLIENT_ID: fixture-google-client
+      GOOGLE_OAUTH_CLIENT_SECRET: fixture-google-secret
+      GOOGLE_OAUTH_REDIRECT_URI: http://127.0.0.1:${GOOGLE_WRAPPER_PORT:-18182}/oauth/google/callback
+      GOOGLE_OAUTH_AUTHORIZATION_URL: http://provider-fixture:8090/google/authorize
+      GOOGLE_OAUTH_TOKEN_URL: http://provider-fixture:8090/google/token
+      GOOGLE_OAUTH_USERINFO_URL: http://provider-fixture:8090/google/userinfo
+      GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
+      GOOGLE_TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      HOP1_PROFILE: fixture
+      HOP1_ISSUER: http://host.docker.internal:18180
+      HOP1_JWKS_URL: http://host.docker.internal:18180/.well-known/jwks.json
+      HOP1_AUDIENCE: http://agentgateway:3000/mcp
+      HOP1_ALLOWED_ALGORITHMS: RS256
+      HOP1_EMAIL_CLAIM: email
+      HOP1_SUBJECT_CLAIM: sub
+      TOKEN_STORE_DSN: postgres://mcp:mcp@token-store:5432/mcp?sslmode=verify-full&sslrootcert=/tls/ca.crt
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ../../scripts/fixtures:/fixtures:ro
+      - token-store-tls:/tls:ro
+    depends_on:
+      oauth-migrations:
+        condition: service_completed_successfully
+      provider-fixture:
+        condition: service_healthy
+
+  github-wrapper:
+    build:
+      context: ../..
+      dockerfile: servers/github-mcp/wrapper/Dockerfile
+    ports:
+      - "${GITHUB_WRAPPER_PORT:-18183}:8080"
+    environment:
+      PORT: "8080"
+      GITHUB_MCP_UPSTREAM_URL: http://provider-fixture:8090/github-mcp
+      GITHUB_TOKEN_ENCRYPTION_KEY: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
+      GITHUB_OAUTH_CLIENT_ID: fixture-github-client
+      GITHUB_OAUTH_CLIENT_SECRET: fixture-github-secret
+      GITHUB_OAUTH_REDIRECT_URI: http://127.0.0.1:${GITHUB_WRAPPER_PORT:-18183}/oauth/github/callback
+      GITHUB_OAUTH_AUTHORIZATION_URL: http://provider-fixture:8090/github/authorize
+      GITHUB_OAUTH_TOKEN_URL: http://provider-fixture:8090/github/token
+      GITHUB_OAUTH_USER_EMAILS_URL: http://provider-fixture:8090/github/emails
+      GITHUB_OAUTH_SCOPES: repo read:org
+      HOP1_PROFILE: fixture
+      HOP1_ISSUER: http://host.docker.internal:18180
+      HOP1_JWKS_URL: http://host.docker.internal:18180/.well-known/jwks.json
+      HOP1_AUDIENCE: http://agentgateway:3000/mcp
+      HOP1_ALLOWED_ALGORITHMS: RS256
+      HOP1_EMAIL_CLAIM: email
+      HOP1_SUBJECT_CLAIM: sub
+      TOKEN_STORE_DSN: postgres://mcp:mcp@token-store:5432/mcp?sslmode=verify-full&sslrootcert=/tls/ca.crt
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - token-store-tls:/tls:ro
+    depends_on:
+      oauth-migrations:
+        condition: service_completed_successfully
+      provider-fixture:
+        condition: service_healthy
+
+volumes:
+  token-store-tls:

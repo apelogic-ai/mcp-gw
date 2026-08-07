@@ -1,0 +1,47 @@
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - matches:
+              - path:
+                  exact: /mcp
+              - path:
+                  exact: /.well-known/oauth-protected-resource/mcp
+            policies:
+              cors:
+                allowOrigins: ["*"]
+                allowHeaders: [mcp-protocol-version, content-type, authorization]
+                exposeHeaders: [Mcp-Session-Id]
+              mcpAuthentication:
+                mode: strict
+                providers:
+                  - issuer: http://host.docker.internal:18180
+                    audiences:
+                      - http://agentgateway:3000/mcp
+                    allowedAlgorithms: [RS256]
+                    jwks:
+                      url: http://host.docker.internal:18180/.well-known/jwks.json
+                    discoverable: true
+                    jwtValidationOptions:
+                      requiredClaims: [exp, nbf, iss, sub, aud]
+                resourceMetadata:
+                  resource: http://agentgateway:3000/mcp
+                  scopesSupported: [openid, email]
+                  bearerMethodsSupported: [header]
+            backends:
+              - mcp:
+                  failureMode: failOpen
+                  prefixMode: never
+                  targets:
+                    - name: google
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://google-workspace:8080/mcp
+                    - name: github
+                      policies:
+                        backendAuth:
+                          passthrough: {}
+                      mcp:
+                        host: http://github-wrapper:8080/mcp

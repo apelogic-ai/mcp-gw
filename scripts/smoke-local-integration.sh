@@ -9,6 +9,7 @@ WORK_DIR="${WORK_DIR:-/tmp/mcp-gw-local-integration}"
 JWKS_PORT="${JWKS_PORT:-18080}"
 GATEWAY_PORT="${GATEWAY_PORT:-18081}"
 ISSUER="http://host.docker.internal:$JWKS_PORT"
+FIXTURE_BASE_URL="http://127.0.0.1:$JWKS_PORT"
 AUDIENCE="http://agentgateway:3000/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
 ENV_FILE="$WORK_DIR/compose.env"
@@ -46,7 +47,7 @@ bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
 FIXTURE_PID=$!
 
 for _ in {1..30}; do
-  if [[ -s "$TOKEN_FILE" ]] && curl -sS "$ISSUER/health" >/dev/null 2>&1; then
+  if [[ -s "$TOKEN_FILE" ]] && curl -sS "$FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
@@ -60,7 +61,7 @@ fi
 
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.2.0}
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.6}
 HOP1_PROFILE=local
 HOP1_ISSUER=$ISSUER
 HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json
@@ -139,9 +140,9 @@ assert_public_metadata() {
 }
 
 assert_fixture_authorization_server() {
-  curl -sS "$ISSUER/.well-known/oauth-authorization-server" \
+  curl -sS "$FIXTURE_BASE_URL/.well-known/oauth-authorization-server" \
     >"$WORK_DIR/authorization-server-metadata.json"
-  curl -sS "$ISSUER/.well-known/jwks.json" >"$WORK_DIR/jwks.json"
+  curl -sS "$FIXTURE_BASE_URL/.well-known/jwks.json" >"$WORK_DIR/jwks.json"
   grep -q '"token_endpoint"' "$WORK_DIR/authorization-server-metadata.json"
   grep -q '"jwks_uri"' "$WORK_DIR/authorization-server-metadata.json"
   grep -q '"keys"' "$WORK_DIR/jwks.json"
@@ -151,7 +152,7 @@ compose_cmd config >/dev/null
 compose_cmd up -d --build "${COMPOSE_SERVICES[@]}"
 
 assert_fixture_authorization_server
-TOKEN_RESPONSE="$(curl -sS -X POST "$ISSUER/token")"
+TOKEN_RESPONSE="$(curl -sS -X POST "$FIXTURE_BASE_URL/token")"
 TOKEN="$(printf '%s' "$TOKEN_RESPONSE" | bun -e 'const body = JSON.parse(await Bun.stdin.text()); process.stdout.write(body.access_token)')"
 INITIALIZE_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-gw-local-smoke","version":"0.1.0"}}}'
 TOOLS_PAYLOAD='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'

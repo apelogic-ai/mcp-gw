@@ -62,6 +62,9 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
       clientSecret: env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
       redirectUri: env.GITHUB_OAUTH_REDIRECT_URI ?? "",
       tokenEncryptionKey: requiredEnv(env, "GITHUB_TOKEN_ENCRYPTION_KEY"),
+      authorizationUrl: optionalEnv(env, "GITHUB_OAUTH_AUTHORIZATION_URL"),
+      tokenUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_URL"),
+      userEmailsUrl: optionalEnv(env, "GITHUB_OAUTH_USER_EMAILS_URL"),
     },
     githubScopes: parseScopes(env.GITHUB_OAUTH_SCOPES) ?? DEFAULT_GITHUB_SCOPES,
     aliases: parseAliases(env.GITHUB_TOOL_ALIASES_JSON),
@@ -75,6 +78,14 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
     hop1Issuers: loadHop1Issuers(env),
   };
+}
+
+function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
+  const value = env[name]?.trim();
+  if (!value) {
+    return undefined;
+  }
+  return value;
 }
 
 export function createMainHandler(config: MainConfig): (request: Request) => Promise<Response> {
