@@ -1,0 +1,27 @@
+hop1:
+  issuers:
+    - name: fixture
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      emailClaim: email
+      subjectClaim: sub
+
+oauthMigrations:
+  enabled: true
+  secretKeyRef:
+    name: provider-runtime
+    key: TOKEN_STORE_DSN
+
+googleWorkspace:
+  enabled: true
+  secretRef:
+    name: provider-runtime
+
+githubWrapper:
+  enabled: true
+  secretRef:
+    name: provider-runtime

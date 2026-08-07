@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 describe("Kubernetes production chart", () => {
+  test("ships wrapper images with a numeric non-root runtime user", async () => {
+    const dockerfiles = await Promise.all([
+      Bun.file("servers/google-workspace/wrapper/Dockerfile").text(),
+      Bun.file("servers/github-mcp/wrapper/Dockerfile").text(),
+    ]);
+
+    for (const dockerfile of dockerfiles) {
+      expect(dockerfile).toContain("USER 10001:10001");
+      expect(dockerfile).toContain("HOME=/tmp");
+    }
+  });
+
   test("renders no workloads or identity choices by default", async () => {
     const rendered = helmTemplate();
     const values = await Bun.file("deploy/k8s/chart/values.yaml").text();

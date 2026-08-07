@@ -92,4 +92,22 @@ exit 0
     expect(workflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
     expect(workflow).toContain("bun run integration:k8s");
   });
+
+  test("starts migrations and both wrappers as non-root processes in Kind", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const smoke = await readFile("scripts/smoke-k8s-provider-runtime.sh", "utf8");
+
+    expect(workflow).toContain("servers/google-workspace/wrapper/Dockerfile");
+    expect(workflow).toContain("servers/github-mcp/wrapper/Dockerfile");
+    expect(workflow).toContain("mcp-gw-google-workspace:smoke");
+    expect(workflow).toContain("mcp-gw-github-wrapper:smoke");
+    expect(workflow).toContain("smoke-k8s-provider-runtime.sh");
+    expect(smoke).toContain("oauth_schema_migrations");
+    expect(smoke).toContain("rollout status");
+    expect(smoke).toContain("google-workspace");
+    expect(smoke).toContain("github-wrapper");
+    expect(smoke).toContain("id -u");
+    expect(smoke).toContain('[[ "$GOOGLE_UID" == "10001" ]]');
+    expect(smoke).toContain('[[ "$GITHUB_UID" == "10001" ]]');
+  });
 });
