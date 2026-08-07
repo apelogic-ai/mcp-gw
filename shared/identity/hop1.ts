@@ -42,6 +42,41 @@ export interface TrustedIssuer {
   jwks: JWK[];
 }
 
+export function validateHop1IssuerProfiles<T extends Hop1IssuerConfig>(profiles: T[]): T[] {
+  if (profiles.length === 0) {
+    throw new Error("At least one HOP-1 issuer profile is required");
+  }
+
+  const names = new Set<string>();
+  const issuers = new Set<string>();
+  for (const [index, profile] of profiles.entries()) {
+    const prefix = `HOP-1 issuer profile ${String(index)}`;
+    requireNonEmpty(profile.name, `${prefix}.name`);
+    requireHttpUrl(profile.issuer, `${prefix}.issuer`);
+    requireHttpUrl(profile.jwksUrl, `${prefix}.jwksUrl`);
+    requireUniqueNonEmptyStrings(profile.audiences, `${prefix}.audiences`);
+    requireUniqueNonEmptyStrings(profile.allowedAlgorithms, `${prefix}.allowedAlgorithms`);
+    requireNonEmpty(profile.emailClaim, `${prefix}.emailClaim`);
+    if (profile.subjectClaim !== undefined) {
+      requireNonEmpty(profile.subjectClaim, `${prefix}.subjectClaim`);
+    }
+    if (profile.introspectionUrl !== undefined) {
+      requireHttpUrl(profile.introspectionUrl, `${prefix}.introspectionUrl`);
+    }
+
+    if (names.has(profile.name)) {
+      throw new Error(`Duplicate HOP-1 issuer profile name: ${profile.name}`);
+    }
+    if (issuers.has(profile.issuer)) {
+      throw new Error(`Duplicate HOP-1 issuer URL: ${profile.issuer}`);
+    }
+    names.add(profile.name);
+    issuers.add(profile.issuer);
+  }
+
+  return profiles;
+}
+
 export function normalizedHop1Claims(identity: Hop1Identity): JWTPayload {
   return {
     ...identity.claims,
@@ -130,4 +165,30 @@ function identityFromClaims(claims: JWTPayload, profile: IssuerProfile): Hop1Ide
 function claimAsString(claims: JWTPayload, claimName: string): string | undefined {
   const value = claims[claimName];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function requireNonEmpty(value: string, name: string): void {
+  if (value.trim().length === 0) {
+    throw new Error(`${name} must be a non-empty string`);
+  }
+}
+
+function requireHttpUrl(value: string, name: string): void {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || !url.hostname) {
+      throw new Error("unsupported URL");
+    }
+  } catch {
+    throw new Error(`${name} must be an absolute HTTP(S) URL`);
+  }
+}
+
+function requireUniqueNonEmptyStrings(values: readonly string[], name: string): void {
+  if (values.length === 0 || values.some((value) => value.trim().length === 0)) {
+    throw new Error(`${name} must be a non-empty array of non-empty strings`);
+  }
+  if (new Set(values).size !== values.length) {
+    throw new Error(`${name} must not contain duplicates`);
+  }
 }

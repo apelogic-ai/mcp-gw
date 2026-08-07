@@ -8,6 +8,13 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Security
+
+- Reject ambiguous or malformed HOP-1 issuer profile sets before wrappers start, including
+  duplicate names, issuer URLs, audiences, and algorithms.
+- Expanded the local authorization-server fixture to cover discovery, JWKS retrieval, token
+  acquisition, not-before enforcement, and algorithm allowlist failures.
+
 ## [0.2.6] - 2026-08-05
 
 ### Security

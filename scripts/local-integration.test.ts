@@ -16,7 +16,9 @@ describe("local Docker integration smoke", () => {
     const smoke = await readFile("scripts/smoke-local-integration.sh", "utf8");
 
     expect(fixture).toContain("SignJWT");
+    expect(fixture).toContain(".well-known/oauth-authorization-server");
     expect(fixture).toContain(".well-known/jwks.json");
+    expect(fixture).toContain('url.pathname === "/token"');
     expect(smoke).toContain('ISSUER="http://host.docker.internal:$JWKS_PORT"');
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
@@ -38,11 +40,17 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("assert_rejected_token wrong-issuer");
     expect(smoke).toContain("assert_rejected_token wrong-audience");
     expect(smoke).toContain("assert_rejected_token invalid-signature");
+    expect(smoke).toContain("assert_rejected_token wrong-algorithm");
+    expect(smoke).toContain("assert_rejected_token not-before");
+    expect(smoke).toContain("assert_fixture_authorization_server");
+    expect(smoke).toContain("authorization_servers");
     expect(smoke).toContain("assert_public_metadata");
     expect(fixture).toContain("`${args.tokenFile}.expired`");
     expect(fixture).toContain("`${args.tokenFile}.wrong-issuer`");
     expect(fixture).toContain("`${args.tokenFile}.wrong-audience`");
     expect(fixture).toContain("`${args.tokenFile}.invalid-signature`");
+    expect(fixture).toContain("`${args.tokenFile}.wrong-algorithm`");
+    expect(fixture).toContain("`${args.tokenFile}.not-before`");
   });
 
   test("mounts an authenticated local agentgateway config for the smoke path", async () => {

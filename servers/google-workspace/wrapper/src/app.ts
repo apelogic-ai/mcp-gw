@@ -4,6 +4,7 @@ import {
   type Hop1Identity,
   type Hop1IssuerConfig,
   type IssuerProfile,
+  validateHop1IssuerProfiles,
 } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
@@ -117,7 +118,9 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       throw new Error("HOP1_ISSUERS_JSON must be a non-empty array");
     }
 
-    return parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env));
+    return validateHop1IssuerProfiles(
+      parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env)),
+    );
   }
 
   const introspection = introspectionConfig(
@@ -125,7 +128,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
     env.HOP1_INTROSPECTION_CLIENT_CREDENTIAL,
     "HOP1_INTROSPECTION_URL and HOP1_INTROSPECTION_CLIENT_CREDENTIAL",
   );
-  return [
+  return validateHop1IssuerProfiles([
     {
       name: env.HOP1_PROFILE ?? "issuer",
       issuer: requiredEnv(env, "HOP1_ISSUER"),
@@ -142,7 +145,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       subjectClaim: env.HOP1_SUBJECT_CLAIM,
       ...introspection,
     },
-  ];
+  ]);
 }
 
 function parseHop1IssuerConfig(
