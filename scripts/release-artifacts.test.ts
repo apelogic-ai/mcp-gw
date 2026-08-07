@@ -6,6 +6,29 @@ import { generatePrivateReleaseHandoff } from "./generate-private-release-handof
 import { generateReleaseHandoff } from "./generate-release-handoff";
 
 describe("release artifacts", () => {
+  test("gates publication on candidate local, Kubernetes, and full-bundle integration", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const kubernetesSmoke = workflow.slice(
+      workflow.indexOf("  kubernetes-smoke:"),
+      workflow.indexOf("  publish-images:"),
+    );
+
+    expect(kubernetesSmoke).toContain("Build pinned agentgateway candidate");
+    expect(kubernetesSmoke).toContain("bun run integration:local");
+    expect(kubernetesSmoke).toContain("bun run integration:k8s");
+    expect(kubernetesSmoke).toContain("bun run integration:bundle");
+    expect(
+      kubernetesSmoke.match(/LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke/g),
+    ).toHaveLength(2);
+    expect(kubernetesSmoke.indexOf("Build pinned agentgateway candidate")).toBeLessThan(
+      kubernetesSmoke.indexOf("bun run integration:local"),
+    );
+    expect(workflow).not.toMatch(
+      /  validate:[\s\S]*?bun run integration:local[\s\S]*?  kubernetes-smoke:/,
+    );
+    expect(workflow.match(/needs: \[validate, kubernetes-smoke\]/g)).toHaveLength(2);
+  });
+
   test("publishes immutable images and an OCI Helm chart with supply-chain evidence", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
 
