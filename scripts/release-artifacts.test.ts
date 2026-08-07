@@ -44,7 +44,7 @@ describe("release artifacts", () => {
     );
   });
 
-  test("optionally promotes exact approved image and chart manifests to ECR", async () => {
+  test("optionally promotes exact approved first-party images and chart manifests", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const promotion = workflow.slice(
       workflow.indexOf("  promote-ecr:"),
@@ -53,20 +53,37 @@ describe("release artifacts", () => {
 
     expect(promotion).toContain("vars.ECR_PROMOTION_ENABLED == 'true'");
     expect(promotion).toContain("AWS_RELEASE_ROLE_ARN");
-    expect(promotion).toContain("MCP_GW_ECR_IMAGE_REPOSITORY");
+    expect(promotion).toContain("MCP_GW_ECR_AGENTGATEWAY_REPOSITORY");
+    expect(promotion).toContain("MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY");
+    expect(promotion).toContain("MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY");
     expect(promotion).toContain("MCP_GW_ECR_CHART_REPOSITORY");
     expect(promotion).toContain("aws-actions/configure-aws-credentials@");
     expect(promotion).toContain("oras-project/setup-oras@");
     expect(promotion).toContain("oras cp");
     expect(promotion).toContain("cosign sign --yes");
     expect(promotion).toContain("--output-signature dist/ecr-agentgateway.sig");
+    expect(promotion).toContain("--output-signature dist/ecr-google-workspace.sig");
+    expect(promotion).toContain("--output-signature dist/ecr-github-wrapper.sig");
     expect(promotion).toContain("--output-certificate dist/ecr-helm-chart.pem");
     expect(promotion).not.toContain("cosign verify");
     expect(promotion).not.toMatch(/outputs\.[a-z]+-[a-z-]+/);
-    expect(promotion).toContain('test "$IMAGE_DIGEST" = "$SOURCE_IMAGE_DIGEST"');
+    expect(promotion).toContain('test "$AGENTGATEWAY_DIGEST" = "$SOURCE_AGENTGATEWAY_DIGEST"');
+    expect(promotion).toContain(
+      'test "$GOOGLE_WORKSPACE_DIGEST" = "$SOURCE_GOOGLE_WORKSPACE_DIGEST"',
+    );
+    expect(promotion).toContain('test "$GITHUB_WRAPPER_DIGEST" = "$SOURCE_GITHUB_WRAPPER_DIGEST"');
     expect(promotion).toContain('test "$CHART_DIGEST" = "$SOURCE_CHART_DIGEST"');
     expect(promotion).toContain("ecr-release-handoff");
+    expect(promotion).not.toContain("github-mcp-server");
     expect(promotion).not.toMatch(/\b\d{12}\b/);
+  });
+
+  test("blocks releases with critical first-party vulnerabilities", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+
+    expect(workflow.match(/name: Enforce zero critical vulnerabilities/g)).toHaveLength(2);
+    expect(workflow.match(/exit-code: "1"/g)).toHaveLength(2);
+    expect(workflow.match(/severity: CRITICAL/g)).toHaveLength(2);
   });
 
   test("blocks the public release when configured ECR promotion fails", async () => {
@@ -94,29 +111,52 @@ describe("release artifacts", () => {
   test("generates a complete private registry handoff", async () => {
     const artifactsDirectory = await mkdtemp(join(tmpdir(), "mcp-gw-ecr-release-"));
     const outputPath = join(artifactsDirectory, "ecr-release-handoff.md");
-    const imageDigest = `sha256:${"a".repeat(64)}`;
-    const chartDigest = `sha256:${"b".repeat(64)}`;
-    await writeFile(join(artifactsDirectory, "ecr-agentgateway.digest"), `${imageDigest}\n`);
-    await writeFile(join(artifactsDirectory, "ecr-helm-chart.digest"), `${chartDigest}\n`);
+    const agentgatewayDigest = `sha256:${"a".repeat(64)}`;
+    const googleWorkspaceDigest = `sha256:${"b".repeat(64)}`;
+    const githubWrapperDigest = `sha256:${"c".repeat(64)}`;
+    const chartDigest = `sha256:${"d".repeat(64)}`;
+    await Promise.all([
+      writeFile(join(artifactsDirectory, "ecr-agentgateway.digest"), `${agentgatewayDigest}\n`),
+      writeFile(
+        join(artifactsDirectory, "ecr-google-workspace.digest"),
+        `${googleWorkspaceDigest}\n`,
+      ),
+      writeFile(join(artifactsDirectory, "ecr-github-wrapper.digest"), `${githubWrapperDigest}\n`),
+      writeFile(join(artifactsDirectory, "ecr-helm-chart.digest"), `${chartDigest}\n`),
+    ]);
 
     await generatePrivateReleaseHandoff({
+      agentgatewayRepository: "registry.example.com/mcp-gw-agentgateway",
       artifactsDirectory,
       chartRepository: "registry.example.com/charts/mcp-gw",
-      imageRepository: "registry.example.com/mcp-gw",
+      githubWrapperRepository: "registry.example.com/mcp-gw-github-wrapper",
+      googleWorkspaceRepository: "registry.example.com/mcp-gw-google-workspace",
       outputPath,
       releaseCommit: "0123456789abcdef",
       version: "1.2.3",
     });
 
     const handoff = await readFile(outputPath, "utf8");
-    expect(handoff).toContain("registry.example.com/mcp-gw@" + imageDigest);
+    expect(handoff).toContain("registry.example.com/mcp-gw-agentgateway@" + agentgatewayDigest);
+    expect(handoff).toContain(
+      "registry.example.com/mcp-gw-google-workspace@" + googleWorkspaceDigest,
+    );
+    expect(handoff).toContain("registry.example.com/mcp-gw-github-wrapper@" + githubWrapperDigest);
     expect(handoff).toContain("registry.example.com/charts/mcp-gw@" + chartDigest);
     expect(handoff).toContain("0123456789abcdef");
     expect(handoff).toContain("ecr-agentgateway.sig");
     expect(handoff).toContain("ecr-agentgateway.pem");
     expect(handoff).toContain("ecr-agentgateway.provenance.json");
+    expect(handoff).toContain("ecr-google-workspace.sig");
+    expect(handoff).toContain("ecr-google-workspace.provenance.json");
+    expect(handoff).toContain("ecr-github-wrapper.sig");
+    expect(handoff).toContain("ecr-github-wrapper.provenance.json");
     expect(handoff).toContain("agentgateway.spdx.json");
     expect(handoff).toContain("agentgateway.vulnerabilities.json");
+    expect(handoff).toContain("google-workspace.spdx.json");
+    expect(handoff).toContain("google-workspace.vulnerabilities.json");
+    expect(handoff).toContain("github-wrapper.spdx.json");
+    expect(handoff).toContain("github-wrapper.vulnerabilities.json");
     expect(handoff).toContain("helm-chart.spdx.json");
     expect(handoff).toContain("helm-chart.vulnerabilities.json");
   });

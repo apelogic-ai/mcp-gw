@@ -2,9 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface PrivateReleaseHandoffOptions {
+  agentgatewayRepository: string;
   artifactsDirectory: string;
   chartRepository: string;
-  imageRepository: string;
+  githubWrapperRepository: string;
+  googleWorkspaceRepository: string;
   outputPath: string;
   releaseCommit: string;
   version: string;
@@ -15,15 +17,24 @@ const digestPattern = /^sha256:[a-f0-9]{64}$/;
 export async function generatePrivateReleaseHandoff(
   options: PrivateReleaseHandoffOptions,
 ): Promise<void> {
-  const imageDigest = await readDigest(options.artifactsDirectory, "ecr-agentgateway");
+  const agentgatewayDigest = await readDigest(options.artifactsDirectory, "ecr-agentgateway");
+  const googleWorkspaceDigest = await readDigest(
+    options.artifactsDirectory,
+    "ecr-google-workspace",
+  );
+  const githubWrapperDigest = await readDigest(options.artifactsDirectory, "ecr-github-wrapper");
   const chartDigest = await readDigest(options.artifactsDirectory, "ecr-helm-chart");
-  const image = `${options.imageRepository}@${imageDigest}`;
+  const agentgateway = `${options.agentgatewayRepository}@${agentgatewayDigest}`;
+  const googleWorkspace = `${options.googleWorkspaceRepository}@${googleWorkspaceDigest}`;
+  const githubWrapper = `${options.githubWrapperRepository}@${githubWrapperDigest}`;
   const chart = `${options.chartRepository}@${chartDigest}`;
 
   const handoff = `# MCP Gateway v${options.version} Private Registry Handoff
 
 - Release commit: \`${options.releaseCommit}\`
-- Agentgateway image: \`${image}\`
+- Agentgateway image: \`${agentgateway}\`
+- Google Workspace wrapper image: \`${googleWorkspace}\`
+- GitHub wrapper image: \`${githubWrapper}\`
 - Helm chart artifact: \`${chart}\`
 - Helm chart version: \`${options.version}\`
 
@@ -32,10 +43,13 @@ export async function generatePrivateReleaseHandoff(
 | Artifact | Evidence files |
 | --- | --- |
 | Agentgateway image | \`agentgateway.spdx.json\`, \`agentgateway.vulnerabilities.json\`, \`ecr-agentgateway.sig\`, \`ecr-agentgateway.pem\`, \`ecr-agentgateway.provenance.json\` |
+| Google Workspace wrapper image | \`google-workspace.spdx.json\`, \`google-workspace.vulnerabilities.json\`, \`ecr-google-workspace.sig\`, \`ecr-google-workspace.pem\`, \`ecr-google-workspace.provenance.json\` |
+| GitHub wrapper image | \`github-wrapper.spdx.json\`, \`github-wrapper.vulnerabilities.json\`, \`ecr-github-wrapper.sig\`, \`ecr-github-wrapper.pem\`, \`ecr-github-wrapper.provenance.json\` |
 | Helm chart | \`helm-chart.spdx.json\`, \`helm-chart.vulnerabilities.json\`, \`ecr-helm-chart.sig\`, \`ecr-helm-chart.pem\`, \`ecr-helm-chart.provenance.json\` |
 
-The ECR digest files are \`ecr-agentgateway.digest\` and \`ecr-helm-chart.digest\`. They match the
-approved public release manifests byte-for-byte.
+The ECR digest files are \`ecr-agentgateway.digest\`, \`ecr-google-workspace.digest\`,
+\`ecr-github-wrapper.digest\`, and \`ecr-helm-chart.digest\`. They match the approved public release
+manifests byte-for-byte.
 
 ## Verification
 
@@ -47,7 +61,15 @@ IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@re
 cosign verify \\
   --certificate-identity "$IDENTITY" \\
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  "${image}"
+  "${agentgateway}"
+cosign verify \\
+  --certificate-identity "$IDENTITY" \\
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+  "${googleWorkspace}"
+cosign verify \\
+  --certificate-identity "$IDENTITY" \\
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+  "${githubWrapper}"
 cosign verify \\
   --certificate-identity "$IDENTITY" \\
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
@@ -55,8 +77,10 @@ cosign verify \\
 \`\`\`
 
 Configure GitOps with the chart version and chart digest above. Configure
-\`agentgateway.image.repository\` to \`${options.imageRepository}\` and
-\`agentgateway.image.digest\` to \`${imageDigest}\`. The chart renders the runtime image by digest.
+\`agentgateway.image.repository\` to \`${options.agentgatewayRepository}\` and
+\`agentgateway.image.digest\` to \`${agentgatewayDigest}\`. Configure the equivalent repository and
+digest fields for \`googleWorkspace.image\` and \`githubWrapper.image\` using the coordinates above.
+The chart renders each first-party runtime image by digest.
 `;
 
   await writeFile(options.outputPath, handoff);
@@ -77,7 +101,7 @@ function parseArgs(args: string[]): PrivateReleaseHandoffOptions {
     const value = args[index + 1];
     if (!key?.startsWith("--") || !value) {
       throw new Error(
-        "Expected --version, --release-commit, --image-repository, --chart-repository, --artifacts, and --output arguments",
+        "Expected repository coordinates, --version, --release-commit, --artifacts, and --output arguments",
       );
     }
     values.set(key, value);
@@ -85,27 +109,33 @@ function parseArgs(args: string[]): PrivateReleaseHandoffOptions {
 
   const version = values.get("--version");
   const releaseCommit = values.get("--release-commit");
-  const imageRepository = values.get("--image-repository");
+  const agentgatewayRepository = values.get("--agentgateway-repository");
+  const googleWorkspaceRepository = values.get("--google-workspace-repository");
+  const githubWrapperRepository = values.get("--github-wrapper-repository");
   const chartRepository = values.get("--chart-repository");
   const artifactsDirectory = values.get("--artifacts");
   const outputPath = values.get("--output");
   if (
     !version ||
     !releaseCommit ||
-    !imageRepository ||
+    !agentgatewayRepository ||
+    !googleWorkspaceRepository ||
+    !githubWrapperRepository ||
     !chartRepository ||
     !artifactsDirectory ||
     !outputPath
   ) {
     throw new Error(
-      "Expected --version, --release-commit, --image-repository, --chart-repository, --artifacts, and --output arguments",
+      "Expected repository coordinates, --version, --release-commit, --artifacts, and --output arguments",
     );
   }
 
   return {
+    agentgatewayRepository,
     artifactsDirectory,
     chartRepository,
-    imageRepository,
+    githubWrapperRepository,
+    googleWorkspaceRepository,
     outputPath,
     releaseCommit,
     version,

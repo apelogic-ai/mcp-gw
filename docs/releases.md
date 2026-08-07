@@ -31,16 +31,22 @@ Each tagged release provides:
 - a GitHub Release containing the handoff and supply-chain evidence.
 
 Repositories that require a private registry can opt into release promotion through GitHub
-repository variables. The release workflow copies the approved agentgateway and chart manifests to
-the configured OCI repositories, verifies that the destination digests match the public release,
-and uploads a private handoff artifact containing signatures, certificates, provenance, SBOMs,
-vulnerability reports, and immutable coordinates. Registry locations and IAM role identifiers are
-deployment configuration and are never committed to this repository.
+repository variables. Set `ECR_PROMOTION_ENABLED`, `AWS_RELEASE_ROLE_ARN`, `AWS_REGION`,
+`ECR_REGISTRY`, `MCP_GW_ECR_AGENTGATEWAY_REPOSITORY`,
+`MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY`, `MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY`, and
+`MCP_GW_ECR_CHART_REPOSITORY`. The release workflow copies the approved first-party image and chart
+manifests to those OCI repositories, verifies that every destination digest matches the public
+release, and uploads a private handoff artifact containing signatures, certificates, provenance,
+SBOMs, vulnerability reports, and immutable coordinates. The legacy
+`MCP_GW_ECR_IMAGE_REPOSITORY` variable remains a fallback for the agentgateway repository. The
+third-party official GitHub MCP image is not promoted; deployment GitOps owns its reviewed mirror.
+Registry locations and IAM role identifiers are deployment configuration and are never committed
+to this repository.
 
 Release tags are convenient selectors. Production overlays should pin the image digests recorded in
 the release handoff, or mirror those exact digests into an approved private registry. The release
 workflow also verifies that the chart and first-party images can be fetched anonymously before it
-creates the GitHub Release.
+creates the GitHub Release. A critical vulnerability in any first-party artifact blocks release.
 
 The release-owned `mcp-gw-agentgateway` image is built from the exact compatible source revision
 declared in the release workflow. It contains the MCP multi-provider authentication and routing
