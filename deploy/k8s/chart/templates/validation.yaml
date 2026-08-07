@@ -1,0 +1,26 @@
+{{- if .Values.productionProfile.enabled }}
+{{- if not .Values.agentgateway.enabled }}
+{{- fail "productionProfile requires agentgateway.enabled=true" }}
+{{- end }}
+{{- if not .Values.googleWorkspace.enabled }}
+{{- fail "productionProfile requires googleWorkspace.enabled=true" }}
+{{- end }}
+{{- if not .Values.githubWrapper.enabled }}
+{{- fail "productionProfile requires githubWrapper.enabled=true" }}
+{{- end }}
+{{- if not .Values.githubMcp.enabled }}
+{{- fail "productionProfile requires githubMcp.enabled=true" }}
+{{- end }}
+{{- if not .Values.oauthMigrations.enabled }}
+{{- fail "productionProfile requires oauthMigrations.enabled=true" }}
+{{- end }}
+{{- $enabledBackends := list }}
+{{- range .Values.agentgateway.backends }}
+{{- if .enabled }}
+{{- $enabledBackends = append $enabledBackends . }}
+{{- end }}
+{{- end }}
+{{- if not $enabledBackends }}
+{{- fail "productionProfile requires at least one enabled agentgateway backend" }}
+{{- end }}
+{{- end }}

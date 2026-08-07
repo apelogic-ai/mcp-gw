@@ -129,6 +129,40 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("app.kubernetes.io/component: github-wrapper");
   });
 
+  test("renders the opt-in full provider bundle production profile", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+
+    expect(rendered).toContain("kind: Job");
+    expect(rendered).toContain("name: mcp-gateway-agentgateway");
+    expect(rendered).toContain("name: mcp-gateway-google-workspace");
+    expect(rendered).toContain("name: mcp-gateway-github-wrapper");
+    expect(rendered).toContain("name: mcp-gateway-github-mcp");
+    expect(rendered).toContain("name: google-workspace");
+    expect(rendered).toContain("name: github-mcp");
+    expect(rendered).toContain("name: mcp-provider-runtime");
+    expect(rendered).toContain("name: mcp-oauth-database");
+    expect(rendered).not.toContain("kind: Ingress");
+  });
+
+  test("rejects incomplete production profiles and empty backend lists", () => {
+    for (const args of [
+      ["--set", "productionProfile.enabled=true"],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set-json",
+        "agentgateway.backends=[]",
+      ],
+    ]) {
+      const result = helmTemplateResult(args);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/productionProfile/);
+    }
+  });
+
   test("does not expose the agentgateway admin UI by default", async () => {
     const rendered = helmTemplate(["--values", "deploy/k8s/examples/values-k8s-smoke.yaml"]);
     const examplesReadme = await readExample("README.md");
@@ -374,6 +408,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
     "values-private-overlay.example.yaml",
+    "values-production-bundle.example.yaml",
   ];
   const contents = new Map<string, string>();
 

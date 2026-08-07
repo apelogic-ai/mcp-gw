@@ -2,6 +2,9 @@ global:
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
+productionProfile:
+  enabled: false
+
 hop1:
   issuers: []
 

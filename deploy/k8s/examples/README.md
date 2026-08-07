@@ -51,6 +51,12 @@ a schema error. The file `values-enterprise-contract.example.yaml` is a
 non-deployable test fixture that demonstrates the complete values shape; do not
 use its fixture coordinates as deployment configuration.
 
+`values-production-bundle.example.yaml` is an opt-in full-bundle fixture for
+private GitOps overlays. Enabling `productionProfile` validates that
+agentgateway, both provider wrappers, the internal official GitHub MCP server,
+OAuth migrations, and at least one backend target are enabled explicitly. It
+does not supply deployment credentials or enable any workload by default.
+
 ## OAuth schema migrations
 
 Enable `oauthMigrations` when Google Workspace or GitHub provider consent uses
