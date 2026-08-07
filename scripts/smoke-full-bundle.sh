@@ -60,11 +60,12 @@ ENV
 
 compose_cmd config >/dev/null
 compose_cmd up -d --build token-store provider-fixture
+compose_cmd build oauth-migrations
 
 # Two simultaneous runs prove the advisory lock makes migration execution concurrency-safe.
-compose_cmd run --rm oauth-migrations &
+compose_cmd run --rm --no-deps oauth-migrations &
 MIGRATION_PID_ONE=$!
-compose_cmd run --rm oauth-migrations &
+compose_cmd run --rm --no-deps oauth-migrations &
 MIGRATION_PID_TWO=$!
 wait "$MIGRATION_PID_ONE"
 wait "$MIGRATION_PID_TWO"

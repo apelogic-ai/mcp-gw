@@ -126,6 +126,8 @@ describe("local Docker integration smoke", () => {
     );
     expect(gatewayConfig).not.toMatch(/jwtValidationOptions:\n\s+allowedAlgorithms:/);
     expect(smoke).toContain("oauth-migrations");
+    expect(smoke).toContain("compose_cmd build oauth-migrations");
+    expect(smoke.match(/compose_cmd run --rm --no-deps oauth-migrations/g)).toHaveLength(2);
     expect(smoke).toContain('wait "$MIGRATION_PID_ONE"');
     expect(smoke).toContain('wait "$MIGRATION_PID_TWO"');
     expect(providerFixture).toContain("fixture-google-provider-token");
