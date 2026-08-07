@@ -31,9 +31,6 @@ jobs:
       - name: Run deployment validation
         run: bun run deploy:check
 
-      - name: Run local MCP integration smoke
-        run: bun run integration:local
-
       - name: Run release metadata validation
         run: bun run release:check
 
@@ -75,6 +72,14 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
 
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run local MCP integration smoke against candidate
+        run: bun run integration:local
+        env:
+          LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
+
       - name: Create Kubernetes cluster
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
@@ -88,6 +93,11 @@ jobs:
         env:
           K8S_SMOKE_AGENTGATEWAY_REPOSITORY: mcp-gw-agentgateway
           K8S_SMOKE_AGENTGATEWAY_TAG: smoke
+
+      - name: Run full provider bundle integration smoke against candidate
+        run: bun run integration:bundle
+        env:
+          LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
 
   publish-images:
     needs: [validate, kubernetes-smoke]
@@ -441,21 +451,40 @@ jobs:
           GITHUB_WRAPPER_DIGEST: ${{ steps.promote.outputs['github-wrapper-digest'] }}
           CHART_DIGEST: ${{ steps.promote.outputs['chart-digest'] }}
         run: |
+          COSIGN_CERTIFICATE_IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"
+          COSIGN_CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"
+
           cosign sign --yes \
             --output-signature dist/ecr-agentgateway.sig \
             --output-certificate dist/ecr-agentgateway.pem \
+            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
             "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-google-workspace.sig \
             --output-certificate dist/ecr-google-workspace.pem \
             "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-github-wrapper.sig \
             --output-certificate dist/ecr-github-wrapper.pem \
             "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-helm-chart.sig \
             --output-certificate dist/ecr-helm-chart.pem \
+            "$CHART_REPOSITORY@$CHART_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
             "$CHART_REPOSITORY@$CHART_DIGEST"
 
       - name: Attest promoted agentgateway provenance

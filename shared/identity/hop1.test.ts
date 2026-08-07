@@ -206,6 +206,20 @@ describe("HOP-1 JWT validation", () => {
     await expectHop1Rejection(expired, fixtureProfile);
   });
 
+  test("rejects tokens without an expiration claim", async () => {
+    const missingExpiration = await new SignJWT({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      sub: "subject",
+      email: "user@example.com",
+    })
+      .setProtectedHeader({ alg: "EdDSA", kid: "test-key" })
+      .setIssuedAt()
+      .sign(privateKey);
+
+    await expectHop1Rejection(missingExpiration, fixtureProfile, "JWT missing expiration");
+  });
+
   test("rejects tokens before their not-before time", async () => {
     const future = await new SignJWT({
       iss: fixtureProfile.issuer,

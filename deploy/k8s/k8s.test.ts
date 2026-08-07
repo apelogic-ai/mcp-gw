@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 describe("Kubernetes production chart", () => {
+  test("ships wrapper images with a numeric non-root runtime user", async () => {
+    const dockerfiles = await Promise.all([
+      Bun.file("servers/google-workspace/wrapper/Dockerfile").text(),
+      Bun.file("servers/github-mcp/wrapper/Dockerfile").text(),
+    ]);
+
+    for (const dockerfile of dockerfiles) {
+      expect(dockerfile).toContain("USER 10001:10001");
+      expect(dockerfile).toContain("HOME=/tmp");
+    }
+  });
+
   test("renders no workloads or identity choices by default", async () => {
     const rendered = helmTemplate();
     const values = await Bun.file("deploy/k8s/chart/values.yaml").text();
@@ -144,10 +156,13 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("name: github-mcp");
     expect(rendered).toContain("name: mcp-provider-runtime");
     expect(rendered).toContain("name: mcp-oauth-database");
+    expect(rendered).toMatch(
+      /jwtValidationOptions:\n\s+requiredClaims:\n\s+- exp\n\s+- iss\n\s+- sub\n\s+- aud/,
+    );
     expect(rendered).not.toContain("kind: Ingress");
   });
 
-  test("rejects incomplete production profiles and empty backend lists", () => {
+  test("rejects incomplete production profiles and incomplete or duplicate provider targets", () => {
     for (const args of [
       ["--set", "productionProfile.enabled=true"],
       [
@@ -155,6 +170,24 @@ describe("Kubernetes production chart", () => {
         "deploy/k8s/examples/values-production-bundle.example.yaml",
         "--set-json",
         "agentgateway.backends=[]",
+      ],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set",
+        "agentgateway.backends[0].enabled=false",
+      ],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set",
+        "agentgateway.backends[1].enabled=false",
+      ],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set",
+        "agentgateway.backends[1].name=google-workspace",
       ],
     ]) {
       const result = helmTemplateResult(args);

@@ -141,6 +141,10 @@ function identityFromClaims(claims: JWTPayload, profile: IssuerProfile): Hop1Ide
   const subject = claimAsString(claims, subjectClaim);
   const email = claimAsString(claims, profile.emailClaim);
 
+  if (claims.exp === undefined) {
+    throw new Hop1ValidationError("JWT missing expiration claim: exp");
+  }
+
   if (!subject) {
     throw new Hop1ValidationError(`JWT missing required subject claim: ${subjectClaim}`);
   }

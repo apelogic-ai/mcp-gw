@@ -201,6 +201,7 @@ for _ in {1..60}; do
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
     assert_rejected_without_token
     assert_rejected_token expired
+    assert_rejected_token missing-expiration
     assert_rejected_token wrong-issuer
     assert_rejected_token wrong-audience
     assert_rejected_token invalid-signature

@@ -4,6 +4,8 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates nodejs \
+  && groupadd --gid 10001 mcp-gateway \
+  && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin mcp-gateway \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
@@ -17,9 +19,13 @@ COPY servers ./servers
 
 RUN bun install --frozen-lockfile
 RUN bun add @googleworkspace/cli@0.22.5
+RUN chown -R 10001:10001 /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV GWS_BINARY_PATH=/app/node_modules/.bin/gws
+ENV HOME=/tmp
+
+USER 10001:10001
 
 CMD ["bun", "run", "servers/google-workspace/wrapper/src/main.ts"]

@@ -41,6 +41,12 @@ data:
 {{ toYaml $issuer.audiences | nindent 26 }}
                         allowedAlgorithms:
 {{ toYaml $issuer.allowedAlgorithms | nindent 26 }}
+                        jwtValidationOptions:
+                          requiredClaims:
+                            - exp
+                            - iss
+                            - sub
+                            - aud
                         jwks:
                           url: {{ $issuer.jwksUrl }}
                         discoverable: {{ $issuer.discoverable | default false }}
