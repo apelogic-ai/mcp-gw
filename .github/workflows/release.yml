@@ -451,21 +451,40 @@ jobs:
           GITHUB_WRAPPER_DIGEST: ${{ steps.promote.outputs['github-wrapper-digest'] }}
           CHART_DIGEST: ${{ steps.promote.outputs['chart-digest'] }}
         run: |
+          COSIGN_CERTIFICATE_IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"
+          COSIGN_CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"
+
           cosign sign --yes \
             --output-signature dist/ecr-agentgateway.sig \
             --output-certificate dist/ecr-agentgateway.pem \
+            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
             "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-google-workspace.sig \
             --output-certificate dist/ecr-google-workspace.pem \
             "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-github-wrapper.sig \
             --output-certificate dist/ecr-github-wrapper.pem \
             "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-helm-chart.sig \
             --output-certificate dist/ecr-helm-chart.pem \
+            "$CHART_REPOSITORY@$CHART_DIGEST"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
             "$CHART_REPOSITORY@$CHART_DIGEST"
 
       - name: Attest promoted agentgateway provenance

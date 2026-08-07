@@ -88,7 +88,15 @@ describe("release artifacts", () => {
     expect(promotion).toContain("--output-signature dist/ecr-google-workspace.sig");
     expect(promotion).toContain("--output-signature dist/ecr-github-wrapper.sig");
     expect(promotion).toContain("--output-certificate dist/ecr-helm-chart.pem");
-    expect(promotion).not.toContain("cosign verify");
+    expect(promotion.match(/cosign verify \\/g)).toHaveLength(4);
+    expect(promotion).toContain('--certificate-identity "$COSIGN_CERTIFICATE_IDENTITY"');
+    expect(promotion).toContain('--certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER"');
+    expect(promotion).toContain(
+      'COSIGN_CERTIFICATE_IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"',
+    );
+    expect(promotion).toContain(
+      'COSIGN_CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"',
+    );
     expect(promotion).not.toMatch(/outputs\.[a-z]+-[a-z-]+/);
     expect(promotion).toContain('test "$AGENTGATEWAY_DIGEST" = "$SOURCE_AGENTGATEWAY_DIGEST"');
     expect(promotion).toContain(
