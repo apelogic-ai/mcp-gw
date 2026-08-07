@@ -104,7 +104,7 @@ if [[ "$(auth_status "$TOKEN")" != "200" ]]; then
 fi
 
 [[ "$(auth_status)" == "401" ]]
-for label in expired wrong-issuer wrong-audience invalid-signature wrong-algorithm not-before; do
+for label in expired missing-expiration wrong-issuer wrong-audience invalid-signature wrong-algorithm not-before; do
   [[ "$(auth_status "$(cat "$TOKEN_FILE.$label")")" == "401" ]]
 done
 

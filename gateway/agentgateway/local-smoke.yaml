@@ -19,6 +19,8 @@ binds:
                   - http://agentgateway:3000/mcp
                 jwks:
                   url: http://host.docker.internal:18080/.well-known/jwks.json
+                jwtValidationOptions:
+                  requiredClaims: [exp, iss, sub, aud]
                 resourceMetadata:
                   resource: http://agentgateway:3000/mcp
                   scopesSupported: [openid, email]

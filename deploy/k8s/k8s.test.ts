@@ -156,6 +156,9 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("name: github-mcp");
     expect(rendered).toContain("name: mcp-provider-runtime");
     expect(rendered).toContain("name: mcp-oauth-database");
+    expect(rendered).toMatch(
+      /jwtValidationOptions:\n\s+requiredClaims:\n\s+- exp\n\s+- iss\n\s+- sub\n\s+- aud/,
+    );
     expect(rendered).not.toContain("kind: Ingress");
   });
 

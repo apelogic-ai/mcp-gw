@@ -39,6 +39,7 @@ const jwks = {
 
 const token = await signToken({});
 const expiredToken = await signToken({ expirationTime: Math.floor(Date.now() / 1000) - 60 });
+const missingExpirationToken = await signToken({ omitExpiration: true });
 const wrongIssuerToken = await signToken({ issuer: `${args.issuer}/wrong` });
 const wrongAudienceToken = await signToken({ audience: `${args.audience}/wrong` });
 const invalidSignatureToken = await signToken({ privateKey: invalidKeyPair.privateKey });
@@ -52,6 +53,7 @@ const notBeforeToken = await signToken({ notBefore: Math.floor(Date.now() / 1000
 await Promise.all([
   writeFile(args.tokenFile, token, "utf8"),
   writeFile(`${args.tokenFile}.expired`, expiredToken, "utf8"),
+  writeFile(`${args.tokenFile}.missing-expiration`, missingExpirationToken, "utf8"),
   writeFile(`${args.tokenFile}.wrong-issuer`, wrongIssuerToken, "utf8"),
   writeFile(`${args.tokenFile}.wrong-audience`, wrongAudienceToken, "utf8"),
   writeFile(`${args.tokenFile}.invalid-signature`, invalidSignatureToken, "utf8"),
@@ -101,20 +103,25 @@ interface TokenOverrides {
   issuer?: string;
   kid?: string;
   notBefore?: number | string;
+  omitExpiration?: boolean;
   privateKey?: CryptoKey;
 }
 
 async function signToken(overrides: TokenOverrides): Promise<string> {
-  return new SignJWT({ email: args.email })
+  const tokenBuilder = new SignJWT({ email: args.email })
     .setProtectedHeader({ alg: overrides.algorithm ?? "RS256", kid: overrides.kid ?? kid })
     .setIssuer(overrides.issuer ?? args.issuer)
     .setSubject("local-hop1-user")
     .setAudience(overrides.audience ?? args.audience)
     .setJti(randomUUID())
     .setIssuedAt()
-    .setNotBefore(overrides.notBefore ?? 0)
-    .setExpirationTime(overrides.expirationTime ?? "10m")
-    .sign(overrides.privateKey ?? keyPair.privateKey);
+    .setNotBefore(overrides.notBefore ?? 0);
+
+  if (!overrides.omitExpiration) {
+    tokenBuilder.setExpirationTime(overrides.expirationTime ?? "10m");
+  }
+
+  return tokenBuilder.sign(overrides.privateKey ?? keyPair.privateKey);
 }
 
 function parseArgs(argv: string[]): Args {

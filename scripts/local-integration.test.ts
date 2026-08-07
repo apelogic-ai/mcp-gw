@@ -38,6 +38,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('for expected_tool in "${EXPECTED_TOOLS[@]}"');
     expect(smoke).toContain("assert_rejected_without_token");
     expect(smoke).toContain("assert_rejected_token expired");
+    expect(smoke).toContain("assert_rejected_token missing-expiration");
     expect(smoke).toContain("assert_rejected_token wrong-issuer");
     expect(smoke).toContain("assert_rejected_token wrong-audience");
     expect(smoke).toContain("assert_rejected_token invalid-signature");
@@ -48,6 +49,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("authorization_servers");
     expect(smoke).toContain("assert_public_metadata");
     expect(fixture).toContain("`${args.tokenFile}.expired`");
+    expect(fixture).toContain("`${args.tokenFile}.missing-expiration`");
     expect(fixture).toContain("`${args.tokenFile}.wrong-issuer`");
     expect(fixture).toContain("`${args.tokenFile}.wrong-audience`");
     expect(fixture).toContain("`${args.tokenFile}.invalid-signature`");
@@ -126,6 +128,7 @@ describe("local Docker integration smoke", () => {
     );
     expect(gatewayConfig).not.toMatch(/jwtValidationOptions:\n\s+allowedAlgorithms:/);
     expect(smoke).toContain("oauth-migrations");
+    expect(smoke).toContain("missing-expiration");
     expect(smoke).toContain("compose_cmd build oauth-migrations");
     expect(smoke.match(/compose_cmd run --rm --no-deps oauth-migrations/g)).toHaveLength(2);
     expect(smoke).toContain('wait "$MIGRATION_PID_ONE"');
