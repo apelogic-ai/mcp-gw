@@ -14,13 +14,21 @@
 {{- if not .Values.oauthMigrations.enabled }}
 {{- fail "productionProfile requires oauthMigrations.enabled=true" }}
 {{- end }}
-{{- $enabledBackends := list }}
+{{- $googleWorkspaceTargets := 0 }}
+{{- $githubMcpTargets := 0 }}
 {{- range .Values.agentgateway.backends }}
 {{- if .enabled }}
-{{- $enabledBackends = append $enabledBackends . }}
+{{- if eq .name "google-workspace" }}
+{{- $googleWorkspaceTargets = add1 $googleWorkspaceTargets }}
+{{- else if eq .name "github-mcp" }}
+{{- $githubMcpTargets = add1 $githubMcpTargets }}
 {{- end }}
 {{- end }}
-{{- if not $enabledBackends }}
-{{- fail "productionProfile requires at least one enabled agentgateway backend" }}
+{{- end }}
+{{- if ne $googleWorkspaceTargets 1 }}
+{{- fail "productionProfile requires exactly one enabled agentgateway backend named google-workspace" }}
+{{- end }}
+{{- if ne $githubMcpTargets 1 }}
+{{- fail "productionProfile requires exactly one enabled agentgateway backend named github-mcp" }}
 {{- end }}
 {{- end }}

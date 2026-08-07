@@ -159,7 +159,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: Ingress");
   });
 
-  test("rejects incomplete production profiles and empty backend lists", () => {
+  test("rejects incomplete production profiles and incomplete or duplicate provider targets", () => {
     for (const args of [
       ["--set", "productionProfile.enabled=true"],
       [
@@ -167,6 +167,24 @@ describe("Kubernetes production chart", () => {
         "deploy/k8s/examples/values-production-bundle.example.yaml",
         "--set-json",
         "agentgateway.backends=[]",
+      ],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set",
+        "agentgateway.backends[0].enabled=false",
+      ],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set",
+        "agentgateway.backends[1].enabled=false",
+      ],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set",
+        "agentgateway.backends[1].name=google-workspace",
       ],
     ]) {
       const result = helmTemplateResult(args);
