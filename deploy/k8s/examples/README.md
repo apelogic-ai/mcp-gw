@@ -51,4 +51,20 @@ a schema error. The file `values-enterprise-contract.example.yaml` is a
 non-deployable test fixture that demonstrates the complete values shape; do not
 use its fixture coordinates as deployment configuration.
 
+`values-production-bundle.example.yaml` is an opt-in full-bundle fixture for
+private GitOps overlays. Enabling `productionProfile` validates that
+agentgateway, both provider wrappers, the internal official GitHub MCP server,
+OAuth migrations, and at least one backend target are enabled explicitly. It
+does not supply deployment credentials or enable any workload by default.
+
+## OAuth schema migrations
+
+Enable `oauthMigrations` when Google Workspace or GitHub provider consent uses
+the shared PostgreSQL token store. The pre-install/pre-upgrade Helm hook runs
+all checked-in migrations under a transaction-scoped PostgreSQL advisory lock
+and blocks the application rollout if a migration fails. Reference an existing
+Secret key containing `TOKEN_STORE_DSN`; include `sslmode=require` (or the
+stricter mode required by the database operator) when PostgreSQL requires TLS.
+The chart does not create database credentials or put a DSN in rendered values.
+
 The public chart and examples contain only generic public coordinates and placeholder values.

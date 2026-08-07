@@ -86,3 +86,8 @@ jobs:
         env:
           K8S_SMOKE_AGENTGATEWAY_REPOSITORY: mcp-gw-agentgateway
           K8S_SMOKE_AGENTGATEWAY_TAG: smoke
+
+      - name: Run full provider bundle integration smoke
+        run: bun run integration:bundle
+        env:
+          LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke

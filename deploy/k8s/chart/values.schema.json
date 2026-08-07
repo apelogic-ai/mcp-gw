@@ -46,9 +46,38 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": ["oauthMigrations"],
+        "properties": {
+          "oauthMigrations": {
+            "required": ["enabled"],
+            "properties": { "enabled": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "oauthMigrations": {
+            "required": ["secretKeyRef"],
+            "properties": {
+              "secretKeyRef": { "$ref": "#/$defs/secretKeyRef" }
+            }
+          }
+        }
+      }
     }
   ],
   "properties": {
+    "productionProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
     "global": {
       "type": "object",
       "additionalProperties": false,
@@ -74,6 +103,7 @@
         }
       }
     },
+    "oauthMigrations": { "$ref": "#/$defs/oauthMigrations" },
     "agentgateway": { "$ref": "#/$defs/agentgateway" },
     "googleWorkspace": { "$ref": "#/$defs/googleWorkspace" },
     "dbMcp": { "$ref": "#/$defs/backend" },
@@ -158,6 +188,39 @@
         "create": { "type": "boolean" },
         "name": { "type": "string" },
         "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "oauthMigrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "image",
+        "secretKeyRef",
+        "backoffLimit",
+        "activeDeadlineSeconds",
+        "serviceAccount",
+        "podSecurityContext",
+        "securityContext",
+        "resources"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "$ref": "#/$defs/image" },
+        "secretKeyRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+        "serviceAccount": { "$ref": "#/$defs/serviceAccount" },
+        "podSecurityContext": { "type": "object" },
+        "securityContext": { "type": "object" },
+        "resources": { "type": "object" }
       }
     },
     "probe": {

@@ -6,6 +6,7 @@ import {
   HOP1_SUPPORTED_ALGORITHMS,
   type Hop1Algorithm,
   type Hop1IssuerConfig,
+  validateHop1IssuerProfiles,
 } from "../../../../shared/identity/hop1";
 import {
   GitHubTokenBroker,
@@ -61,6 +62,9 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
       clientSecret: env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
       redirectUri: env.GITHUB_OAUTH_REDIRECT_URI ?? "",
       tokenEncryptionKey: requiredEnv(env, "GITHUB_TOKEN_ENCRYPTION_KEY"),
+      authorizationUrl: optionalEnv(env, "GITHUB_OAUTH_AUTHORIZATION_URL"),
+      tokenUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_URL"),
+      userEmailsUrl: optionalEnv(env, "GITHUB_OAUTH_USER_EMAILS_URL"),
     },
     githubScopes: parseScopes(env.GITHUB_OAUTH_SCOPES) ?? DEFAULT_GITHUB_SCOPES,
     aliases: parseAliases(env.GITHUB_TOOL_ALIASES_JSON),
@@ -74,6 +78,14 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
     hop1Issuers: loadHop1Issuers(env),
   };
+}
+
+function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
+  const value = env[name]?.trim();
+  if (!value) {
+    return undefined;
+  }
+  return value;
 }
 
 export function createMainHandler(config: MainConfig): (request: Request) => Promise<Response> {
@@ -180,7 +192,9 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       throw new Error("HOP1_ISSUERS_JSON must be a non-empty array");
     }
 
-    return parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env));
+    return validateHop1IssuerProfiles(
+      parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env)),
+    );
   }
 
   const introspection = introspectionConfig(
@@ -188,7 +202,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
     env.HOP1_INTROSPECTION_CLIENT_CREDENTIAL,
     "HOP1_INTROSPECTION_URL and HOP1_INTROSPECTION_CLIENT_CREDENTIAL",
   );
-  return [
+  return validateHop1IssuerProfiles([
     {
       name: env.HOP1_PROFILE ?? "issuer",
       issuer: requiredEnv(env, "HOP1_ISSUER"),
@@ -205,7 +219,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       subjectClaim: env.HOP1_SUBJECT_CLAIM,
       ...introspection,
     },
-  ];
+  ]);
 }
 
 function parseHop1IssuerConfig(

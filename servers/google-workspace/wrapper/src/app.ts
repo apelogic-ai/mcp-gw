@@ -4,6 +4,7 @@ import {
   type Hop1Identity,
   type Hop1IssuerConfig,
   type IssuerProfile,
+  validateHop1IssuerProfiles,
 } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
@@ -87,6 +88,9 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
     clientSecret: requiredEnv(env, "GOOGLE_OAUTH_CLIENT_SECRET"),
     redirectUri: requiredEnv(env, "GOOGLE_OAUTH_REDIRECT_URI"),
     tokenEncryptionKey: requiredEnv(env, "GOOGLE_TOKEN_ENCRYPTION_KEY"),
+    authorizationUrl: optionalEnv(env, "GOOGLE_OAUTH_AUTHORIZATION_URL"),
+    tokenUrl: optionalEnv(env, "GOOGLE_OAUTH_TOKEN_URL"),
+    userInfoUrl: optionalEnv(env, "GOOGLE_OAUTH_USERINFO_URL"),
   };
   const hop1Issuers = loadHop1Issuers(env);
   const defaultHop1Issuer = hop1Issuers[0];
@@ -110,6 +114,14 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
   };
 }
 
+function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
+  const value = env[name]?.trim();
+  if (!value) {
+    return undefined;
+  }
+  return value;
+}
+
 function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerConfig[] {
   if (env.HOP1_ISSUERS_JSON) {
     const parsed = JSON.parse(env.HOP1_ISSUERS_JSON) as unknown;
@@ -117,7 +129,9 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       throw new Error("HOP1_ISSUERS_JSON must be a non-empty array");
     }
 
-    return parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env));
+    return validateHop1IssuerProfiles(
+      parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env)),
+    );
   }
 
   const introspection = introspectionConfig(
@@ -125,7 +139,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
     env.HOP1_INTROSPECTION_CLIENT_CREDENTIAL,
     "HOP1_INTROSPECTION_URL and HOP1_INTROSPECTION_CLIENT_CREDENTIAL",
   );
-  return [
+  return validateHop1IssuerProfiles([
     {
       name: env.HOP1_PROFILE ?? "issuer",
       issuer: requiredEnv(env, "HOP1_ISSUER"),
@@ -142,7 +156,7 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
       subjectClaim: env.HOP1_SUBJECT_CLAIM,
       ...introspection,
     },
-  ];
+  ]);
 }
 
 function parseHop1IssuerConfig(

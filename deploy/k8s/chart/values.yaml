@@ -2,8 +2,36 @@ global:
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
+productionProfile:
+  enabled: false
+
 hop1:
   issuers: []
+
+oauthMigrations:
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: ""
+    digest: ""
+  secretKeyRef:
+    name: ""
+    key: ""
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
 
 agentgateway:
   enabled: false

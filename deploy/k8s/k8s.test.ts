@@ -6,6 +6,7 @@ describe("Kubernetes production chart", () => {
     const values = await Bun.file("deploy/k8s/chart/values.yaml").text();
 
     expect(rendered).not.toContain("kind: Deployment");
+    expect(rendered).not.toContain("kind: Job");
     expect(rendered).not.toContain("name: mcp-gateway-google-workspace");
     expect(rendered).not.toContain("name: mcp-gateway-db-mcp");
     expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
@@ -20,6 +21,42 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toMatch(/apelogic\.io/i);
     expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
     expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
+  });
+
+  test("renders a blocking, secret-backed OAuth migration hook", () => {
+    const rendered = helmTemplate([
+      "--set",
+      "oauthMigrations.enabled=true",
+      "--set",
+      "oauthMigrations.secretKeyRef.name=oauth-database",
+      "--set",
+      "oauthMigrations.secretKeyRef.key=dsn",
+    ]);
+
+    expect(rendered).toContain("kind: Job");
+    expect(rendered).toContain('helm.sh/hook: "pre-install,pre-upgrade"');
+    expect(rendered).toContain('helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"');
+    expect(rendered).toContain("name: TOKEN_STORE_DSN");
+    expect(rendered).toContain("name: oauth-database");
+    expect(rendered).toContain("key: dsn");
+    expect(rendered).toContain("shared/oauth/migrate.ts");
+    expect(rendered).toContain("restartPolicy: Never");
+  });
+
+  test("rejects an enabled OAuth migration without a complete Secret key reference", () => {
+    for (const args of [
+      ["--set", "oauthMigrations.enabled=true"],
+      [
+        "--set",
+        "oauthMigrations.enabled=true",
+        "--set",
+        "oauthMigrations.secretKeyRef.name=oauth-database",
+      ],
+    ]) {
+      const result = helmTemplateResult(args);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/oauthMigrations.*secretKeyRef/);
+    }
   });
 
   test("uses existing Kubernetes Secrets without creating provider-specific secret resources", () => {
@@ -90,6 +127,40 @@ describe("Kubernetes production chart", () => {
       'value: "default,actions,code_security,discussions,notifications,orgs,projects"',
     );
     expect(rendered).toContain("app.kubernetes.io/component: github-wrapper");
+  });
+
+  test("renders the opt-in full provider bundle production profile", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+
+    expect(rendered).toContain("kind: Job");
+    expect(rendered).toContain("name: mcp-gateway-agentgateway");
+    expect(rendered).toContain("name: mcp-gateway-google-workspace");
+    expect(rendered).toContain("name: mcp-gateway-github-wrapper");
+    expect(rendered).toContain("name: mcp-gateway-github-mcp");
+    expect(rendered).toContain("name: google-workspace");
+    expect(rendered).toContain("name: github-mcp");
+    expect(rendered).toContain("name: mcp-provider-runtime");
+    expect(rendered).toContain("name: mcp-oauth-database");
+    expect(rendered).not.toContain("kind: Ingress");
+  });
+
+  test("rejects incomplete production profiles and empty backend lists", () => {
+    for (const args of [
+      ["--set", "productionProfile.enabled=true"],
+      [
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set-json",
+        "agentgateway.backends=[]",
+      ],
+    ]) {
+      const result = helmTemplateResult(args);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/productionProfile/);
+    }
   });
 
   test("does not expose the agentgateway admin UI by default", async () => {
@@ -337,6 +408,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
     "values-private-overlay.example.yaml",
+    "values-production-bundle.example.yaml",
   ];
   const contents = new Map<string, string>();
 

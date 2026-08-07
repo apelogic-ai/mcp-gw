@@ -42,6 +42,21 @@ describe("GitHub MCP wrapper main config", () => {
     });
   });
 
+  test("loads configurable GitHub OAuth endpoints for isolated integration tests", () => {
+    const config = loadMainConfig({
+      ...baseEnv,
+      GITHUB_OAUTH_AUTHORIZATION_URL: "http://provider-fixture:8090/github/authorize",
+      GITHUB_OAUTH_TOKEN_URL: "http://provider-fixture:8090/github/token",
+      GITHUB_OAUTH_USER_EMAILS_URL: "http://provider-fixture:8090/github/emails",
+    });
+
+    expect(config.githubOAuth).toMatchObject({
+      authorizationUrl: "http://provider-fixture:8090/github/authorize",
+      tokenUrl: "http://provider-fixture:8090/github/token",
+      userEmailsUrl: "http://provider-fixture:8090/github/emails",
+    });
+  });
+
   test("loads optional policy, audit, and alias settings", () => {
     const config = loadMainConfig({
       ...baseEnv,

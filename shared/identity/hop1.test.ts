@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
 import {
+  validateHop1IssuerProfiles,
   validateHop1Jwt,
   validateHop1JwtForIssuers,
   type IssuerProfile,
@@ -189,5 +190,86 @@ describe("HOP-1 JWT validation", () => {
     });
 
     await expectHop1Rejection(token, fixtureProfile, "JWT missing required email claim: email");
+  });
+
+  test("rejects expired tokens", async () => {
+    const expired = await new SignJWT({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      sub: "subject",
+      email: "user@example.com",
+    })
+      .setProtectedHeader({ alg: "EdDSA", kid: "test-key" })
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 60)
+      .sign(privateKey);
+    await expectHop1Rejection(expired, fixtureProfile);
+  });
+
+  test("rejects tokens before their not-before time", async () => {
+    const future = await new SignJWT({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      sub: "subject",
+      email: "user@example.com",
+    })
+      .setProtectedHeader({ alg: "EdDSA", kid: "test-key" })
+      .setIssuedAt()
+      .setNotBefore(Math.floor(Date.now() / 1000) + 300)
+      .setExpirationTime("10m")
+      .sign(privateKey);
+
+    await expectHop1Rejection(future, fixtureProfile);
+  });
+});
+
+describe("HOP-1 issuer profile validation", () => {
+  const profile = {
+    ...fixtureProfile,
+    jwksUrl: "https://identity.example.com/.well-known/jwks.json",
+  };
+
+  test("accepts distinct, complete issuer profiles", () => {
+    expect(
+      validateHop1IssuerProfiles([
+        profile,
+        {
+          ...profile,
+          name: "fixture-secondary",
+          issuer: "https://secondary.identity.example.com",
+          jwksUrl: "https://secondary.identity.example.com/.well-known/jwks.json",
+        },
+      ]),
+    ).toHaveLength(2);
+  });
+
+  test("rejects ambiguous duplicate names and issuer URLs", () => {
+    expect(() =>
+      validateHop1IssuerProfiles([
+        profile,
+        { ...profile, issuer: "https://secondary.identity.example.com" },
+      ]),
+    ).toThrow("Duplicate HOP-1 issuer profile name");
+    expect(() =>
+      validateHop1IssuerProfiles([profile, { ...profile, name: "fixture-secondary" }]),
+    ).toThrow("Duplicate HOP-1 issuer URL");
+  });
+
+  test("rejects empty, duplicate, or malformed profile fields", () => {
+    expect(() => validateHop1IssuerProfiles([{ ...profile, audiences: [] }])).toThrow(
+      "audiences must be a non-empty array",
+    );
+    expect(() => validateHop1IssuerProfiles([{ ...profile, audiences: ["mcp", "mcp"] }])).toThrow(
+      "audiences must not contain duplicates",
+    );
+    expect(() =>
+      validateHop1IssuerProfiles([{ ...profile, allowedAlgorithms: ["EdDSA", "EdDSA"] }]),
+    ).toThrow("allowedAlgorithms must not contain duplicates");
+    expect(() => validateHop1IssuerProfiles([{ ...profile, issuer: "not-a-url" }])).toThrow(
+      "issuer must be an absolute HTTP(S) URL",
+    );
+    expect(() => validateHop1IssuerProfiles([{ ...profile, subjectClaim: "" }])).toThrow(
+      "subjectClaim must be a non-empty string",
+    );
   });
 });

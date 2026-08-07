@@ -46,6 +46,30 @@ describe("Google Workspace wrapper app", () => {
     });
   });
 
+  test("loads configurable Google OAuth endpoints for isolated integration tests", () => {
+    const config = loadWrapperConfig({
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://mcp.example.com/oauth/google/callback",
+      GOOGLE_OAUTH_AUTHORIZATION_URL: "http://provider-fixture:8090/google/authorize",
+      GOOGLE_OAUTH_TOKEN_URL: "http://provider-fixture:8090/google/token",
+      GOOGLE_OAUTH_USERINFO_URL: "http://provider-fixture:8090/google/userinfo",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://identity.example.com",
+      HOP1_AUDIENCE: "https://mcp.example.com/mcp",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
+      HOP1_JWKS_URL: "https://identity.example.com/.well-known/jwks.json",
+    });
+
+    expect(config.oauth).toMatchObject({
+      authorizationUrl: "http://provider-fixture:8090/google/authorize",
+      tokenUrl: "http://provider-fixture:8090/google/token",
+      userInfoUrl: "http://provider-fixture:8090/google/userinfo",
+    });
+  });
+
   test("loads multiple HOP-1 issuer profiles from JSON", () => {
     const config = loadWrapperConfig({
       GOOGLE_OAUTH_CLIENT_ID: "client-id",

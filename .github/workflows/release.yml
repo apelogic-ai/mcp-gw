@@ -186,6 +186,14 @@ jobs:
           exit-code: "0"
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
+      - name: Enforce zero critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
       - name: Attest image provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
@@ -261,6 +269,15 @@ jobs:
           exit-code: "0"
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
+      - name: Enforce zero critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scan-ref: ${{ runner.temp }}/chart-scan
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
       - name: Attest chart provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
@@ -287,7 +304,9 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-      MCP_GW_ECR_IMAGE_REPOSITORY: ${{ vars.MCP_GW_ECR_IMAGE_REPOSITORY }}
+      MCP_GW_ECR_AGENTGATEWAY_REPOSITORY: ${{ vars.MCP_GW_ECR_AGENTGATEWAY_REPOSITORY || vars.MCP_GW_ECR_IMAGE_REPOSITORY }}
+      MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY: ${{ vars.MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY }}
+      MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY: ${{ vars.MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY }}
       MCP_GW_ECR_CHART_REPOSITORY: ${{ vars.MCP_GW_ECR_CHART_REPOSITORY }}
     steps:
       - name: Check out repository
@@ -323,20 +342,30 @@ jobs:
           : "${AWS_RELEASE_ROLE_ARN:?Set the AWS_RELEASE_ROLE_ARN repository variable}"
           : "${AWS_REGION:?Set the AWS_REGION repository variable}"
           : "${ECR_REGISTRY:?Set the ECR_REGISTRY repository variable}"
-          : "${MCP_GW_ECR_IMAGE_REPOSITORY:?Set MCP_GW_ECR_IMAGE_REPOSITORY}"
+          : "${MCP_GW_ECR_AGENTGATEWAY_REPOSITORY:?Set MCP_GW_ECR_AGENTGATEWAY_REPOSITORY}"
+          : "${MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY:?Set MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY}"
+          : "${MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY:?Set MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY}"
           : "${MCP_GW_ECR_CHART_REPOSITORY:?Set MCP_GW_ECR_CHART_REPOSITORY}"
 
           VERSION="${GITHUB_REF_NAME#v}"
-          SOURCE_IMAGE_DIGEST="$(cat dist/agentgateway.digest)"
+          SOURCE_AGENTGATEWAY_DIGEST="$(cat dist/agentgateway.digest)"
+          SOURCE_GOOGLE_WORKSPACE_DIGEST="$(cat dist/google-workspace.digest)"
+          SOURCE_GITHUB_WRAPPER_DIGEST="$(cat dist/github-wrapper.digest)"
           SOURCE_CHART_DIGEST="$(cat dist/helm-chart.digest)"
-          IMAGE_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_IMAGE_REPOSITORY"
+          AGENTGATEWAY_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_AGENTGATEWAY_REPOSITORY"
+          GOOGLE_WORKSPACE_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY"
+          GITHUB_WRAPPER_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY"
           CHART_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_CHART_REPOSITORY"
 
           {
             printf 'version=%s\n' "$VERSION"
-            printf 'source-image-digest=%s\n' "$SOURCE_IMAGE_DIGEST"
+            printf 'source-agentgateway-digest=%s\n' "$SOURCE_AGENTGATEWAY_DIGEST"
+            printf 'source-google-workspace-digest=%s\n' "$SOURCE_GOOGLE_WORKSPACE_DIGEST"
+            printf 'source-github-wrapper-digest=%s\n' "$SOURCE_GITHUB_WRAPPER_DIGEST"
             printf 'source-chart-digest=%s\n' "$SOURCE_CHART_DIGEST"
-            printf 'image-repository=%s\n' "$IMAGE_REPOSITORY"
+            printf 'agentgateway-repository=%s\n' "$AGENTGATEWAY_REPOSITORY"
+            printf 'google-workspace-repository=%s\n' "$GOOGLE_WORKSPACE_REPOSITORY"
+            printf 'github-wrapper-repository=%s\n' "$GITHUB_WRAPPER_REPOSITORY"
             printf 'chart-repository=%s\n' "$CHART_REPOSITORY"
           } >> "$GITHUB_OUTPUT"
 
@@ -360,51 +389,97 @@ jobs:
         id: promote
         env:
           VERSION: ${{ steps.coordinates.outputs.version }}
-          SOURCE_IMAGE_DIGEST: ${{ steps.coordinates.outputs['source-image-digest'] }}
+          SOURCE_AGENTGATEWAY_DIGEST: ${{ steps.coordinates.outputs['source-agentgateway-digest'] }}
+          SOURCE_GOOGLE_WORKSPACE_DIGEST: ${{ steps.coordinates.outputs['source-google-workspace-digest'] }}
+          SOURCE_GITHUB_WRAPPER_DIGEST: ${{ steps.coordinates.outputs['source-github-wrapper-digest'] }}
           SOURCE_CHART_DIGEST: ${{ steps.coordinates.outputs['source-chart-digest'] }}
-          IMAGE_REPOSITORY: ${{ steps.coordinates.outputs['image-repository'] }}
+          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
+          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
+          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
           CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
         run: |
-          SOURCE_IMAGE="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-agentgateway@$SOURCE_IMAGE_DIGEST"
+          SOURCE_AGENTGATEWAY="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-agentgateway@$SOURCE_AGENTGATEWAY_DIGEST"
+          SOURCE_GOOGLE_WORKSPACE="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-google-workspace@$SOURCE_GOOGLE_WORKSPACE_DIGEST"
+          SOURCE_GITHUB_WRAPPER="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-github-wrapper@$SOURCE_GITHUB_WRAPPER_DIGEST"
           SOURCE_CHART="ghcr.io/$GITHUB_REPOSITORY_OWNER/charts/mcp-gateway@$SOURCE_CHART_DIGEST"
-          TARGET_IMAGE="$IMAGE_REPOSITORY:$VERSION"
+          TARGET_AGENTGATEWAY="$AGENTGATEWAY_REPOSITORY:$VERSION"
+          TARGET_GOOGLE_WORKSPACE="$GOOGLE_WORKSPACE_REPOSITORY:$VERSION"
+          TARGET_GITHUB_WRAPPER="$GITHUB_WRAPPER_REPOSITORY:$VERSION"
           TARGET_CHART="$CHART_REPOSITORY:$VERSION"
 
-          oras cp "$SOURCE_IMAGE" "$TARGET_IMAGE"
+          oras cp "$SOURCE_AGENTGATEWAY" "$TARGET_AGENTGATEWAY"
+          oras cp "$SOURCE_GOOGLE_WORKSPACE" "$TARGET_GOOGLE_WORKSPACE"
+          oras cp "$SOURCE_GITHUB_WRAPPER" "$TARGET_GITHUB_WRAPPER"
           oras cp "$SOURCE_CHART" "$TARGET_CHART"
 
-          IMAGE_DIGEST="$(oras manifest fetch --descriptor "$TARGET_IMAGE" | jq -r '.digest')"
+          AGENTGATEWAY_DIGEST="$(oras manifest fetch --descriptor "$TARGET_AGENTGATEWAY" | jq -r '.digest')"
+          GOOGLE_WORKSPACE_DIGEST="$(oras manifest fetch --descriptor "$TARGET_GOOGLE_WORKSPACE" | jq -r '.digest')"
+          GITHUB_WRAPPER_DIGEST="$(oras manifest fetch --descriptor "$TARGET_GITHUB_WRAPPER" | jq -r '.digest')"
           CHART_DIGEST="$(oras manifest fetch --descriptor "$TARGET_CHART" | jq -r '.digest')"
-          test "$IMAGE_DIGEST" = "$SOURCE_IMAGE_DIGEST"
+          test "$AGENTGATEWAY_DIGEST" = "$SOURCE_AGENTGATEWAY_DIGEST"
+          test "$GOOGLE_WORKSPACE_DIGEST" = "$SOURCE_GOOGLE_WORKSPACE_DIGEST"
+          test "$GITHUB_WRAPPER_DIGEST" = "$SOURCE_GITHUB_WRAPPER_DIGEST"
           test "$CHART_DIGEST" = "$SOURCE_CHART_DIGEST"
 
-          printf '%s\n' "$IMAGE_DIGEST" > dist/ecr-agentgateway.digest
+          printf '%s\n' "$AGENTGATEWAY_DIGEST" > dist/ecr-agentgateway.digest
+          printf '%s\n' "$GOOGLE_WORKSPACE_DIGEST" > dist/ecr-google-workspace.digest
+          printf '%s\n' "$GITHUB_WRAPPER_DIGEST" > dist/ecr-github-wrapper.digest
           printf '%s\n' "$CHART_DIGEST" > dist/ecr-helm-chart.digest
-          printf 'image-digest=%s\n' "$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          printf 'agentgateway-digest=%s\n' "$AGENTGATEWAY_DIGEST" >> "$GITHUB_OUTPUT"
+          printf 'google-workspace-digest=%s\n' "$GOOGLE_WORKSPACE_DIGEST" >> "$GITHUB_OUTPUT"
+          printf 'github-wrapper-digest=%s\n' "$GITHUB_WRAPPER_DIGEST" >> "$GITHUB_OUTPUT"
           printf 'chart-digest=%s\n' "$CHART_DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Sign promoted artifacts
         env:
-          IMAGE_REPOSITORY: ${{ steps.coordinates.outputs['image-repository'] }}
+          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
+          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
+          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
           CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
-          IMAGE_DIGEST: ${{ steps.promote.outputs['image-digest'] }}
+          AGENTGATEWAY_DIGEST: ${{ steps.promote.outputs['agentgateway-digest'] }}
+          GOOGLE_WORKSPACE_DIGEST: ${{ steps.promote.outputs['google-workspace-digest'] }}
+          GITHUB_WRAPPER_DIGEST: ${{ steps.promote.outputs['github-wrapper-digest'] }}
           CHART_DIGEST: ${{ steps.promote.outputs['chart-digest'] }}
         run: |
           cosign sign --yes \
             --output-signature dist/ecr-agentgateway.sig \
             --output-certificate dist/ecr-agentgateway.pem \
-            "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
+          cosign sign --yes \
+            --output-signature dist/ecr-google-workspace.sig \
+            --output-certificate dist/ecr-google-workspace.pem \
+            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
+          cosign sign --yes \
+            --output-signature dist/ecr-github-wrapper.sig \
+            --output-certificate dist/ecr-github-wrapper.pem \
+            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
           cosign sign --yes \
             --output-signature dist/ecr-helm-chart.sig \
             --output-certificate dist/ecr-helm-chart.pem \
             "$CHART_REPOSITORY@$CHART_DIGEST"
 
-      - name: Attest promoted image provenance
-        id: ecr-image-provenance
+      - name: Attest promoted agentgateway provenance
+        id: ecr-agentgateway-provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
-          subject-name: ${{ steps.coordinates.outputs['image-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['image-digest'] }}
+          subject-name: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
+          subject-digest: ${{ steps.promote.outputs['agentgateway-digest'] }}
+          push-to-registry: true
+
+      - name: Attest promoted Google Workspace wrapper provenance
+        id: ecr-google-workspace-provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-name: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
+          subject-digest: ${{ steps.promote.outputs['google-workspace-digest'] }}
+          push-to-registry: true
+
+      - name: Attest promoted GitHub wrapper provenance
+        id: ecr-github-wrapper-provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-name: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
+          subject-digest: ${{ steps.promote.outputs['github-wrapper-digest'] }}
           push-to-registry: true
 
       - name: Attest promoted chart provenance
@@ -417,19 +492,25 @@ jobs:
 
       - name: Preserve private registry evidence
         run: |
-          cp '${{ steps.ecr-image-provenance.outputs['bundle-path'] }}' dist/ecr-agentgateway.provenance.json
+          cp '${{ steps.ecr-agentgateway-provenance.outputs['bundle-path'] }}' dist/ecr-agentgateway.provenance.json
+          cp '${{ steps.ecr-google-workspace-provenance.outputs['bundle-path'] }}' dist/ecr-google-workspace.provenance.json
+          cp '${{ steps.ecr-github-wrapper-provenance.outputs['bundle-path'] }}' dist/ecr-github-wrapper.provenance.json
           cp '${{ steps.ecr-chart-provenance.outputs['bundle-path'] }}' dist/ecr-helm-chart.provenance.json
 
       - name: Generate private registry handoff
         env:
           VERSION: ${{ steps.coordinates.outputs.version }}
-          IMAGE_REPOSITORY: ${{ steps.coordinates.outputs['image-repository'] }}
+          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
+          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
+          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
           CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
         run: |
           bun scripts/generate-private-release-handoff.ts \
             --version "$VERSION" \
             --release-commit "$GITHUB_SHA" \
-            --image-repository "$IMAGE_REPOSITORY" \
+            --agentgateway-repository "$AGENTGATEWAY_REPOSITORY" \
+            --google-workspace-repository "$GOOGLE_WORKSPACE_REPOSITORY" \
+            --github-wrapper-repository "$GITHUB_WRAPPER_REPOSITORY" \
             --chart-repository "$CHART_REPOSITORY" \
             --artifacts dist \
             --output dist/ecr-release-handoff.md
@@ -442,6 +523,10 @@ jobs:
             dist/ecr-*
             dist/agentgateway.spdx.json
             dist/agentgateway.vulnerabilities.json
+            dist/google-workspace.spdx.json
+            dist/google-workspace.vulnerabilities.json
+            dist/github-wrapper.spdx.json
+            dist/github-wrapper.vulnerabilities.json
             dist/helm-chart.spdx.json
             dist/helm-chart.vulnerabilities.json
           if-no-files-found: error

@@ -16,12 +16,15 @@ describe("local Docker integration smoke", () => {
     const smoke = await readFile("scripts/smoke-local-integration.sh", "utf8");
 
     expect(fixture).toContain("SignJWT");
+    expect(fixture).toContain(".well-known/oauth-authorization-server");
     expect(fixture).toContain(".well-known/jwks.json");
+    expect(fixture).toContain('url.pathname === "/token"');
     expect(smoke).toContain('ISSUER="http://host.docker.internal:$JWKS_PORT"');
+    expect(smoke).toContain('FIXTURE_BASE_URL="http://127.0.0.1:$JWKS_PORT"');
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/agentgateway/agentgateway:v1.2.0}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.6}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -38,11 +41,18 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("assert_rejected_token wrong-issuer");
     expect(smoke).toContain("assert_rejected_token wrong-audience");
     expect(smoke).toContain("assert_rejected_token invalid-signature");
+    expect(smoke).toContain("assert_rejected_token wrong-algorithm");
+    expect(smoke).toContain("assert_rejected_token not-before");
+    expect(smoke).toContain("assert_fixture_authorization_server");
+    expect(smoke).toContain('curl -sS "$FIXTURE_BASE_URL/.well-known/jwks.json"');
+    expect(smoke).toContain("authorization_servers");
     expect(smoke).toContain("assert_public_metadata");
     expect(fixture).toContain("`${args.tokenFile}.expired`");
     expect(fixture).toContain("`${args.tokenFile}.wrong-issuer`");
     expect(fixture).toContain("`${args.tokenFile}.wrong-audience`");
     expect(fixture).toContain("`${args.tokenFile}.invalid-signature`");
+    expect(fixture).toContain("`${args.tokenFile}.wrong-algorithm`");
+    expect(fixture).toContain("`${args.tokenFile}.not-before`");
   });
 
   test("mounts an authenticated local agentgateway config for the smoke path", async () => {
@@ -91,5 +101,42 @@ describe("local Docker integration smoke", () => {
     expect(config).toContain("scopesSupported: [openid, email]");
     expect(config).not.toContain("scopesSupported: [read:all]");
     expect(config).toContain("failureMode: failOpen");
+  });
+
+  test("runs the complete provider bundle against TLS PostgreSQL and safe fixtures", async () => {
+    const [packageJson, workflow, smoke, compose, gatewayConfig, providerFixture, client] =
+      await Promise.all([
+        readFile("package.json", "utf8"),
+        readFile(".github/workflows/ci.yml", "utf8"),
+        readFile("scripts/smoke-full-bundle.sh", "utf8"),
+        readFile("deploy/compose/docker-compose.full-bundle-smoke.yaml", "utf8"),
+        readFile("gateway/agentgateway/local-full-bundle-smoke.yaml", "utf8"),
+        readFile("scripts/fixtures/provider-fixture.ts", "utf8"),
+        readFile("scripts/fixtures/full-bundle-client.ts", "utf8"),
+      ]);
+
+    expect(packageJson).toContain('"integration:bundle": "bash scripts/smoke-full-bundle.sh"');
+    expect(workflow).toContain("bun run integration:bundle");
+    expect(workflow).toContain("LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke");
+    expect(compose).toContain("ssl=on");
+    expect(compose).toContain("sslmode=verify-full");
+    expect(compose).toContain("sslrootcert=/tls/ca.crt");
+    expect(gatewayConfig).toMatch(
+      /providers:\n\s+- issuer: http:\/\/host\.docker\.internal:18180[\s\S]*?allowedAlgorithms: \[RS256\]/,
+    );
+    expect(gatewayConfig).not.toMatch(/jwtValidationOptions:\n\s+allowedAlgorithms:/);
+    expect(smoke).toContain("oauth-migrations");
+    expect(smoke).toContain("compose_cmd build oauth-migrations");
+    expect(smoke.match(/compose_cmd run --rm --no-deps oauth-migrations/g)).toHaveLength(2);
+    expect(smoke).toContain('wait "$MIGRATION_PID_ONE"');
+    expect(smoke).toContain('wait "$MIGRATION_PID_TWO"');
+    expect(providerFixture).toContain("fixture-google-provider-token");
+    expect(providerFixture).toContain("fixture-github-provider-token");
+    expect(client).toContain("google_oauth_start");
+    expect(client).toContain("github_oauth_start");
+    expect(client).toContain("google_drive_files_list");
+    expect(client).toContain("github_list_pull_requests");
+    expect(client).toContain("assertNoProviderCredentials");
+    expect(smoke).toContain("assert_logs_do_not_contain_credentials");
   });
 });

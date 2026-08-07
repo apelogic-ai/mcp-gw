@@ -1,0 +1,58 @@
+# Opt-in full provider bundle fixture. Private GitOps must replace the fixture
+# issuer and existing Secret references with deployment-owned values.
+productionProfile:
+  enabled: true
+
+hop1:
+  issuers:
+    - name: fixture-identity
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      discoverable: true
+      emailClaim: email
+      subjectClaim: sub
+
+oauthMigrations:
+  enabled: true
+  secretKeyRef:
+    name: mcp-oauth-database
+    key: dsn
+
+agentgateway:
+  enabled: true
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported:
+        - openid
+        - email
+      bearerMethodsSupported:
+        - header
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: github-mcp
+      enabled: true
+      serviceName: github-wrapper
+      port: 8080
+      path: /mcp
+
+googleWorkspace:
+  enabled: true
+  secretRef:
+    name: mcp-provider-runtime
+
+githubWrapper:
+  enabled: true
+  secretRef:
+    name: mcp-provider-runtime
+
+githubMcp:
+  enabled: true
