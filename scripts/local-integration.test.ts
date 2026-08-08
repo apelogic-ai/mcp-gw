@@ -24,7 +24,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.6}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.7}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -129,6 +129,7 @@ describe("local Docker integration smoke", () => {
     expect(gatewayConfig).not.toMatch(/jwtValidationOptions:\n\s+allowedAlgorithms:/);
     expect(smoke).toContain("oauth-migrations");
     expect(smoke).toContain("missing-expiration");
+    expect(smoke).toContain("compose_cmd up -d --build --wait token-store provider-fixture");
     expect(smoke).toContain("compose_cmd build oauth-migrations");
     expect(smoke.match(/compose_cmd run --rm --no-deps oauth-migrations/g)).toHaveLength(2);
     expect(smoke).toContain('wait "$MIGRATION_PID_ONE"');

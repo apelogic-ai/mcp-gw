@@ -55,11 +55,11 @@ cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
 GOOGLE_WRAPPER_PORT=$GOOGLE_WRAPPER_PORT
 GITHUB_WRAPPER_PORT=$GITHUB_WRAPPER_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.6}
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.7}
 ENV
 
 compose_cmd config >/dev/null
-compose_cmd up -d --build token-store provider-fixture
+compose_cmd up -d --build --wait token-store provider-fixture
 compose_cmd build oauth-migrations
 
 # Two simultaneous runs prove the advisory lock makes migration execution concurrency-safe.

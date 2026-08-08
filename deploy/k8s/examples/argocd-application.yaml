@@ -9,7 +9,7 @@ spec:
   sources:
     - repoURL: ghcr.io/apelogic-ai/charts
       chart: mcp-gateway
-      targetRevision: 0.2.6
+      targetRevision: 0.2.7
       helm:
         valueFiles:
           - $values/environments/production/mcp-gateway-values.yaml
