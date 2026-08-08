@@ -59,7 +59,7 @@ AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentg
 ENV
 
 compose_cmd config >/dev/null
-compose_cmd up -d --build token-store provider-fixture
+compose_cmd up -d --build --wait token-store provider-fixture
 compose_cmd build oauth-migrations
 
 # Two simultaneous runs prove the advisory lock makes migration execution concurrency-safe.
