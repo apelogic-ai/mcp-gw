@@ -2,6 +2,7 @@ import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
 import {
   completeGithubOAuth,
+  GitHubOAuthError,
   startGithubOAuth,
   type GitHubOAuthConfig,
 } from "../../../../shared/oauth/github";
@@ -38,15 +39,26 @@ export function createGitHubOAuthRouteHandler(
         return json({ error: "Missing OAuth code or state" }, 400);
       }
 
-      const completed = await completeGithubOAuth({
-        identity: await authenticateRequest(request, authenticate),
-        code,
-        state,
-        config: options.config,
-        stateStore: options.stateStore,
-        tokenStore: options.tokenStore,
-        fetch: options.fetch,
-      });
+      let completed;
+      try {
+        completed = await completeGithubOAuth({
+          identity: await authenticateRequest(request, authenticate),
+          code,
+          state,
+          config: options.config,
+          stateStore: options.stateStore,
+          tokenStore: options.tokenStore,
+          fetch: options.fetch,
+        });
+      } catch (error) {
+        if (error instanceof GitHubOAuthError && error.code === "email_mismatch") {
+          return json({ error: "GitHub account identity does not match authenticated user" }, 400);
+        }
+        if (error instanceof GitHubOAuthError && error.code === "invalid_state") {
+          return json({ error: "OAuth state is invalid or expired" }, 400);
+        }
+        throw error;
+      }
       await options.audit?.emit({
         ts: new Date().toISOString(),
         category: "oauth",

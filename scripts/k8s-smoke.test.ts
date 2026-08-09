@@ -106,6 +106,11 @@ exit 0
     expect(smoke).toContain("rollout status");
     expect(smoke).toContain("google-workspace");
     expect(smoke).toContain("github-wrapper");
+    expect(smoke).toContain("GITHUB_OAUTH_CLIENT_ID=fixture-github-client");
+    expect(smoke).toContain("GITHUB_OAUTH_CLIENT_SECRET=fixture-github-secret");
+    expect(smoke).toContain(
+      "GITHUB_OAUTH_REDIRECT_URI=https://mcp.example.com/oauth/github/callback",
+    );
     expect(smoke).toContain("id -u");
     expect(smoke).toContain('[[ "$GOOGLE_UID" == "10001" ]]');
     expect(smoke).toContain('[[ "$GITHUB_UID" == "10001" ]]');

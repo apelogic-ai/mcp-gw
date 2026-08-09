@@ -30,6 +30,7 @@ export interface GitHubOAuthConfig {
   authorizationUrl?: string;
   tokenUrl?: string;
   userEmailsUrl?: string;
+  tokenRevocationUrl?: string;
 }
 
 export interface StartGitHubOAuthOptions {
@@ -81,7 +82,9 @@ interface GitHubEmailResponse {
 export const DEFAULT_GITHUB_AUTHORIZATION_URL = "https://github.com/login/oauth/authorize";
 export const DEFAULT_GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const DEFAULT_GITHUB_USER_EMAILS_URL = "https://api.github.com/user/emails";
+const DEFAULT_GITHUB_APPLICATIONS_URL = "https://api.github.com/applications";
 const STATE_TTL_MS = 10 * 60 * 1000;
+const TOKEN_REVOCATION_TIMEOUT_MS = 5_000;
 
 export async function startGithubOAuth(
   options: StartGitHubOAuthOptions,
@@ -121,7 +124,7 @@ export async function completeGithubOAuth(
   if (
     identity.issuer !== stateRecord.hop1Issuer ||
     identity.subject !== stateRecord.hop1Subject ||
-    identity.email !== stateRecord.email
+    !emailsEqual(identity.email, stateRecord.email)
   ) {
     throw new GitHubOAuthError("OAuth state does not match authenticated user", "email_mismatch");
   }
@@ -129,13 +132,20 @@ export async function completeGithubOAuth(
   const fetchImpl = options.fetch ?? fetch;
   const token = await exchangeCode(options, fetchImpl);
   const email = await fetchPrimaryVerifiedEmail(options.config, token.accessToken, fetchImpl);
+  if (!emailsEqual(email, identity.email) || !emailsEqual(email, stateRecord.email)) {
+    await bestEffortRevokeAccessToken(options.config, token.accessToken, fetchImpl);
+    throw new GitHubOAuthError(
+      "GitHub account identity does not match authenticated user",
+      "email_mismatch",
+    );
+  }
 
   const now = new Date();
   await options.tokenStore.saveAccount({
     provider: "github",
     hop1Issuer: identity.issuer,
     hop1Subject: identity.subject,
-    email,
+    email: stateRecord.email,
     scopesGranted: token.scopes,
     encryptedRefreshToken: encryptSecret(token.accessToken, options.config.tokenEncryptionKey),
     createdAt: now,
@@ -243,11 +253,41 @@ async function fetchPrimaryVerifiedEmail(
   return primary.email;
 }
 
+async function bestEffortRevokeAccessToken(
+  config: GitHubOAuthConfig,
+  accessToken: string,
+  fetchImpl: OAuthFetch,
+): Promise<void> {
+  const url =
+    config.tokenRevocationUrl ??
+    `${DEFAULT_GITHUB_APPLICATIONS_URL}/${encodeURIComponent(config.clientId)}/token`;
+
+  try {
+    await fetchImpl(url, {
+      method: "DELETE",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
+        "content-type": "application/json",
+        "x-github-api-version": "2022-11-28",
+      },
+      body: JSON.stringify({ access_token: accessToken }),
+      signal: AbortSignal.timeout(TOKEN_REVOCATION_TIMEOUT_MS),
+    });
+  } catch {
+    // The identity mismatch still fails closed when GitHub revocation is unavailable.
+  }
+}
+
 function scopeStringToArray(scope: string | undefined): string[] {
   return (scope ?? "")
     .split(/[,\s]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function emailsEqual(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
 }
 
 function hasScopes(granted: string[], required: string[]): boolean {

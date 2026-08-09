@@ -104,7 +104,12 @@ https://mcp-gw.example.com/oauth/github/callback
 
 The start/status/disconnect routes require a HOP-1 bearer token. The callback
 recovers identity from the OAuth state record, so browser redirects from GitHub
-do not need to carry the bearer token.
+do not need to carry the bearer token. The callback stores a credential only
+when GitHub's primary verified email case-insensitively matches the HOP-1 email
+captured in that single-use state record. On mismatch, the wrapper attempts to
+revoke only the newly issued token and stores nothing. Self-hosted or isolated
+GitHub API deployments can override the token-revocation endpoint with
+`GITHUB_OAUTH_TOKEN_REVOCATION_URL`.
 
 ## Credential Boundary
 

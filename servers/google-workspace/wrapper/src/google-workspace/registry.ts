@@ -63,6 +63,20 @@ export function createGoogleWorkspaceRegistry(
         : [...GOOGLE_OAUTH_TOOL_DEFINITIONS];
     },
     callTool: async (name, args) => {
+      if (name === "google_oauth_start" && options.oauth) {
+        const started = Date.now();
+        const decision = await policy.decide({
+          principal: options.identity.email,
+          tokenClaims: normalizedHop1Claims(options.identity),
+          tool: name,
+          service: "google",
+          actionClass: "write",
+          scopes: options.oauth.status.scopesRequired,
+          args,
+        });
+        await enforcePolicyDecision(decision, { name }, args, started, options);
+      }
+
       const oauthResult = await callGoogleOAuthTool(name, args, options.oauth);
       if (oauthResult) {
         return oauthResult;
@@ -155,7 +169,7 @@ const GOOGLE_OAUTH_TOOL_DEFINITIONS = [
       required: [],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: true },
+    annotations: { readOnlyHint: false },
   },
 ];
 
@@ -196,7 +210,7 @@ function formatCompactToolResult(result: unknown): ToolResult {
 
 async function enforcePolicyDecision(
   decision: PolicyDecision,
-  tool: WorkspaceToolDefinition,
+  tool: Pick<WorkspaceToolDefinition, "name">,
   args: Record<string, unknown>,
   started: number,
   options: CreateGoogleWorkspaceRegistryOptions,

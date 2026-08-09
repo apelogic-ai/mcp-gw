@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../../shared/audit/audit";
+import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
 import { getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { GwsExecutionError } from "../executor/gws";
 import { createGoogleWorkspaceRegistry } from "./registry";
@@ -34,10 +35,17 @@ describe("Google Workspace request registry", () => {
       executor: () => Promise.reject(new Error("executor should not run")),
     });
 
-    expect(registry.listTools().map((tool) => tool.name)).toEqual([
+    const oauthTools = registry.listTools();
+    expect(oauthTools.map((tool) => tool.name)).toEqual([
       "google_oauth_status",
       "google_oauth_start",
     ]);
+    expect(oauthTools.find((tool) => tool.name === "google_oauth_status")?.annotations).toEqual({
+      readOnlyHint: true,
+    });
+    expect(oauthTools.find((tool) => tool.name === "google_oauth_start")?.annotations).toEqual({
+      readOnlyHint: false,
+    });
     expect(await registry.callTool("google_oauth_status", {})).toEqual({
       content: [
         {
@@ -61,6 +69,120 @@ describe("Google Workspace request registry", () => {
         },
       ],
     });
+  });
+
+  test("allows Google OAuth start through policy before issuing state", async () => {
+    let stateIssuanceCalls = 0;
+    const policyInputs: ToolPolicyInput[] = [];
+    const identityWithAuthority = {
+      ...identity,
+      claims: {
+        controlPlane: {
+          acting_as: "user",
+          runtime_uid: "runtime-uid-oauth",
+        },
+      },
+    };
+    const registry = createGoogleWorkspaceRegistry({
+      identity: identityWithAuthority,
+      oauth: {
+        status: {
+          connected: false,
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: [],
+          missingScopes: ["https://www.googleapis.com/auth/drive"],
+        },
+        startOAuth: (redirectAfter) => {
+          stateIssuanceCalls += 1;
+          expect(redirectAfter).toBe("https://app.example.com/after");
+          return Promise.resolve({ authorizationUrl: "https://accounts.google.com/o/oauth2/auth" });
+        },
+      },
+      policy: {
+        decide: (input) => {
+          policyInputs.push(input);
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getAccessToken: () => Promise.reject(new Error("token lookup should not run")),
+      },
+      executor: () => Promise.reject(new Error("executor should not run")),
+    });
+
+    const result = await registry.callTool("google_oauth_start", {
+      redirectAfter: "https://app.example.com/after",
+    });
+
+    expect(result.content[0]?.text).toContain("https://accounts.google.com/o/oauth2/auth");
+    expect(stateIssuanceCalls).toBe(1);
+    expect(policyInputs).toEqual([
+      {
+        principal: "user@example.com",
+        tokenClaims: {
+          ...identityWithAuthority.claims,
+          email: "user@example.com",
+          sub: "google-subject",
+        },
+        tool: "google_oauth_start",
+        service: "google",
+        actionClass: "write",
+        scopes: ["https://www.googleapis.com/auth/drive"],
+        args: { redirectAfter: "https://app.example.com/after" },
+      },
+    ]);
+  });
+
+  test("denies Google OAuth start before state or authorization URL issuance", async () => {
+    let stateIssuanceCalls = 0;
+    const audit = new InMemoryAuditSink();
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      oauth: {
+        status: {
+          connected: false,
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: [],
+          missingScopes: ["https://www.googleapis.com/auth/drive"],
+        },
+        startOAuth: () => {
+          stateIssuanceCalls += 1;
+          return Promise.resolve({
+            authorizationUrl: "https://accounts.google.com/should-not-exist",
+          });
+        },
+      },
+      policy: {
+        decide: (input) => {
+          expect(input.tool).toBe("google_oauth_start");
+          expect(input.principal).toBe(identity.email);
+          return Promise.resolve({ kind: "deny", reason: "provider grant absent" });
+        },
+      },
+      audit,
+      tokenBroker: {
+        getAccessToken: () => Promise.reject(new Error("token lookup should not run")),
+      },
+      executor: () => Promise.reject(new Error("executor should not run")),
+    });
+
+    expect.assertions(6);
+    try {
+      await registry.callTool("google_oauth_start", {
+        redirectAfter: "https://app.example.com/after",
+      });
+    } catch (error) {
+      expect((error as Error).message).toBe(
+        "Policy denied google_oauth_start: provider grant absent",
+      );
+      expect(stateIssuanceCalls).toBe(0);
+      expect(audit.events).toHaveLength(1);
+      expect(audit.events[0]).toMatchObject({
+        principal: identity.email,
+        status: "deny",
+        tool: "google_oauth_start",
+      });
+    }
   });
 
   test("advertises OAuth helpers and the full Google catalog after consent", () => {
