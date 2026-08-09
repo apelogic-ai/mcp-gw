@@ -87,6 +87,9 @@ kubectl create secret generic provider-runtime \
   --from-literal=GOOGLE_OAUTH_CLIENT_SECRET=fixture-google-secret \
   --from-literal=GOOGLE_OAUTH_REDIRECT_URI=https://mcp.example.com/oauth/google/callback \
   --from-literal=GOOGLE_TOKEN_ENCRYPTION_KEY=MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA= \
+  --from-literal=GITHUB_OAUTH_CLIENT_ID=fixture-github-client \
+  --from-literal=GITHUB_OAUTH_CLIENT_SECRET=fixture-github-secret \
+  --from-literal=GITHUB_OAUTH_REDIRECT_URI=https://mcp.example.com/oauth/github/callback \
   --from-literal=GITHUB_TOKEN_ENCRYPTION_KEY=MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
 
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \

@@ -169,7 +169,8 @@ renamed, reassigned, or represented differently across issuers.
 For GitHub, the provider's primary verified email must case-insensitively match the email bound to
 the HOP-1 identity and OAuth state. MCP-GW consumes the state and stores no credential when the
 emails differ. This prevents a user from attaching a different GitHub identity to an authenticated
-corporate principal.
+corporate principal. It also makes a bounded best-effort request to revoke only the newly issued
+GitHub token; revocation failure never changes the fail-closed callback result.
 
 ## Client Support Matrix
 

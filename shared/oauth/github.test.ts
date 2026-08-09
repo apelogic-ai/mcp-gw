@@ -25,6 +25,7 @@ const config = {
   authorizationUrl: "https://github.example.com/login/oauth/authorize",
   tokenUrl: "https://github.example.com/login/oauth/access_token",
   userEmailsUrl: "https://api.github.example.com/user/emails",
+  tokenRevocationUrl: "https://api.github.example.com/applications/github-client/token",
 };
 
 describe("GitHub OAuth flow", () => {
@@ -121,6 +122,7 @@ describe("GitHub OAuth flow", () => {
       config,
       stateStore,
     });
+    const seenRequests: { url: string; init?: RequestInit }[] = [];
 
     let error: unknown;
     try {
@@ -131,11 +133,15 @@ describe("GitHub OAuth flow", () => {
         config,
         stateStore,
         tokenStore,
-        fetch: (url) => {
+        fetch: (url, init) => {
+          seenRequests.push({ url, init });
           if (url === config.tokenUrl) {
             return Promise.resolve(
               Response.json({ access_token: "github-user-token", scope: "repo" }),
             );
+          }
+          if (url === config.tokenRevocationUrl) {
+            return Promise.reject(new Error("revocation unavailable"));
           }
 
           return Promise.resolve(
@@ -151,6 +157,19 @@ describe("GitHub OAuth flow", () => {
     expect(error).toBeInstanceOf(GitHubOAuthError);
     expect((error as GitHubOAuthError).code).toBe("email_mismatch");
     expect(stored).toBeNull();
+    const revocationRequest = seenRequests[2];
+    expect(revocationRequest?.url).toBe(config.tokenRevocationUrl);
+    expect(revocationRequest?.init?.method).toBe("DELETE");
+    expect(revocationRequest?.init?.headers).toEqual({
+      accept: "application/vnd.github+json",
+      authorization: `Basic ${Buffer.from("github-client:github-secret").toString("base64")}`,
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28",
+    });
+    expect(revocationRequest?.init?.body).toBe(
+      JSON.stringify({ access_token: "github-user-token" }),
+    );
+    expect(revocationRequest?.init?.signal).toBeInstanceOf(AbortSignal);
   });
 
   test("matches GitHub primary verified email to HOP-1 case-insensitively", async () => {

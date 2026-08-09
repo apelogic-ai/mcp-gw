@@ -65,6 +65,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
       authorizationUrl: optionalEnv(env, "GITHUB_OAUTH_AUTHORIZATION_URL"),
       tokenUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_URL"),
       userEmailsUrl: optionalEnv(env, "GITHUB_OAUTH_USER_EMAILS_URL"),
+      tokenRevocationUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_REVOCATION_URL"),
     },
     githubScopes: parseScopes(env.GITHUB_OAUTH_SCOPES) ?? DEFAULT_GITHUB_SCOPES,
     aliases: parseAliases(env.GITHUB_TOOL_ALIASES_JSON),
