@@ -112,7 +112,7 @@ describe("GitHub OAuth flow", () => {
     expect(stored?.encryptedRefreshToken).not.toBe("github-user-token");
   });
 
-  test("stores GitHub accounts whose primary email differs from HOP-1 email", async () => {
+  test("rejects a GitHub primary verified email that differs from HOP-1 and persists nothing", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
     const started = await startGithubOAuth({
@@ -122,29 +122,106 @@ describe("GitHub OAuth flow", () => {
       stateStore,
     });
 
+    let error: unknown;
+    try {
+      await completeGithubOAuth({
+        identity,
+        code: "oauth-code",
+        state: started.state,
+        config,
+        stateStore,
+        tokenStore,
+        fetch: (url) => {
+          if (url === config.tokenUrl) {
+            return Promise.resolve(
+              Response.json({ access_token: "github-user-token", scope: "repo" }),
+            );
+          }
+
+          return Promise.resolve(
+            Response.json([{ email: "other@example.com", primary: true, verified: true }]),
+          );
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    const stored = await tokenStore.getAccount(identity.issuer, identity.subject, "github");
+    expect(error).toBeInstanceOf(GitHubOAuthError);
+    expect((error as GitHubOAuthError).code).toBe("email_mismatch");
+    expect(stored).toBeNull();
+  });
+
+  test("matches GitHub primary verified email to HOP-1 case-insensitively", async () => {
+    const corporateIdentity = { ...identity, email: "User@Example.COM" };
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity: corporateIdentity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+
     await completeGithubOAuth({
-      identity,
+      identity: corporateIdentity,
       code: "oauth-code",
       state: started.state,
       config,
       stateStore,
       tokenStore,
-      fetch: (url) => {
-        if (url === config.tokenUrl) {
-          return Promise.resolve(
-            Response.json({ access_token: "github-user-token", scope: "repo" }),
-          );
-        }
-
-        return Promise.resolve(
-          Response.json([{ email: "other@example.com", primary: true, verified: true }]),
-        );
-      },
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({ access_token: "github-user-token", scope: "repo" })
+            : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+        ),
     });
 
-    const stored = await tokenStore.getAccount(identity.issuer, identity.subject, "github");
-    expect(stored?.email).toBe("other@example.com");
-    expect(stored?.hop1Subject).toBe(identity.subject);
+    const stored = await tokenStore.getAccount(
+      corporateIdentity.issuer,
+      corporateIdentity.subject,
+      "github",
+    );
+    expect(stored?.email).toBe(corporateIdentity.email);
+  });
+
+  test("consumes OAuth state once even when the callback is replayed", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+    const complete = () =>
+      completeGithubOAuth({
+        identity,
+        code: "oauth-code",
+        state: started.state,
+        config,
+        stateStore,
+        tokenStore,
+        fetch: (url) =>
+          Promise.resolve(
+            url === config.tokenUrl
+              ? Response.json({ access_token: "github-user-token", scope: "repo" })
+              : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+          ),
+      });
+
+    await complete();
+    let replayError: unknown;
+    try {
+      await complete();
+    } catch (caught) {
+      replayError = caught;
+    }
+
+    expect(replayError).toBeInstanceOf(GitHubOAuthError);
+    expect((replayError as GitHubOAuthError).code).toBe("invalid_state");
   });
 });
 

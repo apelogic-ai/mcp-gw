@@ -8,6 +8,12 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Security
+
+- Bind GitHub OAuth callbacks to the authenticated HOP-1 corporate email, reject mismatches without
+  persisting credentials, consume SQL-backed OAuth state atomically, and fail wrapper startup when
+  required GitHub OAuth configuration is absent.
+
 ## [0.2.7] - 2026-08-07
 
 ### Security

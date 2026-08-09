@@ -122,6 +122,47 @@ describe("GitHub OAuth routes", () => {
     });
   });
 
+  test("rejects an OAuth callback for a different GitHub email without persisting it", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const audit = new MemoryAuditSink();
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore,
+      audit,
+      fetch: (url) =>
+        Promise.resolve(
+          url.includes("/login/oauth/access_token")
+            ? jsonResponse({ access_token: "gho_access", scope: "repo" })
+            : jsonResponse([{ email: "different@example.com", primary: true, verified: true }]),
+        ),
+    });
+
+    const start = await handler(
+      new Request("https://mcp.example.com/oauth/github/start", {
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state");
+    const callbackUrl = `https://mcp.example.com/oauth/github/callback?code=code&state=${state ?? ""}`;
+
+    const callback = await handler(new Request(callbackUrl));
+
+    expect(callback.status).toBe(400);
+    expect(await callback.json()).toEqual({
+      error: "GitHub account identity does not match authenticated user",
+    });
+    expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).toBeNull();
+    expect(audit.events).toHaveLength(0);
+
+    const replay = await handler(new Request(callbackUrl));
+    expect(replay.status).toBe(400);
+    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
+  });
+
   test("renders a success page when callback has no stored redirect target", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const handler = createGitHubOAuthRouteHandler({

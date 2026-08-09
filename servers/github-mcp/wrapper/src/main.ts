@@ -58,9 +58,9 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
     tokenStoreDsn: requiredEnv(env, "TOKEN_STORE_DSN"),
     upstreamUrl: env.GITHUB_MCP_UPSTREAM_URL ?? DEFAULT_UPSTREAM_URL,
     githubOAuth: {
-      clientId: env.GITHUB_OAUTH_CLIENT_ID ?? "",
-      clientSecret: env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
-      redirectUri: env.GITHUB_OAUTH_REDIRECT_URI ?? "",
+      clientId: requiredEnv(env, "GITHUB_OAUTH_CLIENT_ID"),
+      clientSecret: requiredEnv(env, "GITHUB_OAUTH_CLIENT_SECRET"),
+      redirectUri: requiredEnv(env, "GITHUB_OAUTH_REDIRECT_URI"),
       tokenEncryptionKey: requiredEnv(env, "GITHUB_TOKEN_ENCRYPTION_KEY"),
       authorizationUrl: optionalEnv(env, "GITHUB_OAUTH_AUTHORIZATION_URL"),
       tokenUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_URL"),
@@ -320,7 +320,7 @@ function stringField(record: Record<string, unknown>, name: string, index: numbe
 }
 
 function requiredEnv(env: Record<string, string | undefined>, name: string): string {
-  const value = env[name];
+  const value = env[name]?.trim();
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
   }

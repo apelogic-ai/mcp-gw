@@ -173,6 +173,7 @@ describe("SQL OAuth token store", () => {
   });
 
   test("consumes unexpired OAuth state records", async () => {
+    const consumedAt = new Date("2026-07-03T00:01:00.000Z");
     const client = new RecordingSqlClient([
       {
         state_hash: stateRecord.stateHash,
@@ -182,16 +183,20 @@ describe("SQL OAuth token store", () => {
         requested_scopes: stateRecord.requestedScopes,
         redirect_after: stateRecord.redirectAfter,
         expires_at: stateRecord.expiresAt,
-        consumed_at: null,
+        consumed_at: consumedAt,
       },
     ]);
     const store = new SqlOAuthStateStore(client);
 
     const consumed = await store.consume("state");
 
-    expect(consumed).toEqual(stateRecord);
-    expect(client.calls[0]?.sql).toContain("SELECT");
-    expect(client.calls[1]?.sql).toContain("UPDATE oauth_states");
+    expect(consumed).toEqual({ ...stateRecord, consumedAt });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]?.sql).toContain("UPDATE oauth_states");
+    expect(client.calls[0]?.sql).toContain("consumed_at IS NULL");
+    expect(client.calls[0]?.sql).toContain("expires_at > NOW()");
+    expect(client.calls[0]?.sql).toContain("RETURNING");
+    expect(client.calls[0]?.params[1]).toBe(stateRecord.stateHash);
   });
 });
 

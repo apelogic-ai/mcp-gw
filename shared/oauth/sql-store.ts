@@ -173,9 +173,15 @@ DO UPDATE SET
 
   async consume(state: string): Promise<OAuthStateRecord | null> {
     const stateHash = hashState(state);
+    const consumedAt = new Date();
     const result = await this.client.query(
       `
-SELECT
+UPDATE oauth_states
+SET consumed_at = $1
+WHERE state_hash = $2
+  AND consumed_at IS NULL
+  AND expires_at > NOW()
+RETURNING
   state_hash,
   hop1_issuer,
   hop1_subject,
@@ -184,30 +190,12 @@ SELECT
   redirect_after,
   expires_at,
   consumed_at
-FROM oauth_states
-WHERE state_hash = $1
-  AND consumed_at IS NULL
-  AND expires_at > NOW()
-LIMIT 1
 `,
-      [stateHash],
+      [consumedAt, stateHash],
     );
 
     const row = result.rows[0];
-    if (!row) {
-      return null;
-    }
-
-    await this.client.query(
-      `
-UPDATE oauth_states
-SET consumed_at = $1
-WHERE state_hash = $2
-`,
-      [new Date(), stateHash],
-    );
-
-    return rowToState(row);
+    return row ? rowToState(row) : null;
   }
 }
 

@@ -4,6 +4,9 @@ import { loadMainConfig } from "./main";
 
 const baseEnv = {
   TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+  GITHUB_OAUTH_CLIENT_ID: "github-client",
+  GITHUB_OAUTH_CLIENT_SECRET: "github-secret",
+  GITHUB_OAUTH_REDIRECT_URI: "https://mcp.example.com/oauth/github/callback",
   GITHUB_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
   HOP1_ISSUER: "https://issuer.example.com",
   HOP1_JWKS_URL: "https://issuer.example.com/.well-known/jwks.json",
@@ -19,9 +22,9 @@ describe("GitHub MCP wrapper main config", () => {
       tokenStoreDsn: "postgres://mcp:mcp@token-store:5432/mcp",
       upstreamUrl: "http://github-mcp:8082/mcp",
       githubOAuth: {
-        clientId: "",
-        clientSecret: "",
-        redirectUri: "",
+        clientId: "github-client",
+        clientSecret: "github-secret",
+        redirectUri: "https://mcp.example.com/oauth/github/callback",
         tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
       },
       githubScopes: ["repo", "read:org", "workflow", "notifications", "user:email"],
@@ -174,6 +177,18 @@ describe("GitHub MCP wrapper main config", () => {
     );
     expect(() => loadMainConfig({ ...baseEnv, HOP1_JWKS_URL: undefined })).toThrow(
       "Missing required env var: HOP1_JWKS_URL",
+    );
+  });
+
+  test.each([
+    "TOKEN_STORE_DSN",
+    "GITHUB_OAUTH_CLIENT_ID",
+    "GITHUB_OAUTH_CLIENT_SECRET",
+    "GITHUB_OAUTH_REDIRECT_URI",
+    "GITHUB_TOKEN_ENCRYPTION_KEY",
+  ])("fails startup when enabled GitHub wrapper setting %s is missing", (name) => {
+    expect(() => loadMainConfig({ ...baseEnv, [name]: undefined })).toThrow(
+      `Missing required env var: ${name}`,
     );
   });
 });

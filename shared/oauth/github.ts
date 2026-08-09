@@ -121,7 +121,7 @@ export async function completeGithubOAuth(
   if (
     identity.issuer !== stateRecord.hop1Issuer ||
     identity.subject !== stateRecord.hop1Subject ||
-    identity.email !== stateRecord.email
+    !emailsEqual(identity.email, stateRecord.email)
   ) {
     throw new GitHubOAuthError("OAuth state does not match authenticated user", "email_mismatch");
   }
@@ -129,13 +129,19 @@ export async function completeGithubOAuth(
   const fetchImpl = options.fetch ?? fetch;
   const token = await exchangeCode(options, fetchImpl);
   const email = await fetchPrimaryVerifiedEmail(options.config, token.accessToken, fetchImpl);
+  if (!emailsEqual(email, identity.email) || !emailsEqual(email, stateRecord.email)) {
+    throw new GitHubOAuthError(
+      "GitHub account identity does not match authenticated user",
+      "email_mismatch",
+    );
+  }
 
   const now = new Date();
   await options.tokenStore.saveAccount({
     provider: "github",
     hop1Issuer: identity.issuer,
     hop1Subject: identity.subject,
-    email,
+    email: stateRecord.email,
     scopesGranted: token.scopes,
     encryptedRefreshToken: encryptSecret(token.accessToken, options.config.tokenEncryptionKey),
     createdAt: now,
@@ -248,6 +254,10 @@ function scopeStringToArray(scope: string | undefined): string[] {
     .split(/[,\s]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function emailsEqual(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
 }
 
 function hasScopes(granted: string[], required: string[]): boolean {
