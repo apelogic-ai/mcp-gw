@@ -379,17 +379,36 @@ describe("GitHub MCP proxy wrapper", () => {
     ]);
   });
 
-  test("handles GitHub OAuth helper tool calls without resolving GitHub credentials", async () => {
+  test("allows GitHub OAuth start through policy before issuing state", async () => {
     let resolvedToken = false;
+    let stateIssuanceCalls = 0;
+    const policyInputs: ToolPolicyInput[] = [];
+    const identityWithAuthority = {
+      ...identity,
+      claims: {
+        controlPlane: {
+          acting_as: "user",
+          runtime_uid: "runtime-uid-oauth",
+        },
+      },
+    };
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
-      authenticate: () => Promise.resolve(identity),
+      authenticate: () => Promise.resolve(identityWithAuthority),
       resolveGithubToken: () => {
         resolvedToken = true;
         return Promise.resolve(undefined);
       },
+      githubScopes: ["repo", "user:email"],
+      policy: {
+        decide: (input) => {
+          policyInputs.push(input);
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
       startOAuth: (requestIdentity, redirectAfter) => {
-        expect(requestIdentity).toBe(identity);
+        stateIssuanceCalls += 1;
+        expect(requestIdentity).toBe(identityWithAuthority);
         expect(redirectAfter).toBe("https://app.example.com/after");
         return Promise.resolve({ authorizationUrl: "https://github.com/login/oauth/authorize" });
       },
@@ -429,6 +448,83 @@ describe("GitHub MCP proxy wrapper", () => {
       },
     });
     expect(resolvedToken).toBe(false);
+    expect(stateIssuanceCalls).toBe(1);
+    expect(policyInputs).toEqual([
+      {
+        principal: "user@example.com",
+        tokenClaims: {
+          ...identityWithAuthority.claims,
+          email: "user@example.com",
+          sub: "user-123",
+        },
+        tool: "github_oauth_start",
+        service: "github",
+        actionClass: "write",
+        scopes: ["repo", "user:email"],
+        args: { redirectAfter: "https://app.example.com/after" },
+      },
+    ]);
+  });
+
+  test("denies GitHub OAuth start before state or authorization URL issuance", async () => {
+    let stateIssuanceCalls = 0;
+    let resolvedToken = false;
+    const audit = new InMemoryAuditSink();
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => {
+        resolvedToken = true;
+        return Promise.resolve(undefined);
+      },
+      githubScopes: ["repo"],
+      policy: {
+        decide: (input) => {
+          expect(input.tool).toBe("github_oauth_start");
+          expect(input.principal).toBe(identity.email);
+          return Promise.resolve({ kind: "deny", reason: "provider grant absent" });
+        },
+      },
+      audit,
+      startOAuth: () => {
+        stateIssuanceCalls += 1;
+        return Promise.resolve({ authorizationUrl: "https://github.com/should-not-exist" });
+      },
+      fetch: () => Promise.reject(new Error("should not fetch upstream")),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 14,
+          method: "tools/call",
+          params: {
+            name: "github_oauth_start",
+            arguments: { redirectAfter: "https://app.example.com/after" },
+          },
+        }),
+      }),
+    );
+
+    const deniedBody = await response.json();
+    expect(deniedBody).toEqual({
+      jsonrpc: "2.0",
+      id: 14,
+      error: {
+        code: -32003,
+        message: "Policy denied github_oauth_start: provider grant absent",
+      },
+    });
+    expect(stateIssuanceCalls).toBe(0);
+    expect(resolvedToken).toBe(false);
+    expect(audit.events).toHaveLength(1);
+    expect(JSON.stringify(deniedBody)).not.toContain("authorizationUrl");
   });
 
   test("preserves upstream MCP error responses", async () => {

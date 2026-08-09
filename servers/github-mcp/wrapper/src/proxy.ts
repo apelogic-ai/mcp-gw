@@ -78,6 +78,7 @@ const LOCAL_TOOLS = [
       },
       required: [],
     },
+    annotations: { readOnlyHint: false },
   },
 ];
 const SERVER_INFO = {
@@ -124,12 +125,7 @@ export function createGithubMcpProxyHandler(
     }
 
     const toolCall = parseToolCall(body, options.aliases ?? {});
-    const localTool = toolCall ? await handleLocalToolCall(toolCall, identity, options) : undefined;
-    if (localTool) {
-      return localTool;
-    }
-
-    if (toolCall) {
+    if (toolCall && toolCall.toolName !== "github_oauth_status") {
       const decision = await policy.decide({
         principal: identity.email,
         tokenClaims: normalizedHop1Claims(identity),
@@ -143,6 +139,11 @@ export function createGithubMcpProxyHandler(
       if (denied) {
         return denied;
       }
+    }
+
+    const localTool = toolCall ? await handleLocalToolCall(toolCall, identity, options) : undefined;
+    if (localTool) {
+      return localTool;
     }
 
     const githubToken = await resolveGithubTokenOrUndefined(options, identity);
@@ -496,6 +497,9 @@ function jsonRpcId(value: unknown): JsonRpcId {
 
 function classifyAction(toolName: string): PolicyActionClass {
   const normalized = toolName.toLowerCase();
+  if (normalized === "github_oauth_start") {
+    return "write";
+  }
   if (["delete", "remove", "destroy"].some((verb) => normalized.includes(verb))) {
     return "destructive";
   }

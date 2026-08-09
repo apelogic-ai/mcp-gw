@@ -13,6 +13,8 @@ human-maintained compatibility summary.
 - Bind GitHub OAuth callbacks to the authenticated HOP-1 corporate email, reject mismatches without
   persisting credentials, attempt narrow revocation of mismatched tokens, consume SQL-backed OAuth
   state atomically, and fail wrapper startup when required GitHub OAuth configuration is absent.
+- Require the shared policy decision to authorize Google and GitHub OAuth initiation helpers before
+  either wrapper can persist single-use state or return a provider authorization URL.
 
 ## [0.2.7] - 2026-08-07
 

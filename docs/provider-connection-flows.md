@@ -163,6 +163,11 @@ For each connected provider, the control plane must use the same stable HOP-1 id
 - provider status and disconnect;
 - later MCP tool calls.
 
+The `google_oauth_start` and `github_oauth_start` helpers are write-class policy actions. MCP-GW
+passes their exact tool name, authenticated principal and claims, requested provider scopes, and
+arguments to the configured policy before it creates OAuth state or returns an authorization URL.
+The caller's HOP-1 token is never forwarded to the provider.
+
 Use an immutable subject claim where possible. Emails are useful display attributes, but they can be
 renamed, reassigned, or represented differently across issuers.
 
