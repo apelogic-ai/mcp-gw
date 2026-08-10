@@ -83,23 +83,30 @@ spec:
             - name: GOOGLE_WORKSPACE_POLICY_FILE
               value: {{ .Values.googleWorkspace.policy.mountPath | quote }}
             {{- end }}
+            {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
           {{- include "mcp-gateway.probes" .Values.googleWorkspace | nindent 10 }}
-          {{- if .Values.googleWorkspace.policy.enabled }}
+          {{- if or .Values.googleWorkspace.policy.enabled .Values.postgresql.caBundle.enabled }}
           volumeMounts:
+            {{- if .Values.googleWorkspace.policy.enabled }}
             - name: google-workspace-policy
               mountPath: {{ .Values.googleWorkspace.policy.mountPath | quote }}
               subPath: google-workspace-policy.yaml
               readOnly: true
+            {{- end }}
+            {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
           {{- end }}
           {{- with .Values.googleWorkspace.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if .Values.googleWorkspace.policy.enabled }}
+      {{- if or .Values.googleWorkspace.policy.enabled .Values.postgresql.caBundle.enabled }}
       volumes:
+        {{- if .Values.googleWorkspace.policy.enabled }}
         - name: google-workspace-policy
           configMap:
             name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
+        {{- end }}
+        {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
       {{- end }}
 ---
 apiVersion: v1

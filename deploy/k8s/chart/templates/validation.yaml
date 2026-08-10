@@ -32,3 +32,19 @@
 {{- fail "productionProfile requires exactly one enabled agentgateway backend named github-mcp" }}
 {{- end }}
 {{- end }}
+
+{{- $ca := .Values.postgresql.caBundle }}
+{{- $configMapAny := or $ca.configMapKeyRef.name $ca.configMapKeyRef.key }}
+{{- $configMapComplete := and $ca.configMapKeyRef.name $ca.configMapKeyRef.key }}
+{{- $secretAny := or $ca.secretKeyRef.name $ca.secretKeyRef.key }}
+{{- $secretComplete := and $ca.secretKeyRef.name $ca.secretKeyRef.key }}
+{{- if $ca.enabled }}
+{{- if eq $configMapComplete $secretComplete }}
+{{- fail "postgresql.caBundle requires exactly one complete configMapKeyRef or secretKeyRef when enabled" }}
+{{- end }}
+{{- if not $ca.mountPath }}
+{{- fail "postgresql.caBundle.mountPath is required when enabled" }}
+{{- end }}
+{{- else if or $configMapAny $secretAny }}
+{{- fail "postgresql.caBundle.enabled must be true when a CA reference is configured" }}
+{{- end }}

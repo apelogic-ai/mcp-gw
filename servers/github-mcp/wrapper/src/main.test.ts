@@ -20,6 +20,7 @@ describe("GitHub MCP wrapper main config", () => {
     expect(loadMainConfig(baseEnv)).toEqual({
       port: 8080,
       tokenStoreDsn: "postgres://mcp:mcp@token-store:5432/mcp",
+      postgresCaBundlePath: undefined,
       upstreamUrl: "http://github-mcp:8082/mcp",
       githubOAuth: {
         clientId: "github-client",
@@ -43,6 +44,15 @@ describe("GitHub MCP wrapper main config", () => {
         },
       ],
     });
+  });
+
+  test("loads an operator-mounted PostgreSQL CA bundle path", () => {
+    expect(
+      loadMainConfig({
+        ...baseEnv,
+        POSTGRES_CA_BUNDLE_PATH: "/var/run/secrets/postgresql/ca.crt",
+      }).postgresCaBundlePath,
+    ).toBe("/var/run/secrets/postgresql/ca.crt");
   });
 
   test("loads configurable GitHub OAuth endpoints for isolated integration tests", () => {

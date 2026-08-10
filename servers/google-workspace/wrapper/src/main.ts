@@ -1,6 +1,9 @@
 import { Pool } from "pg";
 import { JsonlAuditSink } from "../../../../shared/audit/audit";
-import { createPostgresQueryClient } from "../../../../shared/oauth/postgres-client";
+import {
+  createPostgresPoolConfig,
+  createPostgresQueryClient,
+} from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
 import { createOpaPolicyFromUrl } from "../../../../shared/policy/policy";
 import { loadWrapperConfig, type WrapperConfig } from "./app";
@@ -14,6 +17,7 @@ import {
 export interface MainConfig {
   port: number;
   tokenStoreDsn: string;
+  postgresCaBundlePath?: string;
   hop1OAuthScopes: string[];
   googleOAuthScopes: string[];
   wrapper: WrapperConfig;
@@ -39,6 +43,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
   return {
     port: Number(env.PORT ?? "8080"),
     tokenStoreDsn: requiredEnv(env, "TOKEN_STORE_DSN"),
+    postgresCaBundlePath: optionalEnv(env, "POSTGRES_CA_BUNDLE_PATH"),
     hop1OAuthScopes: parseScopes(env.HOP1_OAUTH_SCOPES) ?? DEFAULT_HOP1_OAUTH_SCOPES,
     googleOAuthScopes: parseScopes(env.GOOGLE_OAUTH_SCOPES) ?? DEFAULT_GOOGLE_OAUTH_SCOPES,
     wrapper,
@@ -46,9 +51,9 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
 }
 
 export function createMainHandler(config: MainConfig): (request: Request) => Promise<Response> {
-  const pool = new Pool({
-    connectionString: config.tokenStoreDsn,
-  });
+  const pool = new Pool(
+    createPostgresPoolConfig(config.tokenStoreDsn, config.postgresCaBundlePath),
+  );
   const queryClient = createPostgresQueryClient(pool);
   const tokenStore = new SqlOAuthTokenStore(queryClient);
   const hop1Issuers = config.wrapper.hop1Issuers.map((issuer) => ({
@@ -105,6 +110,14 @@ function requiredEnv(env: Record<string, string | undefined>, name: string): str
     throw new Error(`Missing required env var: ${name}`);
   }
 
+  return value;
+}
+
+function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
+  const value = env[name]?.trim();
+  if (!value) {
+    return undefined;
+  }
   return value;
 }
 

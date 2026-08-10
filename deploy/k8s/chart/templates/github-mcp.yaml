@@ -66,11 +66,20 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
           {{- include "mcp-gateway.probes" .Values.githubWrapper | nindent 10 }}
+          {{- if .Values.postgresql.caBundle.enabled }}
+          volumeMounts:
+            {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
+          {{- end }}
           {{- with .Values.githubWrapper.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- if .Values.postgresql.caBundle.enabled }}
+      volumes:
+        {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
