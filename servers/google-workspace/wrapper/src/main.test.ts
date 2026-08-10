@@ -67,6 +67,25 @@ describe("wrapper main config", () => {
     });
   });
 
+  test("loads an operator-mounted PostgreSQL CA bundle path", () => {
+    expect(
+      loadMainConfig({
+        GOOGLE_OAUTH_CLIENT_ID: "client-id",
+        GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+        GOOGLE_OAUTH_REDIRECT_URI: "https://dev.example.com/oauth/google/callback",
+        GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+        GWS_BINARY_PATH: "/usr/local/bin/gws",
+        HOP1_ISSUER: "https://accounts.google.com",
+        HOP1_AUDIENCE: "mcp-gateway-dev",
+        HOP1_EMAIL_CLAIM: "email",
+        HOP1_ALLOWED_ALGORITHMS: "RS256",
+        HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
+        TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+        POSTGRES_CA_BUNDLE_PATH: "/var/run/secrets/postgresql/ca.crt",
+      }).postgresCaBundlePath,
+    ).toBe("/var/run/secrets/postgresql/ca.crt");
+  });
+
   test("default Google OAuth scopes use compact broad read/write consent", () => {
     const config = loadMainConfig({
       PORT: "9090",

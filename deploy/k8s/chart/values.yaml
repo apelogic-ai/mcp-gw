@@ -8,6 +8,17 @@ productionProfile:
 hop1:
   issuers: []
 
+postgresql:
+  caBundle:
+    enabled: false
+    mountPath: /var/run/secrets/mcp-gateway/postgresql
+    configMapKeyRef:
+      name: ""
+      key: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+
 oauthMigrations:
   enabled: false
   image:

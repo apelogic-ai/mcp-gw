@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { Pool } from "pg";
 
+import { createPostgresPoolConfig } from "./postgres-client";
+
 const MIGRATION_FILE_PATTERN = /^(\d{3})_[a-z0-9_-]+\.sql$/;
 const MIGRATION_LOCK_NAME = "mcp-gateway-oauth-schema";
 
@@ -89,7 +91,9 @@ async function main(): Promise<void> {
     throw new Error("Missing required env var: TOKEN_STORE_DSN");
   }
 
-  const pool = new Pool({ connectionString });
+  const pool = new Pool(
+    createPostgresPoolConfig(connectionString, process.env.POSTGRES_CA_BUNDLE_PATH),
+  );
 
   try {
     await runOAuthMigrations(

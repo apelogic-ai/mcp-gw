@@ -103,3 +103,44 @@ readinessProbe:
   {{- omit .probes.readiness "enabled" | toYaml | nindent 2 }}
 {{- end }}
 {{- end -}}
+
+{{- define "mcp-gateway.postgresqlCaBundlePath" -}}
+{{- printf "%s/ca.crt" (trimSuffix "/" .Values.postgresql.caBundle.mountPath) -}}
+{{- end -}}
+
+{{- define "mcp-gateway.postgresqlCaEnv" -}}
+{{- if .Values.postgresql.caBundle.enabled }}
+- name: POSTGRES_CA_BUNDLE_PATH
+  value: {{ include "mcp-gateway.postgresqlCaBundlePath" . | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "mcp-gateway.postgresqlCaVolumeMount" -}}
+{{- if .Values.postgresql.caBundle.enabled }}
+- name: postgresql-ca
+  mountPath: {{ .Values.postgresql.caBundle.mountPath | quote }}
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "mcp-gateway.postgresqlCaVolume" -}}
+{{- if .Values.postgresql.caBundle.enabled }}
+- name: postgresql-ca
+  projected:
+    defaultMode: 0444
+    sources:
+      {{- if and .Values.postgresql.caBundle.configMapKeyRef.name .Values.postgresql.caBundle.configMapKeyRef.key }}
+      - configMap:
+          name: {{ .Values.postgresql.caBundle.configMapKeyRef.name }}
+          items:
+            - key: {{ .Values.postgresql.caBundle.configMapKeyRef.key }}
+              path: ca.crt
+      {{- else }}
+      - secret:
+          name: {{ .Values.postgresql.caBundle.secretKeyRef.name }}
+          items:
+            - key: {{ .Values.postgresql.caBundle.secretKeyRef.key }}
+              path: ca.crt
+      {{- end }}
+{{- end }}
+{{- end -}}

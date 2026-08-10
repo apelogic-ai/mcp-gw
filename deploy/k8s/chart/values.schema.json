@@ -103,6 +103,7 @@
         }
       }
     },
+    "postgresql": { "$ref": "#/$defs/postgresql" },
     "oauthMigrations": { "$ref": "#/$defs/oauthMigrations" },
     "agentgateway": { "$ref": "#/$defs/agentgateway" },
     "googleWorkspace": { "$ref": "#/$defs/googleWorkspace" },
@@ -133,6 +134,80 @@
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "key": { "type": "string", "minLength": 1 }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caBundle"],
+      "properties": {
+        "caBundle": { "$ref": "#/$defs/caBundle" }
+      }
+    },
+    "caBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "mountPath", "configMapKeyRef", "secretKeyRef"],
+      "allOf": [
+        {
+          "if": {
+            "required": ["enabled"],
+            "properties": { "enabled": { "const": true } }
+          },
+          "then": {
+            "oneOf": [
+              {
+                "properties": {
+                  "configMapKeyRef": { "$ref": "#/$defs/secretKeyRef" },
+                  "secretKeyRef": { "$ref": "#/$defs/emptyKeyRef" }
+                }
+              },
+              {
+                "properties": {
+                  "configMapKeyRef": { "$ref": "#/$defs/emptyKeyRef" },
+                  "secretKeyRef": { "$ref": "#/$defs/secretKeyRef" }
+                }
+              }
+            ]
+          },
+          "else": {
+            "properties": {
+              "configMapKeyRef": { "$ref": "#/$defs/emptyKeyRef" },
+              "secretKeyRef": { "$ref": "#/$defs/emptyKeyRef" }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mountPath": { "type": "string", "pattern": "^/.*[^/]$" },
+        "configMapKeyRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "key"],
+          "properties": {
+            "name": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        },
+        "secretKeyRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "key"],
+          "properties": {
+            "name": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        }
+      }
+    },
+    "emptyKeyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 0 },
+        "key": { "type": "string", "maxLength": 0 }
       }
     },
     "issuer": {

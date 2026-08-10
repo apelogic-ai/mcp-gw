@@ -71,6 +71,113 @@ describe("Kubernetes production chart", () => {
     }
   });
 
+  test("mounts one operator-owned PostgreSQL CA bundle into every OAuth database client", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "postgresql.caBundle.enabled=true",
+      "--set",
+      "postgresql.caBundle.configMapKeyRef.name=database-ca",
+      "--set",
+      "postgresql.caBundle.configMapKeyRef.key=ca.pem",
+    ]);
+
+    const databaseClientDocuments = rendered
+      .split("---")
+      .filter((document) => document.includes("kind: Deployment") || document.includes("kind: Job"))
+      .filter((document) =>
+        ["oauth-migrations", "google-workspace", "github-wrapper"].some((component) =>
+          document.includes(`app.kubernetes.io/component: ${component}`),
+        ),
+      );
+
+    expect(databaseClientDocuments).toHaveLength(3);
+    for (const document of databaseClientDocuments) {
+      expect(document).toContain("name: POSTGRES_CA_BUNDLE_PATH");
+      expect(document).toContain('value: "/var/run/secrets/mcp-gateway/postgresql/ca.crt"');
+      expect(document).toContain("name: postgresql-ca");
+      expect(document).toContain('mountPath: "/var/run/secrets/mcp-gateway/postgresql"');
+      expect(document).toContain("readOnly: true");
+      expect(document).toContain("name: database-ca");
+      expect(document).toContain("key: ca.pem");
+      expect(document).toContain("path: ca.crt");
+    }
+  });
+
+  test("supports a Secret-backed PostgreSQL CA bundle without rendering its value", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "postgresql.caBundle.enabled=true",
+      "--set",
+      "postgresql.caBundle.secretKeyRef.name=database-ca",
+      "--set",
+      "postgresql.caBundle.secretKeyRef.key=ca.pem",
+    ]);
+
+    expect(rendered).toContain("secret:");
+    expect(rendered).toContain("name: database-ca");
+    expect(rendered).toContain("key: ca.pem");
+    expect(rendered).not.toContain("BEGIN CERTIFICATE");
+  });
+
+  test("rejects incomplete, ambiguous, or silently disabled PostgreSQL CA references", () => {
+    const invalidArgs = [
+      [
+        "--set",
+        "postgresql.caBundle.enabled=true",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.name=database-ca",
+      ],
+      [
+        "--set",
+        "postgresql.caBundle.enabled=true",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.name=database-ca",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.key=ca.pem",
+        "--set",
+        "postgresql.caBundle.secretKeyRef.name=database-ca-secret",
+        "--set",
+        "postgresql.caBundle.secretKeyRef.key=ca.pem",
+      ],
+      [
+        "--set",
+        "postgresql.caBundle.enabled=true",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.name=database-ca",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.key=ca.pem",
+        "--set",
+        "postgresql.caBundle.secretKeyRef.name=partial-database-ca-secret",
+      ],
+      [
+        "--set",
+        "postgresql.caBundle.enabled=true",
+        "--set",
+        "postgresql.caBundle.secretKeyRef.name=database-ca-secret",
+        "--set",
+        "postgresql.caBundle.secretKeyRef.key=ca.pem",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.key=partial-ca.pem",
+      ],
+      [
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.name=database-ca",
+        "--set",
+        "postgresql.caBundle.configMapKeyRef.key=ca.pem",
+      ],
+    ];
+
+    for (const args of invalidArgs) {
+      const result = helmTemplateResult(args);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/postgresql(?:\.|\/)caBundle/);
+    }
+  });
+
   test("uses existing Kubernetes Secrets without creating provider-specific secret resources", () => {
     const rendered = helmTemplate([
       "--values",
@@ -126,7 +233,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.2.8");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.2.9");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");

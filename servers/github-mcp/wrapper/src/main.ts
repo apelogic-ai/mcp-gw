@@ -13,7 +13,10 @@ import {
   startGithubOAuth,
   type GitHubOAuthConfig,
 } from "../../../../shared/oauth/github";
-import { createPostgresQueryClient } from "../../../../shared/oauth/postgres-client";
+import {
+  createPostgresPoolConfig,
+  createPostgresQueryClient,
+} from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
 import {
   CompositePolicy,
@@ -31,6 +34,7 @@ import { createGithubMcpProxyHandler } from "./proxy";
 export interface MainConfig {
   port: number;
   tokenStoreDsn: string;
+  postgresCaBundlePath?: string;
   upstreamUrl: string;
   githubOAuth: GitHubOAuthConfig;
   githubScopes: string[];
@@ -56,6 +60,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
   return {
     port: Number(env.PORT ?? "8080"),
     tokenStoreDsn: requiredEnv(env, "TOKEN_STORE_DSN"),
+    postgresCaBundlePath: optionalEnv(env, "POSTGRES_CA_BUNDLE_PATH"),
     upstreamUrl: env.GITHUB_MCP_UPSTREAM_URL ?? DEFAULT_UPSTREAM_URL,
     githubOAuth: {
       clientId: requiredEnv(env, "GITHUB_OAUTH_CLIENT_ID"),
@@ -90,9 +95,9 @@ function optionalEnv(env: Record<string, string | undefined>, name: string): str
 }
 
 export function createMainHandler(config: MainConfig): (request: Request) => Promise<Response> {
-  const pool = new Pool({
-    connectionString: config.tokenStoreDsn,
-  });
+  const pool = new Pool(
+    createPostgresPoolConfig(config.tokenStoreDsn, config.postgresCaBundlePath),
+  );
   const queryClient = createPostgresQueryClient(pool);
   const tokenStore = new SqlOAuthTokenStore(queryClient);
   const stateStore = new SqlOAuthStateStore(queryClient);

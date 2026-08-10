@@ -67,4 +67,28 @@ Secret key containing `TOKEN_STORE_DSN`; include `sslmode=require` (or the
 stricter mode required by the database operator) when PostgreSQL requires TLS.
 The chart does not create database credentials or put a DSN in rendered values.
 
+When the database uses a private or operator-managed CA, configure the shared
+`postgresql.caBundle` contract with exactly one existing `ConfigMap` or `Secret`
+key. The chart projects that key read-only into the migration job and both OAuth
+provider wrappers. Each process passes the bundle explicitly to `pg` with
+certificate verification enabled; connection-string TLS options cannot weaken
+that setting. For example:
+
+```yaml
+postgresql:
+  caBundle:
+    enabled: true
+    configMapKeyRef:
+      name: postgresql-root-ca
+      key: ca.pem
+    secretKeyRef:
+      name: ""
+      key: ""
+```
+
+Use `secretKeyRef` instead when the operator publishes the CA as a Secret. The
+chart fails rendering for partial references, both reference types together, or
+a reference configured while `enabled` is false. The chart never creates or
+embeds CA material.
+
 The public chart and examples contain only generic public coordinates and placeholder values.
