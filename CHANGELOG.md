@@ -12,6 +12,8 @@ human-maintained compatibility summary.
 
 ### Security
 
+- Override the official GitHub MCP server image's root OCI user with an explicit non-root UID and
+  GID, and verify the workload starts under that security context in Kubernetes CI.
 - Bind GitHub OAuth callbacks to the authenticated HOP-1 corporate email, reject mismatches without
   persisting credentials, attempt narrow revocation of mismatched tokens, consume SQL-backed OAuth
   state atomically, and fail wrapper startup when required GitHub OAuth configuration is absent.

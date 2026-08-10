@@ -139,6 +139,17 @@ describe("Kubernetes production chart", () => {
       'value: "default,actions,code_security,discussions,notifications,orgs,projects"',
     );
     expect(rendered).toContain("app.kubernetes.io/component: github-wrapper");
+
+    const githubMcpDeployment = rendered
+      .split("---")
+      .find(
+        (document) =>
+          document.includes("kind: Deployment") &&
+          document.includes("name: mcp-gateway-github-mcp"),
+      );
+    expect(githubMcpDeployment).toBeDefined();
+    expect(githubMcpDeployment).toMatch(/name: github-mcp[\s\S]*runAsUser: 10001/);
+    expect(githubMcpDeployment).toMatch(/name: github-mcp[\s\S]*runAsGroup: 10001/);
   });
 
   test("renders the opt-in full provider bundle production profile", () => {
