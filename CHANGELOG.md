@@ -8,6 +8,8 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-09
+
 ### Security
 
 - Bind GitHub OAuth callbacks to the authenticated HOP-1 corporate email, reject mismatches without
@@ -160,7 +162,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.4...v0.2.5
