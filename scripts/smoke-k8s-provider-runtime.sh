@@ -21,6 +21,7 @@ diagnose() {
   kubectl get events --namespace "$NAMESPACE" --sort-by=.lastTimestamp >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-google-workspace" --namespace "$NAMESPACE" --tail=200 >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --tail=200 >&2 || true
+  kubectl logs "deployment/$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" --tail=200 >&2 || true
   kubectl logs --namespace "$NAMESPACE" -l app.kubernetes.io/component=oauth-migrations --tail=200 >&2 || true
 }
 
@@ -113,6 +114,10 @@ kubectl rollout status \
   "deployment/$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+kubectl rollout status \
+  "deployment/$RELEASE_NAME-github-mcp" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
 
 MIGRATION_COUNT="$(kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
   psql -U postgres -tAc 'SELECT count(*) FROM oauth_schema_migrations')"
@@ -122,5 +127,14 @@ GOOGLE_UID="$(kubectl exec "deployment/$RELEASE_NAME-google-workspace" --namespa
 GITHUB_UID="$(kubectl exec "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" -- id -u)"
 [[ "$GOOGLE_UID" == "10001" ]]
 [[ "$GITHUB_UID" == "10001" ]]
+
+GITHUB_MCP_UID="$(kubectl get deployment "$RELEASE_NAME-github-mcp" \
+  --namespace "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].securityContext.runAsUser}')"
+GITHUB_MCP_GID="$(kubectl get deployment "$RELEASE_NAME-github-mcp" \
+  --namespace "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].securityContext.runAsGroup}')"
+[[ "$GITHUB_MCP_UID" == "10001" ]]
+[[ "$GITHUB_MCP_GID" == "10001" ]]
 
 echo "Provider runtime Kubernetes smoke passed."

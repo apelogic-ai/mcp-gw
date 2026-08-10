@@ -106,10 +106,12 @@ jobs:
       - name: Load agentgateway candidate into Kubernetes
         run: kind load docker-image mcp-gw-agentgateway:smoke --name mcp-gateway-smoke
 
-      - name: Load provider wrapper candidates into Kubernetes
+      - name: Load provider candidates into Kubernetes
         run: |
+          docker pull ghcr.io/github/github-mcp-server:v1.6.0
           kind load docker-image mcp-gw-google-workspace:smoke --name mcp-gateway-smoke
           kind load docker-image mcp-gw-github-wrapper:smoke --name mcp-gateway-smoke
+          kind load docker-image ghcr.io/github/github-mcp-server:v1.6.0 --name mcp-gateway-smoke
 
       - name: Run Kubernetes smoke
         run: bun run integration:k8s

@@ -25,3 +25,6 @@ githubWrapper:
   enabled: true
   secretRef:
     name: provider-runtime
+
+githubMcp:
+  enabled: true
