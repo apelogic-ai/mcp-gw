@@ -174,7 +174,7 @@ describe("Kubernetes production chart", () => {
     for (const args of invalidArgs) {
       const result = helmTemplateResult(args);
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr.toString()).toMatch(/postgresql\.caBundle/);
+      expect(result.stderr.toString()).toMatch(/postgresql(?:\.|\/)caBundle/);
     }
   });
 
