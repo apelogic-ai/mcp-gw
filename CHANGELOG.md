@@ -8,6 +8,13 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-08-10
+
+### Fixed
+
+- Support operator-owned PostgreSQL CA bundles across OAuth migrations and provider wrappers while
+  preserving strict certificate and hostname verification.
+
 ## [0.2.8] - 2026-08-09
 
 ### Security
@@ -164,7 +171,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.5...v0.2.6

@@ -38,8 +38,10 @@
 {{- $configMapComplete := and $ca.configMapKeyRef.name $ca.configMapKeyRef.key }}
 {{- $secretAny := or $ca.secretKeyRef.name $ca.secretKeyRef.key }}
 {{- $secretComplete := and $ca.secretKeyRef.name $ca.secretKeyRef.key }}
+{{- $configMapOnly := and $configMapComplete (not $secretAny) }}
+{{- $secretOnly := and $secretComplete (not $configMapAny) }}
 {{- if $ca.enabled }}
-{{- if eq $configMapComplete $secretComplete }}
+{{- if not (or $configMapOnly $secretOnly) }}
 {{- fail "postgresql.caBundle requires exactly one complete configMapKeyRef or secretKeyRef when enabled" }}
 {{- end }}
 {{- if not $ca.mountPath }}

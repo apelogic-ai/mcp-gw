@@ -129,7 +129,7 @@ readinessProbe:
   projected:
     defaultMode: 0444
     sources:
-      {{- if .Values.postgresql.caBundle.configMapKeyRef.name }}
+      {{- if and .Values.postgresql.caBundle.configMapKeyRef.name .Values.postgresql.caBundle.configMapKeyRef.key }}
       - configMap:
           name: {{ .Values.postgresql.caBundle.configMapKeyRef.name }}
           items:

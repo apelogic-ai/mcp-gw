@@ -148,6 +148,36 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["enabled", "mountPath", "configMapKeyRef", "secretKeyRef"],
+      "allOf": [
+        {
+          "if": {
+            "required": ["enabled"],
+            "properties": { "enabled": { "const": true } }
+          },
+          "then": {
+            "oneOf": [
+              {
+                "properties": {
+                  "configMapKeyRef": { "$ref": "#/$defs/secretKeyRef" },
+                  "secretKeyRef": { "$ref": "#/$defs/emptyKeyRef" }
+                }
+              },
+              {
+                "properties": {
+                  "configMapKeyRef": { "$ref": "#/$defs/emptyKeyRef" },
+                  "secretKeyRef": { "$ref": "#/$defs/secretKeyRef" }
+                }
+              }
+            ]
+          },
+          "else": {
+            "properties": {
+              "configMapKeyRef": { "$ref": "#/$defs/emptyKeyRef" },
+              "secretKeyRef": { "$ref": "#/$defs/emptyKeyRef" }
+            }
+          }
+        }
+      ],
       "properties": {
         "enabled": { "type": "boolean" },
         "mountPath": { "type": "string", "pattern": "^/.*[^/]$" },
@@ -169,6 +199,15 @@
             "key": { "type": "string" }
           }
         }
+      }
+    },
+    "emptyKeyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 0 },
+        "key": { "type": "string", "maxLength": 0 }
       }
     },
     "issuer": {
