@@ -84,6 +84,13 @@ agentgateway:
   podAnnotations: {}
   podSecurityContext:
     runAsNonRoot: true
+    # The released agentgateway image runs as Chainguard's nonroot user. Keep
+    # the projected introspection credential group-readable only by that same
+    # runtime identity; Kubernetes applies fsGroup ownership to the volume.
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
   securityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: true

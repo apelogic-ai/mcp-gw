@@ -154,7 +154,7 @@ spec:
       {{- if $introspectionIssuers }}
         - name: hop1-introspection
           projected:
-            defaultMode: 0400
+            defaultMode: 0440
             sources:
           {{- range $entry := $introspectionIssuers }}
               - secret:

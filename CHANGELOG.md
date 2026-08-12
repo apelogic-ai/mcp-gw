@@ -14,6 +14,8 @@ human-maintained compatibility summary.
 
 - Support operator-owned PostgreSQL CA bundles across OAuth migrations and provider wrappers while
   preserving strict certificate and hostname verification.
+- Make projected HOP-1 introspection credentials group-readable only by agentgateway's explicit
+  non-root runtime identity, preventing permission-denied authentication failures in Kubernetes.
 
 ## [0.2.8] - 2026-08-09
 
