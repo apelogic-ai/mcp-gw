@@ -360,7 +360,6 @@ describe("Kubernetes production chart", () => {
       "--values",
       "deploy/k8s/examples/values-enterprise-contract.example.yaml",
     ]);
-
     expect(rendered).toContain(
       "image: ghcr.io/example/agentgateway@sha256:1111111111111111111111111111111111111111111111111111111111111111",
     );
@@ -384,6 +383,7 @@ describe("Kubernetes production chart", () => {
       "--values",
       "deploy/k8s/examples/values-enterprise-contract.example.yaml",
     ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-agentgateway");
 
     expect(rendered).toContain("issuer: https://identity.example.com");
     expect(rendered).toContain("issuer: https://automation.example.com");
@@ -394,9 +394,19 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain(
       "credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-1",
     );
-    expect(rendered).toContain("name: hop1-introspection");
-    expect(rendered).toContain("mountPath: /var/run/secrets/mcp-gateway/introspection");
-    expect(rendered).toContain("path: issuer-1");
+    expect(deployment).toContain("name: hop1-introspection");
+    expect(deployment).toContain("mountPath: /var/run/secrets/mcp-gateway/introspection");
+    expect(deployment).toContain("readOnly: true");
+    expect(deployment).toContain("runAsNonRoot: true");
+    expect(deployment).toContain("runAsUser: 65532");
+    expect(deployment).toContain("runAsGroup: 65532");
+    expect(deployment).toContain("fsGroup: 65532");
+    expect(deployment).toContain("fsGroupChangePolicy: OnRootMismatch");
+    expect(deployment).toContain("allowPrivilegeEscalation: false");
+    expect(deployment).toContain("readOnlyRootFilesystem: true");
+    expect(deployment).toContain("defaultMode: 0440");
+    expect(deployment).not.toContain("defaultMode: 0444");
+    expect(deployment).toContain("path: issuer-1");
     expect(rendered).toContain("HOP1_ISSUERS_JSON");
     expect(rendered).toContain("introspectionClientCredentialEnv");
     expect(rendered).toContain("HOP1_INTROSPECTION_CREDENTIAL_1");
@@ -543,6 +553,18 @@ function helmTemplateResult(extraArgs: string[] = []): Bun.SyncSubprocess<"pipe"
     stdout: "pipe",
     stderr: "pipe",
   });
+}
+
+function renderedResource(rendered: string, kind: string, name: string): string {
+  const resource = rendered
+    .split(/^---$/m)
+    .find(
+      (document) =>
+        document.includes(`kind: ${kind}\n`) && document.includes(`\n  name: ${name}\n`),
+    );
+
+  expect(resource).toBeDefined();
+  return resource!;
 }
 
 async function readExample(fileName: string): Promise<string> {
