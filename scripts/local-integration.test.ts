@@ -139,7 +139,10 @@ describe("local Docker integration smoke", () => {
     expect(client).toContain("google_oauth_start");
     expect(client).toContain("github_oauth_start");
     expect(client).toContain("google_drive_files_list");
-    expect(client).toContain("github_list_pull_requests");
+    expect(client).toContain("get_file_contents");
+    expect(client).toContain("resources/templates/list");
+    expect(client).toContain("resources/list");
+    expect(client).toContain("assertGithubGrantStatus");
     expect(client).toContain("assertNoProviderCredentials");
     expect(smoke).toContain("assert_logs_do_not_contain_credentials");
   });
