@@ -522,6 +522,180 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(fetched).toBe(false);
   });
 
+  test("does not synthesize empty resources for malformed JSON-RPC envelopes or transport", async () => {
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const malformedRequests: {
+      body: unknown;
+      contentType?: string;
+      omitContentType?: boolean;
+      rawBody?: string;
+    }[] = [
+      { body: { id: 20, method: "resources/list" } },
+      { body: { jsonrpc: "1.0", id: 21, method: "resources/list" } },
+      { body: { jsonrpc: 2, id: 22, method: "resources/list" } },
+      { body: { jsonrpc: "2.0", method: "resources/list" } },
+      { body: { jsonrpc: "2.0", id: null, method: "resources/list" } },
+      { body: { jsonrpc: "2.0", id: true, method: "resources/list" } },
+      { body: { jsonrpc: "2.0", id: { nested: true }, method: "resources/list" } },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 23,
+          method: "resources/templates/list",
+          params: { _meta: "invalid" },
+        },
+      },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 24,
+          method: "resources/list",
+          params: { _meta: null },
+        },
+      },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 25,
+          method: "resources/list",
+          params: { _meta: [] },
+        },
+      },
+      { body: { jsonrpc: "2.0", id: 26, method: "resources/list", params: null } },
+      { body: { jsonrpc: "2.0", id: 27, method: "resources/list", params: [] } },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 28,
+          method: "resources/templates/list",
+          params: { cursor: false },
+        },
+      },
+      { body: [{ jsonrpc: "2.0", id: 29, method: "resources/list" }] },
+      { body: "not-an-object" },
+      { body: null, rawBody: "{" },
+      {
+        body: { jsonrpc: "2.0", id: 30, method: "resources/list" },
+        contentType: "text/plain",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 31, method: "resources/list" },
+        contentType: "application/json-patch+json",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 32, method: "resources/list" },
+        contentType: "",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 33, method: "resources/list" },
+        contentType: "   ",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 34, method: "resources/list" },
+        omitContentType: true,
+      },
+    ];
+
+    for (const requestCase of malformedRequests) {
+      const headers = new Headers({
+        authorization: "Bearer hop1-token",
+        "mcp-protocol-version": "2025-06-18",
+      });
+      if (requestCase.contentType !== undefined) {
+        headers.set("content-type", requestCase.contentType);
+      } else if (!requestCase.omitContentType) {
+        headers.set("content-type", "application/json");
+      }
+
+      const serializedBody = requestCase.rawBody ?? JSON.stringify(requestCase.body);
+      const requestBody = requestCase.omitContentType
+        ? new TextEncoder().encode(serializedBody)
+        : serializedBody;
+
+      const response = await handler(
+        new Request("http://wrapper/mcp", {
+          method: "POST",
+          headers,
+          body: requestBody,
+        }),
+      );
+      expect(response.status).not.toBe(200);
+      const responseBody = await response.text();
+      if (responseBody) {
+        const responsePayload = JSON.parse(responseBody) as unknown;
+        expect(responsePayload).not.toMatchObject({
+          result: { resources: [] },
+        });
+        expect(responsePayload).not.toMatchObject({
+          result: { resourceTemplates: [] },
+        });
+      }
+    }
+    expect(fetched).toBe(false);
+  });
+
+  test("accepts complete JSON-RPC resource discovery with JSON media-type parameters", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "Application/JSON; charset=utf-8",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "resources-with-meta",
+          method: "resources/list",
+          params: { cursor: "next", _meta: { progressToken: "progress-1" } },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "resources-with-meta",
+      result: { resources: [] },
+    });
+  });
+
+  test("does not synthesize empty resources for an ambiguous content type", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+    });
+    const headers = new Headers({ authorization: "Bearer hop1-token" });
+    headers.append("content-type", "application/json");
+    headers.append("content-type", "text/plain");
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 35, method: "resources/list" }),
+      }),
+    );
+
+    expect(response.status).not.toBe(200);
+  });
+
   test("forwards Codex resource discovery and fixed tool calls with an exact GitHub grant", async () => {
     const upstreamMethods: string[] = [];
     const handler = createGithubMcpProxyHandler({
