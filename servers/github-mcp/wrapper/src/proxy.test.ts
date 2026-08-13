@@ -342,6 +342,439 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(fetched).toBe(false);
   });
 
+  test("keeps Codex resource discovery protocol-valid without a matching GitHub grant", async () => {
+    const upstreamMethods: string[] = [];
+    const policyInputs: ToolPolicyInput[] = [];
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+      getOAuthStatus: () =>
+        Promise.resolve({
+          connected: false,
+          scopesRequired: ["user:email"],
+          scopesGranted: [],
+          missingScopes: ["user:email"],
+        }),
+      githubScopes: ["user:email"],
+      policy: {
+        decide: (input) => {
+          policyInputs.push(input);
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      fetch: async (request) => {
+        const payload = (await request.json()) as { method?: string };
+        if (payload.method) upstreamMethods.push(payload.method);
+        return Response.json({ jsonrpc: "2.0", id: null, result: {} });
+      },
+    });
+
+    const initialize = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {} },
+    });
+    expect(initialize.status).toBe(200);
+
+    const initialized = await rpc(handler, {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+    expect(initialized.status).toBe(202);
+
+    const tools = await rpc(handler, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const toolNames = (
+      (await tools.json()) as { result: { tools: { name: string }[] } }
+    ).result.tools.map((tool) => tool.name);
+    expect(toolNames).toEqual(["github_oauth_status", "github_oauth_start"]);
+
+    const templates = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "templates",
+      method: "resources/templates/list",
+    });
+    expect(templates.status).toBe(200);
+    expect(await templates.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "templates",
+      result: { resourceTemplates: [] },
+    });
+
+    const resources = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "resources/list",
+    });
+    expect(resources.status).toBe(200);
+    expect(await resources.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 4,
+      result: { resources: [] },
+    });
+
+    const fixedCall = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+      },
+    });
+    expect(fixedCall.status).toBe(401);
+    expect(await fixedCall.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "Unauthorized: GitHub account is not connected" },
+    });
+
+    const diagnostic = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: 6,
+      method: "tools/call",
+      params: { name: "github_oauth_status", arguments: {} },
+    });
+    expect(await diagnostic.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 6,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              connected: false,
+              scopesRequired: ["user:email"],
+              scopesGranted: [],
+              missingScopes: ["user:email"],
+            }),
+          },
+        ],
+      },
+    });
+    expect(policyInputs.map((input) => input.tool)).toEqual(["get_file_contents"]);
+    expect(upstreamMethods).toEqual([]);
+  });
+
+  test("keeps resource discovery protocol-valid when the exact GitHub grant requires reauth", async () => {
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () =>
+        Promise.reject(new GitHubOAuthError("GitHub grant expired", "reauth_required")),
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const templates = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "resources/templates/list",
+    });
+    expect(await templates.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 7,
+      result: { resourceTemplates: [] },
+    });
+
+    const resources = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: 8,
+      method: "resources/list",
+    });
+    expect(await resources.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 8,
+      result: { resources: [] },
+    });
+    expect(fetched).toBe(false);
+  });
+
+  test("does not turn malformed or non-discovery resource requests into empty results", async () => {
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    for (const payload of [
+      { jsonrpc: "2.0", id: 9, method: "resources/list", params: "invalid" },
+      { jsonrpc: "2.0", id: 10, method: "resources/templates/list", params: { cursor: 7 } },
+      { jsonrpc: "2.0", id: 11, method: "resources/read", params: { uri: "repo://x/y" } },
+    ]) {
+      const response = await rpc(handler, payload);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32001, message: "Unauthorized: GitHub account is not connected" },
+      });
+    }
+    expect(fetched).toBe(false);
+  });
+
+  test("does not synthesize empty resources for malformed JSON-RPC envelopes or transport", async () => {
+    let fetched = false;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+      fetch: () => {
+        fetched = true;
+        return Promise.resolve(new Response("{}"));
+      },
+    });
+
+    const malformedRequests: {
+      body: unknown;
+      contentType?: string;
+      omitContentType?: boolean;
+      rawBody?: string;
+    }[] = [
+      { body: { id: 20, method: "resources/list" } },
+      { body: { jsonrpc: "1.0", id: 21, method: "resources/list" } },
+      { body: { jsonrpc: 2, id: 22, method: "resources/list" } },
+      { body: { jsonrpc: "2.0", method: "resources/list" } },
+      { body: { jsonrpc: "2.0", id: null, method: "resources/list" } },
+      { body: { jsonrpc: "2.0", id: true, method: "resources/list" } },
+      { body: { jsonrpc: "2.0", id: { nested: true }, method: "resources/list" } },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 23,
+          method: "resources/templates/list",
+          params: { _meta: "invalid" },
+        },
+      },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 24,
+          method: "resources/list",
+          params: { _meta: null },
+        },
+      },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 25,
+          method: "resources/list",
+          params: { _meta: [] },
+        },
+      },
+      { body: { jsonrpc: "2.0", id: 26, method: "resources/list", params: null } },
+      { body: { jsonrpc: "2.0", id: 27, method: "resources/list", params: [] } },
+      {
+        body: {
+          jsonrpc: "2.0",
+          id: 28,
+          method: "resources/templates/list",
+          params: { cursor: false },
+        },
+      },
+      { body: [{ jsonrpc: "2.0", id: 29, method: "resources/list" }] },
+      { body: "not-an-object" },
+      { body: null, rawBody: "{" },
+      {
+        body: { jsonrpc: "2.0", id: 30, method: "resources/list" },
+        contentType: "text/plain",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 31, method: "resources/list" },
+        contentType: "application/json-patch+json",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 32, method: "resources/list" },
+        contentType: "",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 33, method: "resources/list" },
+        contentType: "   ",
+      },
+      {
+        body: { jsonrpc: "2.0", id: 34, method: "resources/list" },
+        omitContentType: true,
+      },
+    ];
+
+    for (const requestCase of malformedRequests) {
+      const headers = new Headers({
+        authorization: "Bearer hop1-token",
+        "mcp-protocol-version": "2025-06-18",
+      });
+      if (requestCase.contentType !== undefined) {
+        headers.set("content-type", requestCase.contentType);
+      } else if (!requestCase.omitContentType) {
+        headers.set("content-type", "application/json");
+      }
+
+      const serializedBody = requestCase.rawBody ?? JSON.stringify(requestCase.body);
+      const requestBody = requestCase.omitContentType
+        ? new TextEncoder().encode(serializedBody)
+        : serializedBody;
+
+      const response = await handler(
+        new Request("http://wrapper/mcp", {
+          method: "POST",
+          headers,
+          body: requestBody,
+        }),
+      );
+      expect(response.status).not.toBe(200);
+      const responseBody = await response.text();
+      if (responseBody) {
+        const responsePayload = JSON.parse(responseBody) as unknown;
+        expect(responsePayload).not.toMatchObject({
+          result: { resources: [] },
+        });
+        expect(responsePayload).not.toMatchObject({
+          result: { resourceTemplates: [] },
+        });
+      }
+    }
+    expect(fetched).toBe(false);
+  });
+
+  test("accepts complete JSON-RPC resource discovery with JSON media-type parameters", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer hop1-token",
+          "content-type": "Application/JSON; charset=utf-8",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "resources-with-meta",
+          method: "resources/list",
+          params: { cursor: "next", _meta: { progressToken: "progress-1" } },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "resources-with-meta",
+      result: { resources: [] },
+    });
+  });
+
+  test("does not synthesize empty resources for an ambiguous content type", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve(undefined),
+    });
+    const headers = new Headers({ authorization: "Bearer hop1-token" });
+    headers.append("content-type", "application/json");
+    headers.append("content-type", "text/plain");
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 35, method: "resources/list" }),
+      }),
+    );
+
+    expect(response.status).not.toBe(200);
+  });
+
+  test("forwards Codex resource discovery and fixed tool calls with an exact GitHub grant", async () => {
+    const upstreamMethods: string[] = [];
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("gho_user_token"),
+      fetch: async (request) => {
+        expect(request.headers.get("authorization")).toBe("Bearer gho_user_token");
+        const payload = (await request.json()) as { id: number; method: string };
+        upstreamMethods.push(payload.method);
+        if (payload.method === "tools/list") {
+          return Response.json({
+            jsonrpc: "2.0",
+            id: payload.id,
+            result: { tools: [{ name: "get_file_contents", inputSchema: { type: "object" } }] },
+          });
+        }
+        if (payload.method === "resources/templates/list") {
+          return Response.json({
+            jsonrpc: "2.0",
+            id: payload.id,
+            result: { resourceTemplates: [] },
+          });
+        }
+        if (payload.method === "resources/list") {
+          return Response.json({ jsonrpc: "2.0", id: payload.id, result: { resources: [] } });
+        }
+        return Response.json({
+          jsonrpc: "2.0",
+          id: payload.id,
+          result: { content: [{ type: "text", text: "fixture contents" }] },
+        });
+      },
+    });
+
+    expect(
+      (
+        (await (await rpc(handler, { jsonrpc: "2.0", id: 11, method: "tools/list" })).json()) as {
+          result: { tools: { name: string }[] };
+        }
+      ).result.tools.map((tool) => tool.name),
+    ).toEqual(["github_oauth_status", "github_oauth_start", "get_file_contents"]);
+    expect(
+      await (
+        await rpc(handler, {
+          jsonrpc: "2.0",
+          id: 12,
+          method: "resources/templates/list",
+        })
+      ).json(),
+    ).toEqual({ jsonrpc: "2.0", id: 12, result: { resourceTemplates: [] } });
+    expect(
+      await (await rpc(handler, { jsonrpc: "2.0", id: 13, method: "resources/list" })).json(),
+    ).toEqual({ jsonrpc: "2.0", id: 13, result: { resources: [] } });
+    expect(
+      await (
+        await rpc(handler, {
+          jsonrpc: "2.0",
+          id: 14,
+          method: "tools/call",
+          params: {
+            name: "get_file_contents",
+            arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+          },
+        })
+      ).json(),
+    ).toEqual({
+      jsonrpc: "2.0",
+      id: 14,
+      result: { content: [{ type: "text", text: "fixture contents" }] },
+    });
+    expect(upstreamMethods).toEqual([
+      "tools/list",
+      "resources/templates/list",
+      "resources/list",
+      "tools/call",
+    ]);
+  });
+
   test("prepends GitHub OAuth helper tools to connected upstream tool lists", async () => {
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
@@ -715,3 +1148,20 @@ describe("GitHub MCP proxy wrapper", () => {
     });
   });
 });
+
+function rpc(
+  handler: (request: Request) => Promise<Response>,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  return handler(
+    new Request("http://wrapper/mcp", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer hop1-token",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+      },
+      body: JSON.stringify(payload),
+    }),
+  );
+}

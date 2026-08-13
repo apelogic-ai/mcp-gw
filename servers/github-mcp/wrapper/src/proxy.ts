@@ -124,6 +124,23 @@ export function createGithubMcpProxyHandler(
       return handleToolsList(request, body, identity, method.id, options, fetchImpl);
     }
 
+    let resourceDiscoveryToken: string | undefined;
+    if (
+      method &&
+      isResourceDiscoveryMethod(method.method) &&
+      isValidResourceDiscoveryRequest(request, body)
+    ) {
+      resourceDiscoveryToken = await resolveGithubTokenOrUndefined(options, identity);
+      if (!resourceDiscoveryToken) {
+        return mcpResult(
+          method.id,
+          method.method === "resources/templates/list"
+            ? { resourceTemplates: [] }
+            : { resources: [] },
+        );
+      }
+    }
+
     const toolCall = parseToolCall(body, options.aliases ?? {});
     if (toolCall && toolCall.toolName !== "github_oauth_status") {
       const decision = await policy.decide({
@@ -146,7 +163,8 @@ export function createGithubMcpProxyHandler(
       return localTool;
     }
 
-    const githubToken = await resolveGithubTokenOrUndefined(options, identity);
+    const githubToken =
+      resourceDiscoveryToken ?? (await resolveGithubTokenOrUndefined(options, identity));
     if (!githubToken) {
       return unauthorized("GitHub account is not connected");
     }
@@ -197,6 +215,51 @@ export function createGithubMcpProxyHandler(
       return mcpError(toolCall?.id ?? null, -32000, "GitHub MCP upstream request failed");
     }
   };
+}
+
+function isResourceDiscoveryMethod(method: string): boolean {
+  return method === "resources/list" || method === "resources/templates/list";
+}
+
+function isValidResourceDiscoveryRequest(request: Request, body: string): boolean {
+  if (request.method !== "POST" || !hasJsonContentType(request)) {
+    return false;
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    return false;
+  }
+
+  if (
+    !isRecord(payload) ||
+    payload.jsonrpc !== "2.0" ||
+    !Object.prototype.hasOwnProperty.call(payload, "id") ||
+    (typeof payload.id !== "string" &&
+      (typeof payload.id !== "number" || !Number.isFinite(payload.id))) ||
+    typeof payload.method !== "string" ||
+    !isResourceDiscoveryMethod(payload.method)
+  ) {
+    return false;
+  }
+
+  if (!("params" in payload)) {
+    return true;
+  }
+  if (!isRecord(payload.params)) {
+    return false;
+  }
+  if ("cursor" in payload.params && typeof payload.params.cursor !== "string") {
+    return false;
+  }
+  return !("_meta" in payload.params) || isRecord(payload.params._meta);
+}
+
+function hasJsonContentType(request: Request): boolean {
+  const value = request.headers.get("content-type");
+  return value?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
 async function handleToolsList(

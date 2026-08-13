@@ -80,6 +80,15 @@ The wrapper applies policy and audit to `tools/call` before resolving the
 user's GitHub token. Alias mappings rewrite compatibility tool names to the
 official upstream tool name before policy and forwarding.
 
+The wrapper advertises a tools-only MCP capability. Some clients nevertheless
+probe `resources/templates/list` and `resources/list` during startup. While a
+user has no matching GitHub grant (or the exact grant requires reauthorization),
+the wrapper returns protocol-valid empty lists for those two discovery methods.
+It still exposes only the local OAuth helpers from `tools/list`, and every
+provider tool call remains fail-closed with an authorization error. With a valid
+grant, resource discovery is forwarded unchanged so deployments that enable
+upstream GitHub resource toolsets retain those resources.
+
 ## GitHub OAuth
 
 For the generic external control-plane contract, see

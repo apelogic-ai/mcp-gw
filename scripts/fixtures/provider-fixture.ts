@@ -80,23 +80,38 @@ Bun.serve({
           return rpcResult(id, {
             tools: [
               {
-                name: "github_list_pull_requests",
-                description: "List fixture pull requests without external side effects.",
-                inputSchema: { type: "object", properties: {}, additionalProperties: false },
+                name: "get_file_contents",
+                description: "Read fixture repository contents without external side effects.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    owner: { type: "string" },
+                    repo: { type: "string" },
+                    path: { type: "string" },
+                  },
+                  required: ["owner", "repo", "path"],
+                  additionalProperties: false,
+                },
               },
             ],
           });
         }
+        if (payload.method === "resources/templates/list") {
+          return rpcResult(id, { resourceTemplates: [] });
+        }
+        if (payload.method === "resources/list") {
+          return rpcResult(id, { resources: [] });
+        }
         if (
           payload.method === "tools/call" &&
           isRecord(payload.params) &&
-          payload.params.name === "github_list_pull_requests"
+          payload.params.name === "get_file_contents"
         ) {
           return rpcResult(id, {
             content: [
               {
                 type: "text",
-                text: JSON.stringify([{ number: 7, title: "Fixture pull request" }]),
+                text: "Fixture repository contents",
               },
             ],
           });

@@ -19,7 +19,9 @@ const initial = await createSession();
 const initialTools = await listTools(initial.sessionId);
 assertHasTools(initialTools, ["google_oauth_status", "google_oauth_start"]);
 assertHasTools(initialTools, ["github_oauth_status", "github_oauth_start"]);
-assertLacksTools(initialTools, ["google_drive_files_list", "github_list_pull_requests"]);
+assertLacksTools(initialTools, ["google_drive_files_list", "get_file_contents"]);
+await assertGithubGrantStatus(initial.sessionId, false);
+await assertEmptyResourceDiscovery(initial.sessionId);
 
 const googleAuthorizationUrl = await startOAuth(initial.sessionId, "google_oauth_start");
 const githubAuthorizationUrl = await startOAuth(initial.sessionId, "github_oauth_start");
@@ -28,12 +30,18 @@ await completeOAuth(args.githubCallbackUrl, githubAuthorizationUrl);
 
 const connected = await createSession();
 const connectedTools = await listTools(connected.sessionId);
-assertHasTools(connectedTools, ["google_drive_files_list", "github_list_pull_requests"]);
+assertHasTools(connectedTools, ["google_drive_files_list", "get_file_contents"]);
+await assertGithubGrantStatus(connected.sessionId, true);
+await assertEmptyResourceDiscovery(connected.sessionId);
 
 const googleResult = await callTool(connected.sessionId, "google_drive_files_list", {});
-const githubResult = await callTool(connected.sessionId, "github_list_pull_requests", {});
+const githubResult = await callTool(connected.sessionId, "get_file_contents", {
+  owner: "apelogic-ai",
+  repo: "fixture",
+  path: "README.md",
+});
 assertResultContains(googleResult, "Fixture document");
-assertResultContains(githubResult, "Fixture pull request");
+assertResultContains(githubResult, "Fixture repository contents");
 assertNoProviderCredentials([googleResult, githubResult]);
 
 console.log("Full provider bundle integration passed.");
@@ -57,6 +65,13 @@ async function createSession(): Promise<{ sessionId: string }> {
     throw new Error("MCP initialize did not return mcp-session-id");
   }
   await decodeRpcResponse(response);
+  const initialized = await rpcRequest(
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    sessionId,
+  );
+  if (!initialized.ok) {
+    throw new Error(`MCP initialized notification failed (${String(initialized.status)})`);
+  }
   return { sessionId };
 }
 
@@ -92,6 +107,49 @@ async function startOAuth(sessionId: string, toolName: string): Promise<string> 
     throw new Error(`${toolName} returned no authorizationUrl`);
   }
   return result.authorizationUrl;
+}
+
+async function assertGithubGrantStatus(sessionId: string, connected: boolean): Promise<void> {
+  const payload = await callTool(sessionId, "github_oauth_status", {});
+  const content = payload.result?.content;
+  if (!Array.isArray(content)) {
+    throw new Error("github_oauth_status returned no content");
+  }
+  const text = content.find(
+    (item) => isRecord(item) && item.type === "text" && typeof item.text === "string",
+  );
+  if (!isRecord(text) || typeof text.text !== "string") {
+    throw new Error("github_oauth_status returned no text result");
+  }
+  const status = JSON.parse(text.text) as { connected?: unknown };
+  if (status.connected !== connected) {
+    throw new Error(`Expected GitHub connected=${String(connected)}`);
+  }
+}
+
+async function assertEmptyResourceDiscovery(sessionId: string): Promise<void> {
+  const templates = await decodeRpcResponse(
+    await rpcRequest(
+      { jsonrpc: "2.0", id: 20, method: "resources/templates/list", params: {} },
+      sessionId,
+    ),
+  );
+  if (!Array.isArray(templates.result?.resourceTemplates)) {
+    throw new Error("resources/templates/list did not return resourceTemplates");
+  }
+  if (templates.result.resourceTemplates.length !== 0) {
+    throw new Error("Expected no resource templates in the tools-only GitHub topology");
+  }
+
+  const resources = await decodeRpcResponse(
+    await rpcRequest({ jsonrpc: "2.0", id: 21, method: "resources/list", params: {} }, sessionId),
+  );
+  if (!Array.isArray(resources.result?.resources)) {
+    throw new Error("resources/list did not return resources");
+  }
+  if (resources.result.resources.length !== 0) {
+    throw new Error("Expected no resources in the tools-only GitHub topology");
+  }
 }
 
 async function completeOAuth(callbackBase: string, authorizationUrl: string): Promise<void> {
