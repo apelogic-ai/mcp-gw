@@ -113,6 +113,78 @@ describe("GitHub OAuth flow", () => {
     expect(stored?.encryptedRefreshToken).not.toBe("github-user-token");
   });
 
+  test("accepts a matching verified secondary email when the primary differs", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo", "user:email"],
+      config,
+      stateStore,
+    });
+
+    await completeGithubOAuth({
+      identity,
+      code: "oauth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({ access_token: "github-user-token", scope: "repo,user:email" })
+            : Response.json([
+                { email: "primary@example.net", primary: true, verified: true },
+                { email: "USER@example.com", primary: false, verified: true },
+              ]),
+        ),
+    });
+
+    const stored = await tokenStore.getAccount(identity.issuer, identity.subject, "github");
+    expect(stored?.email).toBe(identity.email);
+    expect(stored?.scopesGranted).toEqual(["repo", "user:email"]);
+  });
+
+  test("rejects a matching secondary email when it is unverified", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo", "user:email"],
+      config,
+      stateStore,
+    });
+    const seenRequests: string[] = [];
+
+    let error: unknown;
+    try {
+      await completeGithubOAuth({
+        identity,
+        code: "oauth-code",
+        state: started.state,
+        config,
+        stateStore,
+        tokenStore,
+        fetch: (url) => {
+          seenRequests.push(url);
+          return Promise.resolve(
+            url === config.tokenUrl
+              ? Response.json({ access_token: "github-user-token", scope: "repo,user:email" })
+              : Response.json([{ email: "user@example.com", primary: false, verified: false }]),
+          );
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(GitHubOAuthError);
+    expect((error as GitHubOAuthError).code).toBe("email_mismatch");
+    expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).toBeNull();
+    expect(seenRequests).toContain(config.tokenRevocationUrl);
+  });
+
   test("rejects a GitHub primary verified email that differs from HOP-1 and persists nothing", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
@@ -204,6 +276,49 @@ describe("GitHub OAuth flow", () => {
       "github",
     );
     expect(stored?.email).toBe(corporateIdentity.email);
+  });
+
+  test("rejects callback identities that differ from state issuer, subject, or email", async () => {
+    const mismatches: Hop1Identity[] = [
+      { ...identity, issuer: "https://other-issuer.example.com" },
+      { ...identity, subject: "other-subject" },
+      { ...identity, email: "other@example.com" },
+    ];
+
+    for (const mismatch of mismatches) {
+      const stateStore = new InMemoryOAuthStateStore();
+      const tokenStore = new InMemoryOAuthTokenStore();
+      const started = await startGithubOAuth({
+        identity,
+        scopes: ["repo", "user:email"],
+        config,
+        stateStore,
+      });
+      let providerCalled = false;
+      let error: unknown;
+
+      try {
+        await completeGithubOAuth({
+          identity: mismatch,
+          code: "oauth-code",
+          state: started.state,
+          config,
+          stateStore,
+          tokenStore,
+          fetch: () => {
+            providerCalled = true;
+            return Promise.reject(new Error("provider must not be called"));
+          },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error).toBeInstanceOf(GitHubOAuthError);
+      expect((error as GitHubOAuthError).code).toBe("email_mismatch");
+      expect(providerCalled).toBeFalse();
+      expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).toBeNull();
+    }
   });
 
   test("consumes OAuth state once even when the callback is replayed", async () => {

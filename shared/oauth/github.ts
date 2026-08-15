@@ -131,8 +131,11 @@ export async function completeGithubOAuth(
 
   const fetchImpl = options.fetch ?? fetch;
   const token = await exchangeCode(options, fetchImpl);
-  const email = await fetchPrimaryVerifiedEmail(options.config, token.accessToken, fetchImpl);
-  if (!emailsEqual(email, identity.email) || !emailsEqual(email, stateRecord.email)) {
+  const verifiedEmails = await fetchVerifiedEmails(options.config, token.accessToken, fetchImpl);
+  const hasMatchingVerifiedEmail = verifiedEmails.some(
+    (email) => emailsEqual(email, identity.email) && emailsEqual(email, stateRecord.email),
+  );
+  if (!hasMatchingVerifiedEmail) {
     await bestEffortRevokeAccessToken(options.config, token.accessToken, fetchImpl);
     throw new GitHubOAuthError(
       "GitHub account identity does not match authenticated user",
@@ -228,11 +231,11 @@ async function exchangeCode(
   };
 }
 
-async function fetchPrimaryVerifiedEmail(
+async function fetchVerifiedEmails(
   config: GitHubOAuthConfig,
   accessToken: string,
   fetchImpl: OAuthFetch,
-): Promise<string> {
+): Promise<string[]> {
   const response = await fetchImpl(config.userEmailsUrl ?? DEFAULT_GITHUB_USER_EMAILS_URL, {
     headers: {
       accept: "application/vnd.github+json",
@@ -245,12 +248,13 @@ async function fetchPrimaryVerifiedEmail(
     throw new GitHubOAuthError("GitHub email lookup failed", "userinfo_failed");
   }
 
-  const primary = body.find((email) => email.primary && email.verified && email.email);
-  if (!primary?.email) {
-    throw new GitHubOAuthError("GitHub primary verified email lookup failed", "userinfo_failed");
+  const verifiedEmails: string[] = [];
+  for (const entry of body) {
+    if (entry.verified === true && typeof entry.email === "string") {
+      verifiedEmails.push(entry.email);
+    }
   }
-
-  return primary.email;
+  return verifiedEmails;
 }
 
 async function bestEffortRevokeAccessToken(
@@ -287,7 +291,11 @@ function scopeStringToArray(scope: string | undefined): string[] {
 }
 
 function emailsEqual(left: string, right: string): boolean {
-  return left.toLowerCase() === right.toLowerCase();
+  return asciiLowercase(left) === asciiLowercase(right);
+}
+
+function asciiLowercase(value: string): string {
+  return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32));
 }
 
 function hasScopes(granted: string[], required: string[]): boolean {
