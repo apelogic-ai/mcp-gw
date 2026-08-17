@@ -356,7 +356,7 @@ async function handleLocalToolCall(
 
 function parseMethod(
   body: string,
-): { id: JsonRpcId; method: string; isNotification: boolean } | undefined {
+): { id: JsonRpcId; method: string; isNotification: boolean; requestName?: string } | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
@@ -368,10 +368,19 @@ function parseMethod(
     return undefined;
   }
 
+  const params = isRecord(payload.params) ? payload.params : undefined;
+  const requestName =
+    typeof params?.name === "string"
+      ? params.name
+      : typeof params?.uri === "string"
+        ? params.uri
+        : undefined;
+
   return {
     id: jsonRpcId(payload.id),
     method: payload.method,
     isNotification: !Object.prototype.hasOwnProperty.call(payload, "id"),
+    requestName,
   };
 }
 
@@ -468,9 +477,12 @@ function upstreamHeaders(request: Request, githubToken: string, body: string): H
   }
 
   headers.set("authorization", `Bearer ${githubToken}`);
-  const method = parseMethod(body)?.method;
-  if (method) {
-    headers.set("mcp-method", method);
+  const requestMetadata = parseMethod(body);
+  if (requestMetadata?.method) {
+    headers.set("mcp-method", requestMetadata.method);
+  }
+  if (requestMetadata?.requestName) {
+    headers.set("mcp-name", requestMetadata.requestName);
   }
   return headers;
 }
@@ -496,6 +508,7 @@ function withUpstreamProtocolMeta(request: Request, body: string): string {
         ...meta,
         "io.modelcontextprotocol/protocolVersion": request.headers.get("mcp-protocol-version") ?? "2025-06-18",
         "io.modelcontextprotocol/clientInfo": SERVER_INFO,
+        "io.modelcontextprotocol/clientCapabilities": {},
       },
     },
   });

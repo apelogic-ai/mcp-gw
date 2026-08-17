@@ -105,6 +105,7 @@ describe("GitHub MCP proxy wrapper", () => {
               name: "github-mcp-wrapper",
               version: "0.1.0",
             },
+            "io.modelcontextprotocol/clientCapabilities": {},
           },
         },
       }),
@@ -1159,9 +1160,11 @@ describe("GitHub MCP proxy wrapper", () => {
             name: "github-mcp-wrapper",
             version: "0.1.0",
           },
+          "io.modelcontextprotocol/clientCapabilities": {},
         },
       },
     });
+    expect(seenRequests[0]?.headers.get("mcp-name")).toBe("github_create_issue");
     expect(audit.events[0]?.status).toBe("allow");
     expect(audit.events[0]?.tool).toBe("github_create_issue");
     expect(typeof audit.events[0]?.resultSize).toBe("number");
