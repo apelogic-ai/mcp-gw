@@ -173,7 +173,7 @@ export function createGithubMcpProxyHandler(
       const upstreamResponse = await fetchImpl(
         new Request(options.upstreamUrl, {
           method: request.method,
-          headers: upstreamHeaders(request, githubToken),
+          headers: upstreamHeaders(request, githubToken, toolCall?.body ?? body),
           body: toolCall?.body ?? body,
         }),
       );
@@ -278,7 +278,7 @@ async function handleToolsList(
   const upstreamResponse = await fetchImpl(
     new Request(options.upstreamUrl, {
       method: request.method,
-      headers: upstreamHeaders(request, githubToken),
+      headers: upstreamHeaders(request, githubToken, body),
       body,
     }),
   );
@@ -456,7 +456,7 @@ function bearerToken(request: Request): string | undefined {
   return token;
 }
 
-function upstreamHeaders(request: Request, githubToken: string): Headers {
+function upstreamHeaders(request: Request, githubToken: string, body: string): Headers {
   const headers = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = request.headers.get(name);
@@ -466,6 +466,10 @@ function upstreamHeaders(request: Request, githubToken: string): Headers {
   }
 
   headers.set("authorization", `Bearer ${githubToken}`);
+  const method = parseMethod(body)?.method;
+  if (method) {
+    headers.set("mcp-method", method);
+  }
   return headers;
 }
 

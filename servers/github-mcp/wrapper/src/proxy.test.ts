@@ -90,6 +90,7 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(upstreamRequest?.headers.get("authorization")).toBe("Bearer gho_user_token");
     expect(upstreamRequest?.headers.get("mcp-protocol-version")).toBe("2025-06-18");
     expect(upstreamRequest?.headers.get("content-type")).toBe("application/json");
+    expect(upstreamRequest?.headers.get("mcp-method")).toBe("tools/list");
     expect(await upstreamRequest?.text()).toBe(
       JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     );
