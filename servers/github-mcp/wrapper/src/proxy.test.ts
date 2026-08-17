@@ -69,6 +69,7 @@ describe("GitHub MCP proxy wrapper", () => {
           authorization: "Bearer hop1-token",
           "content-type": "application/json",
           "mcp-protocol-version": "2025-06-18",
+          "mcp-session-id": "github-session-1",
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       }),
@@ -91,6 +92,7 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(upstreamRequest?.headers.get("mcp-protocol-version")).toBe("2025-06-18");
     expect(upstreamRequest?.headers.get("content-type")).toBe("application/json");
     expect(upstreamRequest?.headers.get("mcp-method")).toBe("tools/list");
+    expect(upstreamRequest?.headers.get("mcp-session-id")).toBe("github-session-1");
     expect(await upstreamRequest?.text()).toBe(
       JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     );
