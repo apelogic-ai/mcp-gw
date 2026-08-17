@@ -495,6 +495,7 @@ function withUpstreamProtocolMeta(request: Request, body: string): string {
       _meta: {
         ...meta,
         "io.modelcontextprotocol/protocolVersion": request.headers.get("mcp-protocol-version") ?? "2025-06-18",
+        "io.modelcontextprotocol/clientInfo": SERVER_INFO,
       },
     },
   });

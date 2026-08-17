@@ -101,6 +101,10 @@ describe("GitHub MCP proxy wrapper", () => {
         params: {
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+            "io.modelcontextprotocol/clientInfo": {
+              name: "github-mcp-wrapper",
+              version: "0.1.0",
+            },
           },
         },
       }),
@@ -1151,6 +1155,10 @@ describe("GitHub MCP proxy wrapper", () => {
         arguments: { title: "Bug" },
         _meta: {
           "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+          "io.modelcontextprotocol/clientInfo": {
+            name: "github-mcp-wrapper",
+            version: "0.1.0",
+          },
         },
       },
     });
