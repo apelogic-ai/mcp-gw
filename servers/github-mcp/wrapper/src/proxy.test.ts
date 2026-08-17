@@ -94,7 +94,16 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(upstreamRequest?.headers.get("mcp-method")).toBe("tools/list");
     expect(upstreamRequest?.headers.get("mcp-session-id")).toBeNull();
     expect(await upstreamRequest?.text()).toBe(
-      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+          },
+        },
+      }),
     );
   });
 
@@ -1140,6 +1149,9 @@ describe("GitHub MCP proxy wrapper", () => {
       params: {
         name: "github_create_issue",
         arguments: { title: "Bug" },
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+        },
       },
     });
     expect(audit.events[0]?.status).toBe("allow");

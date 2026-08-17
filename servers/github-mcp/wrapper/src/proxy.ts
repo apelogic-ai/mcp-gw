@@ -170,11 +170,12 @@ export function createGithubMcpProxyHandler(
     }
 
     try {
+      const upstreamBody = withUpstreamProtocolMeta(request, toolCall?.body ?? body);
       const upstreamResponse = await fetchImpl(
         new Request(options.upstreamUrl, {
           method: request.method,
-          headers: upstreamHeaders(request, githubToken, toolCall?.body ?? body),
-          body: toolCall?.body ?? body,
+          headers: upstreamHeaders(request, githubToken, upstreamBody),
+          body: upstreamBody,
         }),
       );
       const responseBody = await upstreamResponse.text();
@@ -275,11 +276,12 @@ async function handleToolsList(
     return mcpResult(id, { tools: LOCAL_TOOLS });
   }
 
+  const upstreamBody = withUpstreamProtocolMeta(request, body);
   const upstreamResponse = await fetchImpl(
     new Request(options.upstreamUrl, {
       method: request.method,
-      headers: upstreamHeaders(request, githubToken, body),
-      body,
+      headers: upstreamHeaders(request, githubToken, upstreamBody),
+      body: upstreamBody,
     }),
   );
   const responseBody = await upstreamResponse.text();
@@ -471,6 +473,31 @@ function upstreamHeaders(request: Request, githubToken: string, body: string): H
     headers.set("mcp-method", method);
   }
   return headers;
+}
+
+function withUpstreamProtocolMeta(request: Request, body: string): string {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    return body;
+  }
+  if (!isRecord(payload)) {
+    return body;
+  }
+
+  const params = isRecord(payload.params) ? payload.params : {};
+  const meta = isRecord(params._meta) ? params._meta : {};
+  return JSON.stringify({
+    ...payload,
+    params: {
+      ...params,
+      _meta: {
+        ...meta,
+        "io.modelcontextprotocol/protocolVersion": request.headers.get("mcp-protocol-version") ?? "2025-06-18",
+      },
+    },
+  });
 }
 
 function responseHeaders(response: Response): Headers {
