@@ -171,11 +171,12 @@ The caller's HOP-1 token is never forwarded to the provider.
 Use an immutable subject claim where possible. Emails are useful display attributes, but they can be
 renamed, reassigned, or represented differently across issuers.
 
-For GitHub, the provider's primary verified email must case-insensitively match the email bound to
-the HOP-1 identity and OAuth state. MCP-GW consumes the state and stores no credential when the
-emails differ. This prevents a user from attaching a different GitHub identity to an authenticated
-corporate principal. It also makes a bounded best-effort request to revoke only the newly issued
-GitHub token; revocation failure never changes the fail-closed callback result.
+For GitHub, at least one email returned by `/user/emails` with `verified=true` must
+case-insensitively match the email bound to the HOP-1 identity and OAuth state. MCP-GW consumes the
+state and stores no credential when no verified email matches. This prevents a user from attaching
+a different GitHub identity to an authenticated corporate principal. It also makes a bounded
+best-effort request to revoke only the newly issued GitHub token; revocation failure never changes
+the fail-closed callback result.
 
 ## Client Support Matrix
 
