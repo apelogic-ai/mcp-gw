@@ -49,7 +49,7 @@ const JSON_HEADERS = {
   "content-type": "application/json",
 };
 
-const FORWARDED_REQUEST_HEADERS = ["content-type", "mcp-protocol-version", "mcp-session-id"];
+const FORWARDED_REQUEST_HEADERS = ["content-type", "mcp-protocol-version"];
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "mcp-session-id"];
 const LOCAL_TOOLS = [
   {
