@@ -356,7 +356,13 @@ async function handleLocalToolCall(
 
 function parseMethod(
   body: string,
-): { id: JsonRpcId; method: string; isNotification: boolean; requestName?: string } | undefined {
+): {
+  id: JsonRpcId;
+  method: string;
+  isNotification: boolean;
+  requestName?: string;
+  requestArguments?: Record<string, unknown>;
+} | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
@@ -375,12 +381,14 @@ function parseMethod(
       : typeof params?.uri === "string"
         ? params.uri
         : undefined;
+  const requestArguments = isRecord(params?.arguments) ? params.arguments : undefined;
 
   return {
     id: jsonRpcId(payload.id),
     method: payload.method,
     isNotification: !Object.prototype.hasOwnProperty.call(payload, "id"),
     requestName,
+    requestArguments,
   };
 }
 
@@ -484,7 +492,27 @@ function upstreamHeaders(request: Request, githubToken: string, body: string): H
   if (requestMetadata?.requestName) {
     headers.set("mcp-name", requestMetadata.requestName);
   }
+  for (const [name, value] of Object.entries(requestMetadata?.requestArguments ?? {})) {
+    const headerName = `mcp-param-${name}`;
+    const headerValue = mcpParamHeaderValue(value);
+    if (/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(headerName) && headerValue !== undefined) {
+      headers.set(headerName, headerValue);
+    }
+  }
   return headers;
+}
+
+function mcpParamHeaderValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return /[\r\n]/.test(value) ? undefined : value;
+  }
+  if (typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return String(value);
+  }
+  return undefined;
 }
 
 function withUpstreamProtocolMeta(request: Request, body: string): string {
