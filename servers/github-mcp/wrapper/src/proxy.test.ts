@@ -69,6 +69,7 @@ describe("GitHub MCP proxy wrapper", () => {
           authorization: "Bearer hop1-token",
           "content-type": "application/json",
           "mcp-protocol-version": "2025-06-18",
+          "mcp-session-id": "gateway-session-1",
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       }),
@@ -91,8 +92,23 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(upstreamRequest?.headers.get("mcp-protocol-version")).toBe("2025-06-18");
     expect(upstreamRequest?.headers.get("content-type")).toBe("application/json");
     expect(upstreamRequest?.headers.get("mcp-method")).toBe("tools/list");
+    expect(upstreamRequest?.headers.get("mcp-session-id")).toBeNull();
     expect(await upstreamRequest?.text()).toBe(
-      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+            "io.modelcontextprotocol/clientInfo": {
+              name: "github-mcp-wrapper",
+              version: "0.1.0",
+            },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
     );
   });
 
@@ -1123,7 +1139,15 @@ describe("GitHub MCP proxy wrapper", () => {
           method: "tools/call",
           params: {
             name: "github_issues_create",
-            arguments: { title: "Bug" },
+            arguments: {
+              owner: "apelogic-ai",
+              repo: "mcp-gw",
+              issue_number: 39,
+              title: "Bug",
+              dry_run: false,
+              labels: ["bug"],
+              confidence: 0.9,
+            },
           },
         }),
       }),
@@ -1137,9 +1161,33 @@ describe("GitHub MCP proxy wrapper", () => {
       method: "tools/call",
       params: {
         name: "github_create_issue",
-        arguments: { title: "Bug" },
+        arguments: {
+          owner: "apelogic-ai",
+          repo: "mcp-gw",
+          issue_number: 39,
+          title: "Bug",
+          dry_run: false,
+          labels: ["bug"],
+          confidence: 0.9,
+        },
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+          "io.modelcontextprotocol/clientInfo": {
+            name: "github-mcp-wrapper",
+            version: "0.1.0",
+          },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
       },
     });
+    expect(seenRequests[0]?.headers.get("mcp-name")).toBe("github_create_issue");
+    expect(seenRequests[0]?.headers.get("mcp-param-owner")).toBe("apelogic-ai");
+    expect(seenRequests[0]?.headers.get("mcp-param-repo")).toBe("mcp-gw");
+    expect(seenRequests[0]?.headers.get("mcp-param-issue_number")).toBe("39");
+    expect(seenRequests[0]?.headers.get("mcp-param-title")).toBe("Bug");
+    expect(seenRequests[0]?.headers.get("mcp-param-dry_run")).toBe("false");
+    expect(seenRequests[0]?.headers.has("mcp-param-labels")).toBe(false);
+    expect(seenRequests[0]?.headers.has("mcp-param-confidence")).toBe(false);
     expect(audit.events[0]?.status).toBe("allow");
     expect(audit.events[0]?.tool).toBe("github_create_issue");
     expect(typeof audit.events[0]?.resultSize).toBe("number");

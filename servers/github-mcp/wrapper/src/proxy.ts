@@ -170,11 +170,12 @@ export function createGithubMcpProxyHandler(
     }
 
     try {
+      const upstreamBody = withUpstreamProtocolMeta(request, toolCall?.body ?? body);
       const upstreamResponse = await fetchImpl(
         new Request(options.upstreamUrl, {
           method: request.method,
-          headers: upstreamHeaders(request, githubToken, toolCall?.body ?? body),
-          body: toolCall?.body ?? body,
+          headers: upstreamHeaders(request, githubToken, upstreamBody),
+          body: upstreamBody,
         }),
       );
       const responseBody = await upstreamResponse.text();
@@ -275,11 +276,12 @@ async function handleToolsList(
     return mcpResult(id, { tools: LOCAL_TOOLS });
   }
 
+  const upstreamBody = withUpstreamProtocolMeta(request, body);
   const upstreamResponse = await fetchImpl(
     new Request(options.upstreamUrl, {
       method: request.method,
-      headers: upstreamHeaders(request, githubToken, body),
-      body,
+      headers: upstreamHeaders(request, githubToken, upstreamBody),
+      body: upstreamBody,
     }),
   );
   const responseBody = await upstreamResponse.text();
@@ -352,9 +354,15 @@ async function handleLocalToolCall(
   return undefined;
 }
 
-function parseMethod(
-  body: string,
-): { id: JsonRpcId; method: string; isNotification: boolean } | undefined {
+function parseMethod(body: string):
+  | {
+      id: JsonRpcId;
+      method: string;
+      isNotification: boolean;
+      requestName?: string;
+      requestArguments?: Record<string, unknown>;
+    }
+  | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
@@ -366,10 +374,21 @@ function parseMethod(
     return undefined;
   }
 
+  const params = isRecord(payload.params) ? payload.params : undefined;
+  const requestName =
+    typeof params?.name === "string"
+      ? params.name
+      : typeof params?.uri === "string"
+        ? params.uri
+        : undefined;
+  const requestArguments = isRecord(params?.arguments) ? params.arguments : undefined;
+
   return {
     id: jsonRpcId(payload.id),
     method: payload.method,
     isNotification: !Object.prototype.hasOwnProperty.call(payload, "id"),
+    requestName,
+    requestArguments,
   };
 }
 
@@ -466,11 +485,62 @@ function upstreamHeaders(request: Request, githubToken: string, body: string): H
   }
 
   headers.set("authorization", `Bearer ${githubToken}`);
-  const method = parseMethod(body)?.method;
-  if (method) {
-    headers.set("mcp-method", method);
+  const requestMetadata = parseMethod(body);
+  if (requestMetadata?.method) {
+    headers.set("mcp-method", requestMetadata.method);
+  }
+  if (requestMetadata?.requestName) {
+    headers.set("mcp-name", requestMetadata.requestName);
+  }
+  for (const [name, value] of Object.entries(requestMetadata?.requestArguments ?? {})) {
+    const headerName = `mcp-param-${name}`;
+    const headerValue = mcpParamHeaderValue(value);
+    if (/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(headerName) && headerValue !== undefined) {
+      headers.set(headerName, headerValue);
+    }
   }
   return headers;
+}
+
+function mcpParamHeaderValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return /[\r\n]/.test(value) ? undefined : value;
+  }
+  if (typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
+function withUpstreamProtocolMeta(request: Request, body: string): string {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    return body;
+  }
+  if (!isRecord(payload)) {
+    return body;
+  }
+
+  const params = isRecord(payload.params) ? payload.params : {};
+  const meta = isRecord(params._meta) ? params._meta : {};
+  return JSON.stringify({
+    ...payload,
+    params: {
+      ...params,
+      _meta: {
+        ...meta,
+        "io.modelcontextprotocol/protocolVersion":
+          request.headers.get("mcp-protocol-version") ?? "2025-06-18",
+        "io.modelcontextprotocol/clientInfo": SERVER_INFO,
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  });
 }
 
 function responseHeaders(response: Response): Headers {
