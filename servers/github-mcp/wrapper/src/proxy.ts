@@ -354,15 +354,15 @@ async function handleLocalToolCall(
   return undefined;
 }
 
-function parseMethod(
-  body: string,
-): {
-  id: JsonRpcId;
-  method: string;
-  isNotification: boolean;
-  requestName?: string;
-  requestArguments?: Record<string, unknown>;
-} | undefined {
+function parseMethod(body: string):
+  | {
+      id: JsonRpcId;
+      method: string;
+      isNotification: boolean;
+      requestName?: string;
+      requestArguments?: Record<string, unknown>;
+    }
+  | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
@@ -534,7 +534,8 @@ function withUpstreamProtocolMeta(request: Request, body: string): string {
       ...params,
       _meta: {
         ...meta,
-        "io.modelcontextprotocol/protocolVersion": request.headers.get("mcp-protocol-version") ?? "2025-06-18",
+        "io.modelcontextprotocol/protocolVersion":
+          request.headers.get("mcp-protocol-version") ?? "2025-06-18",
         "io.modelcontextprotocol/clientInfo": SERVER_INFO,
         "io.modelcontextprotocol/clientCapabilities": {},
       },
