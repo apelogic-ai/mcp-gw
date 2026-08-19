@@ -118,3 +118,29 @@ A GitOps consumer must receive one immutable release handoff containing:
 The source contract and test fixtures do not authorize a deployment or release. GitOps promotion
 must consume a separately approved, versioned release rather than an untagged branch or mutable
 image tag.
+
+## Wrapper runtime configuration
+
+The Google wrapper hosts the broker when `MCP_BROKER_ENABLED=true`. Its source-level configuration
+contract is:
+
+| Variable                           | Meaning                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `MCP_AUTHORIZATION_ISSUER`         | Canonical public HTTPS authorization-server issuer.                                       |
+| `MCP_RESOURCE_URI`                 | Exact canonical public MCP resource URI used as every broker token's audience.            |
+| `MCP_BROKER_GOOGLE_REDIRECT_URI`   | Exact public `/oauth/google/broker/callback` URI registered with Google.                  |
+| `MCP_BROKER_SIGNING_JWKS_FILE`     | Mounted JWKS containing the active private RSA key and optional previous public keys.     |
+| `MCP_BROKER_ACTIVE_KID`            | `kid` selecting the active private `RS256`, `use=sig` key.                                |
+| `MCP_BROKER_SCOPES`                | Broker scope allowlist; defaults to `mcp`.                                                |
+| `MCP_OAUTH_STATIC_CLIENTS_JSON`    | JSON array of immutable public clients, exact redirect URIs, and allowed scopes.          |
+| `MCP_DCR_ENABLED`                  | Advertises and enables constrained DCR when `true`.                                       |
+| `MCP_DCR_ALLOW_LOOPBACK_REDIRECTS` | Explicit opt-in for native-client HTTP loopback redirects; public HTTPS remains required. |
+
+Optional positive-integer DCR bounds are `MCP_DCR_CLIENT_TTL_MS`, `MCP_DCR_MAX_CLIENTS`,
+`MCP_DCR_MAX_RATE_KEYS`, `MCP_DCR_RATE_LIMIT`, and `MCP_DCR_RATE_WINDOW_MS`. Broker state,
+authorization codes, registrations, and rate limits share the existing `TOKEN_STORE_DSN`
+PostgreSQL database. The signing file is a secret mount, never an environment value or ConfigMap.
+
+When the broker is enabled, a direct Google issuer profile is rejected at startup. The broker's
+own issuer is added to the wrapper's trusted HOP-1 profiles, while any separately configured
+enterprise issuer remains a distinct `(issuer, subject)` principal.

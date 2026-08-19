@@ -40,16 +40,17 @@ describe("SQL OAuth token store", () => {
   });
 
   test("keeps the checked-in schema artifact aligned", async () => {
-    const [schema, migration] = await Promise.all([
+    const [schema, migration, brokerMigration] = await Promise.all([
       readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
       readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
+      readFile("shared/oauth/migrations/002_authorization_broker.sql", "utf8"),
     ]);
 
-    expect(schema.replaceAll(/\s+/g, " ").trim()).toBe(
-      OAUTH_SCHEMA_SQL.replaceAll(/\s+/g, " ").trim(),
-    );
     expect(migration.replaceAll(/\s+/g, " ").trim()).toBe(
       OAUTH_SCHEMA_SQL.replaceAll(/\s+/g, " ").trim(),
+    );
+    expect(schema.replaceAll(/\s+/g, " ").trim()).toBe(
+      `${migration.trim()}\n\n${brokerMigration.trim()}`.replaceAll(/\s+/g, " ").trim(),
     );
   });
 

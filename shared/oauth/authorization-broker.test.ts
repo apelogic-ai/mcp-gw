@@ -359,6 +359,40 @@ describe("OAuthBroker authorization-code exchange", () => {
       "invalid_grant",
     );
   });
+
+  test("rejects a code when its dynamic client has expired before exchange", async () => {
+    let active = true;
+    let nonce = "";
+    const instance = new OAuthBroker({
+      ...brokerOptions(async () => ({ idToken: await googleIdToken(nonce) })),
+      clients: {
+        get: () =>
+          Promise.resolve(
+            active ? { clientId: CLIENT_ID, redirectUris: [REDIRECT_URI], scopes: ["mcp"] } : null,
+          ),
+      },
+      now: () => NOW,
+    });
+    const started = await instance.beginAuthorization(authorizationRequest());
+    nonce = new URL(started.authorizationUrl).searchParams.get("nonce") ?? "";
+    const completed = await instance.completeGoogleAuthorization({
+      transactionState: new URL(started.authorizationUrl).searchParams.get("state") ?? "",
+      googleCode: "google-code",
+    });
+    active = false;
+
+    await expectBrokerError(
+      instance.exchangeAuthorizationCode({
+        grantType: "authorization_code",
+        code: completed.authorizationCode,
+        clientId: CLIENT_ID,
+        redirectUri: REDIRECT_URI,
+        resource: RESOURCE,
+        codeVerifier: VERIFIER,
+      }),
+      "invalid_grant",
+    );
+  });
 });
 
 describe("Google identity verification", () => {

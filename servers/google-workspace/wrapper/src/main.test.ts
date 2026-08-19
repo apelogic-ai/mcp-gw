@@ -297,4 +297,69 @@ describe("wrapper main config", () => {
       },
     });
   });
+
+  test("loads an opt-in MCP authorization broker with static clients and constrained DCR", () => {
+    const config = loadMainConfig({
+      GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "google-client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://auth.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://identity.example.com",
+      HOP1_AUDIENCE: "https://mcp.example.com/mcp",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
+      HOP1_JWKS_URL: "https://identity.example.com/.well-known/jwks.json",
+      TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+      MCP_BROKER_ENABLED: "true",
+      MCP_AUTHORIZATION_ISSUER: "https://auth.example.com",
+      MCP_RESOURCE_URI: "https://mcp.example.com/mcp",
+      MCP_BROKER_GOOGLE_REDIRECT_URI: "https://auth.example.com/oauth/google/broker/callback",
+      MCP_BROKER_SIGNING_JWKS_FILE: "/var/run/secrets/mcp-broker/signing-jwks.json",
+      MCP_BROKER_ACTIVE_KID: "active-2026-08",
+      MCP_OAUTH_STATIC_CLIENTS_JSON: JSON.stringify([
+        {
+          clientId: "known-client",
+          redirectUris: ["https://client.example.com/oauth/callback"],
+          scopes: ["mcp"],
+        },
+      ]),
+      MCP_DCR_ENABLED: "true",
+      MCP_DCR_ALLOW_LOOPBACK_REDIRECTS: "true",
+      MCP_DCR_MAX_CLIENTS: "2000",
+    });
+
+    expect(config.authorizationBroker).toMatchObject({
+      issuer: "https://auth.example.com",
+      resource: "https://mcp.example.com/mcp",
+      activeSigningKid: "active-2026-08",
+      scopes: ["mcp"],
+      dcr: { allowLoopbackRedirects: true, maxDynamicClients: 2000 },
+    });
+  });
+
+  test("rejects direct Google access-token trust when the broker is enabled", () => {
+    expect(() =>
+      loadMainConfig({
+        GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+        GOOGLE_OAUTH_CLIENT_SECRET: "google-client-secret",
+        GOOGLE_OAUTH_REDIRECT_URI: "https://auth.example.com/oauth/google/callback",
+        GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+        GWS_BINARY_PATH: "/usr/local/bin/gws",
+        HOP1_ISSUER: "https://accounts.google.com",
+        HOP1_AUDIENCE: "google-client-id",
+        HOP1_EMAIL_CLAIM: "email",
+        HOP1_ALLOWED_ALGORITHMS: "RS256",
+        HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
+        TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+        MCP_BROKER_ENABLED: "true",
+        MCP_AUTHORIZATION_ISSUER: "https://auth.example.com",
+        MCP_RESOURCE_URI: "https://mcp.example.com/mcp",
+        MCP_BROKER_GOOGLE_REDIRECT_URI: "https://auth.example.com/oauth/google/broker/callback",
+        MCP_BROKER_SIGNING_JWKS_FILE: "/var/run/secrets/mcp-broker/signing-jwks.json",
+        MCP_BROKER_ACTIVE_KID: "active-2026-08",
+        MCP_DCR_ENABLED: "true",
+      }),
+    ).toThrow("Direct Google identity tokens cannot remain trusted");
+  });
 });

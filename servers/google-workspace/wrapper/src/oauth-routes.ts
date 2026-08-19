@@ -1,10 +1,7 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
 import {
   completeGoogleOAuth,
-  DEFAULT_AUTHORIZATION_URL,
-  DEFAULT_GOOGLE_TOKEN_URL,
   startGoogleOAuth,
   type GoogleOAuthConfig,
   type OAuthFetch,
@@ -15,33 +12,16 @@ import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/
 export interface CreateOAuthRouteHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
   config: GoogleOAuthConfig;
-  hop1Scopes?: string[];
   scopes: string[];
   stateStore: OAuthStateStore;
   tokenStore: OAuthTokenStore;
   audit?: AuditSink;
   fetch?: OAuthFetch;
-  verifyGoogleIdToken?: GoogleIdTokenVerifier;
 }
 
 const JSON_HEADERS = {
   "content-type": "application/json",
 };
-
-interface GoogleTokenEndpointResponse {
-  access_token?: string;
-  id_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  scope?: string;
-  token_type?: string;
-  error?: string;
-  error_description?: string;
-}
-
-type GoogleIdTokenVerifier = (idToken: string, config: GoogleOAuthConfig) => Promise<JWTPayload>;
-
-const DEFAULT_GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 
 export function createOAuthRouteHandler(
   options: CreateOAuthRouteHandlerOptions,
@@ -50,23 +30,6 @@ export function createOAuthRouteHandler(
 
   return async (request) => {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/authorize") {
-      return proxyClaudeAuthorizationRequest(
-        url,
-        options.config,
-        options.hop1Scopes ?? ["openid", "email"],
-      );
-    }
-
-    if (request.method === "POST" && url.pathname === "/token") {
-      return proxyClaudeTokenExchange(
-        request,
-        options.config,
-        options.verifyGoogleIdToken ?? verifyGoogleIdToken,
-        options.fetch ?? fetch,
-      );
-    }
-
     if (request.method === "GET" && url.pathname === "/oauth/google/callback") {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
@@ -161,89 +124,6 @@ export function createOAuthRouteHandler(
   };
 }
 
-function proxyClaudeAuthorizationRequest(
-  requestUrl: URL,
-  config: GoogleOAuthConfig,
-  scopes: string[],
-): Response {
-  if (requestUrl.searchParams.get("client_id") !== config.clientId) {
-    return tokenError("invalid_client", "OAuth client_id does not match this MCP server");
-  }
-
-  const upstream = new URL(config.authorizationUrl ?? DEFAULT_AUTHORIZATION_URL);
-  for (const [key, value] of requestUrl.searchParams.entries()) {
-    upstream.searchParams.append(key, value);
-  }
-  upstream.searchParams.set("scope", scopes.join(" "));
-  upstream.searchParams.set("access_type", "offline");
-  upstream.searchParams.set("prompt", "consent");
-
-  return redirect(upstream.toString());
-}
-
-async function proxyClaudeTokenExchange(
-  request: Request,
-  config: GoogleOAuthConfig,
-  verifyIdToken: GoogleIdTokenVerifier,
-  fetchImpl: OAuthFetch,
-): Promise<Response> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/x-www-form-urlencoded")) {
-    return tokenError("invalid_request", "Expected application/x-www-form-urlencoded request");
-  }
-
-  const params = new URLSearchParams(await request.text());
-  if (params.get("client_id") !== config.clientId) {
-    return tokenError("invalid_client", "OAuth client_id does not match this MCP server");
-  }
-
-  params.set("client_secret", config.clientSecret);
-  const upstream = await fetchImpl(config.tokenUrl ?? DEFAULT_GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: params,
-  });
-
-  const text = await upstream.text();
-  let body: GoogleTokenEndpointResponse;
-  try {
-    body = JSON.parse(text) as GoogleTokenEndpointResponse;
-  } catch {
-    return new Response(text, {
-      status: upstream.status,
-      headers: tokenResponseHeaders(upstream.headers.get("content-type") ?? "text/plain"),
-    });
-  }
-
-  if (upstream.ok && body.id_token) {
-    try {
-      await verifyIdToken(body.id_token, config);
-    } catch {
-      return tokenError("invalid_grant", "Google id_token verification failed");
-    }
-    body.access_token = body.id_token;
-    body.token_type = body.token_type ?? "Bearer";
-  }
-
-  return new Response(JSON.stringify(body), {
-    status: upstream.status,
-    headers: tokenResponseHeaders("application/json"),
-  });
-}
-
-async function verifyGoogleIdToken(
-  idToken: string,
-  config: GoogleOAuthConfig,
-): Promise<JWTPayload> {
-  const jwks = createRemoteJWKSet(new URL(config.googleJwksUrl ?? DEFAULT_GOOGLE_JWKS_URL));
-  const result = await jwtVerify(idToken, jwks, {
-    issuer: ["https://accounts.google.com", "accounts.google.com"],
-    audience: config.clientId,
-  });
-
-  return result.payload;
-}
-
 async function authenticateRequest(
   request: Request,
   authenticate: (token: string) => Promise<Hop1Identity>,
@@ -294,19 +174,4 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: JSON_HEADERS,
   });
-}
-
-function tokenError(error: string, errorDescription: string): Response {
-  return new Response(JSON.stringify({ error, error_description: errorDescription }), {
-    status: 400,
-    headers: tokenResponseHeaders("application/json"),
-  });
-}
-
-function tokenResponseHeaders(contentType: string): Record<string, string> {
-  return {
-    "content-type": contentType,
-    "cache-control": "no-store",
-    pragma: "no-cache",
-  };
 }

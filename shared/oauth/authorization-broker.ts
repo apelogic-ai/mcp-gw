@@ -14,7 +14,8 @@ const GOOGLE_SIGNING_ALGORITHMS = ["RS256"] as const;
 const DEFAULT_TRANSACTION_TTL_SECONDS = 600;
 const DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS = 120;
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 300;
-const PKCE_VALUE_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
+const PKCE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
 const MAX_CLIENT_ID_LENGTH = 256;
 const MAX_URI_LENGTH = 2048;
 const MAX_SCOPE_LENGTH = 1024;
@@ -290,7 +291,10 @@ export class OAuthBroker {
     if (request.resource !== this.options.resource) {
       throw new OAuthBrokerError("invalid_target", "resource does not identify this MCP server");
     }
-    if (request.codeChallengeMethod !== "S256" || !PKCE_VALUE_PATTERN.test(request.codeChallenge)) {
+    if (
+      request.codeChallengeMethod !== "S256" ||
+      !PKCE_CHALLENGE_PATTERN.test(request.codeChallenge)
+    ) {
       throw new OAuthBrokerError("invalid_request", "PKCE S256 is required");
     }
     const scopes = parseAndValidateScopes(request.scope, [
@@ -413,6 +417,14 @@ export class OAuthBroker {
       !validPkceVerifier(request.codeVerifier, record.codeChallenge)
     ) {
       throw new OAuthBrokerError("invalid_grant", "Authorization code binding is invalid");
+    }
+    const client = await this.options.clients.get(record.clientId);
+    if (
+      client?.clientId !== record.clientId ||
+      !client.redirectUris.includes(record.redirectUri) ||
+      record.scopes.some((scope) => !client.scopes.includes(scope))
+    ) {
+      throw new OAuthBrokerError("invalid_grant", "OAuth client is no longer active");
     }
 
     const issuedAt = Math.floor(this.now() / 1000);
@@ -569,7 +581,7 @@ function parseAndValidateScopes(scope: string, allowedScopes: string[]): string[
 }
 
 function validPkceVerifier(verifier: string, expectedChallenge: string): boolean {
-  if (!PKCE_VALUE_PATTERN.test(verifier)) {
+  if (!PKCE_VERIFIER_PATTERN.test(verifier)) {
     return false;
   }
   const actual = Buffer.from(pkceChallenge(verifier));
