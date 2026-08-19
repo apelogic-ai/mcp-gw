@@ -164,6 +164,44 @@ Keep `agentgateway.mcpAuthentication.resourceMetadata.resource` set to the publi
 MCP URL and `scopesSupported` aligned with the wrapper identity scopes (`openid`,
 `email` by default). Use an immutable `subjectClaim` where possible.
 
+#### Register your identity provider
+
+The gateway **validates** HOP-1 tokens; it never issues them. Create an
+OIDC/OAuth application in your own identity provider that mints tokens for the
+MCP audience, then copy its published values into a `hop1.issuers` entry. This
+works with any standards-compliant OIDC provider (Google OIDC, Okta, Entra ID,
+Auth0, Keycloak, or a purpose-built service).
+
+Generic checklist — every value maps to one `hop1.issuers` field:
+
+1. Create an application (or API/resource) representing the MCP gateway. Set its
+   identifier/audience to your public MCP URL, e.g. `https://mcp.example.com/mcp`
+   → `audiences`.
+2. Read the provider's discovery document at
+   `<issuer>/.well-known/openid-configuration`. Its `issuer` value → `issuer`,
+   and its `jwks_uri` → `jwksUrl`.
+3. Confirm the token signing algorithm (commonly `RS256`, `ES256`, or `EdDSA`)
+   → `allowedAlgorithms`. List only the algorithms you accept.
+4. Ensure issued tokens carry a stable, immutable subject claim (`sub`) and, when
+   available, an `email` claim → `subjectClaim` / `emailClaim`.
+5. Grant the users or services that will call the gateway permission to obtain
+   tokens for that audience.
+6. Optional: set `discoverable: true` so the gateway advertises this issuer in
+   its protected-resource metadata for MCP clients that self-discover OAuth.
+
+Worked example (Okta):
+
+- Create an **API Services / OAuth 2.0** app; add a **custom authorization
+  server** (or use `default`) whose **Audience** is `https://mcp.example.com/mcp`.
+- `issuer` = `https://<your-org>.okta.com/oauth2/<auth-server-id>` (or the
+  org issuer). `jwksUrl` = that issuer's `/v1/keys`. `allowedAlgorithms: [RS256]`.
+- Add a claim mapping so tokens include `email`; keep `sub` as the immutable user
+  ID. Assign the app to the users/groups that may reach the gateway.
+
+Entra ID and Auth0 follow the same shape — take `issuer` and `jwks_uri` from the
+tenant's `.well-known/openid-configuration`, set the audience/App ID URI to the
+MCP URL, and confirm the signing algorithm.
+
 ### Google OAuth client (HOP-2)
 
 Create a Google OAuth client (web application) and set its authorized redirect
