@@ -8,6 +8,23 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-08-18
+
+### Fixed
+
+- Match HOP-1 identities against any verified GitHub account email, allowing a verified corporate
+  secondary email while continuing to reject unverified or mismatched identities.
+- Adapt AgentGateway-generated GitHub MCP discovery and invocation requests to the upstream HTTP
+  contract, including request method, name, client metadata, and primitive parameter headers, so
+  GitHub tools remain discoverable and callable.
+
+## [0.2.11] - 2026-08-13
+
+### Fixed
+
+- Keep MCP resource discovery protocol-valid before GitHub provider consent while rejecting
+  malformed discovery requests instead of silently converting them into empty results.
+
 ## [0.2.10] - 2026-08-12
 
 ### Fixed
@@ -178,7 +195,9 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.12...HEAD
+[0.2.12]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.11...v0.2.12
+[0.2.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.7...v0.2.8
