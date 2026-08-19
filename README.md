@@ -3,6 +3,11 @@
 Agent-agnostic remote MCP gateway for Google Workspace tools, with a path for adding more backend
 MCP servers behind one public `/mcp` endpoint.
 
+> **Getting started?** The [Quickstart](docs/quickstart.md) walks through install (Docker Compose or
+> Helm), identity and provider OAuth setup, and connecting an MCP client end to end. For a
+> chart-only install, see the chart [README](deploy/k8s/chart/README.md) (also the Artifact Hub
+> landing page).
+
 The project currently packages:
 
 - an `agentgateway` front door for remote MCP traffic and OAuth protected-resource metadata;

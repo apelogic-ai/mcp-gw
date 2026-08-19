@@ -1,0 +1,13 @@
+{{- if .Values.githubWrapper.enabled }}
+{{- if .Values.githubWrapper.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  minAvailable: {{ .Values.githubWrapper.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
+{{- end }}
+{{- end }}

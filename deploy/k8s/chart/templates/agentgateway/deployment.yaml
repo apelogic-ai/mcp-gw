@@ -1,0 +1,87 @@
+{{- if .Values.agentgateway.enabled }}
+{{- if not .Values.hop1.issuers }}
+{{- fail "hop1.issuers must contain at least one issuer when agentgateway is enabled" }}
+{{- end }}
+{{- $introspectionIssuers := list }}
+{{- range $index, $issuer := .Values.hop1.issuers }}
+{{- with $issuer.introspection }}
+{{- $introspectionIssuers = append $introspectionIssuers (dict "index" $index "config" .) }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+spec:
+  {{- if not .Values.agentgateway.hpa.enabled }}
+  replicas: {{ .Values.agentgateway.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.agentgateway.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "agentgateway" "values" .Values.agentgateway) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.agentgateway.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.agentgateway | nindent 6 }}
+      containers:
+        - name: agentgateway
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.agentgateway.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.agentgateway.securityContext | nindent 12 }}
+          args:
+            - --file
+            - /etc/agentgateway/config.yaml
+          ports:
+            - name: http
+              containerPort: {{ .Values.agentgateway.port }}
+          {{- include "mcp-gateway.probes" .Values.agentgateway | nindent 10 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentgateway/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          {{- if $introspectionIssuers }}
+            - name: hop1-introspection
+              mountPath: /var/run/secrets/mcp-gateway/introspection
+              readOnly: true
+          {{- end }}
+          {{- with .Values.agentgateway.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "mcp-gateway.fullname" . }}-agentgateway-config
+      {{- if $introspectionIssuers }}
+        - name: hop1-introspection
+          projected:
+            defaultMode: 0440
+            sources:
+          {{- range $entry := $introspectionIssuers }}
+              - secret:
+                  name: {{ $entry.config.credentialSecretKeyRef.name }}
+                  optional: true
+                  items:
+                    - key: {{ $entry.config.credentialSecretKeyRef.key }}
+                      path: issuer-{{ $entry.index }}
+          {{- end }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,22 @@
+{{- if .Values.githubWrapper.enabled }}
+{{- if .Values.githubWrapper.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  minReplicas: {{ .Values.githubWrapper.hpa.minReplicas }}
+  maxReplicas: {{ .Values.githubWrapper.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.githubWrapper.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

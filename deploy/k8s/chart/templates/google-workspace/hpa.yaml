@@ -1,0 +1,22 @@
+{{- if .Values.googleWorkspace.enabled }}
+{{- if .Values.googleWorkspace.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  minReplicas: {{ .Values.googleWorkspace.hpa.minReplicas }}
+  maxReplicas: {{ .Values.googleWorkspace.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.googleWorkspace.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

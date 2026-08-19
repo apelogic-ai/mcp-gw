@@ -1,0 +1,22 @@
+{{- if .Values.dbMcp.enabled }}
+{{- if .Values.dbMcp.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+  minReplicas: {{ .Values.dbMcp.hpa.minReplicas }}
+  maxReplicas: {{ .Values.dbMcp.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.dbMcp.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

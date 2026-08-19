@@ -1,0 +1,17 @@
+{{- if .Values.googleWorkspace.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: google-workspace
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.googleWorkspace.port }}
+      targetPort: http
+{{- end }}

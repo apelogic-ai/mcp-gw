@@ -1,0 +1,22 @@
+{{- if .Values.agentgateway.enabled }}
+{{- if .Values.agentgateway.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  minReplicas: {{ .Values.agentgateway.hpa.minReplicas }}
+  maxReplicas: {{ .Values.agentgateway.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.agentgateway.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
