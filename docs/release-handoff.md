@@ -60,3 +60,21 @@ existing Secret and key with `hop1.issuers[].introspection.credentialSecretKeyRe
 Keep domains, issuer configuration, Secret names, sizing, scheduling, enabled adapters, and image
 mirrors in a private values overlay. The public chart should be consumed directly; deployment teams
 should not need to patch or fork its templates.
+
+## OAuth Broker Handoff
+
+For a release that enables direct-client OAuth, the handoff must also identify:
+
+- the canonical MCP resource URI and MCP-GW authorization-server issuer;
+- whether constrained DCR is enabled and therefore whether `/register` is public and advertised;
+- the public route set, including the broker Google callback and metadata-advertised `jwks_uri`;
+- the broker access-token lifetime, signing algorithm, active public key ID, and accepted public-key
+  overlap without including private signing material;
+- the static-client or constrained-DCR registration mode and exact tested-client versions/evidence;
+  and
+- explicit exclusion of authenticated `/oauth/google|github/start|status|disconnect` handlers from
+  the public ingress.
+
+The first broker release renews access through a complete authorization-code + PKCE flow. It does
+not issue a public refresh token. A source commit or local fixture is not a GitOps artifact; publish
+this contract only with the exact versioned chart and image digests described above.

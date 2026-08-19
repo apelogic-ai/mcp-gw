@@ -185,5 +185,12 @@ the MCP connection. Agents that can call tools and present links can complete do
 OAuth using the advertised provider helpers. Clients that cannot do that can use an external control
 plane and the equivalent HTTP routes.
 
-Headless clients and internal portals should use the provider connection routes directly with a
-trusted HOP-1 token.
+Headless clients and internal portals may use the provider connection routes with a trusted HOP-1
+token only through a private control-plane route. The authenticated
+`/oauth/google|github/start|status|disconnect` handlers are not part of the public remote-client
+ingress. Remote MCP clients use the equivalent `google_oauth_*` and `github_oauth_*` MCP tools.
+
+Provider callbacks remain separately state-bound return endpoints for the configured provider OAuth
+apps; their reachability does not make the control-plane handlers public APIs. See
+[Direct-Client OAuth Contract](direct-client-oauth-contract.md) for the complete public/private
+route boundary.

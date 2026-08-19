@@ -34,9 +34,15 @@ https://mcp.example.com/.well-known/oauth-protected-resource/mcp
 https://mcp.example.com/.well-known/oauth-authorization-server
 https://mcp.example.com/authorize
 https://mcp.example.com/token
+https://mcp.example.com/register          # only when constrained DCR is enabled
+https://mcp.example.com/oauth/google/broker/callback
 ```
 
-Provider-specific OAuth helper routes live under the same origin:
+The authorization-server metadata supplies the exact `jwks_uri`; do not guess or hard-code it.
+The broker callback is only for the state- and nonce-bound upstream Google identity transaction.
+
+Authenticated provider HTTP helpers are private control-plane APIs. Do not publish these paths on
+the remote-client ingress or advertise them as authorization-server endpoints:
 
 ```text
 https://mcp.example.com/oauth/google/start
@@ -47,6 +53,10 @@ https://mcp.example.com/oauth/github/status
 https://mcp.example.com/oauth/github/disconnect
 ```
 
+Provider return callbacks are separately scoped HOP-2 endpoints. See
+[Provider Connection Flows](provider-connection-flows.md) and the complete
+[Direct-Client OAuth Contract](direct-client-oauth-contract.md) for the route matrix.
+
 ## OAuth Model
 
 The integration uses two credential layers:
@@ -56,14 +66,24 @@ The integration uses two credential layers:
 - **HOP-2/provider OAuth:** per-user provider access. The gateway stores encrypted provider refresh
   tokens or provider credentials and refreshes provider access tokens for tool execution.
 
-The initial direct-client flow is identity-only. It establishes a stable HOP-1 principal but does
+The initial direct-client flow is identity-only. After upstream Google sign-in, MCP-GW issues a
+short-lived access token for the exact canonical MCP resource. Google is not the MCP authorization
+server, and no Google token or authorization code is returned to the client. This flow establishes
+a stable issuer-qualified HOP-1 principal but does
 not grant Google Workspace, GitHub, or any other downstream provider access. Keep
 `HOP1_OAUTH_SCOPES` limited to identity claims such as `openid email`; configure provider scopes
 separately.
 
-For direct MCP clients that support OAuth protected-resource discovery, configure the MCP server URL
-and the public OAuth client ID. Do not put the OAuth client secret into client-side settings. The
-server-side `/token` endpoint injects the secret when it exchanges authorization codes.
+For direct MCP clients that support OAuth protected-resource discovery, configure the MCP server
+URL. Use a pre-registered public client or constrained DCR when the deployment advertises its
+registration endpoint. Public clients use authorization code with PKCE S256 and receive no client
+secret. The first release issues no public refresh token: after expiry, repeat the complete
+authorization-code flow with new state and PKCE material.
+
+Repository protocol fixtures do not prove compatibility with a specific third-party client
+release. Claude and Codex direct OAuth remain unclaimed until an exact client version completes the
+documented flow; see the tested-client matrix in
+[Direct-Client OAuth Contract](direct-client-oauth-contract.md).
 
 For control-plane mediated clients, the control plane is responsible for issuing or acquiring the
 HOP-1 bearer token. MCP-GW validates that token against configured issuers and audiences, then maps
@@ -71,8 +91,9 @@ the stable HOP-1 subject to provider credentials.
 
 ## Identity Requirements
 
-Use one stable HOP-1 subject for provider connection and later MCP tool calls. Provider credentials
-are stored under the authenticated gateway principal, not under the downstream provider identity.
+Use one stable issuer-and-subject pair for provider connection and later MCP tool calls. Provider
+credentials are stored under the authenticated gateway principal, not under the downstream provider
+identity.
 
 Recommended HOP-1 token properties:
 
@@ -83,16 +104,18 @@ subject: immutable user or service principal ID
 email: display email, if available
 ```
 
-Emails are useful for display, but they should not be the only durable principal identifier when an
-issuer provides immutable user IDs.
+Emails are useful for display and provider-account verification, but they are never a durable
+principal or cross-issuer linking key. A Google-broker principal and a configured enterprise
+control-plane principal remain distinct even when their email values match.
 
 ## Google Cloud Setup
 
-In the Google Cloud project that owns the OAuth client, configure the OAuth client with redirect
-URIs for your direct MCP client callback, if any, and the MCP-GW provider callback:
+In the Google Cloud project that owns MCP-GW's upstream identity/provider OAuth clients, configure
+only MCP-GW-owned callback URIs. A remote MCP client's redirect URI is registered with MCP-GW, not
+with Google:
 
 ```text
-https://<client-callback-host>/api/mcp/auth_callback
+https://mcp.example.com/oauth/google/broker/callback
 https://mcp.example.com/oauth/google/callback
 ```
 
@@ -164,8 +187,10 @@ portal. See [provider-connection-flows.md](provider-connection-flows.md).
 
 1. Create or edit a remote MCP connector in the client.
 2. Set the MCP server URL to `https://mcp.example.com/mcp`.
-3. Set the OAuth client ID to the OAuth client configured for HOP-1.
-4. Do not configure the client secret in the remote client.
+3. Use a pre-registered public client ID, or allow constrained DCR when the deployment advertises
+   `/register`.
+4. Do not configure a client secret; the supported direct clients are public clients using PKCE
+   S256.
 5. Connect the connector and complete the identity-only gateway sign-in.
 6. Confirm the provider helpers `google_oauth_status`, `google_oauth_start`, and the equivalent
    helpers for other enabled providers appear under the connector.
@@ -177,6 +202,9 @@ portal. See [provider-connection-flows.md](provider-connection-flows.md).
 
 Clients may cache connector state. Disconnect/reconnect after changes to OAuth behavior, Google
 scopes, or the visible tool catalog.
+
+When the broker access token expires, reauthorize the connector. MCP-GW does not issue a public
+refresh token in the first release.
 
 If the client also offers native Google, GitHub, or other provider connectors, decide whether those
 native connectors should be disconnected. Keeping both native and MCP-GW connectors enabled can
