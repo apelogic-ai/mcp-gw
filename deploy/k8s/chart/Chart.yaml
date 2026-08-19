@@ -2,5 +2,5 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.2.10
-appVersion: "0.2.10"
+version: 0.2.12
+appVersion: "0.2.12"
