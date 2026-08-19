@@ -1,0 +1,17 @@
+{{- if .Values.agentgateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+spec:
+  type: {{ .Values.agentgateway.service.type }}
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.agentgateway.port }}
+      targetPort: http
+{{- end }}

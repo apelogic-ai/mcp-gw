@@ -73,7 +73,7 @@ exit 0
   });
 
   test("renders public MCP and unauthenticated metadata ingress paths", async () => {
-    const template = await readFile("deploy/k8s/chart/templates/agentgateway.yaml", "utf8");
+    const template = await readFile("deploy/k8s/chart/templates/agentgateway/ingress.yaml", "utf8");
     const values = await readFile("deploy/k8s/chart/values.yaml", "utf8");
 
     expect(values).toContain("paths:");

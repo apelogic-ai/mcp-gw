@@ -1,0 +1,59 @@
+{{- if .Values.githubMcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-mcp
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: github-mcp
+spec:
+  {{- if not .Values.githubMcp.hpa.enabled }}
+  replicas: {{ .Values.githubMcp.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-mcp") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.githubMcp.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-mcp") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "github-mcp" "values" .Values.githubMcp) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.githubMcp.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.githubMcp | nindent 6 }}
+      containers:
+        - name: github-mcp
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubMcp.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.githubMcp.securityContext | nindent 12 }}
+          args:
+            - http
+            - --port
+            - {{ .Values.githubMcp.port | quote }}
+            - --base-path
+            - /mcp
+            - --scope-challenge
+          ports:
+            - name: http
+              containerPort: {{ .Values.githubMcp.port }}
+          {{- include "mcp-gateway.probes" .Values.githubMcp | nindent 10 }}
+          env:
+            {{- range $name, $value := .Values.githubMcp.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- with .Values.githubMcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

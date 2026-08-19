@@ -1,0 +1,14 @@
+# Artifact Hub repository metadata file.
+#
+# This file is published to the OCI registry so Artifact Hub can verify
+# ownership of the chart repository and grant the "Verified publisher" badge.
+# It is pushed as an OCI artifact (tag `artifacthub.io`) alongside the chart by
+# the `publish-chart` job in .github/workflows/release.yml.
+#
+# repositoryID is the UUID shown on the Artifact Hub "Edit repository" screen for
+# this OCI repository. It ties this metadata file to the registered repository so
+# Artifact Hub grants the "Verified publisher" badge and honors the owners list.
+repositoryID: 8476ff5d-bc01-4d7e-8904-907efd486c42
+owners:
+  - name: Leonid Belyaev
+    email: lbeliaev@gmail.com

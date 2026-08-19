@@ -1,0 +1,82 @@
+{{- if .Values.githubWrapper.enabled }}
+{{- if not .Values.hop1.issuers }}
+{{- fail "hop1.issuers must contain at least one issuer when githubWrapper is enabled" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: github-wrapper
+spec:
+  {{- if not .Values.githubWrapper.hpa.enabled }}
+  replicas: {{ .Values.githubWrapper.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.githubWrapper.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "github-wrapper" "values" .Values.githubWrapper) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.githubWrapper.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.githubWrapper | nindent 6 }}
+      containers:
+        - name: github-wrapper
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubWrapper.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.githubWrapper.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.githubWrapper.port }}
+          {{- with .Values.githubWrapper.secretRef.name }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          env:
+            {{- if .Values.hop1.issuers }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+            {{- range $index, $issuer := .Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- range $name, $value := .Values.githubWrapper.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
+          {{- include "mcp-gateway.probes" .Values.githubWrapper | nindent 10 }}
+          {{- if .Values.postgresql.caBundle.enabled }}
+          volumeMounts:
+            {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.githubWrapper.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.postgresql.caBundle.enabled }}
+      volumes:
+        {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
+      {{- end }}
+{{- end }}

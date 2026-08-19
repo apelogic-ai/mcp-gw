@@ -1,0 +1,13 @@
+{{- if .Values.githubMcp.enabled }}
+{{- if .Values.githubMcp.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-mcp
+spec:
+  minAvailable: {{ .Values.githubMcp.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-mcp") | nindent 6 }}
+{{- end }}
+{{- end }}

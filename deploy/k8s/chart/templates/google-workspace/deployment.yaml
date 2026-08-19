@@ -2,20 +2,6 @@
 {{- if not .Values.hop1.issuers }}
 {{- fail "hop1.issuers must contain at least one issuer when googleWorkspace is enabled" }}
 {{- end }}
-{{ include "mcp-gateway.serviceAccount" (dict "root" . "component" "google-workspace" "values" .Values.googleWorkspace) }}
-{{- if .Values.googleWorkspace.policy.enabled }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
-  labels:
-    {{- include "mcp-gateway.labels" . | nindent 4 }}
-    app.kubernetes.io/component: google-workspace
-data:
-  google-workspace-policy.yaml: |
-{{ .Values.googleWorkspace.policy.yaml | nindent 4 }}
----
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -108,72 +94,4 @@ spec:
         {{- end }}
         {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
       {{- end }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
-  labels:
-    {{- include "mcp-gateway.labels" . | nindent 4 }}
-    app.kubernetes.io/component: google-workspace
-spec:
-  type: ClusterIP
-  selector:
-    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 4 }}
-  ports:
-    - name: http
-      port: {{ .Values.googleWorkspace.port }}
-      targetPort: http
----
-{{- if .Values.googleWorkspace.hpa.enabled }}
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: {{ include "mcp-gateway.fullname" . }}-google-workspace
-  minReplicas: {{ .Values.googleWorkspace.hpa.minReplicas }}
-  maxReplicas: {{ .Values.googleWorkspace.hpa.maxReplicas }}
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.googleWorkspace.hpa.targetCPUUtilizationPercentage }}
----
-{{- end }}
-{{- if .Values.googleWorkspace.pdb.enabled }}
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
-spec:
-  minAvailable: {{ .Values.googleWorkspace.pdb.minAvailable }}
-  selector:
-    matchLabels:
-      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
----
-{{- end }}
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
-spec:
-  podSelector:
-    matchLabels:
-      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: agentgateway
-      ports:
-        - protocol: TCP
-          port: {{ .Values.googleWorkspace.port }}
 {{- end }}

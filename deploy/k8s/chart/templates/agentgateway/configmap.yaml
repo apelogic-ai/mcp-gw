@@ -1,0 +1,81 @@
+{{- if .Values.agentgateway.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-agentgateway-config
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+data:
+  config.yaml: |
+    binds:
+      - port: {{ .Values.agentgateway.port }}
+        listeners:
+          - routes:
+              - matches:
+                  - path:
+                      exact: /mcp
+                  - path:
+                      exact: /.well-known/oauth-protected-resource/mcp
+                policies:
+                  cors:
+                    allowOrigins: ["*"]
+                    allowHeaders: [mcp-protocol-version, content-type, authorization]
+                    exposeHeaders: ["Mcp-Session-Id"]
+                  mcpAuthentication:
+                    mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
+                    providers:
+{{- range $index, $issuer := .Values.hop1.issuers }}
+                      - issuer: {{ $issuer.issuer }}
+                        audiences:
+{{ toYaml $issuer.audiences | nindent 26 }}
+                        allowedAlgorithms:
+{{ toYaml $issuer.allowedAlgorithms | nindent 26 }}
+                        jwtValidationOptions:
+                          requiredClaims:
+                            - exp
+                            - iss
+                            - sub
+                            - aud
+                        jwks:
+                          url: {{ $issuer.jwksUrl }}
+                        discoverable: {{ $issuer.discoverable | default false }}
+{{- with $issuer.clientId }}
+                        clientId: {{ . }}
+{{- end }}
+{{- with $issuer.introspection }}
+                        introspection:
+                          url: {{ .url }}
+                          credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-{{ $index }}
+{{- end }}
+{{- end }}
+                    resourceMetadata:
+{{ toYaml .Values.agentgateway.mcpAuthentication.resourceMetadata | nindent 22 }}
+                backends:
+                  - mcp:
+                      failureMode: failOpen
+                      prefixMode: never
+{{- $enabledBackends := list }}
+{{- range .Values.agentgateway.backends }}
+{{- if .enabled }}
+{{- $enabledBackends = append $enabledBackends . }}
+{{- end }}
+{{- end }}
+{{- if $enabledBackends }}
+                      targets:
+{{- range $enabledBackends }}
+{{- $host := .host | default "" }}
+{{- if not $host }}
+{{- $host = printf "http://%s-%s:%v%s" (include "mcp-gateway.fullname" $) .serviceName (.port | default 8080) (.path | default "/mcp") }}
+{{- end }}
+                        - name: {{ .name }}
+                          policies:
+                            backendAuth:
+                              passthrough: {}
+                          mcp:
+                            host: {{ $host }}
+{{- end }}
+{{- else }}
+                      targets: []
+{{- end }}
+{{- end }}

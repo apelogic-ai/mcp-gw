@@ -1,0 +1,17 @@
+{{- if .Values.dbMcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-mcp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.dbMcp.port }}
+      targetPort: http
+{{- end }}

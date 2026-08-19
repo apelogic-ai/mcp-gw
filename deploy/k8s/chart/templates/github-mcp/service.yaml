@@ -1,0 +1,17 @@
+{{- if .Values.githubMcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-mcp
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: github-mcp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-mcp") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.githubMcp.port }}
+      targetPort: http
+{{- end }}

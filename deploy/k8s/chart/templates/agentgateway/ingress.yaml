@@ -1,0 +1,36 @@
+{{- if .Values.agentgateway.enabled }}
+{{- if .Values.agentgateway.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+  {{- with .Values.agentgateway.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.agentgateway.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.agentgateway.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.agentgateway.ingress.host }}
+      http:
+        paths:
+{{- range .Values.agentgateway.ingress.paths }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mcp-gateway.fullname" $ }}-agentgateway
+                port:
+                  name: http
+{{- end }}
+{{- end }}
+{{- end }}

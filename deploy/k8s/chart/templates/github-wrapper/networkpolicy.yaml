@@ -1,0 +1,20 @@
+{{- if .Values.githubWrapper.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agentgateway
+      ports:
+        - protocol: TCP
+          port: {{ .Values.githubWrapper.port }}
+{{- end }}

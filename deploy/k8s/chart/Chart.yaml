@@ -4,3 +4,36 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 version: 0.2.12
 appVersion: "0.2.12"
+maintainers:
+  - name: Leonid Belyaev
+    email: lbeliaev@gmail.com
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/maintainers: |
+    - name: Leonid Belyaev
+      email: lbeliaev@gmail.com
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/apelogic-ai/mcp-gw
+    - name: support
+      url: https://github.com/apelogic-ai/mcp-gw/issues
+  artifacthub.io/images: |
+    - name: mcp-gw-agentgateway
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.12
+    - name: mcp-gw-google-workspace
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.2.12
+    - name: mcp-gw-github-wrapper
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.2.12
+    - name: github-mcp-server
+      image: ghcr.io/github/github-mcp-server:v1.6.0
+  # Release images and the chart are signed with cosign keyless (Sigstore
+  # OIDC) signatures pushed to the registry, verifiable via the GitHub Actions
+  # workflow identity. Keyless signing uses short-lived Fulcio certificates and
+  # has no static PGP fingerprint or key URL, so the artifacthub.io/signKey
+  # annotation (which requires fingerprint + url for a PGP key) does not apply
+  # and is intentionally omitted.
+  artifacthub.io/changes: |
+    - kind: fixed
+      description: Match HOP-1 identities against any verified GitHub account email while still rejecting unverified or mismatched identities.
+    - kind: fixed
+      description: Adapt AgentGateway-generated GitHub MCP discovery and invocation requests to the upstream HTTP contract so GitHub tools remain discoverable and callable.

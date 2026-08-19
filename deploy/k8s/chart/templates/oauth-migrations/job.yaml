@@ -2,23 +2,6 @@
 {{- if or (not .Values.oauthMigrations.secretKeyRef.name) (not .Values.oauthMigrations.secretKeyRef.key) }}
 {{- fail "oauthMigrations.secretKeyRef.name and oauthMigrations.secretKeyRef.key are required when OAuth migrations are enabled" }}
 {{- end }}
-{{- if .Values.oauthMigrations.serviceAccount.create }}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "oauth-migrations" "values" .Values.oauthMigrations) }}
-  labels:
-    {{- include "mcp-gateway.labels" . | nindent 4 }}
-    app.kubernetes.io/component: oauth-migrations
-  annotations:
-    helm.sh/hook: "pre-install,pre-upgrade"
-    helm.sh/hook-weight: "-20"
-    helm.sh/hook-delete-policy: "before-hook-creation"
-    {{- with .Values.oauthMigrations.serviceAccount.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
----
-{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:

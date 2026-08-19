@@ -1,0 +1,13 @@
+{{- if .Values.googleWorkspace.enabled }}
+{{- if .Values.googleWorkspace.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+spec:
+  minAvailable: {{ .Values.googleWorkspace.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "google-workspace") | nindent 6 }}
+{{- end }}
+{{- end }}
