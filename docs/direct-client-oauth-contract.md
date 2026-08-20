@@ -169,6 +169,9 @@ release fails during schema/render validation rather than after startup. Public
 broker URLs must be canonical, credential-free, route-safe HTTPS URLs on the
 Ingress origin and may not use localhost, private/reserved addresses, internal
 or single-label names, IPv6 literals, queries, fragments, or custom ports.
+Numeric IPv4 aliases in hexadecimal, octal, shortened, or mixed WHATWG syntax
+are not DNS names and are rejected instead of being silently normalized;
+special-use IPv4 ranges are likewise never public broker or client endpoints.
 Generated public routes must remain unique and must not overlap the MCP route,
 resource metadata, operator-supplied Ingress paths, or authenticated
 `/oauth/google/*` and `/oauth/github/*` provider-control paths. Static client

@@ -7,6 +7,11 @@ import {
   type ConstrainedDcrErrorCode,
   type DcrRegistrationStore,
 } from "./dcr";
+import {
+  CANONICAL_PUBLIC_IPV4_HOSTS,
+  NONCANONICAL_WHATWG_IPV4_HOSTS,
+  NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
+} from "./public-host-fixtures";
 
 const validMetadata = {
   redirect_uris: ["https://client.example/callback"],
@@ -112,6 +117,50 @@ describe("constrained dynamic client registration", () => {
       "http://localhost:49154/callback",
     ]);
   });
+
+  test.each([...NONCANONICAL_WHATWG_IPV4_HOSTS, ...NONPUBLIC_SPECIAL_USE_IPV4_HOSTS])(
+    "rejects a nonpublic or noncanonical IPv4 client URL: %s",
+    async (host) => {
+      await expectDcrError(
+        () =>
+          createRegistry().register(
+            {
+              ...validMetadata,
+              redirect_uris: [`https://${host}/callback`],
+            },
+            { rateLimitKey: `redirect-host-${host}` },
+          ),
+        "invalid_redirect_uri",
+      );
+      await expectDcrError(
+        () =>
+          createRegistry().register(
+            {
+              ...validMetadata,
+              client_uri: `https://${host}/client`,
+            },
+            { rateLimitKey: `client-host-${host}` },
+          ),
+        "invalid_client_metadata",
+      );
+    },
+  );
+
+  test.each([...CANONICAL_PUBLIC_IPV4_HOSTS])(
+    "accepts canonical public IPv4 client URLs: %s",
+    async (host) => {
+      const registration = await createRegistry().register(
+        {
+          ...validMetadata,
+          redirect_uris: [`https://${host}/callback`],
+          client_uri: `https://${host}/client`,
+        },
+        { rateLimitKey: `public-host-${host}` },
+      );
+      expect(registration.redirect_uris).toEqual([`https://${host}/callback`]);
+      expect(registration.client_uri).toBe(`https://${host}/client`);
+    },
+  );
 
   test("rejects malformed, unknown, and SSRF-prone metadata", async () => {
     const rejected: unknown[] = [

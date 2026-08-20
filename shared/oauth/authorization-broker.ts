@@ -8,6 +8,8 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 
+import { hasCanonicalIpv4Hostname, isSpecialUseIpv4 } from "./public-host";
+
 const GOOGLE_ISSUER = "https://accounts.google.com";
 const GOOGLE_AUTHORIZATION_ENDPOINT = `${GOOGLE_ISSUER}/o/oauth2/v2/auth`;
 const GOOGLE_SIGNING_ALGORITHMS = ["RS256"] as const;
@@ -753,7 +755,12 @@ function validatePublicConfiguration(options: OAuthBrokerOptions): void {
 function requireHttpsUrl(value: string, name: string): URL {
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || !url.hostname || !isPublicHostname(url.hostname)) {
+    if (
+      url.protocol !== "https:" ||
+      !url.hostname ||
+      !hasCanonicalIpv4Hostname(value, url) ||
+      !isPublicHostname(url.hostname)
+    ) {
       throw new Error("not HTTPS");
     }
     return url;
@@ -790,15 +797,5 @@ function isPublicHostname(hostname: string): boolean {
   if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
     return true;
   }
-  const [first = 0, second = 0] = octets;
-  return !(
-    first === 0 ||
-    first === 10 ||
-    first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168) ||
-    (first === 100 && second >= 64 && second <= 127) ||
-    first >= 224
-  );
+  return !isSpecialUseIpv4(normalized);
 }

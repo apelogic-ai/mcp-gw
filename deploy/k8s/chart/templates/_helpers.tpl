@@ -190,15 +190,20 @@ readinessProbe:
 {{- $ipv4 := "(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])" -}}
 {{- $isIpv4 := regexMatch (printf "^%s\\.%s\\.%s\\.%s$" $ipv4 $ipv4 $ipv4 $ipv4) $hostname -}}
 {{- $isDns := regexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" $hostname -}}
-{{- $isInvalidNumericHost := and (regexMatch "^[0-9.]+$" $hostname) (not $isIpv4) -}}
+{{- $ipv4Number := "(0x[0-9a-f]+|[0-9]+)" -}}
+{{- $isWhatwgIpv4Spelling := regexMatch (printf "^%s(\\.%s){0,3}$" $ipv4Number $ipv4Number) $hostname -}}
+{{- $hasNumericTld := regexMatch (printf "\\.%s$" $ipv4Number) $hostname -}}
+{{- $isInvalidNumericHost := and (not $isIpv4) (or $isWhatwgIpv4Spelling $hasNumericTld) -}}
 {{- $isPrivateName := or (eq $hostname "localhost") (hasSuffix ".localhost" $hostname) (hasSuffix ".local" $hostname) (hasSuffix ".internal" $hostname) (hasSuffix ".home.arpa" $hostname) -}}
 {{- $isPrivateIpv4 := regexMatch "^(0|10|127)\\." $hostname -}}
 {{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\." $hostname) -}}
 {{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^169\\.254\\." $hostname) -}}
 {{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^172\\.(1[6-9]|2[0-9]|3[01])\\." $hostname) -}}
 {{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^192\\.0\\." $hostname) -}}
+{{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^192\\.(31\\.196|52\\.193|88\\.99|175\\.48)\\." $hostname) -}}
 {{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^192\\.168\\." $hostname) -}}
-{{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^198\\.(18|19)\\." $hostname) -}}
+{{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^198\\.(18|19|51\\.100)\\." $hostname) -}}
+{{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^203\\.0\\.113\\." $hostname) -}}
 {{- $isPrivateIpv4 = or $isPrivateIpv4 (regexMatch "^(22[4-9]|23[0-9]|24[0-9]|25[0-5])\\." $hostname) -}}
 {{- if or (and (not $isIpv4) (not $isDns)) $isInvalidNumericHost $isPrivateName (and $isIpv4 $isPrivateIpv4) -}}
 {{- fail (printf "%s must use a public hostname" $name) -}}

@@ -103,7 +103,9 @@ and AgentGateway separately, without making the wrapper Service cluster-wide.
 Broker values fail before deployment when they would fail the runtime contract.
 Chart-managed issuer/resource/callback URLs must use one canonical, public-DNS
 or public-IPv4 HTTPS origin, omit credentials/query/fragment/custom ports, and
-use unambiguous non-trailing paths. Generated discovery, authorization, token,
+use unambiguous non-trailing paths. WHATWG numeric IPv4 aliases (including
+hexadecimal, octal, shortened, and mixed spellings) and special-use IPv4 blocks
+are rejected rather than normalized. Generated discovery, authorization, token,
 registration, JWKS, callback, MCP, protected-resource metadata, and private
 provider-control paths cannot collide. Static client IDs match
 `^[A-Za-z0-9._~-]{8,200}$`; redirects and client metadata URLs are bounded,

@@ -10,6 +10,11 @@ import {
   type AuthorizationTransactionRecord,
   type BrokerAuthorizationCodeRecord,
 } from "./authorization-broker";
+import {
+  CANONICAL_PUBLIC_IPV4_HOSTS,
+  NONCANONICAL_WHATWG_IPV4_HOSTS,
+  NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
+} from "./public-host-fixtures";
 
 const NOW = 1_800_000_000_000;
 const ISSUER = "https://auth.example.com";
@@ -673,6 +678,50 @@ describe("OAuth metadata", () => {
   ])("fails closed for an incoherent public %s configuration", (_name, override) => {
     expect(() => new OAuthBroker({ ...brokerOptions(), ...override })).toThrow();
   });
+
+  test.each([...NONCANONICAL_WHATWG_IPV4_HOSTS, ...NONPUBLIC_SPECIAL_USE_IPV4_HOSTS])(
+    "rejects a nonpublic or noncanonical IPv4 broker origin: %s",
+    (host) => {
+      const origin = `https://${host}`;
+      expect(
+        () =>
+          new OAuthBroker({
+            ...brokerOptions(),
+            issuer: `${origin}/oauth`,
+            resource: `${origin}/mcp`,
+            authorizationEndpoint: `${origin}/oauth/authorize`,
+            tokenEndpoint: `${origin}/oauth/token`,
+            jwksUri: `${origin}/oauth/.well-known/jwks.json`,
+            google: {
+              ...brokerOptions().google,
+              callbackUri: `${origin}/oauth/google/broker/callback`,
+            },
+          }),
+      ).toThrow();
+    },
+  );
+
+  test.each([...CANONICAL_PUBLIC_IPV4_HOSTS])(
+    "accepts a canonical public IPv4 broker origin: %s",
+    (host) => {
+      const origin = `https://${host}`;
+      expect(
+        () =>
+          new OAuthBroker({
+            ...brokerOptions(),
+            issuer: `${origin}/oauth`,
+            resource: `${origin}/mcp`,
+            authorizationEndpoint: `${origin}/oauth/authorize`,
+            tokenEndpoint: `${origin}/oauth/token`,
+            jwksUri: `${origin}/oauth/.well-known/jwks.json`,
+            google: {
+              ...brokerOptions().google,
+              callbackUri: `${origin}/oauth/google/broker/callback`,
+            },
+          }),
+      ).not.toThrow();
+    },
+  );
 });
 
 function brokerOptions(

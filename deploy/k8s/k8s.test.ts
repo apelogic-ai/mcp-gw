@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  CANONICAL_PUBLIC_IPV4_HOSTS,
+  NONCANONICAL_WHATWG_IPV4_HOSTS,
+  NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
+} from "../../shared/oauth/public-host-fixtures";
+
 describe("Kubernetes production chart", () => {
   test("ships wrapper images with a numeric non-root runtime user", async () => {
     const dockerfiles = await Promise.all([
@@ -283,6 +289,72 @@ describe("Kubernetes production chart", () => {
       ]);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+  });
+
+  test("keeps Helm IPv4 URL admission aligned with the runtime classifier", () => {
+    const invalidHosts = [...NONCANONICAL_WHATWG_IPV4_HOSTS, ...NONPUBLIC_SPECIAL_USE_IPV4_HOSTS];
+    const validClient = {
+      clientId: "browser-client",
+      redirectUris: ["https://client.example.com/callback"],
+      clientUri: "https://client.example.com/app",
+      scopes: ["mcp"],
+    };
+
+    for (const host of invalidHosts) {
+      const broker = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.issuer=https://${host}/oauth`,
+        "--set-string",
+        `googleWorkspace.authorizationBroker.resource=https://${host}/mcp`,
+        "--set-string",
+        `googleWorkspace.authorizationBroker.googleCallbackUri=https://${host}/oauth/google/broker/callback`,
+        "--set-string",
+        `agentgateway.ingress.host=${host}`,
+        "--set-string",
+        `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
+      ]);
+      expect(broker.exitCode).not.toBe(0);
+
+      const clientUri = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, clientUri: `https://${host}/app` })}]`,
+      ]);
+      expect(clientUri.exitCode).not.toBe(0);
+
+      const redirect = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [`https://${host}/callback`] })}]`,
+      ]);
+      expect(redirect.exitCode).not.toBe(0);
+    }
+
+    for (const host of NONCANONICAL_WHATWG_IPV4_HOSTS) {
+      const loopbackAlias = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set",
+        "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [`http://${host}/callback`] })}]`,
+      ]);
+      expect(loopbackAlias.exitCode).not.toBe(0);
+    }
+
+    for (const host of CANONICAL_PUBLIC_IPV4_HOSTS) {
+      const accepted = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, clientUri: `https://${host}/app`, redirectUris: [`https://${host}/callback`] })}]`,
+      ]);
+      expect(accepted.exitCode).toBe(0);
     }
   });
 

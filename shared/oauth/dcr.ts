@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 
+import { hasCanonicalIpv4Hostname, isSpecialUseIpv4 } from "./public-host";
+
 export type ConstrainedDcrErrorCode =
   | "invalid_client"
   | "invalid_client_metadata"
@@ -494,7 +496,13 @@ function validateRedirectUris(input: unknown, allowLoopback: boolean): string[] 
     } catch {
       throw new ConstrainedDcrError("Redirect URI is invalid", "invalid_redirect_uri");
     }
-    if (url.hash || url.username || url.password || url.toString() !== value) {
+    if (
+      url.hash ||
+      url.username ||
+      url.password ||
+      !hasCanonicalIpv4Hostname(value, url) ||
+      url.toString() !== value
+    ) {
       throw new ConstrainedDcrError(
         "Redirect URI must be an exact canonical URI without credentials or fragment",
         "invalid_redirect_uri",
@@ -532,6 +540,7 @@ function validatePublicMetadataUrl(input: unknown, field: string): string {
     url.username ||
     url.password ||
     url.hash ||
+    !hasCanonicalIpv4Hostname(input, url) ||
     isPrivateHostname(url.hostname)
   ) {
     throw invalidMetadata(`${field} must be a public HTTPS URL`);
@@ -584,20 +593,7 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 function isPrivateOrReservedIpv4(ip: string): boolean {
-  const octets = ip.split(".").map(Number);
-  const first = octets[0] ?? -1;
-  const second = octets[1] ?? -1;
-  return (
-    first === 0 ||
-    first === 10 ||
-    first === 127 ||
-    (first === 100 && second >= 64 && second <= 127) ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && (second === 0 || second === 168)) ||
-    (first === 198 && (second === 18 || second === 19)) ||
-    first >= 224
-  );
+  return isSpecialUseIpv4(ip);
 }
 
 function validateApplicationType(input: unknown): "native" | "web" {
