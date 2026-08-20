@@ -2,8 +2,8 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.2.12
-appVersion: "0.2.12"
+version: 0.3.0
+appVersion: "0.3.0"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -19,11 +19,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.2.12
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.3.0
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.2.12
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.3.0
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.2.12
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.3.0
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -33,7 +33,9 @@ annotations:
   # annotation (which requires fingerprint + url for a PGP key) does not apply
   # and is intentionally omitted.
   artifacthub.io/changes: |
-    - kind: fixed
-      description: Match HOP-1 identities against any verified GitHub account email while still rejecting unverified or mismatched identities.
-    - kind: fixed
-      description: Adapt AgentGateway-generated GitHub MCP discovery and invocation requests to the upstream HTTP contract so GitHub tools remain discoverable and callable.
+    - kind: added
+      description: Add an optional standards-compatible MCP OAuth broker with PKCE, constrained DCR or static clients, exact-resource tokens, public metadata and JWKS, and typed Helm configuration.
+    - kind: security
+      description: Verify Google identity assertions before broker issuance, keep provider tokens private, project signing keyrings from an existing Secret, and fail closed on unsafe OAuth or deployment configuration.
+    - kind: changed
+      description: Preserve Google-broker and trusted-issuer identities as distinct principals and document reauthorization plus tested-client claim limits in the generated release handoff.

@@ -17,7 +17,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: 0.2.12
+    tag: 0.3.0
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -45,7 +45,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: 0.2.12
+    tag: 0.3.0
   secretRef:
     name: mcp-provider-runtime
   authorizationBroker:

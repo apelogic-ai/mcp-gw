@@ -1,6 +1,6 @@
 {
   "name": "mcp-gateway",
-  "version": "0.2.12",
+  "version": "0.3.0",
   "description": "Agent-agnostic remote MCP gateway with pluggable provider adapters.",
   "license": "MIT",
   "private": true,
