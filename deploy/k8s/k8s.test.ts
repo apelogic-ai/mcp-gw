@@ -75,6 +75,7 @@ describe("Kubernetes production chart", () => {
       "mcp-gateway-agentgateway-config",
     );
     const ingress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway");
+    const brokerIngress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway-broker");
     const networkPolicy = renderedResource(
       rendered,
       "NetworkPolicy",
@@ -110,9 +111,14 @@ describe("Kubernetes production chart", () => {
     expect(gatewayConfig).toContain("- https://mcp.example.com/mcp");
     expect(gatewayConfig).toContain("url: https://mcp.example.com/oauth/.well-known/jwks.json");
     expect(gatewayConfig).toMatch(/scopesSupported:\n\s+- mcp/);
+    for (const path of ["/mcp", "/.well-known/oauth-protected-resource/mcp"]) {
+      expect(ingress).toContain(`path: ${path}`);
+    }
+    // The public MCP resource route stays on the main Ingress and must never
+    // carry the broker transport caps (e.g. a small request-body limit).
+    expect(ingress).toMatch(/path: \/mcp[\s\S]*?name: mcp-gateway-agentgateway/);
+    expect(ingress).not.toContain("proxy-body-size");
     for (const path of [
-      "/mcp",
-      "/.well-known/oauth-protected-resource/mcp",
       "/.well-known/oauth-authorization-server/oauth",
       "/oauth/authorize",
       "/oauth/token",
@@ -120,16 +126,61 @@ describe("Kubernetes production chart", () => {
       "/oauth/.well-known/jwks.json",
       "/oauth/google/broker/callback",
     ]) {
-      expect(ingress).toContain(`path: ${path}`);
+      expect(brokerIngress).toContain(`path: ${path}`);
+      expect(ingress).not.toContain(`path: ${path}`);
     }
-    expect(ingress).toMatch(/path: \/oauth\/authorize[\s\S]*?name: mcp-gateway-google-workspace/);
-    expect(ingress).toMatch(/path: \/mcp[\s\S]*?name: mcp-gateway-agentgateway/);
+    expect(brokerIngress).toMatch(
+      /path: \/oauth\/authorize[\s\S]*?name: mcp-gateway-google-workspace/,
+    );
+    expect(brokerIngress).toMatch(/path: \/oauth\/authorize\n\s+pathType: Exact/);
+    // The dedicated broker Ingress carries the operator-configured transport caps.
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/proxy-body-size");
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/limit-rps");
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/limit-connections");
     expect(networkPolicy).toContain("ports:");
     expect(networkPolicy).toContain("app.kubernetes.io/component: agentgateway");
     expect(networkPolicy).toContain("kubernetes.io/metadata.name: ingress-nginx");
     expect(networkPolicy).toContain("app.kubernetes.io/component: controller");
     expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
-    expect(ingress).toMatch(/path: \/oauth\/authorize\n\s+pathType: Exact/);
+  });
+
+  test("merges base and broker Ingress annotations with broker keys winning", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "agentgateway.ingress.annotations.shared=base-value",
+      "--set-string",
+      "agentgateway.ingress.annotations.base-only=base-only-value",
+      "--set-string",
+      "agentgateway.ingress.brokerAnnotations.shared=broker-value",
+    ]);
+    const ingress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway");
+    const brokerIngress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway-broker");
+
+    // Base annotations reach both Ingress objects.
+    expect(ingress).toContain("base-only: base-only-value");
+    expect(brokerIngress).toContain("base-only: base-only-value");
+    // Broker-specific keys win on conflict and only land on the broker Ingress.
+    expect(brokerIngress).toContain("shared: broker-value");
+    expect(brokerIngress).not.toContain("shared: base-value");
+    expect(ingress).toContain("shared: base-value");
+    // Broker-only transport caps never leak onto the main /mcp Ingress.
+    expect(ingress).not.toContain("proxy-body-size");
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/proxy-body-size");
+  });
+
+  test("renders no dedicated broker Ingress when the broker is disabled", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-private-overlay.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-gateway-agentgateway");
+    expect(rendered).not.toContain("name: mcp-gateway-agentgateway-broker");
+    expect(rendered).not.toContain("proxy-body-size");
   });
 
   test("keeps broker env, Secret projection, and mount absent when broker mode is disabled", () => {

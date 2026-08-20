@@ -32,6 +32,14 @@ agentgateway:
   ingress:
     enabled: true
     host: mcp.example.com
+    # Transport-level protection for the unauthenticated broker routes only.
+    # These land on the dedicated broker Ingress and never touch /mcp, which must
+    # keep accepting large MCP tool payloads. Keys are ingress-controller-specific
+    # (this example targets ingress-nginx).
+    brokerAnnotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+      nginx.ingress.kubernetes.io/limit-rps: "10"
+      nginx.ingress.kubernetes.io/limit-connections: "20"
 
 googleWorkspace:
   enabled: true

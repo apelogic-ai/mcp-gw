@@ -41,6 +41,33 @@ spec:
                   name: http
 {{- end }}
 {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-agentgateway-broker
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+  {{- $baseAnnotations := .Values.agentgateway.ingress.annotations | default dict }}
+  {{- $brokerAnnotations := .Values.agentgateway.ingress.brokerAnnotations | default dict }}
+  {{- $mergedAnnotations := mergeOverwrite (deepCopy $baseAnnotations) $brokerAnnotations }}
+  {{- with $mergedAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.agentgateway.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.agentgateway.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.agentgateway.ingress.host }}
+      http:
+        paths:
 {{- $broker := .Values.googleWorkspace.authorizationBroker }}
 {{- $issuerUrl := urlParse $broker.issuer }}
 {{- $issuerPath := trimSuffix "/" ($issuerUrl.path | default "") }}

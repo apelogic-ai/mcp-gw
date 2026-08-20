@@ -726,6 +726,10 @@
               "type": "object",
               "additionalProperties": true,
               "properties": {
+                "brokerAnnotations": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" }
+                },
                 "paths": {
                   "type": "array",
                   "minItems": 1,
