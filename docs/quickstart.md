@@ -131,6 +131,15 @@ The agentgateway Service is `ClusterIP` by default. Reach `/mcp` by enabling
 `agentgateway.ingress`, fronting the Service with your own gateway, or during
 testing with `kubectl port-forward svc/mcp-gateway-agentgateway 8080:8080`.
 
+When the OAuth broker is enabled, its unauthenticated routes (`/authorize`,
+`/token`, `/register`, jwks, callback, and authorization-server metadata) are
+served on a dedicated Ingress. Configure transport-level protections there —
+such as a small request-body cap and a coarse per-IP rate limit — through
+`agentgateway.ingress.brokerAnnotations` (the exact annotation keys are
+ingress-controller-specific). These caps never touch `/mcp`, which keeps
+carrying large MCP tool payloads, and they complement the semantic, durable
+limits the wrapper itself enforces.
+
 ---
 
 ## 2. Setup

@@ -1,5 +1,30 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  CANONICAL_PUBLIC_IPV4_HOSTS,
+  NONCANONICAL_WHATWG_IPV4_HOSTS,
+  NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
+} from "../../shared/oauth/public-host-fixtures";
+
+const INVALID_PUBLIC_IPV4_HOSTS = [
+  ...NONCANONICAL_WHATWG_IPV4_HOSTS,
+  ...NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
+];
+const VALID_STATIC_CLIENT = {
+  clientId: "browser-client",
+  redirectUris: ["https://client.example.com/callback"],
+  clientUri: "https://client.example.com/app",
+  scopes: ["mcp"],
+};
+const HELM_PROCESS_TIMEOUT_MS = 2_000;
+const HELM_PROCESS_MAX_BUFFER_BYTES = 1024 * 1024;
+type BoundedProcessResult = {
+  stdout: Bun.SyncSubprocess<"pipe", "pipe">["stdout"];
+  stderr: Bun.SyncSubprocess<"pipe", "pipe">["stderr"];
+  exitCode: number | null;
+  signalCode: string | null;
+};
+
 describe("Kubernetes production chart", () => {
   test("ships wrapper images with a numeric non-root runtime user", async () => {
     const dockerfiles = await Promise.all([
@@ -26,13 +51,612 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
     expect(rendered).not.toContain("kind: Ingress");
-    expect(values).not.toMatch(/^\s+issuer:\s+/m);
+    expect(values).not.toMatch(/^\s+issuer:\s+https?:/m);
     expect(values).not.toMatch(/^\s+audiences:\s*$/m);
     expect(values).not.toMatch(/^\s+jwksUrl:\s+/m);
     expect(values).not.toMatch(/^\s+allowedAlgorithms:\s*$/m);
     expect(rendered).not.toMatch(/apelogic\.io/i);
     expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
     expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
+    expect(rendered).not.toContain("MCP_BROKER_");
+    expect(rendered).not.toContain("broker-signing-keyring");
+    expect(rendered).not.toContain("/var/run/secrets/mcp-gateway/broker");
+  });
+
+  test("renders a complete OAuth broker contract with a read-only Secret keyring projection", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+    const ingress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway");
+    const brokerIngress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway-broker");
+    const networkPolicy = renderedResource(
+      rendered,
+      "NetworkPolicy",
+      "mcp-gateway-google-workspace",
+    );
+
+    expect(deployment).toContain("name: MCP_BROKER_ENABLED");
+    expect(deployment).toContain('value: "true"');
+    expect(deployment).toContain("name: MCP_AUTHORIZATION_ISSUER");
+    expect(deployment).toContain('value: "https://mcp.example.com/oauth"');
+    expect(deployment).toContain("name: MCP_RESOURCE_URI");
+    expect(deployment).toContain('value: "https://mcp.example.com/mcp"');
+    expect(deployment).toContain("name: MCP_BROKER_GOOGLE_REDIRECT_URI");
+    expect(deployment).toContain('value: "https://mcp.example.com/oauth/google/broker/callback"');
+    expect(deployment).toContain("name: MCP_BROKER_ACTIVE_KID");
+    expect(deployment).toContain('value: "broker-signing-2026-08"');
+    expect(deployment).toContain("name: MCP_BROKER_SIGNING_JWKS_FILE");
+    expect(deployment).toContain('value: "/var/run/secrets/mcp-gateway/broker/signing-jwks.json"');
+    expect(deployment).toContain("name: MCP_DCR_ENABLED");
+    expect(deployment).toContain("name: broker-signing-keyring");
+    expect(deployment).toContain("secretName: mcp-broker-signing-keyring");
+    expect(deployment).toContain("key: signing-jwks.json");
+    expect(deployment).toContain("path: signing-jwks.json");
+    expect(deployment).toContain("defaultMode: 0440");
+    expect(deployment).toContain("fsGroup: 10001");
+    expect(deployment).toContain("fsGroupChangePolicy: OnRootMismatch");
+    expect(deployment).toContain('mountPath: "/var/run/secrets/mcp-gateway/broker"');
+    expect(deployment).toContain("readOnly: true");
+    expect(deployment).not.toContain("BEGIN PRIVATE KEY");
+    expect(deployment).not.toContain('value: "{\\"keys\\"');
+    expect(deployment).not.toMatch(/name: MCP_BROKER_SIGNING_JWKS_FILE[\s\S]{0,120}secretKeyRef:/);
+    expect(gatewayConfig).toContain("- issuer: https://mcp.example.com/oauth");
+    expect(gatewayConfig).toContain("- https://mcp.example.com/mcp");
+    expect(gatewayConfig).toContain("url: https://mcp.example.com/oauth/.well-known/jwks.json");
+    expect(gatewayConfig).toMatch(/scopesSupported:\n\s+- mcp/);
+    for (const path of ["/mcp", "/.well-known/oauth-protected-resource/mcp"]) {
+      expect(ingress).toContain(`path: ${path}`);
+    }
+    // The public MCP resource route stays on the main Ingress and must never
+    // carry the broker transport caps (e.g. a small request-body limit).
+    expect(ingress).toMatch(/path: \/mcp[\s\S]*?name: mcp-gateway-agentgateway/);
+    expect(ingress).not.toContain("proxy-body-size");
+    for (const path of [
+      "/.well-known/oauth-authorization-server/oauth",
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/.well-known/jwks.json",
+      "/oauth/google/broker/callback",
+    ]) {
+      expect(brokerIngress).toContain(`path: ${path}`);
+      expect(ingress).not.toContain(`path: ${path}`);
+    }
+    expect(brokerIngress).toMatch(
+      /path: \/oauth\/authorize[\s\S]*?name: mcp-gateway-google-workspace/,
+    );
+    expect(brokerIngress).toMatch(/path: \/oauth\/authorize\n\s+pathType: Exact/);
+    // The dedicated broker Ingress carries the operator-configured transport caps.
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/proxy-body-size");
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/limit-rps");
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/limit-connections");
+    expect(networkPolicy).toContain("ports:");
+    expect(networkPolicy).toContain("app.kubernetes.io/component: agentgateway");
+    expect(networkPolicy).toContain("kubernetes.io/metadata.name: ingress-nginx");
+    expect(networkPolicy).toContain("app.kubernetes.io/component: controller");
+    expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
+  });
+
+  test("merges base and broker Ingress annotations with broker keys winning", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "agentgateway.ingress.annotations.shared=base-value",
+      "--set-string",
+      "agentgateway.ingress.annotations.base-only=base-only-value",
+      "--set-string",
+      "agentgateway.ingress.brokerAnnotations.shared=broker-value",
+    ]);
+    const ingress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway");
+    const brokerIngress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway-broker");
+
+    // Base annotations reach both Ingress objects.
+    expect(ingress).toContain("base-only: base-only-value");
+    expect(brokerIngress).toContain("base-only: base-only-value");
+    // Broker-specific keys win on conflict and only land on the broker Ingress.
+    expect(brokerIngress).toContain("shared: broker-value");
+    expect(brokerIngress).not.toContain("shared: base-value");
+    expect(ingress).toContain("shared: base-value");
+    // Broker-only transport caps never leak onto the main /mcp Ingress.
+    expect(ingress).not.toContain("proxy-body-size");
+    expect(brokerIngress).toContain("nginx.ingress.kubernetes.io/proxy-body-size");
+  });
+
+  test("renders no dedicated broker Ingress when the broker is disabled", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-private-overlay.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-gateway-agentgateway");
+    expect(rendered).not.toContain("name: mcp-gateway-agentgateway-broker");
+    expect(rendered).not.toContain("proxy-body-size");
+  });
+
+  test("keeps broker env, Secret projection, and mount absent when broker mode is disabled", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+
+    expect(deployment).not.toContain("MCP_BROKER_");
+    expect(deployment).not.toContain("MCP_AUTHORIZATION_ISSUER");
+    expect(deployment).not.toContain("MCP_RESOURCE_URI");
+    expect(deployment).not.toContain("broker-signing-keyring");
+    expect(deployment).not.toContain("/var/run/secrets/mcp-gateway/broker");
+    expect(rendered).not.toContain("/.well-known/oauth-authorization-server");
+  });
+
+  test("rejects broker mode without a complete signing keyring Secret reference", () => {
+    for (const [field, value] of [
+      ["name", ""],
+      ["key", ""],
+    ]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.${field}=${value}`,
+      ]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker.*signingKeyring.*secretKeyRef/);
+    }
+  });
+
+  test("rejects partial or incoherent non-secret broker configuration", () => {
+    const invalidOverrides = [
+      "googleWorkspace.authorizationBroker.issuer=",
+      "googleWorkspace.authorizationBroker.resource=http://mcp.example.com/mcp",
+      "googleWorkspace.authorizationBroker.googleCallbackUri=https://other.example.com/oauth/google/broker/callback",
+      "googleWorkspace.authorizationBroker.activeSigningKid=",
+      "googleWorkspace.authorizationBroker.dcr.enabled=false",
+      "agentgateway.mcpAuthentication.resourceMetadata.scopesSupported[0]=openid",
+    ];
+
+    for (const override of invalidOverrides) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        override,
+      ]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+
+    const silentlyDisabled = helmTemplateResult([
+      "--set",
+      "googleWorkspace.authorizationBroker.issuer=https://mcp.example.com/oauth",
+    ]);
+    assertHelmRejected(silentlyDisabled);
+    expect(silentlyDisabled.stderr.toString()).toMatch(/authorizationBroker/);
+
+    for (const selector of ["namespaceSelector", "podSelector"]) {
+      const missingIngressPeer = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.ingressControllerPeer.${selector}.matchLabels={}`,
+      ]);
+      assertHelmRejected(missingIngressPeer);
+      expect(missingIngressPeer.stderr.toString()).toMatch(/ingressControllerPeer/);
+    }
+
+    const disabledScopeOverride = helmTemplateResult([
+      "--set-string",
+      "googleWorkspace.authorizationBroker.scopes[0]=openid",
+    ]);
+    assertHelmRejected(disabledScopeOverride);
+    expect(disabledScopeOverride.stderr.toString()).toMatch(/authorizationBroker/);
+
+    const disabledDcrPolicy = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.enabled=false",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].clientId=static-client",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].redirectUris[0]=https://client.example.com/callback",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.rateLimit=10",
+    ]);
+    assertHelmRejected(disabledDcrPolicy);
+    expect(disabledDcrPolicy.stderr.toString()).toMatch(/authorizationBroker.*dcr/);
+
+    const loopbackClient = [
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].clientId=native-client",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].redirectUris[0]=http://127.0.0.1:53682/callback",
+    ];
+    const rejectedLoopback = helmTemplateResult(loopbackClient);
+    assertHelmRejected(rejectedLoopback);
+    expect(rejectedLoopback.stderr.toString()).toMatch(/loopback/);
+
+    const acceptedLoopback = helmTemplateResult([
+      ...loopbackClient,
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+    ]);
+    expect(acceptedLoopback.exitCode).toBe(0);
+  });
+
+  test("rejects broker URLs that are not canonical public HTTPS endpoints", () => {
+    const invalidCases: string[][] = [
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://localhost/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://10.0.0.1/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://broker.internal/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://intranet/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://[2001:db8::1]/oauth"],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.issuer=https://user:pass@mcp.example.com/oauth",
+      ],
+      ["--set-string", "googleWorkspace.authorizationBroker.resource=https://192.168.1.1/mcp"],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://localhost/oauth/callback",
+      ],
+      ["--set-string", "googleWorkspace.authorizationBroker.resource=https://mcp.example.com/mcp/"],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/a/../oauth/callback",
+      ],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/oauth/%2e%2e/callback",
+      ],
+      [
+        "--set-json",
+        `googleWorkspace.authorizationBroker.issuer=${JSON.stringify("https://mcp.example.com/oauth\\evil")}`,
+      ],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/oauth/call back",
+      ],
+    ];
+
+    for (const args of invalidCases) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        ...args,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+
+    for (const host of ["localhost", "10.0.0.1", "broker.internal"]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.issuer=https://${host}/oauth`,
+        "--set-string",
+        `googleWorkspace.authorizationBroker.resource=https://${host}/mcp`,
+        "--set-string",
+        `googleWorkspace.authorizationBroker.googleCallbackUri=https://${host}/oauth/google/broker/callback`,
+        "--set-string",
+        `agentgateway.ingress.host=${host}`,
+        "--set-string",
+        `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+  });
+
+  test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects broker IPv4 host %s", (host) => {
+    const broker = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      `googleWorkspace.authorizationBroker.issuer=https://${host}/oauth`,
+      "--set-string",
+      `googleWorkspace.authorizationBroker.resource=https://${host}/mcp`,
+      "--set-string",
+      `googleWorkspace.authorizationBroker.googleCallbackUri=https://${host}/oauth/google/broker/callback`,
+      "--set-string",
+      `agentgateway.ingress.host=${host}`,
+      "--set-string",
+      `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
+    ]);
+    assertHelmRejected(broker);
+  });
+
+  test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects client metadata IPv4 host %s", (host) => {
+    const clientUri = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, clientUri: `https://${host}/app` })}]`,
+    ]);
+    assertHelmRejected(clientUri);
+  });
+
+  test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects HTTPS redirect IPv4 host %s", (host) => {
+    const redirect = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, redirectUris: [`https://${host}/callback`] })}]`,
+    ]);
+    assertHelmRejected(redirect);
+  });
+
+  test.each([...NONCANONICAL_WHATWG_IPV4_HOSTS])("rejects HTTP loopback IPv4 alias %s", (host) => {
+    const loopbackAlias = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, redirectUris: [`http://${host}/callback`] })}]`,
+    ]);
+    assertHelmRejected(loopbackAlias);
+  });
+
+  test.each([...CANONICAL_PUBLIC_IPV4_HOSTS])("accepts canonical public IPv4 host %s", (host) => {
+    const accepted = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, clientUri: `https://${host}/app`, redirectUris: [`https://${host}/callback`] })}]`,
+    ]);
+    expect(accepted.exitCode).toBe(0);
+  });
+
+  test("bounds and reaps chart subprocesses", () => {
+    const result = boundedSpawnSync([process.execPath, "-e", "await Bun.sleep(10000)"], 25);
+
+    expect(result.exitCode).toBeNull();
+    expect(result.signalCode).toBe("SIGKILL");
+    expect(() => assertHelmRejected(result)).toThrow(/terminated by signal SIGKILL/);
+  });
+
+  test("rejects every broker route collision before deployment", () => {
+    for (const callbackPath of [
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/.well-known/jwks.json",
+      "/.well-known/oauth-authorization-server/oauth",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/mcp",
+      "/oauth/google/start",
+      "/oauth/google/status",
+      "/oauth/google/disconnect",
+      "/oauth/google/callback",
+      "/oauth/github/start",
+      "/oauth/github/status",
+      "/oauth/github/disconnect",
+      "/oauth/github/callback",
+    ]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com${callbackPath}`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker.*route/i);
+    }
+
+    const resourceCollision = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.resource=https://mcp.example.com/oauth/token",
+      "--set-string",
+      "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/oauth/token",
+      "--set-json",
+      'agentgateway.ingress.paths=["/oauth/token","/.well-known/oauth-protected-resource/oauth/token"]',
+    ]);
+    assertHelmRejected(resourceCollision);
+    expect(resourceCollision.stderr.toString()).toMatch(/authorizationBroker.*route/i);
+
+    const operatorPathCollision = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      'agentgateway.ingress.paths=["/mcp","/.well-known/oauth-protected-resource/mcp","/oauth/token"]',
+    ]);
+    assertHelmRejected(operatorPathCollision);
+    expect(operatorPathCollision.stderr.toString()).toMatch(/ingress\.paths/);
+  });
+
+  test("rejects static clients that the runtime registry would reject", () => {
+    const validClient = {
+      clientId: "browser-client",
+      redirectUris: ["https://client.example.com/callback"],
+      clientName: "Example client",
+      clientUri: "https://client.example.com/app?source=mcp",
+      scopes: ["mcp"],
+    };
+    const invalidClients = [
+      { ...validClient, clientId: "x" },
+      { ...validClient, clientId: "bad client" },
+      { ...validClient, clientId: "x".repeat(201) },
+      { ...validClient, scopes: ["admin"] },
+      { ...validClient, clientUri: "https://localhost/app" },
+      { ...validClient, clientUri: "https://10.0.0.1/app" },
+      { ...validClient, redirectUris: ["https://user:pass@client.example.com/callback"] },
+      { ...validClient, redirectUris: ["https://192.168.1.1/callback"] },
+      { ...validClient, redirectUris: ["https://192.0.1.1/callback"] },
+      { ...validClient, redirectUris: ["https://999.999.999.999/callback"] },
+      { ...validClient, redirectUris: ["https://client.example.com"] },
+      { ...validClient, redirectUris: ["https://client.example.com:99999/callback"] },
+      { ...validClient, redirectUris: ["https://client.example.com/cb\\x"] },
+      { ...validClient, redirectUris: ["https://client.example.com/call back"] },
+      { ...validClient, redirectUris: ["https://client.example.com/callback?x=hello world"] },
+      {
+        ...validClient,
+        redirectUris: Array.from(
+          { length: 11 },
+          (_, i) => `https://client.example.com/callback-${i}`,
+        ),
+      },
+    ];
+
+    for (const client of invalidClients) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(client)}]`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker|values don't meet/i);
+    }
+
+    const accepted = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(validClient)}]`,
+    ]);
+    expect(accepted.exitCode).toBe(0);
+
+    const duplicateIds = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(validClient)},${JSON.stringify({ ...validClient, redirectUris: ["https://other.example.com/callback"] })}]`,
+    ]);
+    assertHelmRejected(duplicateIds);
+
+    for (const redirect of [
+      "http://127.0.0.1:080/callback",
+      "http://localhost/callback/../other",
+      "http://localhost",
+      "http://localhost/cb\\x",
+      "http://localhost/call back",
+      "http://localhost/callback?x=hello world",
+    ]) {
+      const invalidLoopback = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set",
+        "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [redirect] })}]`,
+      ]);
+      assertHelmRejected(invalidLoopback);
+    }
+
+    const canonicalLoopback = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: ["http://native.localhost:53682/callback?source=mcp"] })}]`,
+    ]);
+    expect(canonicalLoopback.exitCode).toBe(0);
+  });
+
+  test("rejects malformed trusted proxy IP literals and unsafe DCR bounds", () => {
+    for (const address of ["not-an-ip", "10.0.0.999", "01.2.3.4", "2001:DB8::1"]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        "googleWorkspace.authorizationBroker.dcr.trustedProxy.header=x-forwarded-for",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.dcr.trustedProxy.addresses[0]=${address}`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker|values don't meet/i);
+    }
+
+    const unsafeBound = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.dcr.maxClients=9007199254740992",
+    ]);
+    assertHelmRejected(unsafeBound);
+
+    for (const address of ["203.0.113.10", "2001:db8::1", "1:2:3:4:5::1.2.3.4", "::1.2.3.4"]) {
+      const accepted = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        "googleWorkspace.authorizationBroker.dcr.trustedProxy.header=x-forwarded-for",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.dcr.trustedProxy.addresses[0]=${address}`,
+      ]);
+      expect(accepted.exitCode).toBe(0);
+    }
+  });
+
+  test("rejects broker scope transport ambiguities and direct Google hop-1 trust", () => {
+    for (const scope of ["bad scope", "bad,scope", "bad\\scope", "mcp💥"]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.scopes=[${JSON.stringify(scope)}]`,
+        "--set-json",
+        `agentgateway.mcpAuthentication.resourceMetadata.scopesSupported=[${JSON.stringify(scope)}]`,
+      ]);
+      assertHelmRejected(result);
+    }
+
+    const googleHop1 = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      'hop1.issuers=[{"name":"google","issuer":"https://accounts.google.com","audiences":["google-client"],"jwksUrl":"https://www.googleapis.com/oauth2/v3/certs","allowedAlgorithms":["RS256"]}]',
+    ]);
+    assertHelmRejected(googleHop1);
+    expect(googleHop1.stderr.toString()).toMatch(/authorizationBroker|Google/i);
+  });
+
+  test("rejects broker configuration and signing material through generic environment values", async () => {
+    for (const name of [
+      "MCP_BROKER_ENABLED",
+      "MCP_BROKER_SIGNING_JWKS_FILE",
+      "MCP_DCR_ENABLED",
+      "MCP_AUTHORIZATION_ISSUER",
+      "MCP_RESOURCE_URI",
+      "MCP_OAUTH_STATIC_CLIENTS_JSON",
+    ]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set-string",
+        `googleWorkspace.env.${name}=forbidden`,
+      ]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/googleWorkspace\.env.*reserved/);
+    }
+
+    const files = await Promise.all([
+      Bun.file("deploy/k8s/chart/values.yaml").text(),
+      Bun.file("deploy/k8s/examples/values-oauth-broker.example.yaml").text(),
+    ]);
+    for (const content of files) {
+      expect(content).not.toMatch(/BEGIN (?:RSA |EC )?PRIVATE KEY/);
+      expect(content).not.toMatch(/^\s*(?:kty|d|p|q|dp|dq|qi):/m);
+    }
   });
 
   test("renders a blocking, secret-backed OAuth migration hook", () => {
@@ -66,7 +690,7 @@ describe("Kubernetes production chart", () => {
       ],
     ]) {
       const result = helmTemplateResult(args);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/oauthMigrations.*secretKeyRef/);
     }
   });
@@ -173,7 +797,7 @@ describe("Kubernetes production chart", () => {
 
     for (const args of invalidArgs) {
       const result = helmTemplateResult(args);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/postgresql(?:\.|\/)caBundle/);
     }
   });
@@ -309,7 +933,7 @@ describe("Kubernetes production chart", () => {
       ],
     ]) {
       const result = helmTemplateResult(args);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/productionProfile/);
     }
   });
@@ -430,14 +1054,14 @@ describe("Kubernetes production chart", () => {
     };
 
     const missing = helmTemplateResult(["--set-json", `hop1.issuers=[${JSON.stringify(issuer)}]`]);
-    expect(missing.exitCode).not.toBe(0);
+    assertHelmRejected(missing);
     expect(missing.stderr.toString()).toMatch(/allowedAlgorithms/);
 
     const empty = helmTemplateResult([
       "--set-json",
       `hop1.issuers=[${JSON.stringify({ ...issuer, allowedAlgorithms: [] })}]`,
     ]);
-    expect(empty.exitCode).not.toBe(0);
+    assertHelmRejected(empty);
     expect(empty.stderr.toString()).toMatch(/allowedAlgorithms/);
   });
 
@@ -445,7 +1069,7 @@ describe("Kubernetes production chart", () => {
     for (const component of ["agentgateway", "googleWorkspace", "githubWrapper"]) {
       const result = helmTemplateResult(["--set", `${component}.enabled=true`]);
 
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/hop1(?:\.|\/)issuers/);
     }
   });
@@ -466,7 +1090,7 @@ describe("Kubernetes production chart", () => {
       })}]`,
     ]);
 
-    expect(result.exitCode).not.toBe(0);
+    assertHelmRejected(result);
     expect(result.stderr.toString()).toMatch(/credentialSecretKeyRef/);
   });
 
@@ -487,20 +1111,16 @@ describe("Kubernetes production chart", () => {
     const schema = await Bun.file("deploy/k8s/chart/values.schema.json").json();
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
 
-    const result = Bun.spawnSync({
-      cmd: [
-        "helm",
-        "template",
-        "mcp-gateway",
-        "deploy/k8s/chart",
-        "--set-string",
-        "agentgateway.replicas=not-a-number",
-      ],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const result = boundedSpawnSync([
+      "helm",
+      "template",
+      "mcp-gateway",
+      "deploy/k8s/chart",
+      "--set-string",
+      "agentgateway.replicas=not-a-number",
+    ]);
 
-    expect(result.exitCode).not.toBe(0);
+    assertHelmRejected(result);
     expect(result.stderr.toString()).toMatch(/agentgateway(?:\.|\/)replicas/);
   });
 
@@ -547,12 +1167,39 @@ function helmTemplate(extraArgs: string[] = []): string {
   return result.stdout.toString();
 }
 
-function helmTemplateResult(extraArgs: string[] = []): Bun.SyncSubprocess<"pipe", "pipe"> {
-  return Bun.spawnSync({
-    cmd: ["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs],
+function helmTemplateResult(extraArgs: string[] = []): BoundedProcessResult {
+  return boundedSpawnSync(["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs]);
+}
+
+function assertHelmRejected(result: BoundedProcessResult): void {
+  const stderr = result.stderr.toString().slice(0, 4_096).trim() || "<empty>";
+  if (result.signalCode !== null) {
+    throw new Error(
+      `Expected Helm validation rejection, but process terminated by signal ${result.signalCode}. stderr: ${stderr}`,
+    );
+  }
+  if (!Number.isInteger(result.exitCode) || result.exitCode === 0) {
+    throw new Error(
+      `Expected Helm validation rejection with a real nonzero exit code, got ${String(result.exitCode)}. stderr: ${stderr}`,
+    );
+  }
+}
+
+function boundedSpawnSync(cmd: string[], timeout = HELM_PROCESS_TIMEOUT_MS): BoundedProcessResult {
+  const result = Bun.spawnSync({
+    cmd,
     stdout: "pipe",
     stderr: "pipe",
+    timeout,
+    killSignal: "SIGKILL",
+    maxBuffer: HELM_PROCESS_MAX_BUFFER_BYTES,
   });
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: Number.isInteger(result.exitCode) ? result.exitCode : null,
+    signalCode: result.signalCode ?? null,
+  };
 }
 
 function renderedResource(rendered: string, kind: string, name: string): string {
@@ -580,6 +1227,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
+    "values-oauth-broker.example.yaml",
     "values-private-overlay.example.yaml",
     "values-production-bundle.example.yaml",
   ];

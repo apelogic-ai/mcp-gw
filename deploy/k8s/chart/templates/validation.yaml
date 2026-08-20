@@ -50,3 +50,142 @@
 {{- else if or $configMapAny $secretAny }}
 {{- fail "postgresql.caBundle.enabled must be true when a CA reference is configured" }}
 {{- end }}
+
+{{- $broker := .Values.googleWorkspace.authorizationBroker }}
+{{- range $name, $_ := .Values.googleWorkspace.env }}
+{{- if or (hasPrefix "MCP_BROKER_" $name) (hasPrefix "MCP_DCR_" $name) (eq $name "MCP_AUTHORIZATION_ISSUER") (eq $name "MCP_RESOURCE_URI") (eq $name "MCP_OAUTH_STATIC_CLIENTS_JSON") }}
+{{- fail (printf "googleWorkspace.env.%s is reserved; configure googleWorkspace.authorizationBroker instead" $name) }}
+{{- end }}
+{{- end }}
+{{- $brokerKeyRef := $broker.signingKeyring.secretKeyRef }}
+{{- $brokerKeyRefAny := or $brokerKeyRef.name $brokerKeyRef.key }}
+{{- $brokerDcr := $broker.dcr }}
+{{- $brokerProxy := $brokerDcr.trustedProxy }}
+{{- $brokerProxyAny := or $brokerProxy.header (gt (len $brokerProxy.addresses) 0) }}
+{{- $brokerBoundsAny := or (gt (int $brokerDcr.clientTtlMs) 0) (gt (int $brokerDcr.maxClients) 0) (gt (int $brokerDcr.maxRateKeys) 0) (gt (int $brokerDcr.rateLimit) 0) (gt (int $brokerDcr.rateWindowMs) 0) }}
+{{- if $broker.enabled }}
+{{- if not .Values.googleWorkspace.enabled }}
+{{- fail "googleWorkspace.authorizationBroker requires googleWorkspace.enabled=true" }}
+{{- end }}
+{{- if or (not .Values.agentgateway.enabled) (not .Values.agentgateway.ingress.enabled) }}
+{{- fail "googleWorkspace.authorizationBroker requires agentgateway and its public ingress to be enabled" }}
+{{- end }}
+{{- if or (not $broker.issuer) (not $broker.resource) (not $broker.googleCallbackUri) (not $broker.activeSigningKid) (eq (len $broker.scopes) 0) }}
+{{- fail "googleWorkspace.authorizationBroker requires issuer, resource, googleCallbackUri, activeSigningKid, and at least one scope" }}
+{{- end }}
+{{- include "mcp-gateway.assertPublicHttpsUrl" (dict "name" "googleWorkspace.authorizationBroker.issuer" "value" $broker.issuer "canonical" true "routeSafe" true) }}
+{{- include "mcp-gateway.assertPublicHttpsUrl" (dict "name" "googleWorkspace.authorizationBroker.resource" "value" $broker.resource "canonical" true "routeSafe" true) }}
+{{- include "mcp-gateway.assertPublicHttpsUrl" (dict "name" "googleWorkspace.authorizationBroker.googleCallbackUri" "value" $broker.googleCallbackUri "canonical" true "routeSafe" true) }}
+{{- if ne (regexFind "^https://[^/]+" $broker.issuer) (regexFind "^https://[^/]+" $broker.googleCallbackUri) }}
+{{- fail "googleWorkspace.authorizationBroker.googleCallbackUri must use the issuer origin" }}
+{{- end }}
+{{- if ne (regexFind "^https://[^/]+" $broker.issuer) (regexFind "^https://[^/]+" $broker.resource) }}
+{{- fail "googleWorkspace.authorizationBroker.resource must use the issuer origin for chart-managed ingress" }}
+{{- end }}
+{{- $brokerOriginHost := (urlParse $broker.issuer).host }}
+{{- if ne $brokerOriginHost .Values.agentgateway.ingress.host }}
+{{- fail "googleWorkspace.authorizationBroker issuer/resource origin must match agentgateway.ingress.host" }}
+{{- end }}
+{{- $issuerUrl := urlParse $broker.issuer }}
+{{- $resourceUrl := urlParse $broker.resource }}
+{{- $callbackUrl := urlParse $broker.googleCallbackUri }}
+{{- $issuerPath := trimSuffix "/" ($issuerUrl.path | default "") }}
+{{- $resourcePath := trimSuffix "/" ($resourceUrl.path | default "/") }}
+{{- if not $resourcePath }}{{- $resourcePath = "/" }}{{- end }}
+{{- $authorizationServerMetadataPath := printf "/.well-known/oauth-authorization-server%s" $issuerPath }}
+{{- $resourceMetadataPath := printf "/.well-known/oauth-protected-resource%s" (ternary "" $resourcePath (eq $resourcePath "/")) }}
+{{- $brokerRoutePaths := list $authorizationServerMetadataPath $resourceMetadataPath $resourcePath (printf "%s/authorize" $issuerPath) (printf "%s/token" $issuerPath) (printf "%s/.well-known/jwks.json" $issuerPath) $callbackUrl.path }}
+{{- if $brokerDcr.enabled }}{{- $brokerRoutePaths = append $brokerRoutePaths (printf "%s/register" $issuerPath) }}{{- end }}
+{{- range $privatePath := list "/oauth/google/start" "/oauth/google/status" "/oauth/google/disconnect" "/oauth/google/callback" "/oauth/github/start" "/oauth/github/status" "/oauth/github/disconnect" "/oauth/github/callback" }}
+{{- if has $privatePath $brokerRoutePaths }}
+{{- fail "googleWorkspace.authorizationBroker public route paths must not overlap authenticated private OAuth routes" }}
+{{- end }}
+{{- end }}
+{{- if ne (len $brokerRoutePaths) (len (uniq $brokerRoutePaths)) }}
+{{- fail "googleWorkspace.authorizationBroker public route paths must not overlap" }}
+{{- end }}
+{{- range .Values.agentgateway.ingress.paths }}
+{{- if and (ne . $resourcePath) (ne . $resourceMetadataPath) }}
+{{- fail "agentgateway.ingress.paths may contain only the exact MCP resource and resource-metadata paths when the broker is enabled" }}
+{{- end }}
+{{- end }}
+{{- if not (and $brokerKeyRef.name $brokerKeyRef.key) }}
+{{- fail "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef requires both name and key" }}
+{{- end }}
+{{- if or (eq (len $broker.ingressControllerPeer.namespaceSelector.matchLabels) 0) (eq (len $broker.ingressControllerPeer.podSelector.matchLabels) 0) }}
+{{- fail "googleWorkspace.authorizationBroker.ingressControllerPeer requires non-empty namespace and pod selector labels" }}
+{{- end }}
+{{- if and (not $brokerDcr.enabled) (eq (len $broker.staticClients) 0) }}
+{{- fail "googleWorkspace.authorizationBroker requires constrained DCR or at least one static client" }}
+{{- end }}
+{{- if and (not $brokerDcr.enabled) (or $brokerDcr.allowLoopbackRedirects $brokerProxyAny $brokerBoundsAny) }}
+{{- fail "googleWorkspace.authorizationBroker.dcr must be enabled when DCR policy is configured" }}
+{{- end }}
+{{- if ne (not (not $brokerProxy.header)) (gt (len $brokerProxy.addresses) 0) }}
+{{- fail "googleWorkspace.authorizationBroker.dcr.trustedProxy requires both header and addresses" }}
+{{- end }}
+{{- range $index, $address := $brokerProxy.addresses }}
+{{- include "mcp-gateway.assertNormalizedIp" (dict "name" (printf "googleWorkspace.authorizationBroker.dcr.trustedProxy.addresses[%d]" $index) "value" $address) }}
+{{- end }}
+{{- range $scope := $broker.scopes }}
+{{- if or (not (regexMatch "^[\\x21\\x23-\\x2b\\x2d-\\x5b\\x5d-\\x7e]+$" $scope)) (contains "," $scope) }}
+{{- fail "googleWorkspace.authorizationBroker scopes must be unambiguous OAuth scope tokens" }}
+{{- end }}
+{{- end }}
+{{- $staticClientIds := list }}
+{{- range $client := $broker.staticClients }}
+{{- if not (regexMatch "^[A-Za-z0-9._~-]{8,200}$" $client.clientId) }}
+{{- fail "googleWorkspace.authorizationBroker static client IDs must match ^[A-Za-z0-9._~-]{8,200}$" }}
+{{- end }}
+{{- if has $client.clientId $staticClientIds }}
+{{- fail "googleWorkspace.authorizationBroker static client IDs must be unique" }}
+{{- end }}
+{{- $staticClientIds = append $staticClientIds $client.clientId }}
+{{- range $scope := ($client.scopes | default $broker.scopes) }}
+{{- if or (not (regexMatch "^[\\x21\\x23-\\x2b\\x2d-\\x5b\\x5d-\\x7e]+$" $scope)) (contains "," $scope) (not (has $scope $broker.scopes)) }}
+{{- fail "googleWorkspace.authorizationBroker static client scopes must be a subset of broker scopes" }}
+{{- end }}
+{{- end }}
+{{- with $client.clientUri }}
+{{- include "mcp-gateway.assertPublicHttpsUrl" (dict "name" "googleWorkspace.authorizationBroker static client clientUri" "value" . "allowQuery" true) }}
+{{- end }}
+{{- range $redirect := $client.redirectUris }}
+{{- $isHttpsRedirect := hasPrefix "https://" $redirect }}
+{{- if $isHttpsRedirect }}
+{{- include "mcp-gateway.assertPublicHttpsUrl" (dict "name" "googleWorkspace.authorizationBroker static client redirect" "value" $redirect "allowQuery" true "canonical" true) }}
+{{- end }}
+{{- $isLoopbackRedirect := regexMatch "^http://(localhost|[a-z0-9.-]+\\.localhost|127(\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|\\[::1\\])(:[0-9]{1,5})?(/[^#]*)?(\\?[^#]*)?$" $redirect }}
+{{- if $isLoopbackRedirect }}
+{{- include "mcp-gateway.assertCanonicalLoopbackHttpUrl" (dict "name" "googleWorkspace.authorizationBroker static client redirect" "value" $redirect) }}
+{{- end }}
+{{- if not (or $isHttpsRedirect (and $brokerDcr.allowLoopbackRedirects $isLoopbackRedirect)) }}
+{{- fail "googleWorkspace.authorizationBroker static client redirects require HTTPS or an explicitly allowed loopback HTTP URI" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if ne $broker.resource .Values.agentgateway.mcpAuthentication.resourceMetadata.resource }}
+{{- fail "googleWorkspace.authorizationBroker.resource must equal agentgateway.mcpAuthentication.resourceMetadata.resource" }}
+{{- end }}
+{{- if ne (toJson $broker.scopes) (toJson .Values.agentgateway.mcpAuthentication.resourceMetadata.scopesSupported) }}
+{{- fail "googleWorkspace.authorizationBroker.scopes must equal agentgateway.mcpAuthentication.resourceMetadata.scopesSupported" }}
+{{- end }}
+{{- $googleWorkspaceTargets := 0 }}
+{{- range .Values.agentgateway.backends }}
+{{- if and .enabled (eq .name "google-workspace") }}{{- $googleWorkspaceTargets = add1 $googleWorkspaceTargets }}{{- end }}
+{{- end }}
+{{- if ne $googleWorkspaceTargets 1 }}
+{{- fail "googleWorkspace.authorizationBroker requires exactly one enabled agentgateway backend named google-workspace" }}
+{{- end }}
+{{- range .Values.hop1.issuers }}
+{{- if eq .issuer "https://accounts.google.com" }}
+{{- fail "googleWorkspace.authorizationBroker cannot be combined with the direct Google hop1 issuer" }}
+{{- end }}
+{{- if eq .issuer $broker.issuer }}
+{{- fail "googleWorkspace.authorizationBroker.issuer must be distinct from configured hop1 issuers; broker trust is generated by the chart" }}
+{{- end }}
+{{- end }}
+{{- else }}
+{{- if or $broker.issuer $broker.resource $broker.googleCallbackUri $broker.activeSigningKid (ne (toJson $broker.scopes) "[\"mcp\"]") $brokerKeyRefAny (gt (len $broker.ingressControllerPeer.namespaceSelector.matchLabels) 0) (gt (len $broker.ingressControllerPeer.podSelector.matchLabels) 0) (gt (len $broker.staticClients) 0) $brokerDcr.enabled $brokerDcr.allowLoopbackRedirects $brokerProxyAny $brokerBoundsAny }}
+{{- fail "googleWorkspace.authorizationBroker.enabled must be true when broker configuration is set" }}
+{{- end }}
+{{- end }}

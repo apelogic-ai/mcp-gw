@@ -1,4 +1,12 @@
 {{- if .Values.agentgateway.enabled }}
+{{- $mcpPath := "/mcp" }}
+{{- $resourceMetadataPath := "/.well-known/oauth-protected-resource/mcp" }}
+{{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+{{- $resourceUrl := urlParse .Values.googleWorkspace.authorizationBroker.resource }}
+{{- $mcpPath = trimSuffix "/" ($resourceUrl.path | default "/") }}
+{{- if not $mcpPath }}{{- $mcpPath = "/" }}{{- end }}
+{{- $resourceMetadataPath = printf "/.well-known/oauth-protected-resource%s" (ternary "" $mcpPath (eq $mcpPath "/")) }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,9 +22,9 @@ data:
           - routes:
               - matches:
                   - path:
-                      exact: /mcp
+                      exact: {{ $mcpPath }}
                   - path:
-                      exact: /.well-known/oauth-protected-resource/mcp
+                      exact: {{ $resourceMetadataPath }}
                 policies:
                   cors:
                     allowOrigins: ["*"]
@@ -48,6 +56,22 @@ data:
                           url: {{ .url }}
                           credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-{{ $index }}
 {{- end }}
+{{- end }}
+{{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+                      - issuer: {{ .Values.googleWorkspace.authorizationBroker.issuer }}
+                        audiences:
+                          - {{ .Values.googleWorkspace.authorizationBroker.resource }}
+                        allowedAlgorithms:
+                          - RS256
+                        jwtValidationOptions:
+                          requiredClaims:
+                            - exp
+                            - iss
+                            - sub
+                            - aud
+                        jwks:
+                          url: {{ trimSuffix "/" .Values.googleWorkspace.authorizationBroker.issuer }}/.well-known/jwks.json
+                        discoverable: false
 {{- end }}
                     resourceMetadata:
 {{ toYaml .Values.agentgateway.mcpAuthentication.resourceMetadata | nindent 22 }}

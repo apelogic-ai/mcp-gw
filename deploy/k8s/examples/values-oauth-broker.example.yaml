@@ -1,0 +1,71 @@
+# Non-deployable authorization-broker contract fixture. Private GitOps must
+# replace every example hostname, client, and existing Secret reference. The
+# Secret owns the JWKS keyring; no signing material belongs in values.
+hop1:
+  issuers:
+    - name: enterprise-identity
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      emailClaim: email
+      subjectClaim: sub
+
+agentgateway:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: 0.2.12
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported:
+        - mcp
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+  ingress:
+    enabled: true
+    host: mcp.example.com
+    # Transport-level protection for the unauthenticated broker routes only.
+    # These land on the dedicated broker Ingress and never touch /mcp, which must
+    # keep accepting large MCP tool payloads. Keys are ingress-controller-specific
+    # (this example targets ingress-nginx).
+    brokerAnnotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+      nginx.ingress.kubernetes.io/limit-rps: "10"
+      nginx.ingress.kubernetes.io/limit-connections: "20"
+
+googleWorkspace:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: 0.2.12
+  secretRef:
+    name: mcp-provider-runtime
+  authorizationBroker:
+    enabled: true
+    issuer: https://mcp.example.com/oauth
+    resource: https://mcp.example.com/mcp
+    googleCallbackUri: https://mcp.example.com/oauth/google/broker/callback
+    activeSigningKid: broker-signing-2026-08
+    scopes:
+      - mcp
+    signingKeyring:
+      secretKeyRef:
+        name: mcp-broker-signing-keyring
+        key: signing-jwks.json
+    ingressControllerPeer:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+    dcr:
+      enabled: true

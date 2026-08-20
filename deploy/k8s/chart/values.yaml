@@ -122,6 +122,17 @@ agentgateway:
     host: mcp.example.com
     className: ""
     annotations: {}
+    # brokerAnnotations apply ONLY to the dedicated OAuth-broker Ingress that
+    # fronts the unauthenticated broker routes (/authorize, /token, /register,
+    # jwks, callback, and authorization-server metadata). Use them to set a small
+    # request-body cap and coarse per-IP rate limits for those public routes so a
+    # cheap flood cannot reach the wrapper; the /mcp route is never affected and
+    # keeps carrying large MCP tool payloads. The exact annotation keys are
+    # ingress-controller-specific; the example below is for ingress-nginx:
+    #   nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+    #   nginx.ingress.kubernetes.io/limit-rps: "10"
+    #   nginx.ingress.kubernetes.io/limit-connections: "20"
+    brokerAnnotations: {}
     paths:
       - /mcp
       - /.well-known/oauth-protected-resource/mcp
@@ -186,6 +197,35 @@ googleWorkspace:
     enabled: false
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml
     yaml: ""
+  authorizationBroker:
+    enabled: false
+    issuer: ""
+    resource: ""
+    googleCallbackUri: ""
+    activeSigningKid: ""
+    scopes:
+      - mcp
+    staticClients: []
+    signingKeyring:
+      secretKeyRef:
+        name: ""
+        key: ""
+    ingressControllerPeer:
+      namespaceSelector:
+        matchLabels: {}
+      podSelector:
+        matchLabels: {}
+    dcr:
+      enabled: false
+      allowLoopbackRedirects: false
+      trustedProxy:
+        header: ""
+        addresses: []
+      clientTtlMs: 0
+      maxClients: 0
+      maxRateKeys: 0
+      rateLimit: 0
+      rateWindowMs: 0
   env:
     PORT: "8080"
     GWS_BINARY_PATH: /app/node_modules/.bin/gws

@@ -71,6 +71,61 @@ existing Kubernetes Secret containing these environment-variable keys:
 - Issuer introspection credentials: any key selected by each
   \`hop1.issuers[].introspection.credentialSecretKeyRef\`.
 
+## Authorization Broker Capability Contract
+
+This chart and Google Workspace wrapper include the optional public OAuth authorization broker.
+The broker is disabled by default. Its deployment coordinates are environment-specific,
+GitOps-owned values rather than release constants; this handoff deliberately contains no deployed
+issuer, resource, callback, Secret name, or key ID.
+
+The typed chart entry point is \`googleWorkspace.authorizationBroker.enabled\`. When enabled, GitOps
+owns these non-secret public coordinates and policy values:
+
+- \`googleWorkspace.authorizationBroker.issuer\`: canonical public authorization-server issuer.
+- \`googleWorkspace.authorizationBroker.resource\`: exact canonical MCP resource and token audience.
+- \`googleWorkspace.authorizationBroker.googleCallbackUri\`: upstream Google broker callback on the
+  issuer origin.
+- \`googleWorkspace.authorizationBroker.scopes\`: broker scope allowlist.
+- \`googleWorkspace.authorizationBroker.activeSigningKid\`: non-secret active signing-key ID.
+- \`googleWorkspace.authorizationBroker.staticClients\`: immutable public-client registrations.
+- \`googleWorkspace.authorizationBroker.dcr.enabled\`: constrained DCR mode switch.
+
+Public routes are derived, not separately configured. For an issuer whose pathname is
+\`<issuer-path>\`, RFC 8414 metadata is served at
+\`/.well-known/oauth-authorization-server<issuer-path>\`; authorization, token, JWKS, and optional
+registration routes are \`<issuer-path>/authorize\`, \`<issuer-path>/token\`,
+\`<issuer-path>/.well-known/jwks.json\`, and \`<issuer-path>/register\`. Protected-resource metadata
+inserts \`/.well-known/oauth-protected-resource\` before the exact resource pathname. The Google
+callback is the exact pathname from \`googleCallbackUri\`. The MCP resource and its protected-resource
+metadata route through AgentGateway; the exact broker routes reach the Google wrapper.
+
+Choose one reviewed registration mode:
+
+- **DCR-enabled mode:** set \`googleWorkspace.authorizationBroker.dcr.enabled=true\`; constrained
+  public-client registration is advertised and \`/register\` is exposed. Authorization code,
+  \`token_endpoint_auth_method=none\`, PKCE S256, exact redirect persistence, and configured bounds
+  remain mandatory.
+- **static-only mode:** keep DCR disabled and populate
+  \`googleWorkspace.authorizationBroker.staticClients\`; no registration endpoint is advertised or
+  routed. Static clients remain immutable and receive no secret.
+
+Signing material is file-only. GitOps supplies an existing Secret reference through
+\`googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name\` and
+\`googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.key\`. The selected value is a
+JWKS object with a \`"keys"\` array. The JWK selected by \`activeSigningKid\` must be a private RSA
+\`RS256\`, \`use=sig\` key; rotation overlap may include prior public RSA verification JWKs with
+distinct \`kid\` values. The chart projects only the selected Secret key, read-only with mode \`0440\`,
+as \`/var/run/secrets/mcp-gateway/broker/signing-jwks.json\` and sets
+\`MCP_BROKER_SIGNING_JWKS_FILE\` to that fixed path. Never put the JWKS payload in values, rendered
+environment variables, or this handoff.
+
+Repository protocol fixtures provide tested-client evidence for discovery, authorization code,
+PKCE, constrained DCR, static registration, and renewal-by-reauthorization. That evidence proves the
+product protocol contract; it does not establish compatibility with any named third-party client or
+version. A deployment may claim such compatibility only with separate exact-version journey
+evidence. The first broker release issues no public refresh token, confidential-client credential,
+or provider token to the MCP client.
+
 ## Supply-Chain Evidence
 
 This GitHub Release includes an SPDX JSON SBOM, a JSON vulnerability report, and a digest file for

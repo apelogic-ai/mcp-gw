@@ -45,6 +45,20 @@ reconcile those Secrets from the organization's chosen secret manager outside
 this chart. Do not commit OAuth client secrets, token encryption keys, refresh
 tokens, database passwords, or private JWKS material.
 
+`values-oauth-broker.example.yaml` demonstrates the complete typed broker
+configuration without including signing material. Copy its public coordinates
+and existing Secret name/key reference into private GitOps values. The chart
+projects only that Secret key into the Google wrapper; it rejects partial
+broker settings, inline generic broker environment overrides, or an enabled
+broker without constrained DCR or a static public client.
+The example also enables the chart-managed AgentGateway Ingress. Broker
+authorization routes terminate on the Google wrapper, while the exact MCP
+resource remains behind AgentGateway with broker JWKS trust generated from the
+typed issuer/resource values.
+Replace the example `ingressControllerPeer` namespace and pod labels with the
+exact labels of the environment's Ingress controller. Empty selectors are
+rejected instead of widening wrapper access.
+
 The chart enables no workload by default. Enabling agentgateway or an
 authenticated wrapper without at least one complete `hop1.issuers` profile is
 a schema error. The file `values-enterprise-contract.example.yaml` is a

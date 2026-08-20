@@ -79,7 +79,9 @@ exit 0
     expect(values).toContain("paths:");
     expect(values).toContain("- /mcp");
     expect(values).toContain("- /.well-known/oauth-protected-resource/mcp");
-    expect(template).toContain("range .Values.agentgateway.ingress.paths");
+    expect(template).toContain("$resourcePaths := .Values.agentgateway.ingress.paths");
+    expect(template).toContain("oauth-authorization-server");
+    expect(template).toContain("$brokerPaths");
   });
 
   test("runs the Kubernetes smoke in GitHub CI", async () => {

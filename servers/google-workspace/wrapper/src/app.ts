@@ -91,6 +91,7 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
     authorizationUrl: optionalEnv(env, "GOOGLE_OAUTH_AUTHORIZATION_URL"),
     tokenUrl: optionalEnv(env, "GOOGLE_OAUTH_TOKEN_URL"),
     userInfoUrl: optionalEnv(env, "GOOGLE_OAUTH_USERINFO_URL"),
+    googleJwksUrl: optionalEnv(env, "GOOGLE_OAUTH_JWKS_URL"),
   };
   const hop1Issuers = loadHop1Issuers(env);
   const defaultHop1Issuer = hop1Issuers[0];
