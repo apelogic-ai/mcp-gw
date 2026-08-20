@@ -327,6 +327,8 @@ describe("wrapper main config", () => {
       MCP_DCR_ENABLED: "true",
       MCP_DCR_ALLOW_LOOPBACK_REDIRECTS: "true",
       MCP_DCR_MAX_CLIENTS: "2000",
+      MCP_DCR_TRUSTED_PROXY_HEADER: "X-Real-Client-IP",
+      MCP_DCR_TRUSTED_PROXY_ADDRESSES: "10.0.0.10,10.0.0.11",
     });
 
     expect(config.authorizationBroker).toMatchObject({
@@ -335,6 +337,10 @@ describe("wrapper main config", () => {
       activeSigningKid: "active-2026-08",
       scopes: ["mcp"],
       dcr: { allowLoopbackRedirects: true, maxDynamicClients: 2000 },
+      dcrTrustedProxy: {
+        headerName: "x-real-client-ip",
+        trustedAddresses: ["10.0.0.10", "10.0.0.11"],
+      },
     });
   });
 

@@ -37,6 +37,11 @@ describe("constrained dynamic client registration", () => {
     expect(registration).not.toHaveProperty("client_secret");
     expect(registration).not.toHaveProperty("registration_access_token");
     expect(registration).not.toHaveProperty("registration_client_uri");
+    expect(await registry.getClient(registration.client_id)).toMatchObject({
+      client_name: "Example MCP Client",
+      client_uri: "https://client.example/",
+      registrationType: "dynamic",
+    });
   });
 
   test("rejects unsupported grants, response types, and authentication methods", async () => {

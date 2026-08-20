@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
 
 import { createRemoteJWKSet, importJWK, type JWK } from "jose";
 
@@ -8,6 +9,7 @@ import {
   type BrokerClientRegistry,
 } from "../../../../shared/oauth/authorization-broker";
 import {
+  ConstrainedDcrError,
   ConstrainedDcrRegistry,
   type ConstrainedDcrRegistryOptions,
   type StaticDcrClient,
@@ -23,7 +25,11 @@ import {
   SqlAuthorizationBrokerStore,
   SqlDcrRegistrationStore,
 } from "../../../../shared/oauth/sql-authorization-store";
-import { createAuthorizationServerRouteHandler } from "./authorization-routes";
+import {
+  authorizationServerPublicPaths,
+  createAuthorizationServerRouteHandler,
+  type AuthorizationRequestContext,
+} from "./authorization-routes";
 import type { RuntimeTrustedIssuer } from "./runtime";
 
 const DEFAULT_GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
@@ -40,10 +46,14 @@ export interface AuthorizationBrokerRuntimeConfig {
     ConstrainedDcrRegistryOptions,
     "allowedScopes" | "defaultScopes" | "staticClients" | "store"
   >;
+  dcrTrustedProxy?: {
+    headerName: string;
+    trustedAddresses: string[];
+  };
 }
 
 export interface AuthorizationBrokerRuntime {
-  handler(request: Request): Promise<Response>;
+  handler(request: Request, context?: AuthorizationRequestContext): Promise<Response>;
   issuer: RuntimeTrustedIssuer;
   publicPaths: ReadonlySet<string>;
 }
@@ -75,6 +85,8 @@ export async function createAuthorizationBrokerRuntime(input: {
             clientId: client.client_id,
             redirectUris: client.redirect_uris,
             scopes: client.scope?.split(" ").filter(Boolean) ?? [],
+            clientName: client.client_name,
+            clientUri: client.client_uri,
           }
         : null;
     },
@@ -107,10 +119,16 @@ export async function createAuthorizationBrokerRuntime(input: {
       exchangeGoogleAuthorizationCode(input.google, authorization, fetchImpl),
   });
   const dcrEnabled = input.config.dcr !== undefined;
-  const handler = createAuthorizationServerRouteHandler({
+  validateTrustedProxyConfig(input.config.dcrTrustedProxy);
+  const routeOptions = {
     broker,
     registration: dcrEnabled ? registry : undefined,
-  });
+    googleCallbackUri: input.config.googleCallbackUri,
+    registrationRateLimitKey: (request: Request, context: AuthorizationRequestContext) =>
+      registrationAdmissionKey(request, context, input.config.dcrTrustedProxy),
+  };
+  const handler = createAuthorizationServerRouteHandler(routeOptions);
+  const paths = authorizationServerPublicPaths(routeOptions);
   const jwks = broker.jwks().keys;
 
   return {
@@ -126,16 +144,36 @@ export async function createAuthorizationBrokerRuntime(input: {
       },
       jwksProvider: () => Promise.resolve(jwks),
     },
-    publicPaths: new Set([
-      "/.well-known/oauth-authorization-server",
-      "/.well-known/oauth-protected-resource/mcp",
-      "/.well-known/jwks.json",
-      "/authorize",
-      "/token",
-      "/oauth/google/broker/callback",
-      ...(dcrEnabled ? ["/register"] : []),
-    ]),
+    publicPaths: paths.all,
   };
+}
+
+export function registrationAdmissionKey(
+  request: Request,
+  context: AuthorizationRequestContext,
+  trustedProxy?: AuthorizationBrokerRuntimeConfig["dcrTrustedProxy"],
+): string {
+  const remoteAddress = normalizedIp(context.remoteAddress);
+  if (!remoteAddress) {
+    throw new ConstrainedDcrError(
+      "Registration admission identity is unavailable",
+      "registry_full",
+      503,
+    );
+  }
+  if (trustedProxy?.trustedAddresses.includes(remoteAddress)) {
+    const forwarded = request.headers.get(trustedProxy.headerName);
+    const forwardedAddress = normalizedIp(forwarded ?? undefined);
+    if (!forwardedAddress) {
+      throw new ConstrainedDcrError(
+        "Trusted proxy did not supply one valid client address",
+        "registry_full",
+        503,
+      );
+    }
+    return `ip:${forwardedAddress}`;
+  }
+  return `ip:${remoteAddress}`;
 }
 
 export async function exchangeGoogleAuthorizationCode(
@@ -211,4 +249,27 @@ async function readGoogleTokenResponse(response: Response): Promise<Record<strin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateTrustedProxyConfig(
+  config: AuthorizationBrokerRuntimeConfig["dcrTrustedProxy"],
+): void {
+  if (!config) return;
+  if (!/^[a-z0-9-]{1,64}$/u.test(config.headerName)) {
+    throw new Error("DCR trusted proxy header must be a normalized HTTP header name");
+  }
+  if (
+    config.trustedAddresses.length === 0 ||
+    config.trustedAddresses.some((address) => normalizedIp(address) !== address)
+  ) {
+    throw new Error("DCR trusted proxy addresses must contain normalized IP addresses");
+  }
+}
+
+function normalizedIp(value: string | undefined): string | undefined {
+  const candidate = value?.trim();
+  if (!candidate || candidate.length > 64 || candidate.includes(",") || isIP(candidate) === 0) {
+    return undefined;
+  }
+  return candidate.toLowerCase();
 }

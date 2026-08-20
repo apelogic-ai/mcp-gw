@@ -45,6 +45,10 @@ Client `state`, broker-to-Google CSRF state, and the broker authorization code a
 values. Google authorization codes and Google access, ID, or refresh tokens are never returned to
 the MCP client.
 
+Before continuing to Google, the broker displays the persisted client name and client URI when
+present, the immutable client ID, the redirect origin, and the exact redirect URI. Metadata URLs
+are displayed as escaped text and are never fetched or dereferenced by MCP-GW.
+
 The first broker release issues no public refresh token. When the short-lived MCP access token
 expires, the client must repeat the complete authorization-code flow with a new PKCE verifier and
 new one-time state. A client may benefit from an existing Google browser session, but MCP-GW still
@@ -54,16 +58,16 @@ performs and verifies a fresh authorization transaction.
 
 Only the following remote-client surface belongs on the public MCP ingress:
 
-| Route                                                      | Public behavior                                                                                                                          |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `/mcp`                                                     | MCP resource; broker-issued and configured trusted-issuer HOP-1 bearer tokens are validated for the exact resource audience.             |
-| `/.well-known/oauth-protected-resource/mcp`                | Protected-resource metadata for the canonical MCP resource.                                                                              |
-| Authorization-server metadata route from the broker issuer | Advertises `/authorize`, `/token`, the current `jwks_uri`, supported PKCE methods, and `/register` only when constrained DCR is enabled. |
-| `/authorize`                                               | Direct-client authorization-code entry point.                                                                                            |
-| `/token`                                                   | Authorization-code exchange; no public refresh-token grant.                                                                              |
-| `/register`                                                | Public only when constrained DCR is enabled and advertised.                                                                              |
-| The `jwks_uri` advertised by authorization-server metadata | Public verification keys only; never signing keys.                                                                                       |
-| `/oauth/google/broker/callback`                            | State- and nonce-bound callback for the broker's upstream Google sign-in. It is not a provider-control API.                              |
+| Route                                                               | Public behavior                                                                                                                               |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/mcp`                                                              | MCP resource; broker-issued and configured trusted-issuer HOP-1 bearer tokens are validated for the exact resource audience.                  |
+| `/.well-known/oauth-protected-resource/mcp`                         | Protected-resource metadata for the canonical MCP resource.                                                                                   |
+| RFC 8414 authorization-server metadata route from the broker issuer | Advertises issuer-relative authorization/token/JWKS endpoints, supported PKCE methods, and registration only when constrained DCR is enabled. |
+| `/authorize`                                                        | Direct-client authorization-code entry point.                                                                                                 |
+| `/token`                                                            | Authorization-code exchange; no public refresh-token grant.                                                                                   |
+| `/register`                                                         | Public only when constrained DCR is enabled and advertised.                                                                                   |
+| The `jwks_uri` advertised by authorization-server metadata          | Public verification keys only; never signing keys.                                                                                            |
+| `/oauth/google/broker/callback`                                     | State- and nonce-bound callback for the broker's upstream Google sign-in. It is not a provider-control API.                                   |
 
 Provider callbacks such as `/oauth/google/callback` and `/oauth/github/callback` are HOP-2
 provider return endpoints. A deployment may expose them specifically for its configured provider
@@ -135,11 +139,23 @@ contract is:
 | `MCP_OAUTH_STATIC_CLIENTS_JSON`    | JSON array of immutable public clients, exact redirect URIs, and allowed scopes.          |
 | `MCP_DCR_ENABLED`                  | Advertises and enables constrained DCR when `true`.                                       |
 | `MCP_DCR_ALLOW_LOOPBACK_REDIRECTS` | Explicit opt-in for native-client HTTP loopback redirects; public HTTPS remains required. |
+| `MCP_DCR_TRUSTED_PROXY_HEADER`     | Optional single-client-IP header accepted only from explicitly trusted socket peers.      |
+| `MCP_DCR_TRUSTED_PROXY_ADDRESSES`  | Comma-separated exact IP addresses of proxies that overwrite the configured header.       |
 
 Optional positive-integer DCR bounds are `MCP_DCR_CLIENT_TTL_MS`, `MCP_DCR_MAX_CLIENTS`,
 `MCP_DCR_MAX_RATE_KEYS`, `MCP_DCR_RATE_LIMIT`, and `MCP_DCR_RATE_WINDOW_MS`. Broker state,
 authorization codes, registrations, and rate limits share the existing `TOKEN_STORE_DSN`
 PostgreSQL database. The signing file is a secret mount, never an environment value or ConfigMap.
+
+DCR admission is keyed by the server-observed socket peer by default. Behind a reverse proxy, set
+both trusted-proxy variables so the wrapper accepts one syntactically valid client IP only when the
+socket peer exactly matches the configured proxy allowlist. Forwarding headers from all other peers
+are ignored; comma-separated forwarding chains are rejected. The trusted proxy must strip and
+replace the selected header.
+
+Issuer and resource paths are supported. RFC 8414/9728 well-known paths insert `/.well-known/`
+before the configured issuer/resource path, while authorization, token, registration, JWKS, and
+Google callback paths remain exactly aligned with their advertised absolute URLs.
 
 When the broker is enabled, a direct Google issuer profile is rejected at startup. The broker's
 own issuer is added to the wrapper's trusted HOP-1 profiles, while any separately configured

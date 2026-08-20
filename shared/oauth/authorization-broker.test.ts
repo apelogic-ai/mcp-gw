@@ -81,6 +81,8 @@ function broker(
                 clientId: CLIENT_ID,
                 redirectUris: [REDIRECT_URI],
                 scopes: ["mcp"],
+                clientName: "Reviewed client",
+                clientUri: "https://client.example.com",
               }
             : null,
         ),
@@ -155,6 +157,11 @@ describe("OAuthBroker authorization transaction", () => {
     expect(googleUrl.searchParams.get("code_challenge_method")).toBe("S256");
     expect(transactionState).not.toBe("opaque-client-state");
     expect(nonce).not.toBe(transactionState);
+    expect(started.client).toMatchObject({
+      clientId: CLIENT_ID,
+      clientName: "Reviewed client",
+      clientUri: "https://client.example.com",
+    });
 
     const completed = await instance.completeGoogleAuthorization({
       transactionState,
@@ -211,6 +218,61 @@ describe("OAuthBroker authorization transaction", () => {
     await expectBrokerError(broker().beginAuthorization(authorizationRequest(overrides)), error);
   });
 
+  test("redirects post-client-validation authorization errors with description and opaque state", async () => {
+    let failure: unknown;
+    try {
+      await broker().beginAuthorization(authorizationRequest({ scope: "mcp admin" }));
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(OAuthBrokerError);
+    const redirect = new URL((failure as OAuthBrokerError).redirectUrl ?? "");
+    expect(redirect.origin + redirect.pathname).toBe(REDIRECT_URI);
+    expect(redirect.searchParams.get("error")).toBe("invalid_scope");
+    expect(redirect.searchParams.get("error_description")).toBe(
+      "Requested OAuth scope is not permitted",
+    );
+    expect(redirect.searchParams.get("state")).toBe("opaque-client-state");
+  });
+
+  test("does not redirect an unknown client or an unregistered redirect URI", async () => {
+    for (const overrides of [
+      { clientId: "unknown" },
+      { redirectUri: "https://attacker.example/callback" },
+    ]) {
+      try {
+        await broker().beginAuthorization(authorizationRequest(overrides));
+        throw new Error("Expected authorization to fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(OAuthBrokerError);
+        expect((error as OAuthBrokerError).redirectUrl).toBeUndefined();
+      }
+    }
+  });
+
+  test("redirects transaction persistence failures after client and redirect validation", async () => {
+    const instance = new OAuthBroker({
+      ...brokerOptions(),
+      store: {
+        saveTransaction: () => Promise.reject(new Error("database unavailable")),
+        consumeTransaction: () => Promise.resolve(null),
+        saveAuthorizationCode: () => Promise.resolve(),
+        consumeAuthorizationCode: () => Promise.resolve(null),
+      },
+      now: () => NOW,
+    });
+    let failure: unknown;
+    try {
+      await instance.beginAuthorization(authorizationRequest());
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: "server_error" });
+    const redirect = new URL((failure as OAuthBrokerError).redirectUrl ?? "");
+    expect(redirect.searchParams.get("error")).toBe("server_error");
+    expect(redirect.searchParams.get("state")).toBe("opaque-client-state");
+  });
+
   test("turns Google denial into a client denial and consumes the transaction", async () => {
     const instance = broker();
     const started = await instance.beginAuthorization(authorizationRequest());
@@ -222,6 +284,9 @@ describe("OAuthBroker authorization transaction", () => {
     });
     const redirect = new URL(denied.redirectUrl);
     expect(redirect.searchParams.get("error")).toBe("access_denied");
+    expect(redirect.searchParams.get("error_description")).toBe(
+      "The resource owner denied the authorization request",
+    );
     expect(redirect.searchParams.get("state")).toBe("opaque-client-state");
     await expectBrokerError(
       instance.denyGoogleAuthorization({ transactionState, error: "access_denied" }),
@@ -243,6 +308,29 @@ describe("OAuthBroker authorization transaction", () => {
       instance.completeGoogleAuthorization({ transactionState: state, googleCode: "code" }),
       "invalid_request",
     );
+  });
+
+  test("redirects upstream exchange failures as authorization server errors", async () => {
+    const instance = broker(undefined, () => Promise.reject(new Error("upstream failed")));
+    const started = await instance.beginAuthorization(authorizationRequest());
+    const transactionState = new URL(started.authorizationUrl).searchParams.get("state") ?? "";
+    let failure: unknown;
+    try {
+      await instance.completeGoogleAuthorization({
+        transactionState,
+        googleCode: "bad-google-code",
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(OAuthBrokerError);
+    expect(failure).toMatchObject({ code: "server_error" });
+    const redirect = new URL((failure as OAuthBrokerError).redirectUrl ?? "");
+    expect(redirect.searchParams.get("error")).toBe("server_error");
+    expect(redirect.searchParams.get("error_description")).toBe(
+      "Upstream identity verification failed",
+    );
+    expect(redirect.searchParams.get("state")).toBe("opaque-client-state");
   });
 });
 
@@ -617,7 +705,13 @@ function brokerOptions(
       get: (clientId: string) =>
         Promise.resolve(
           clientId === CLIENT_ID
-            ? { clientId: CLIENT_ID, redirectUris: [REDIRECT_URI], scopes: ["mcp"] }
+            ? {
+                clientId: CLIENT_ID,
+                redirectUris: [REDIRECT_URI],
+                scopes: ["mcp"],
+                clientName: "Reviewed client",
+                clientUri: "https://client.example.com",
+              }
             : null,
         ),
     },

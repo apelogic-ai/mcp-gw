@@ -36,6 +36,7 @@ export class OAuthBrokerError extends Error {
   constructor(
     public readonly code: OAuthBrokerErrorCode,
     message: string,
+    public readonly redirectUrl?: string,
   ) {
     super(message);
     this.name = "OAuthBrokerError";
@@ -46,6 +47,8 @@ export interface BrokerClient {
   clientId: string;
   redirectUris: string[];
   scopes: string[];
+  clientName?: string;
+  clientUri?: string;
 }
 
 export interface BrokerClientRegistry {
@@ -130,6 +133,7 @@ export interface BeginAuthorizationRequest {
 
 export interface BeginAuthorizationResult {
   authorizationUrl: string;
+  client: BrokerClient;
 }
 
 export interface CompleteGoogleAuthorizationRequest {
@@ -269,18 +273,6 @@ export class OAuthBroker {
   async beginAuthorization(request: BeginAuthorizationRequest): Promise<BeginAuthorizationResult> {
     requireBoundedString(request.clientId, "client_id", MAX_CLIENT_ID_LENGTH);
     requireBoundedString(request.redirectUri, "redirect_uri", MAX_URI_LENGTH);
-    requireBoundedString(request.resource, "resource", MAX_URI_LENGTH);
-    requireBoundedString(request.scope, "scope", MAX_SCOPE_LENGTH);
-    requireBoundedString(request.responseType, "response_type", 32);
-    requireBoundedString(request.codeChallenge, "code_challenge", 128);
-    requireBoundedString(request.codeChallengeMethod, "code_challenge_method", 16);
-    requireBoundedString(request.state, "state", MAX_CLIENT_STATE_LENGTH);
-    if (request.responseType !== "code") {
-      throw new OAuthBrokerError(
-        "unsupported_response_type",
-        "Only the authorization code response type is supported",
-      );
-    }
     const client = await this.options.clients.get(request.clientId);
     if (client?.clientId !== request.clientId) {
       throw new OAuthBrokerError("invalid_client", "Unknown OAuth client");
@@ -288,83 +280,135 @@ export class OAuthBroker {
     if (!client.redirectUris.includes(request.redirectUri)) {
       throw new OAuthBrokerError("invalid_request", "redirect_uri is not registered");
     }
-    if (request.resource !== this.options.resource) {
-      throw new OAuthBrokerError("invalid_target", "resource does not identify this MCP server");
+    let scopes: string[];
+    try {
+      requireBoundedString(request.state, "state", MAX_CLIENT_STATE_LENGTH);
+      requireBoundedString(request.resource, "resource", MAX_URI_LENGTH);
+      requireBoundedString(request.scope, "scope", MAX_SCOPE_LENGTH);
+      requireBoundedString(request.responseType, "response_type", 32);
+      requireBoundedString(request.codeChallenge, "code_challenge", 128);
+      requireBoundedString(request.codeChallengeMethod, "code_challenge_method", 16);
+      if (request.responseType !== "code") {
+        throw new OAuthBrokerError(
+          "unsupported_response_type",
+          "Only the authorization code response type is supported",
+        );
+      }
+      if (request.resource !== this.options.resource) {
+        throw new OAuthBrokerError("invalid_target", "resource does not identify this MCP server");
+      }
+      if (
+        request.codeChallengeMethod !== "S256" ||
+        !PKCE_CHALLENGE_PATTERN.test(request.codeChallenge)
+      ) {
+        throw new OAuthBrokerError("invalid_request", "PKCE S256 is required");
+      }
+      scopes = parseAndValidateScopes(request.scope, [
+        ...new Set(client.scopes.filter((scope) => this.options.scopesSupported.includes(scope))),
+      ]);
+    } catch (error) {
+      if (error instanceof OAuthBrokerError) {
+        const errorCode = authorizationErrorCode(error.code);
+        throw new OAuthBrokerError(
+          errorCode,
+          error.message,
+          clientRedirect(request.redirectUri, {
+            error: errorCode,
+            errorDescription: error.message,
+            state: boundedClientState(request.state),
+          }),
+        );
+      }
+      throw error;
     }
-    if (
-      request.codeChallengeMethod !== "S256" ||
-      !PKCE_CHALLENGE_PATTERN.test(request.codeChallenge)
-    ) {
-      throw new OAuthBrokerError("invalid_request", "PKCE S256 is required");
+    try {
+      const transactionState = randomSecret();
+      const googleNonce = randomSecret();
+      const googleCodeVerifier = randomBytes(48).toString("base64url");
+
+      await this.options.store.saveTransaction({
+        stateHash: hashSecret(transactionState),
+        clientId: request.clientId,
+        redirectUri: request.redirectUri,
+        resource: request.resource,
+        scopes,
+        clientState: request.state,
+        codeChallenge: request.codeChallenge,
+        googleNonce,
+        googleCodeVerifier,
+        expiresAt: this.now() + this.transactionTtlSeconds * 1000,
+      });
+
+      const authorizationUrl = new URL(this.options.google.authorizationEndpoint);
+      authorizationUrl.searchParams.set("client_id", this.options.google.clientId);
+      authorizationUrl.searchParams.set("redirect_uri", this.options.google.callbackUri);
+      authorizationUrl.searchParams.set("response_type", "code");
+      authorizationUrl.searchParams.set("scope", "openid email");
+      authorizationUrl.searchParams.set("state", transactionState);
+      authorizationUrl.searchParams.set("nonce", googleNonce);
+      authorizationUrl.searchParams.set("code_challenge", pkceChallenge(googleCodeVerifier));
+      authorizationUrl.searchParams.set("code_challenge_method", "S256");
+
+      return { authorizationUrl: authorizationUrl.toString(), client: structuredClone(client) };
+    } catch {
+      const errorCode = "server_error";
+      const message = "Authorization transaction could not be created";
+      throw new OAuthBrokerError(
+        errorCode,
+        message,
+        clientRedirect(request.redirectUri, {
+          error: errorCode,
+          errorDescription: message,
+          state: request.state,
+        }),
+      );
     }
-    const scopes = parseAndValidateScopes(request.scope, [
-      ...new Set(client.scopes.filter((scope) => this.options.scopesSupported.includes(scope))),
-    ]);
-    const transactionState = randomSecret();
-    const googleNonce = randomSecret();
-    const googleCodeVerifier = randomBytes(48).toString("base64url");
-
-    await this.options.store.saveTransaction({
-      stateHash: hashSecret(transactionState),
-      clientId: request.clientId,
-      redirectUri: request.redirectUri,
-      resource: request.resource,
-      scopes,
-      clientState: request.state,
-      codeChallenge: request.codeChallenge,
-      googleNonce,
-      googleCodeVerifier,
-      expiresAt: this.now() + this.transactionTtlSeconds * 1000,
-    });
-
-    const authorizationUrl = new URL(this.options.google.authorizationEndpoint);
-    authorizationUrl.searchParams.set("client_id", this.options.google.clientId);
-    authorizationUrl.searchParams.set("redirect_uri", this.options.google.callbackUri);
-    authorizationUrl.searchParams.set("response_type", "code");
-    authorizationUrl.searchParams.set("scope", "openid email");
-    authorizationUrl.searchParams.set("state", transactionState);
-    authorizationUrl.searchParams.set("nonce", googleNonce);
-    authorizationUrl.searchParams.set("code_challenge", pkceChallenge(googleCodeVerifier));
-    authorizationUrl.searchParams.set("code_challenge_method", "S256");
-
-    return { authorizationUrl: authorizationUrl.toString() };
   }
 
   async completeGoogleAuthorization(
     request: CompleteGoogleAuthorizationRequest,
   ): Promise<CompleteGoogleAuthorizationResult> {
     requireBoundedString(request.transactionState, "state", 256);
-    requireBoundedString(request.googleCode, "code", MAX_AUTHORIZATION_CODE_LENGTH);
     const transaction = await this.consumeLiveTransaction(request.transactionState);
 
-    let exchanged: GoogleTokenExchangeResult;
+    let authorizationCode: string;
     try {
-      exchanged = await this.options.exchangeGoogleCode({
+      requireBoundedString(request.googleCode, "code", MAX_AUTHORIZATION_CODE_LENGTH);
+      const exchanged: GoogleTokenExchangeResult = await this.options.exchangeGoogleCode({
         code: request.googleCode,
         codeVerifier: transaction.googleCodeVerifier,
         redirectUri: this.options.google.callbackUri,
       });
+      const identity = await verifyGoogleIdentityToken(exchanged.idToken, {
+        clientId: this.options.google.clientId,
+        expectedNonce: transaction.googleNonce,
+        jwks: this.options.google.jwks,
+        now: this.now(),
+      });
+      authorizationCode = randomSecret();
+      await this.options.store.saveAuthorizationCode({
+        codeHash: hashSecret(authorizationCode),
+        clientId: transaction.clientId,
+        redirectUri: transaction.redirectUri,
+        resource: transaction.resource,
+        scopes: transaction.scopes,
+        codeChallenge: transaction.codeChallenge,
+        identity,
+        expiresAt: this.now() + this.authorizationCodeTtlSeconds * 1000,
+      });
     } catch {
-      throw new OAuthBrokerError("invalid_grant", "Google authorization code exchange failed");
+      const errorCode = "server_error";
+      const message = "Upstream identity verification failed";
+      throw new OAuthBrokerError(
+        errorCode,
+        message,
+        clientRedirect(transaction.redirectUri, {
+          error: errorCode,
+          errorDescription: message,
+          state: transaction.clientState,
+        }),
+      );
     }
-
-    const identity = await verifyGoogleIdentityToken(exchanged.idToken, {
-      clientId: this.options.google.clientId,
-      expectedNonce: transaction.googleNonce,
-      jwks: this.options.google.jwks,
-      now: this.now(),
-    });
-    const authorizationCode = randomSecret();
-    await this.options.store.saveAuthorizationCode({
-      codeHash: hashSecret(authorizationCode),
-      clientId: transaction.clientId,
-      redirectUri: transaction.redirectUri,
-      resource: transaction.resource,
-      scopes: transaction.scopes,
-      codeChallenge: transaction.codeChallenge,
-      identity,
-      expiresAt: this.now() + this.authorizationCodeTtlSeconds * 1000,
-    });
 
     return {
       authorizationCode,
@@ -379,11 +423,14 @@ export class OAuthBroker {
     request: DenyGoogleAuthorizationRequest,
   ): Promise<DenyGoogleAuthorizationResult> {
     requireBoundedString(request.transactionState, "state", 256);
-    requireBoundedString(request.error, "error", 128);
     const transaction = await this.consumeLiveTransaction(request.transactionState);
+    const accessDenied = request.error === "access_denied";
     return {
       redirectUrl: clientRedirect(transaction.redirectUri, {
-        error: request.error === "access_denied" ? "access_denied" : "server_error",
+        error: accessDenied ? "access_denied" : "server_error",
+        errorDescription: accessDenied
+          ? "The resource owner denied the authorization request"
+          : "Upstream authorization failed",
         state: transaction.clientState,
       }),
     };
@@ -603,12 +650,13 @@ function randomSecret(): string {
 
 function clientRedirect(
   redirectUri: string,
-  parameters: { code?: string; error?: string; state?: string },
+  parameters: { code?: string; error?: string; errorDescription?: string; state?: string },
 ): string {
   const redirect = new URL(redirectUri);
   const entries: [string, string | undefined][] = [
     ["code", parameters.code],
     ["error", parameters.error],
+    ["error_description", parameters.errorDescription],
     ["state", parameters.state],
   ];
   for (const [name, value] of entries) {
@@ -617,6 +665,14 @@ function clientRedirect(
     }
   }
   return redirect.toString();
+}
+
+function authorizationErrorCode(code: OAuthBrokerErrorCode): OAuthBrokerErrorCode {
+  return code === "invalid_grant" || code === "unsupported_grant_type" ? "server_error" : code;
+}
+
+function boundedClientState(state: string | undefined): string | undefined {
+  return state && state.length <= MAX_CLIENT_STATE_LENGTH ? state : undefined;
 }
 
 function publicSigningJwk(jwk: JWK, active?: { keyId: string; algorithm: "RS256" }): JWK {

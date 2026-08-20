@@ -5,6 +5,7 @@ import { exportJWK, generateKeyPair, type JWK } from "jose";
 import {
   createAuthorizationBrokerRuntime,
   exchangeGoogleAuthorizationCode,
+  registrationAdmissionKey,
 } from "./broker-runtime";
 
 let privateJwk: JWK;
@@ -101,6 +102,88 @@ describe("authorization broker runtime", () => {
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toBe(
       "Active MCP broker key must be a private RS256 signing JWK",
+    );
+  });
+
+  test("derives coherent RFC 8414 routes for a pathful issuer, resource, and callback", async () => {
+    const runtime = await createAuthorizationBrokerRuntime({
+      config: {
+        issuer: "https://auth.example.com/tenant",
+        resource: "https://mcp.example.com/tenant/mcp/",
+        googleCallbackUri: "https://auth.example.com/tenant/google-return",
+        signingJwksFile: "/mounted/signing-jwks.json",
+        activeSigningKid: "active-key",
+        scopes: ["mcp"],
+        staticClients: [
+          {
+            clientId: "known-client",
+            redirectUris: ["https://client.example.com/callback"],
+            scopes: ["mcp"],
+          },
+        ],
+        dcr: {},
+      },
+      google: {
+        clientId: "google-client",
+        clientSecret: "google-secret",
+        redirectUri: "https://auth.example.com/oauth/google/callback",
+        tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
+      },
+      queryClient: { query: () => Promise.reject(new Error("not used")) },
+      readSigningJwks: () => JSON.stringify({ keys: [privateJwk] }),
+    });
+
+    expect([...runtime.publicPaths]).toEqual([
+      "/.well-known/oauth-authorization-server/tenant",
+      "/.well-known/oauth-protected-resource/tenant/mcp/",
+      "/tenant/authorize",
+      "/tenant/token",
+      "/tenant/.well-known/jwks.json",
+      "/tenant/google-return",
+      "/tenant/register",
+    ]);
+    const metadata = await runtime.handler(
+      new Request("https://auth.example.com/.well-known/oauth-authorization-server/tenant"),
+    );
+    expect(await metadata.json()).toMatchObject({
+      issuer: "https://auth.example.com/tenant",
+      authorization_endpoint: "https://auth.example.com/tenant/authorize",
+      token_endpoint: "https://auth.example.com/tenant/token",
+      registration_endpoint: "https://auth.example.com/tenant/register",
+    });
+    expect(
+      await runtime.handler(
+        new Request("https://auth.example.com/.well-known/oauth-authorization-server"),
+      ),
+    ).toMatchObject({ status: 404 });
+  });
+
+  test("keys DCR admission by the socket peer and trusts forwarding only from configured proxies", () => {
+    const request = new Request("https://auth.example.com/register", {
+      headers: { "x-real-client-ip": "198.51.100.8" },
+    });
+    const proxy = {
+      headerName: "x-real-client-ip",
+      trustedAddresses: ["192.0.2.10"],
+    };
+
+    expect(registrationAdmissionKey(request, { remoteAddress: "203.0.113.4" }, proxy)).toBe(
+      "ip:203.0.113.4",
+    );
+    expect(registrationAdmissionKey(request, { remoteAddress: "192.0.2.10" }, proxy)).toBe(
+      "ip:198.51.100.8",
+    );
+    expect(() =>
+      registrationAdmissionKey(
+        new Request("https://auth.example.com/register", {
+          headers: { "x-real-client-ip": "198.51.100.8, 203.0.113.5" },
+        }),
+        { remoteAddress: "192.0.2.10" },
+        proxy,
+      ),
+    ).toThrow("Trusted proxy did not supply one valid client address");
+    expect(() => registrationAdmissionKey(request, {}, proxy)).toThrow(
+      "Registration admission identity is unavailable",
     );
   });
 

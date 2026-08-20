@@ -67,7 +67,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
 
 export async function createMainHandler(
   config: MainConfig,
-): Promise<(request: Request) => Promise<Response>> {
+): Promise<(request: Request, context?: { remoteAddress?: string }) => Promise<Response>> {
   const pool = new Pool(
     createPostgresPoolConfig(config.tokenStoreDsn, config.postgresCaBundlePath),
   );
@@ -122,10 +122,10 @@ export async function createMainHandler(
     },
   });
 
-  return (request) => {
+  return (request, context) => {
     const path = new URL(request.url).pathname;
     if (authorizationBroker?.publicPaths.has(path)) {
-      return authorizationBroker.handler(request);
+      return authorizationBroker.handler(request, context);
     }
     return path.startsWith("/oauth/google/") ? oauthRoutes(request) : mcpHandler(request);
   };
@@ -143,6 +143,13 @@ function parseAuthorizationBrokerConfig(
     "MCP_OAUTH_STATIC_CLIENTS_JSON",
   );
   const dcrEnabled = parseBoolean(env.MCP_DCR_ENABLED, false);
+  const trustedProxyHeader = optionalEnv(env, "MCP_DCR_TRUSTED_PROXY_HEADER");
+  const trustedProxyAddresses = parseScopes(env.MCP_DCR_TRUSTED_PROXY_ADDRESSES);
+  if (Boolean(trustedProxyHeader) !== Boolean(trustedProxyAddresses)) {
+    throw new Error(
+      "MCP_DCR_TRUSTED_PROXY_HEADER and MCP_DCR_TRUSTED_PROXY_ADDRESSES must be set together",
+    );
+  }
   if (staticClients.length === 0 && !dcrEnabled) {
     throw new Error("MCP broker requires a static client or constrained DCR");
   }
@@ -154,6 +161,10 @@ function parseAuthorizationBrokerConfig(
     activeSigningKid: requiredEnv(env, "MCP_BROKER_ACTIVE_KID"),
     scopes,
     staticClients: staticClients as AuthorizationBrokerRuntimeConfig["staticClients"],
+    dcrTrustedProxy:
+      trustedProxyHeader && trustedProxyAddresses
+        ? { headerName: trustedProxyHeader.toLowerCase(), trustedAddresses: trustedProxyAddresses }
+        : undefined,
     dcr: dcrEnabled
       ? {
           allowLoopbackRedirects: parseBoolean(env.MCP_DCR_ALLOW_LOOPBACK_REDIRECTS, false),
@@ -235,7 +246,8 @@ if (import.meta.main) {
 
   Bun.serve({
     port: config.port,
-    fetch: handler,
+    fetch: (request, server) =>
+      handler(request, { remoteAddress: server.requestIP(request)?.address }),
   });
 
   console.log(`google-workspace wrapper listening on ${String(config.port)}`);

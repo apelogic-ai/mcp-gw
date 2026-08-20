@@ -1,6 +1,7 @@
 import {
   OAuthBrokerError,
   type BeginAuthorizationRequest,
+  type BrokerClient,
   type BrokerTokenResponse,
   type OAuthBroker,
 } from "../../../../shared/oauth/authorization-broker";
@@ -14,7 +15,9 @@ interface AuthorizationBrokerHttpContract {
   authorizationServerMetadata(): Record<string, unknown>;
   protectedResourceMetadata(): Record<string, unknown>;
   jwks(): { keys: Record<string, unknown>[] };
-  beginAuthorization(request: BeginAuthorizationRequest): Promise<{ authorizationUrl: string }>;
+  beginAuthorization(
+    request: BeginAuthorizationRequest,
+  ): Promise<{ authorizationUrl: string; client: BrokerClient }>;
   completeGoogleAuthorization(request: {
     transactionState: string;
     googleCode: string;
@@ -40,8 +43,12 @@ interface DcrHttpContract {
 export interface CreateAuthorizationServerRouteHandlerOptions {
   broker: OAuthBroker | AuthorizationBrokerHttpContract;
   registration?: DcrHttpContract;
-  googleCallbackPath?: string;
-  registrationRateLimitKey?: (request: Request) => string;
+  googleCallbackUri?: string;
+  registrationRateLimitKey?: (request: Request, context: AuthorizationRequestContext) => string;
+}
+
+export interface AuthorizationRequestContext {
+  remoteAddress?: string;
 }
 
 const JSON_HEADERS = {
@@ -53,15 +60,80 @@ const NO_STORE_HEADERS = {
 };
 const MAX_REGISTRATION_BODY_BYTES = 16 * 1024;
 
+export interface AuthorizationServerPublicPaths {
+  authorizationServerMetadata: string;
+  protectedResourceMetadata: string;
+  authorization: string;
+  token: string;
+  registration: string;
+  jwks: string;
+  googleCallback: string;
+  googleCallbackUri: string;
+  all: ReadonlySet<string>;
+}
+
+export function authorizationServerPublicPaths(
+  options: CreateAuthorizationServerRouteHandlerOptions,
+): AuthorizationServerPublicPaths {
+  const metadata = options.broker.authorizationServerMetadata();
+  const protectedMetadata = options.broker.protectedResourceMetadata();
+  const issuer = absoluteMetadataUrl(metadata, "issuer");
+  const resource = absoluteMetadataUrl(protectedMetadata, "resource");
+  const authorization = absoluteMetadataUrl(metadata, "authorization_endpoint");
+  const token = absoluteMetadataUrl(metadata, "token_endpoint");
+  const jwks = absoluteMetadataUrl(metadata, "jwks_uri");
+  const registration = new URL(`${issuer.toString().replace(/\/$/u, "")}/register`);
+  const googleCallback = new URL(
+    options.googleCallbackUri ??
+      `${issuer.toString().replace(/\/$/u, "")}/oauth/google/broker/callback`,
+  );
+  for (const [name, url] of [
+    ["authorization_endpoint", authorization],
+    ["token_endpoint", token],
+    ["jwks_uri", jwks],
+    ["registration_endpoint", registration],
+    ["google callback", googleCallback],
+  ] as const) {
+    if (url.origin !== issuer.origin || url.search || url.hash) {
+      throw new Error(`${name} must be a clean URL on the authorization-server origin`);
+    }
+  }
+  const authorizationServerMetadata = wellKnownPath(issuer, "oauth-authorization-server");
+  const protectedResourceMetadata = wellKnownPath(resource, "oauth-protected-resource");
+  const routePaths = [
+    authorizationServerMetadata,
+    protectedResourceMetadata,
+    authorization.pathname,
+    token.pathname,
+    jwks.pathname,
+    googleCallback.pathname,
+    ...(options.registration ? [registration.pathname] : []),
+  ];
+  if (new Set(routePaths).size !== routePaths.length) {
+    throw new Error("Authorization-server public routes must not overlap");
+  }
+  return {
+    authorizationServerMetadata,
+    protectedResourceMetadata,
+    authorization: authorization.pathname,
+    token: token.pathname,
+    registration: registration.pathname,
+    jwks: jwks.pathname,
+    googleCallback: googleCallback.pathname,
+    googleCallbackUri: googleCallback.toString(),
+    all: new Set(routePaths),
+  };
+}
+
 export function createAuthorizationServerRouteHandler(
   options: CreateAuthorizationServerRouteHandlerOptions,
-): (request: Request) => Promise<Response> {
-  const callbackPath = options.googleCallbackPath ?? "/oauth/google/broker/callback";
+): (request: Request, context?: AuthorizationRequestContext) => Promise<Response> {
+  const paths = authorizationServerPublicPaths(options);
 
-  return async (request) => {
+  return async (request, context = {}) => {
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/.well-known/oauth-authorization-server") {
+      if (request.method === "GET" && url.pathname === paths.authorizationServerMetadata) {
         const metadata = options.broker.authorizationServerMetadata();
         return publicJson(
           options.registration
@@ -73,43 +145,44 @@ export function createAuthorizationServerRouteHandler(
         );
       }
 
-      if (
-        request.method === "GET" &&
-        url.pathname === "/.well-known/oauth-protected-resource/mcp"
-      ) {
+      if (request.method === "GET" && url.pathname === paths.protectedResourceMetadata) {
         return publicJson(options.broker.protectedResourceMetadata());
       }
 
-      if (request.method === "GET" && url.pathname === "/.well-known/jwks.json") {
+      if (request.method === "GET" && url.pathname === paths.jwks) {
         return publicJson(options.broker.jwks());
       }
 
-      if (request.method === "POST" && url.pathname === "/register") {
+      if (request.method === "POST" && url.pathname === paths.registration) {
         if (!options.registration) {
           return json({ error: "not_found" }, 404);
         }
         const metadata = await readBoundedJson(request);
+        if (!options.registrationRateLimitKey) {
+          throw new ConstrainedDcrError(
+            "Registration admission identity is unavailable",
+            "registry_full",
+            503,
+          );
+        }
         const registered = await options.registration.register(metadata, {
-          rateLimitKey: options.registrationRateLimitKey?.(request) ?? "global",
+          rateLimitKey: options.registrationRateLimitKey(request, context),
         });
         return json(registered, 201, NO_STORE_HEADERS);
       }
 
-      if (request.method === "GET" && url.pathname === "/authorize") {
+      if (request.method === "GET" && url.pathname === paths.authorization) {
         const authorization = authorizationRequest(url.searchParams);
         const started = await options.broker.beginAuthorization(authorization);
         return consentPage({
           authorizationUrl: started.authorizationUrl,
-          callbackUrl: authorizationCallbackUrl(
-            options.broker.authorizationServerMetadata(),
-            callbackPath,
-          ),
-          clientId: authorization.clientId,
+          callbackUrl: paths.googleCallbackUri,
+          client: started.client,
           redirectUri: authorization.redirectUri,
         });
       }
 
-      if (request.method === "GET" && url.pathname === callbackPath) {
+      if (request.method === "GET" && url.pathname === paths.googleCallback) {
         const transactionState = url.searchParams.get("state") ?? "";
         const error = url.searchParams.get("error");
         const result = error
@@ -121,7 +194,7 @@ export function createAuthorizationServerRouteHandler(
         return redirect(result.redirectUrl);
       }
 
-      if (request.method === "POST" && url.pathname === "/token") {
+      if (request.method === "POST" && url.pathname === paths.token) {
         const params = await readForm(request);
         if (params.has("client_secret") || params.has("refresh_token")) {
           return oauthError("invalid_client", "Only public clients are supported", 400);
@@ -149,6 +222,9 @@ export function createAuthorizationServerRouteHandler(
       return json({ error: "not_found" }, 404);
     } catch (error) {
       if (error instanceof OAuthBrokerError) {
+        if (error.redirectUrl) {
+          return redirect(error.redirectUrl);
+        }
         return oauthError(error.code, error.message, error.code === "server_error" ? 500 : 400);
       }
       if (error instanceof ConstrainedDcrError) {
@@ -206,11 +282,34 @@ async function readBoundedJson(request: Request): Promise<unknown> {
   if (Number.isFinite(contentLength) && contentLength > MAX_REGISTRATION_BODY_BYTES) {
     throw new ConstrainedDcrError("Registration metadata is too large", "invalid_client_metadata");
   }
-  const text = await request.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_REGISTRATION_BODY_BYTES) {
-    throw new ConstrainedDcrError("Registration metadata is too large", "invalid_client_metadata");
+  const reader = (request.body as ReadableStream<Uint8Array> | null)?.getReader();
+  if (!reader) {
+    throw new ConstrainedDcrError("Registration metadata must be valid JSON", "invalid_request");
+  }
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let readResult = await reader.read();
+  while (!readResult.done) {
+    const value = readResult.value;
+    bytes += value.byteLength;
+    if (bytes > MAX_REGISTRATION_BODY_BYTES) {
+      await reader.cancel();
+      throw new ConstrainedDcrError(
+        "Registration metadata is too large",
+        "invalid_client_metadata",
+      );
+    }
+    chunks.push(value);
+    readResult = await reader.read();
+  }
+  const body = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
   }
   try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(body);
     return JSON.parse(text) as unknown;
   } catch {
     throw new ConstrainedDcrError("Registration metadata must be valid JSON", "invalid_request");
@@ -225,18 +324,27 @@ function registrationEndpoint(metadata: Record<string, unknown>): string {
   return `${issuer.replace(/\/$/u, "")}/register`;
 }
 
-function authorizationCallbackUrl(metadata: Record<string, unknown>, callbackPath: string): string {
-  const issuer = metadata.issuer;
-  if (typeof issuer !== "string") {
-    throw new Error("Authorization-server metadata is missing issuer");
+function absoluteMetadataUrl(metadata: Record<string, unknown>, field: string): URL {
+  const value = metadata[field];
+  if (typeof value !== "string") {
+    throw new Error(`OAuth metadata is missing ${field}`);
   }
-  return new URL(callbackPath, `${issuer.replace(/\/$/u, "")}/`).toString();
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(`OAuth metadata ${field} must be an absolute HTTPS URL`);
+  }
+  return url;
+}
+
+function wellKnownPath(url: URL, suffix: string): string {
+  const component = url.pathname === "/" ? "" : url.pathname;
+  return `/.well-known/${suffix}${component}`;
 }
 
 function consentPage(input: {
   authorizationUrl: string;
   callbackUrl: string;
-  clientId: string;
+  client: BrokerClient;
   redirectUri: string;
 }): Response {
   const authorizationUrl = new URL(input.authorizationUrl);
@@ -244,14 +352,22 @@ function consentPage(input: {
   const callback = new URL(input.callbackUrl);
   callback.searchParams.set("error", "access_denied");
   callback.searchParams.set("state", transactionState);
+  const clientDisplay = input.client.clientName ?? input.client.clientId;
+  const redirectOrigin = new URL(input.redirectUri).origin;
+  const clientUri = input.client.clientUri
+    ? `<p>Client website: <code>${escapeHtml(input.client.clientUri)}</code></p>`
+    : "";
   const body = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize MCP client</title></head>
 <body>
   <main>
     <h1>Authorize MCP client</h1>
-    <p>Client: <code>${escapeHtml(input.clientId)}</code></p>
-    <p>Redirect after sign-in: <code>${escapeHtml(input.redirectUri)}</code></p>
+    <p>Client: <code>${escapeHtml(clientDisplay)}</code></p>
+    <p>Client ID: <code>${escapeHtml(input.client.clientId)}</code></p>
+    ${clientUri}
+    <p>Redirect origin: <code>${escapeHtml(redirectOrigin)}</code></p>
+    <p>Exact redirect after sign-in: <code>${escapeHtml(input.redirectUri)}</code></p>
     <p><a href="${escapeHtml(input.authorizationUrl)}">Continue with Google</a></p>
     <p><a href="${escapeHtml(callback.toString())}">Deny</a></p>
   </main>
