@@ -51,7 +51,8 @@ app.kubernetes.io/component: {{ .component }}
 {{- $authority := $url.host -}}
 {{- $port := trimPrefix ":" (regexFind ":[0-9]+$" $authority) -}}
 {{- $unsafePath := regexMatch "(?i)http://[^/?#]+(?:/[^?#]*)?(?:/(?:[.]{1,2}|%2e(?:%2e)?)(?:/|$)|%2f|%5c|//)" $value -}}
-{{- if or (ne $url.scheme "http") (not $url.host) $url.userinfo $url.fragment (ne $authority (lower $authority)) (not $url.path) $unsafePath (eq $port "80") (and $port (or (gt (len $port) 5) (gt (int $port) 65535) (and (gt (len $port) 1) (hasPrefix "0" $port)))) -}}
+{{- $unsafeRawCharacters := regexMatch "[^\\x21-\\x7e]|[\\x22\\x3c\\x3e\\x5c\\x5e\\x60\\x7b\\x7d]" $value -}}
+{{- if or (ne $url.scheme "http") (not $url.host) $url.userinfo $url.fragment (ne $authority (lower $authority)) (not $url.path) $unsafePath $unsafeRawCharacters (eq $port "80") (and $port (or (gt (len $port) 5) (gt (int $port) 65535) (and (gt (len $port) 1) (hasPrefix "0" $port)))) -}}
 {{- fail (printf "%s must be an exact canonical loopback HTTP URL" $name) -}}
 {{- end -}}
 {{- end -}}
@@ -175,7 +176,8 @@ readinessProbe:
 {{- fail (printf "%s must use a valid canonical port" $name) -}}
 {{- end -}}
 {{- $unsafePath := regexMatch "(?i)https://[^/?#]+(?:/[^?#]*)?(?:/(?:[.]{1,2}|%2e(?:%2e)?)(?:/|$)|%2f|%5c|//)" $value -}}
-{{- if and $canonical (or (ne $authority (lower $authority)) (eq $port "443") (not $url.path) $unsafePath) -}}
+{{- $unsafeRawCharacters := regexMatch "[^\\x21-\\x7e]|[\\x22\\x3c\\x3e\\x5c\\x5e\\x60\\x7b\\x7d]" $value -}}
+{{- if and $canonical (or (ne $authority (lower $authority)) (eq $port "443") (not $url.path) $unsafePath $unsafeRawCharacters) -}}
 {{- fail (printf "%s must be an exact canonical URL" $name) -}}
 {{- end -}}
 {{- if and $routeSafe (or $port (and (ne $url.path "/") (hasSuffix "/" $value))) -}}
@@ -226,7 +228,10 @@ readinessProbe:
 {{- if not (regexMatch (printf "^%s\\.%s\\.%s\\.%s$" $ipv4 $ipv4 $ipv4 $ipv4) $embedded) -}}
 {{- fail (printf "%s must be an exact normalized IP literal" $name) -}}
 {{- end -}}
-{{- $base = trimSuffix ":" (trimSuffix $embedded $base) -}}
+{{- $base = trimSuffix $embedded $base -}}
+{{- if and (hasSuffix ":" $base) (not (hasSuffix "::" $base)) -}}
+{{- $base = trimSuffix ":" $base -}}
+{{- end -}}
 {{- $embeddedGroups = 2 -}}
 {{- end -}}
 {{- $compressed := contains "::" $base -}}

@@ -246,6 +246,14 @@ describe("Kubernetes production chart", () => {
         "--set-string",
         "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/oauth/%2e%2e/callback",
       ],
+      [
+        "--set-json",
+        `googleWorkspace.authorizationBroker.issuer=${JSON.stringify("https://mcp.example.com/oauth\\evil")}`,
+      ],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/oauth/call back",
+      ],
     ];
 
     for (const args of invalidCases) {
@@ -253,6 +261,25 @@ describe("Kubernetes production chart", () => {
         "--values",
         "deploy/k8s/examples/values-oauth-broker.example.yaml",
         ...args,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+
+    for (const host of ["localhost", "10.0.0.1", "broker.internal"]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.issuer=https://${host}/oauth`,
+        "--set-string",
+        `googleWorkspace.authorizationBroker.resource=https://${host}/mcp`,
+        "--set-string",
+        `googleWorkspace.authorizationBroker.googleCallbackUri=https://${host}/oauth/google/broker/callback`,
+        "--set-string",
+        `agentgateway.ingress.host=${host}`,
+        "--set-string",
+        `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
       ]);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString()).toMatch(/authorizationBroker/);
@@ -286,6 +313,28 @@ describe("Kubernetes production chart", () => {
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString()).toMatch(/authorizationBroker.*route/i);
     }
+
+    const resourceCollision = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.resource=https://mcp.example.com/oauth/token",
+      "--set-string",
+      "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/oauth/token",
+      "--set-json",
+      'agentgateway.ingress.paths=["/oauth/token","/.well-known/oauth-protected-resource/oauth/token"]',
+    ]);
+    expect(resourceCollision.exitCode).not.toBe(0);
+    expect(resourceCollision.stderr.toString()).toMatch(/authorizationBroker.*route/i);
+
+    const operatorPathCollision = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      'agentgateway.ingress.paths=["/mcp","/.well-known/oauth-protected-resource/mcp","/oauth/token"]',
+    ]);
+    expect(operatorPathCollision.exitCode).not.toBe(0);
+    expect(operatorPathCollision.stderr.toString()).toMatch(/ingress\.paths/);
   });
 
   test("rejects static clients that the runtime registry would reject", () => {
@@ -309,6 +358,9 @@ describe("Kubernetes production chart", () => {
       { ...validClient, redirectUris: ["https://999.999.999.999/callback"] },
       { ...validClient, redirectUris: ["https://client.example.com"] },
       { ...validClient, redirectUris: ["https://client.example.com:99999/callback"] },
+      { ...validClient, redirectUris: ["https://client.example.com/cb\\x"] },
+      { ...validClient, redirectUris: ["https://client.example.com/call back"] },
+      { ...validClient, redirectUris: ["https://client.example.com/callback?x=hello world"] },
       {
         ...validClient,
         redirectUris: Array.from(
@@ -349,6 +401,9 @@ describe("Kubernetes production chart", () => {
       "http://127.0.0.1:080/callback",
       "http://localhost/callback/../other",
       "http://localhost",
+      "http://localhost/cb\\x",
+      "http://localhost/call back",
+      "http://localhost/callback?x=hello world",
     ]) {
       const invalidLoopback = helmTemplateResult([
         "--values",
@@ -394,7 +449,7 @@ describe("Kubernetes production chart", () => {
     ]);
     expect(unsafeBound.exitCode).not.toBe(0);
 
-    for (const address of ["203.0.113.10", "2001:db8::1"]) {
+    for (const address of ["203.0.113.10", "2001:db8::1", "1:2:3:4:5::1.2.3.4", "::1.2.3.4"]) {
       const accepted = helmTemplateResult([
         "--values",
         "deploy/k8s/examples/values-oauth-broker.example.yaml",
