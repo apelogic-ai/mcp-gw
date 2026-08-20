@@ -147,6 +147,23 @@ Optional positive-integer DCR bounds are `MCP_DCR_CLIENT_TTL_MS`, `MCP_DCR_MAX_C
 authorization codes, registrations, and rate limits share the existing `TOKEN_STORE_DSN`
 PostgreSQL database. The signing file is a secret mount, never an environment value or ConfigMap.
 
+For Kubernetes, configure these fields through the typed
+`googleWorkspace.authorizationBroker` Helm values. The chart rejects generic
+`googleWorkspace.env` overrides of broker variables. Its
+`signingKeyring.secretKeyRef` contains only an existing Secret name and key;
+the selected key is mounted read-only at the fixed signing-file path. Disabled
+broker mode renders no broker environment, Secret projection, mount, public
+authorization paths, or broker trust entry. Enabled mode requires the
+chart-managed AgentGateway Ingress and Google backend: it routes only the
+metadata-advertised authorization surface to the wrapper, routes the exact MCP
+resource through AgentGateway, and automatically adds the broker issuer's
+public RS256 JWKS as an AgentGateway verifier. Issuer, resource, callback, and
+Ingress host are validated as one public HTTPS origin.
+The required `ingressControllerPeer` namespace and pod selectors constrain the
+wrapper NetworkPolicy to AgentGateway plus the installed Ingress controller;
+empty selectors fail rendering. Generated broker authorization routes use
+exact-path Ingress matches.
+
 DCR admission is keyed by the server-observed socket peer by default. Behind a reverse proxy, set
 both trusted-proxy variables so the wrapper accepts one syntactically valid client IP only when the
 socket peer exactly matches the configured proxy allowlist. Forwarding headers from all other peers

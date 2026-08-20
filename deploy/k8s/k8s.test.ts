@@ -26,13 +26,229 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
     expect(rendered).not.toContain("kind: Ingress");
-    expect(values).not.toMatch(/^\s+issuer:\s+/m);
+    expect(values).not.toMatch(/^\s+issuer:\s+https?:/m);
     expect(values).not.toMatch(/^\s+audiences:\s*$/m);
     expect(values).not.toMatch(/^\s+jwksUrl:\s+/m);
     expect(values).not.toMatch(/^\s+allowedAlgorithms:\s*$/m);
     expect(rendered).not.toMatch(/apelogic\.io/i);
     expect(rendered).not.toMatch(new RegExp(["arn", "aws"].join(":"), "i"));
     expect(rendered).not.toMatch(/\.dkr\.ecr\./i);
+    expect(rendered).not.toContain("MCP_BROKER_");
+    expect(rendered).not.toContain("broker-signing-keyring");
+    expect(rendered).not.toContain("/var/run/secrets/mcp-gateway/broker");
+  });
+
+  test("renders a complete OAuth broker contract with a read-only Secret keyring projection", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+    const ingress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway");
+    const networkPolicy = renderedResource(
+      rendered,
+      "NetworkPolicy",
+      "mcp-gateway-google-workspace",
+    );
+
+    expect(deployment).toContain("name: MCP_BROKER_ENABLED");
+    expect(deployment).toContain('value: "true"');
+    expect(deployment).toContain("name: MCP_AUTHORIZATION_ISSUER");
+    expect(deployment).toContain('value: "https://mcp.example.com/oauth"');
+    expect(deployment).toContain("name: MCP_RESOURCE_URI");
+    expect(deployment).toContain('value: "https://mcp.example.com/mcp"');
+    expect(deployment).toContain("name: MCP_BROKER_GOOGLE_REDIRECT_URI");
+    expect(deployment).toContain('value: "https://mcp.example.com/oauth/google/broker/callback"');
+    expect(deployment).toContain("name: MCP_BROKER_ACTIVE_KID");
+    expect(deployment).toContain('value: "broker-signing-2026-08"');
+    expect(deployment).toContain("name: MCP_BROKER_SIGNING_JWKS_FILE");
+    expect(deployment).toContain('value: "/var/run/secrets/mcp-gateway/broker/signing-jwks.json"');
+    expect(deployment).toContain("name: MCP_DCR_ENABLED");
+    expect(deployment).toContain("name: broker-signing-keyring");
+    expect(deployment).toContain("secretName: mcp-broker-signing-keyring");
+    expect(deployment).toContain("key: signing-jwks.json");
+    expect(deployment).toContain("path: signing-jwks.json");
+    expect(deployment).toContain("defaultMode: 0440");
+    expect(deployment).toContain("fsGroup: 10001");
+    expect(deployment).toContain("fsGroupChangePolicy: OnRootMismatch");
+    expect(deployment).toContain('mountPath: "/var/run/secrets/mcp-gateway/broker"');
+    expect(deployment).toContain("readOnly: true");
+    expect(deployment).not.toContain("BEGIN PRIVATE KEY");
+    expect(deployment).not.toContain('value: "{\\"keys\\"');
+    expect(deployment).not.toMatch(/name: MCP_BROKER_SIGNING_JWKS_FILE[\s\S]{0,120}secretKeyRef:/);
+    expect(gatewayConfig).toContain("- issuer: https://mcp.example.com/oauth");
+    expect(gatewayConfig).toContain("- https://mcp.example.com/mcp");
+    expect(gatewayConfig).toContain("url: https://mcp.example.com/oauth/.well-known/jwks.json");
+    expect(gatewayConfig).toMatch(/scopesSupported:\n\s+- mcp/);
+    for (const path of [
+      "/mcp",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-authorization-server/oauth",
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/.well-known/jwks.json",
+      "/oauth/google/broker/callback",
+    ]) {
+      expect(ingress).toContain(`path: ${path}`);
+    }
+    expect(ingress).toMatch(/path: \/oauth\/authorize[\s\S]*?name: mcp-gateway-google-workspace/);
+    expect(ingress).toMatch(/path: \/mcp[\s\S]*?name: mcp-gateway-agentgateway/);
+    expect(networkPolicy).toContain("ports:");
+    expect(networkPolicy).toContain("app.kubernetes.io/component: agentgateway");
+    expect(networkPolicy).toContain("kubernetes.io/metadata.name: ingress-nginx");
+    expect(networkPolicy).toContain("app.kubernetes.io/component: controller");
+    expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
+    expect(ingress).toMatch(/path: \/oauth\/authorize\n\s+pathType: Exact/);
+  });
+
+  test("keeps broker env, Secret projection, and mount absent when broker mode is disabled", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+
+    expect(deployment).not.toContain("MCP_BROKER_");
+    expect(deployment).not.toContain("MCP_AUTHORIZATION_ISSUER");
+    expect(deployment).not.toContain("MCP_RESOURCE_URI");
+    expect(deployment).not.toContain("broker-signing-keyring");
+    expect(deployment).not.toContain("/var/run/secrets/mcp-gateway/broker");
+    expect(rendered).not.toContain("/.well-known/oauth-authorization-server");
+  });
+
+  test("rejects broker mode without a complete signing keyring Secret reference", () => {
+    for (const [field, value] of [
+      ["name", ""],
+      ["key", ""],
+    ]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.${field}=${value}`,
+      ]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker.*signingKeyring.*secretKeyRef/);
+    }
+  });
+
+  test("rejects partial or incoherent non-secret broker configuration", () => {
+    const invalidOverrides = [
+      "googleWorkspace.authorizationBroker.issuer=",
+      "googleWorkspace.authorizationBroker.resource=http://mcp.example.com/mcp",
+      "googleWorkspace.authorizationBroker.googleCallbackUri=https://other.example.com/oauth/google/broker/callback",
+      "googleWorkspace.authorizationBroker.activeSigningKid=",
+      "googleWorkspace.authorizationBroker.dcr.enabled=false",
+      "agentgateway.mcpAuthentication.resourceMetadata.scopesSupported[0]=openid",
+    ];
+
+    for (const override of invalidOverrides) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        override,
+      ]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+
+    const silentlyDisabled = helmTemplateResult([
+      "--set",
+      "googleWorkspace.authorizationBroker.issuer=https://mcp.example.com/oauth",
+    ]);
+    expect(silentlyDisabled.exitCode).not.toBe(0);
+    expect(silentlyDisabled.stderr.toString()).toMatch(/authorizationBroker/);
+
+    for (const selector of ["namespaceSelector", "podSelector"]) {
+      const missingIngressPeer = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.ingressControllerPeer.${selector}.matchLabels={}`,
+      ]);
+      expect(missingIngressPeer.exitCode).not.toBe(0);
+      expect(missingIngressPeer.stderr.toString()).toMatch(/ingressControllerPeer/);
+    }
+
+    const disabledScopeOverride = helmTemplateResult([
+      "--set-string",
+      "googleWorkspace.authorizationBroker.scopes[0]=openid",
+    ]);
+    expect(disabledScopeOverride.exitCode).not.toBe(0);
+    expect(disabledScopeOverride.stderr.toString()).toMatch(/authorizationBroker/);
+
+    const disabledDcrPolicy = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.enabled=false",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].clientId=static-client",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].redirectUris[0]=https://client.example.com/callback",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.rateLimit=10",
+    ]);
+    expect(disabledDcrPolicy.exitCode).not.toBe(0);
+    expect(disabledDcrPolicy.stderr.toString()).toMatch(/authorizationBroker.*dcr/);
+
+    const loopbackClient = [
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].clientId=native-client",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.staticClients[0].redirectUris[0]=http://127.0.0.1:53682/callback",
+    ];
+    const rejectedLoopback = helmTemplateResult(loopbackClient);
+    expect(rejectedLoopback.exitCode).not.toBe(0);
+    expect(rejectedLoopback.stderr.toString()).toMatch(/loopback/);
+
+    const acceptedLoopback = helmTemplateResult([
+      ...loopbackClient,
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+    ]);
+    expect(acceptedLoopback.exitCode).toBe(0);
+  });
+
+  test("rejects broker configuration and signing material through generic environment values", async () => {
+    for (const name of [
+      "MCP_BROKER_ENABLED",
+      "MCP_BROKER_SIGNING_JWKS_FILE",
+      "MCP_DCR_ENABLED",
+      "MCP_AUTHORIZATION_ISSUER",
+      "MCP_RESOURCE_URI",
+      "MCP_OAUTH_STATIC_CLIENTS_JSON",
+    ]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-production-bundle.example.yaml",
+        "--set-string",
+        `googleWorkspace.env.${name}=forbidden`,
+      ]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/googleWorkspace\.env.*reserved/);
+    }
+
+    const files = await Promise.all([
+      Bun.file("deploy/k8s/chart/values.yaml").text(),
+      Bun.file("deploy/k8s/examples/values-oauth-broker.example.yaml").text(),
+    ]);
+    for (const content of files) {
+      expect(content).not.toMatch(/BEGIN (?:RSA |EC )?PRIVATE KEY/);
+      expect(content).not.toMatch(/^\s*(?:kty|d|p|q|dp|dq|qi):/m);
+    }
   });
 
   test("renders a blocking, secret-backed OAuth migration hook", () => {
@@ -580,6 +796,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
+    "values-oauth-broker.example.yaml",
     "values-private-overlay.example.yaml",
     "values-production-bundle.example.yaml",
   ];

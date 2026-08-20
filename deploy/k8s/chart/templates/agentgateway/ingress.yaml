@@ -23,7 +23,15 @@ spec:
     - host: {{ .Values.agentgateway.ingress.host }}
       http:
         paths:
-{{- range .Values.agentgateway.ingress.paths }}
+{{- $resourcePaths := .Values.agentgateway.ingress.paths }}
+{{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+{{- $resourceUrl := urlParse .Values.googleWorkspace.authorizationBroker.resource }}
+{{- $resourcePath := trimSuffix "/" ($resourceUrl.path | default "/") }}
+{{- if not $resourcePath }}{{- $resourcePath = "/" }}{{- end }}
+{{- $resourceMetadataPath := printf "/.well-known/oauth-protected-resource%s" (ternary "" $resourcePath (eq $resourcePath "/")) }}
+{{- $resourcePaths = uniq (concat $resourcePaths (list $resourcePath $resourceMetadataPath)) }}
+{{- end }}
+{{- range $resourcePaths }}
           - path: {{ . }}
             pathType: Prefix
             backend:
@@ -31,6 +39,25 @@ spec:
                 name: {{ include "mcp-gateway.fullname" $ }}-agentgateway
                 port:
                   name: http
+{{- end }}
+{{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+{{- $broker := .Values.googleWorkspace.authorizationBroker }}
+{{- $issuerUrl := urlParse $broker.issuer }}
+{{- $issuerPath := trimSuffix "/" ($issuerUrl.path | default "") }}
+{{- $callbackUrl := urlParse $broker.googleCallbackUri }}
+{{- $brokerPaths := list (printf "/.well-known/oauth-authorization-server%s" $issuerPath) (printf "%s/authorize" $issuerPath) (printf "%s/token" $issuerPath) (printf "%s/.well-known/jwks.json" $issuerPath) $callbackUrl.path }}
+{{- if $broker.dcr.enabled }}
+{{- $brokerPaths = append $brokerPaths (printf "%s/register" $issuerPath) }}
+{{- end }}
+{{- range uniq $brokerPaths }}
+          - path: {{ . }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "mcp-gateway.fullname" $ }}-google-workspace
+                port:
+                  name: http
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

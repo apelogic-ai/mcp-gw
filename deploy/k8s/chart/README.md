@@ -83,6 +83,23 @@ Runtime secrets are referenced as **existing** Kubernetes Secrets. Create them
 from your own secret manager; the chart never generates credentials or embeds a
 DSN, OAuth secret, or token encryption key in rendered manifests.
 
+Direct-client authorization is separately opt-in under
+`googleWorkspace.authorizationBroker`. The typed values require a public HTTPS
+issuer, exact MCP resource, Google callback, active public key ID, scopes, and
+either constrained DCR or at least one static public client. The signing JWKS is
+never a values or environment value: `signingKeyring.secretKeyRef` selects one
+key from an existing Secret, and the chart projects it read-only at
+`/var/run/secrets/mcp-gateway/broker/signing-jwks.json`. Broker mode also
+requires the AgentGateway public Ingress and Google backend. The chart routes
+the exact metadata/authorize/token/register/JWKS/callback paths to the wrapper,
+keeps the MCP resource behind AgentGateway, and adds the broker issuer's public
+RS256 JWKS to AgentGateway trust automatically. The issuer, resource, callback,
+and Ingress host must describe one coherent public HTTPS origin. See
+`deploy/k8s/examples/values-oauth-broker.example.yaml` in the source repository.
+`ingressControllerPeer` must contain non-empty namespace and pod label selectors
+for the installed Ingress controller; the NetworkPolicy admits that exact peer
+and AgentGateway separately, without making the wrapper Service cluster-wide.
+
 When provider consent uses the shared PostgreSQL token store, enable
 `oauthMigrations` and point `oauthMigrations.secretKeyRef` at a Secret key
 holding `TOKEN_STORE_DSN`. The pre-install/pre-upgrade hook runs the OAuth schema
@@ -117,23 +134,25 @@ and are left in place.
 
 ## Key values
 
-| Key                                                        | Default                                             | Description                                                                                   |
-| ---------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `hop1.issuers`                                             | `[]`                                                | HOP-1 bearer-token issuers. At least one full entry is required when any workload is enabled. |
-| `agentgateway.enabled`                                     | `false`                                             | Deploy the `/mcp` front door.                                                                 |
-| `agentgateway.image.tag`                                   | `""`                                                | Agentgateway image tag (or set `image.digest`).                                               |
-| `agentgateway.mcpAuthentication.resourceMetadata.resource` | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                     |
-| `agentgateway.backends`                                    | Google Workspace, db-mcp, github-mcp (all disabled) | Backend routing targets behind the shared endpoint.                                           |
-| `agentgateway.ingress.enabled`                             | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                           |
-| `googleWorkspace.enabled`                                  | `false`                                             | Deploy the Google Workspace MCP wrapper.                                                      |
-| `googleWorkspace.secretRef.name`                           | `""`                                                | Existing Secret with the wrapper's OAuth and token-store env.                                 |
-| `googleWorkspace.policy.enabled`                           | `false`                                             | Enforce a YAML Google Workspace tool policy.                                                  |
-| `githubWrapper.enabled`                                    | `false`                                             | Deploy the GitHub MCP credential wrapper.                                                     |
-| `githubMcp.enabled`                                        | `false`                                             | Deploy the bundled official GitHub MCP server backend.                                        |
-| `dbMcp.enabled`                                            | `false`                                             | Deploy the database MCP backend.                                                              |
-| `oauthMigrations.enabled`                                  | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                       |
-| `postgresql.caBundle.enabled`                              | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.        |
-| `productionProfile.enabled`                                | `false`                                             | Validate that the full provider bundle is enabled explicitly.                                 |
+| Key                                                               | Default                                             | Description                                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `hop1.issuers`                                                    | `[]`                                                | HOP-1 bearer-token issuers. At least one full entry is required when any workload is enabled. |
+| `agentgateway.enabled`                                            | `false`                                             | Deploy the `/mcp` front door.                                                                 |
+| `agentgateway.image.tag`                                          | `""`                                                | Agentgateway image tag (or set `image.digest`).                                               |
+| `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                     |
+| `agentgateway.backends`                                           | Google Workspace, db-mcp, github-mcp (all disabled) | Backend routing targets behind the shared endpoint.                                           |
+| `agentgateway.ingress.enabled`                                    | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                           |
+| `googleWorkspace.enabled`                                         | `false`                                             | Deploy the Google Workspace MCP wrapper.                                                      |
+| `googleWorkspace.secretRef.name`                                  | `""`                                                | Existing Secret with the wrapper's OAuth and token-store env.                                 |
+| `googleWorkspace.authorizationBroker.enabled`                     | `false`                                             | Enable the public authorization broker and its typed fail-closed configuration.               |
+| `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef` | empty                                               | Existing Secret name/key projected as the private signing keyring file.                       |
+| `googleWorkspace.policy.enabled`                                  | `false`                                             | Enforce a YAML Google Workspace tool policy.                                                  |
+| `githubWrapper.enabled`                                           | `false`                                             | Deploy the GitHub MCP credential wrapper.                                                     |
+| `githubMcp.enabled`                                               | `false`                                             | Deploy the bundled official GitHub MCP server backend.                                        |
+| `dbMcp.enabled`                                                   | `false`                                             | Deploy the database MCP backend.                                                              |
+| `oauthMigrations.enabled`                                         | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                       |
+| `postgresql.caBundle.enabled`                                     | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.        |
+| `productionProfile.enabled`                                       | `false`                                             | Validate that the full provider bundle is enabled explicitly.                                 |
 
 See `docs/quickstart.md` in the source repository for the end-to-end install,
 setup, and client-connection walkthrough.

@@ -17,4 +17,16 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.googleWorkspace.port }}
+    {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.googleWorkspace.authorizationBroker.ingressControllerPeer.namespaceSelector.matchLabels | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.googleWorkspace.authorizationBroker.ingressControllerPeer.podSelector.matchLabels | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.googleWorkspace.port }}
+    {{- end }}
 {{- end }}

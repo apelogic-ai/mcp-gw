@@ -186,6 +186,35 @@ googleWorkspace:
     enabled: false
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml
     yaml: ""
+  authorizationBroker:
+    enabled: false
+    issuer: ""
+    resource: ""
+    googleCallbackUri: ""
+    activeSigningKid: ""
+    scopes:
+      - mcp
+    staticClients: []
+    signingKeyring:
+      secretKeyRef:
+        name: ""
+        key: ""
+    ingressControllerPeer:
+      namespaceSelector:
+        matchLabels: {}
+      podSelector:
+        matchLabels: {}
+    dcr:
+      enabled: false
+      allowLoopbackRedirects: false
+      trustedProxy:
+        header: ""
+        addresses: []
+      clientTtlMs: 0
+      maxClients: 0
+      maxRateKeys: 0
+      rateLimit: 0
+      rateWindowMs: 0
   env:
     PORT: "8080"
     GWS_BINARY_PATH: /app/node_modules/.bin/gws

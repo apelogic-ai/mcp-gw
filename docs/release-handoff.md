@@ -55,6 +55,13 @@ GitHub keys:
 Issuer introspection credentials are not assigned a public fixed name. Each issuer selects an
 existing Secret and key with `hop1.issuers[].introspection.credentialSecretKeyRef`.
 
+An enabled authorization broker additionally selects one existing Secret key
+through `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef`.
+That key contains the private JWKS keyring and is projected read-only into the
+Google wrapper. Release values, generated handoffs, environment variables, and
+rendered manifests contain only the Secret reference and fixed file path—never
+the JWKS payload or private key material.
+
 ## GitOps Consumption
 
 Keep domains, issuer configuration, Secret names, sizing, scheduling, enabled adapters, and image
@@ -70,6 +77,13 @@ For a release that enables direct-client OAuth, the handoff must also identify:
 - the public route set, including the broker Google callback and metadata-advertised `jwks_uri`;
 - the broker access-token lifetime, signing algorithm, active public key ID, and accepted public-key
   overlap without including private signing material;
+- the existing signing-keyring Secret name/key reference expected by private
+  GitOps, without copying the Secret payload;
+- the chart-managed Ingress host/path contract and the generated AgentGateway
+  broker-issuer trust entry, including confirmation that the MCP resource stays
+  behind AgentGateway while broker authorization routes reach the wrapper;
+- the exact namespace and pod labels used to admit only the environment's
+  Ingress controller through the wrapper NetworkPolicy;
 - the static-client or constrained-DCR registration mode and exact tested-client versions/evidence;
   and
 - explicit exclusion of authenticated `/oauth/google|github/start|status|disconnect` handlers from

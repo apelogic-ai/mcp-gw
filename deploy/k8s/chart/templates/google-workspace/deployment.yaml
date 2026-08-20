@@ -32,6 +32,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.googleWorkspace.podSecurityContext | nindent 8 }}
+        {{- if and .Values.googleWorkspace.authorizationBroker.enabled (not (hasKey .Values.googleWorkspace.podSecurityContext "fsGroup")) }}
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        {{- end }}
       {{- include "mcp-gateway.podScheduling" .Values.googleWorkspace | nindent 6 }}
       containers:
         - name: google-workspace
@@ -69,14 +73,71 @@ spec:
             - name: GOOGLE_WORKSPACE_POLICY_FILE
               value: {{ .Values.googleWorkspace.policy.mountPath | quote }}
             {{- end }}
+            {{- with .Values.googleWorkspace.authorizationBroker }}
+            {{- if .enabled }}
+            - name: MCP_BROKER_ENABLED
+              value: "true"
+            - name: MCP_AUTHORIZATION_ISSUER
+              value: {{ .issuer | quote }}
+            - name: MCP_RESOURCE_URI
+              value: {{ .resource | quote }}
+            - name: MCP_BROKER_GOOGLE_REDIRECT_URI
+              value: {{ .googleCallbackUri | quote }}
+            - name: MCP_BROKER_SIGNING_JWKS_FILE
+              value: "/var/run/secrets/mcp-gateway/broker/signing-jwks.json"
+            - name: MCP_BROKER_ACTIVE_KID
+              value: {{ .activeSigningKid | quote }}
+            - name: MCP_BROKER_SCOPES
+              value: {{ join " " .scopes | quote }}
+            - name: MCP_OAUTH_STATIC_CLIENTS_JSON
+              value: {{ toJson .staticClients | quote }}
+            - name: MCP_DCR_ENABLED
+              value: {{ .dcr.enabled | quote }}
+            - name: MCP_DCR_ALLOW_LOOPBACK_REDIRECTS
+              value: {{ .dcr.allowLoopbackRedirects | quote }}
+            {{- with .dcr.trustedProxy.header }}
+            - name: MCP_DCR_TRUSTED_PROXY_HEADER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .dcr.trustedProxy.addresses }}
+            - name: MCP_DCR_TRUSTED_PROXY_ADDRESSES
+              value: {{ join "," .dcr.trustedProxy.addresses | quote }}
+            {{- end }}
+            {{- if gt (int .dcr.clientTtlMs) 0 }}
+            - name: MCP_DCR_CLIENT_TTL_MS
+              value: {{ .dcr.clientTtlMs | quote }}
+            {{- end }}
+            {{- if gt (int .dcr.maxClients) 0 }}
+            - name: MCP_DCR_MAX_CLIENTS
+              value: {{ .dcr.maxClients | quote }}
+            {{- end }}
+            {{- if gt (int .dcr.maxRateKeys) 0 }}
+            - name: MCP_DCR_MAX_RATE_KEYS
+              value: {{ .dcr.maxRateKeys | quote }}
+            {{- end }}
+            {{- if gt (int .dcr.rateLimit) 0 }}
+            - name: MCP_DCR_RATE_LIMIT
+              value: {{ .dcr.rateLimit | quote }}
+            {{- end }}
+            {{- if gt (int .dcr.rateWindowMs) 0 }}
+            - name: MCP_DCR_RATE_WINDOW_MS
+              value: {{ .dcr.rateWindowMs | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
           {{- include "mcp-gateway.probes" .Values.googleWorkspace | nindent 10 }}
-          {{- if or .Values.googleWorkspace.policy.enabled .Values.postgresql.caBundle.enabled }}
+          {{- if or .Values.googleWorkspace.policy.enabled .Values.postgresql.caBundle.enabled .Values.googleWorkspace.authorizationBroker.enabled }}
           volumeMounts:
             {{- if .Values.googleWorkspace.policy.enabled }}
             - name: google-workspace-policy
               mountPath: {{ .Values.googleWorkspace.policy.mountPath | quote }}
               subPath: google-workspace-policy.yaml
+              readOnly: true
+            {{- end }}
+            {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+            - name: broker-signing-keyring
+              mountPath: "/var/run/secrets/mcp-gateway/broker"
               readOnly: true
             {{- end }}
             {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
@@ -85,12 +146,21 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if or .Values.googleWorkspace.policy.enabled .Values.postgresql.caBundle.enabled }}
+      {{- if or .Values.googleWorkspace.policy.enabled .Values.postgresql.caBundle.enabled .Values.googleWorkspace.authorizationBroker.enabled }}
       volumes:
         {{- if .Values.googleWorkspace.policy.enabled }}
         - name: google-workspace-policy
           configMap:
             name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
+        {{- end }}
+        {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+        - name: broker-signing-keyring
+          secret:
+            secretName: {{ .Values.googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.key }}
+                path: signing-jwks.json
         {{- end }}
         {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
       {{- end }}
