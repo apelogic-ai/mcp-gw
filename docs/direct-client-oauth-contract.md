@@ -164,6 +164,20 @@ wrapper NetworkPolicy to AgentGateway plus the installed Ingress controller;
 empty selectors fail rendering. Generated broker authorization routes use
 exact-path Ingress matches.
 
+Helm repeats the runtime's deployment-visible rejection rules so an invalid
+release fails during schema/render validation rather than after startup. Public
+broker URLs must be canonical, credential-free, route-safe HTTPS URLs on the
+Ingress origin and may not use localhost, private/reserved addresses, internal
+or single-label names, IPv6 literals, queries, fragments, or custom ports.
+Generated public routes must remain unique and must not overlap the MCP route,
+resource metadata, operator-supplied Ingress paths, or authenticated
+`/oauth/google/*` and `/oauth/github/*` provider-control paths. Static client
+IDs, redirect counts and lengths, public client URLs, scope subsets, OAuth
+scope-token serialization, trusted-proxy IP literals, and safe-integer DCR
+bounds are validated to the same contract. The chart deliberately keeps
+signing-key contents outside Helm; the runtime still validates the projected
+JWKS keyring and Google provider Secret on startup.
+
 DCR admission is keyed by the server-observed socket peer by default. Behind a reverse proxy, set
 both trusted-proxy variables so the wrapper accepts one syntactically valid client IP only when the
 socket peer exactly matches the configured proxy allowlist. Forwarding headers from all other peers

@@ -100,6 +100,21 @@ and Ingress host must describe one coherent public HTTPS origin. See
 for the installed Ingress controller; the NetworkPolicy admits that exact peer
 and AgentGateway separately, without making the wrapper Service cluster-wide.
 
+Broker values fail before deployment when they would fail the runtime contract.
+Chart-managed issuer/resource/callback URLs must use one canonical, public-DNS
+or public-IPv4 HTTPS origin, omit credentials/query/fragment/custom ports, and
+use unambiguous non-trailing paths. Generated discovery, authorization, token,
+registration, JWKS, callback, MCP, protected-resource metadata, and private
+provider-control paths cannot collide. Static client IDs match
+`^[A-Za-z0-9._~-]{8,200}$`; redirects and client metadata URLs are bounded,
+credential-free public HTTPS URLs (or explicitly enabled canonical HTTP
+loopback redirects), and client scopes must be a subset of the broker's
+comma-free OAuth scope-token allowlist. Trusted proxy addresses are exact,
+normalized IP literals, not names or forwarding chains. DCR numeric limits may
+not exceed JavaScript's safe-integer maximum. Broker mode also rejects a direct
+Google HOP-1 issuer because broker and direct Google identities are distinct
+runtime modes.
+
 When provider consent uses the shared PostgreSQL token store, enable
 `oauthMigrations` and point `oauthMigrations.secretKeyRef` at a Secret key
 holding `TOKEN_STORE_DSN`. The pre-install/pre-upgrade hook runs the OAuth schema

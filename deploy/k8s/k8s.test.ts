@@ -221,6 +221,215 @@ describe("Kubernetes production chart", () => {
     expect(acceptedLoopback.exitCode).toBe(0);
   });
 
+  test("rejects broker URLs that are not canonical public HTTPS endpoints", () => {
+    const invalidCases: string[][] = [
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://localhost/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://10.0.0.1/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://broker.internal/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://intranet/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://[2001:db8::1]/oauth"],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.issuer=https://user:pass@mcp.example.com/oauth",
+      ],
+      ["--set-string", "googleWorkspace.authorizationBroker.resource=https://192.168.1.1/mcp"],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://localhost/oauth/callback",
+      ],
+      ["--set-string", "googleWorkspace.authorizationBroker.resource=https://mcp.example.com/mcp/"],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/a/../oauth/callback",
+      ],
+      [
+        "--set-string",
+        "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/oauth/%2e%2e/callback",
+      ],
+    ];
+
+    for (const args of invalidCases) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        ...args,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker/);
+    }
+  });
+
+  test("rejects every broker route collision before deployment", () => {
+    for (const callbackPath of [
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/.well-known/jwks.json",
+      "/.well-known/oauth-authorization-server/oauth",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/mcp",
+      "/oauth/google/start",
+      "/oauth/google/status",
+      "/oauth/google/disconnect",
+      "/oauth/google/callback",
+      "/oauth/github/start",
+      "/oauth/github/status",
+      "/oauth/github/disconnect",
+      "/oauth/github/callback",
+    ]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com${callbackPath}`,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker.*route/i);
+    }
+  });
+
+  test("rejects static clients that the runtime registry would reject", () => {
+    const validClient = {
+      clientId: "browser-client",
+      redirectUris: ["https://client.example.com/callback"],
+      clientName: "Example client",
+      clientUri: "https://client.example.com/app?source=mcp",
+      scopes: ["mcp"],
+    };
+    const invalidClients = [
+      { ...validClient, clientId: "x" },
+      { ...validClient, clientId: "bad client" },
+      { ...validClient, clientId: "x".repeat(201) },
+      { ...validClient, scopes: ["admin"] },
+      { ...validClient, clientUri: "https://localhost/app" },
+      { ...validClient, clientUri: "https://10.0.0.1/app" },
+      { ...validClient, redirectUris: ["https://user:pass@client.example.com/callback"] },
+      { ...validClient, redirectUris: ["https://192.168.1.1/callback"] },
+      { ...validClient, redirectUris: ["https://192.0.1.1/callback"] },
+      { ...validClient, redirectUris: ["https://999.999.999.999/callback"] },
+      { ...validClient, redirectUris: ["https://client.example.com"] },
+      { ...validClient, redirectUris: ["https://client.example.com:99999/callback"] },
+      {
+        ...validClient,
+        redirectUris: Array.from(
+          { length: 11 },
+          (_, i) => `https://client.example.com/callback-${i}`,
+        ),
+      },
+    ];
+
+    for (const client of invalidClients) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(client)}]`,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker|values don't meet/i);
+    }
+
+    const accepted = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(validClient)}]`,
+    ]);
+    expect(accepted.exitCode).toBe(0);
+
+    const duplicateIds = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(validClient)},${JSON.stringify({ ...validClient, redirectUris: ["https://other.example.com/callback"] })}]`,
+    ]);
+    expect(duplicateIds.exitCode).not.toBe(0);
+
+    for (const redirect of [
+      "http://127.0.0.1:080/callback",
+      "http://localhost/callback/../other",
+      "http://localhost",
+    ]) {
+      const invalidLoopback = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set",
+        "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [redirect] })}]`,
+      ]);
+      expect(invalidLoopback.exitCode).not.toBe(0);
+    }
+
+    const canonicalLoopback = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: ["http://native.localhost:53682/callback?source=mcp"] })}]`,
+    ]);
+    expect(canonicalLoopback.exitCode).toBe(0);
+  });
+
+  test("rejects malformed trusted proxy IP literals and unsafe DCR bounds", () => {
+    for (const address of ["not-an-ip", "10.0.0.999", "01.2.3.4", "2001:DB8::1"]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        "googleWorkspace.authorizationBroker.dcr.trustedProxy.header=x-forwarded-for",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.dcr.trustedProxy.addresses[0]=${address}`,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker|values don't meet/i);
+    }
+
+    const unsafeBound = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.dcr.maxClients=9007199254740992",
+    ]);
+    expect(unsafeBound.exitCode).not.toBe(0);
+
+    for (const address of ["203.0.113.10", "2001:db8::1"]) {
+      const accepted = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        "googleWorkspace.authorizationBroker.dcr.trustedProxy.header=x-forwarded-for",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.dcr.trustedProxy.addresses[0]=${address}`,
+      ]);
+      expect(accepted.exitCode).toBe(0);
+    }
+  });
+
+  test("rejects broker scope transport ambiguities and direct Google hop-1 trust", () => {
+    for (const scope of ["bad scope", "bad,scope", "bad\\scope", "mcp💥"]) {
+      const result = helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-json",
+        `googleWorkspace.authorizationBroker.scopes=[${JSON.stringify(scope)}]`,
+        "--set-json",
+        `agentgateway.mcpAuthentication.resourceMetadata.scopesSupported=[${JSON.stringify(scope)}]`,
+      ]);
+      expect(result.exitCode).not.toBe(0);
+    }
+
+    const googleHop1 = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      'hop1.issuers=[{"name":"google","issuer":"https://accounts.google.com","audiences":["google-client"],"jwksUrl":"https://www.googleapis.com/oauth2/v3/certs","allowedAlgorithms":["RS256"]}]',
+    ]);
+    expect(googleHop1.exitCode).not.toBe(0);
+    expect(googleHop1.stderr.toString()).toMatch(/authorizationBroker|Google/i);
+  });
+
   test("rejects broker configuration and signing material through generic environment values", async () => {
     for (const name of [
       "MCP_BROKER_ENABLED",
