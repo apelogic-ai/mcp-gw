@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.2.12";
+  const expectedVersion = "0.3.0";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -22,7 +22,10 @@ describe("release metadata", () => {
     expect(parsedPackage.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(parsedPackage.scripts["release:check"]).toBe("bun scripts/check-release-metadata.ts");
     expect(changelog).toContain("## [Unreleased]");
-    expect(changelog).toContain(`## [${parsedPackage.version}]`);
+    expect(changelog).toContain(`## [${parsedPackage.version}] - 2026-08-20`);
+    expect(changelog).toContain(
+      `[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v${parsedPackage.version}...HEAD`,
+    );
     expect(releaseDocs).toContain("SemVer");
     expect(releaseDocs).toContain(`v${parsedPackage.version}`);
     expect(releaseDocs).toContain("OCI Helm chart");
@@ -61,10 +64,26 @@ describe("release metadata", () => {
     ]);
 
     const packageVersion = (JSON.parse(packageJson) as { version: string }).version;
-    const chart = parse(chartYaml) as { version: string; appVersion: string };
+    const chart = parse(chartYaml) as {
+      version: string;
+      appVersion: string;
+      annotations: Record<string, string>;
+    };
 
     expect(chart.version).toBe(packageVersion);
     expect(chart.appVersion).toBe(packageVersion);
+    expect(chart.annotations["artifacthub.io/images"]).toContain(
+      `ghcr.io/apelogic-ai/mcp-gw-agentgateway:${packageVersion}`,
+    );
+    expect(chart.annotations["artifacthub.io/images"]).toContain(
+      `ghcr.io/apelogic-ai/mcp-gw-google-workspace:${packageVersion}`,
+    );
+    expect(chart.annotations["artifacthub.io/images"]).toContain(
+      `ghcr.io/apelogic-ai/mcp-gw-github-wrapper:${packageVersion}`,
+    );
+    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: added");
+    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: security");
+    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: changed");
   });
 
   test("keeps public deployment examples on the current release", async () => {

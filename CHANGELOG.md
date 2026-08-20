@@ -8,6 +8,38 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-20
+
+### Added
+
+- Add an optional standards-compatible MCP OAuth authorization broker with authorization-server
+  and protected-resource metadata, public PKCE authorization-code flows, constrained dynamic client
+  registration or immutable static clients, public JWKS rotation, and short-lived tokens whose
+  audience is the exact MCP resource.
+- Add typed Helm configuration for the broker's public routes, AgentGateway trust, exact Ingress and
+  NetworkPolicy exposure, and read-only projection of an operator-owned signing keyring Secret.
+- Extend provider conformance coverage and the generated release handoff with the broker's tested
+  client, registration-mode, public-route, signing-keyring, and GitOps ownership contracts.
+
+### Security
+
+- Keep provider credentials out of broker tokens and responses, issue no refresh tokens or public
+  client secrets, consume broker transactions and authorization codes once, and keep client state,
+  broker-to-Google CSRF state, nonce, and authorization code distinct.
+- Verify upstream Google identity assertions by signature and RS256 algorithm, exact issuer, client
+  audience and authorized party, expiry, nonce, stable subject, verified email, and bounded numeric
+  issuance time before issuing an MCP token.
+- Fail closed on unsafe public URLs, redirect URIs, route collisions, confidential-client
+  authentication, untrusted proxy inputs, oversized registration requests, and incoherent Helm
+  configuration while keeping private provider helpers off the public broker surface.
+
+### Changed
+
+- Preserve trusted-issuer and Google-broker users as distinct `(issuer, subject)` principals rather
+  than linking identities by email, and keep provider consent separate from broker authentication.
+- Document reauthorization as the public-client renewal mechanism and limit compatibility claims to
+  the protocol fixtures and tested-client evidence recorded by the release.
+
 ## [0.2.12] - 2026-08-18
 
 ### Fixed
@@ -195,7 +227,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.12...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.12...v0.3.0
 [0.2.12]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.9...v0.2.10
