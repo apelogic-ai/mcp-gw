@@ -6,6 +6,19 @@ import {
   NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
 } from "../../shared/oauth/public-host-fixtures";
 
+const INVALID_PUBLIC_IPV4_HOSTS = [
+  ...NONCANONICAL_WHATWG_IPV4_HOSTS,
+  ...NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
+];
+const VALID_STATIC_CLIENT = {
+  clientId: "browser-client",
+  redirectUris: ["https://client.example.com/callback"],
+  clientUri: "https://client.example.com/app",
+  scopes: ["mcp"],
+};
+const HELM_PROCESS_TIMEOUT_MS = 2_000;
+const HELM_PROCESS_MAX_BUFFER_BYTES = 1024 * 1024;
+
 describe("Kubernetes production chart", () => {
   test("ships wrapper images with a numeric non-root runtime user", async () => {
     const dockerfiles = await Promise.all([
@@ -292,70 +305,71 @@ describe("Kubernetes production chart", () => {
     }
   });
 
-  test("keeps Helm IPv4 URL admission aligned with the runtime classifier", () => {
-    const invalidHosts = [...NONCANONICAL_WHATWG_IPV4_HOSTS, ...NONPUBLIC_SPECIAL_USE_IPV4_HOSTS];
-    const validClient = {
-      clientId: "browser-client",
-      redirectUris: ["https://client.example.com/callback"],
-      clientUri: "https://client.example.com/app",
-      scopes: ["mcp"],
-    };
+  test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects broker IPv4 host %s", (host) => {
+    const broker = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      `googleWorkspace.authorizationBroker.issuer=https://${host}/oauth`,
+      "--set-string",
+      `googleWorkspace.authorizationBroker.resource=https://${host}/mcp`,
+      "--set-string",
+      `googleWorkspace.authorizationBroker.googleCallbackUri=https://${host}/oauth/google/broker/callback`,
+      "--set-string",
+      `agentgateway.ingress.host=${host}`,
+      "--set-string",
+      `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
+    ]);
+    expect(broker.exitCode).not.toBe(0);
+  });
 
-    for (const host of invalidHosts) {
-      const broker = helmTemplateResult([
-        "--values",
-        "deploy/k8s/examples/values-oauth-broker.example.yaml",
-        "--set-string",
-        `googleWorkspace.authorizationBroker.issuer=https://${host}/oauth`,
-        "--set-string",
-        `googleWorkspace.authorizationBroker.resource=https://${host}/mcp`,
-        "--set-string",
-        `googleWorkspace.authorizationBroker.googleCallbackUri=https://${host}/oauth/google/broker/callback`,
-        "--set-string",
-        `agentgateway.ingress.host=${host}`,
-        "--set-string",
-        `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
-      ]);
-      expect(broker.exitCode).not.toBe(0);
+  test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects client metadata IPv4 host %s", (host) => {
+    const clientUri = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, clientUri: `https://${host}/app` })}]`,
+    ]);
+    expect(clientUri.exitCode).not.toBe(0);
+  });
 
-      const clientUri = helmTemplateResult([
-        "--values",
-        "deploy/k8s/examples/values-oauth-broker.example.yaml",
-        "--set-json",
-        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, clientUri: `https://${host}/app` })}]`,
-      ]);
-      expect(clientUri.exitCode).not.toBe(0);
+  test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects HTTPS redirect IPv4 host %s", (host) => {
+    const redirect = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, redirectUris: [`https://${host}/callback`] })}]`,
+    ]);
+    expect(redirect.exitCode).not.toBe(0);
+  });
 
-      const redirect = helmTemplateResult([
-        "--values",
-        "deploy/k8s/examples/values-oauth-broker.example.yaml",
-        "--set-json",
-        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [`https://${host}/callback`] })}]`,
-      ]);
-      expect(redirect.exitCode).not.toBe(0);
-    }
+  test.each([...NONCANONICAL_WHATWG_IPV4_HOSTS])("rejects HTTP loopback IPv4 alias %s", (host) => {
+    const loopbackAlias = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, redirectUris: [`http://${host}/callback`] })}]`,
+    ]);
+    expect(loopbackAlias.exitCode).not.toBe(0);
+  });
 
-    for (const host of NONCANONICAL_WHATWG_IPV4_HOSTS) {
-      const loopbackAlias = helmTemplateResult([
-        "--values",
-        "deploy/k8s/examples/values-oauth-broker.example.yaml",
-        "--set",
-        "googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true",
-        "--set-json",
-        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [`http://${host}/callback`] })}]`,
-      ]);
-      expect(loopbackAlias.exitCode).not.toBe(0);
-    }
+  test.each([...CANONICAL_PUBLIC_IPV4_HOSTS])("accepts canonical public IPv4 host %s", (host) => {
+    const accepted = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, clientUri: `https://${host}/app`, redirectUris: [`https://${host}/callback`] })}]`,
+    ]);
+    expect(accepted.exitCode).toBe(0);
+  });
 
-    for (const host of CANONICAL_PUBLIC_IPV4_HOSTS) {
-      const accepted = helmTemplateResult([
-        "--values",
-        "deploy/k8s/examples/values-oauth-broker.example.yaml",
-        "--set-json",
-        `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, clientUri: `https://${host}/app`, redirectUris: [`https://${host}/callback`] })}]`,
-      ]);
-      expect(accepted.exitCode).toBe(0);
-    }
+  test("bounds and reaps chart subprocesses", () => {
+    const result = boundedSpawnSync([process.execPath, "-e", "await Bun.sleep(10000)"], 25);
+
+    expect(result.exitCode).toBeNull();
+    expect(result.signalCode).toBe("SIGKILL");
   });
 
   test("rejects every broker route collision before deployment", () => {
@@ -1039,18 +1053,14 @@ describe("Kubernetes production chart", () => {
     const schema = await Bun.file("deploy/k8s/chart/values.schema.json").json();
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
 
-    const result = Bun.spawnSync({
-      cmd: [
-        "helm",
-        "template",
-        "mcp-gateway",
-        "deploy/k8s/chart",
-        "--set-string",
-        "agentgateway.replicas=not-a-number",
-      ],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const result = boundedSpawnSync([
+      "helm",
+      "template",
+      "mcp-gateway",
+      "deploy/k8s/chart",
+      "--set-string",
+      "agentgateway.replicas=not-a-number",
+    ]);
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toMatch(/agentgateway(?:\.|\/)replicas/);
@@ -1100,10 +1110,20 @@ function helmTemplate(extraArgs: string[] = []): string {
 }
 
 function helmTemplateResult(extraArgs: string[] = []): Bun.SyncSubprocess<"pipe", "pipe"> {
+  return boundedSpawnSync(["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs]);
+}
+
+function boundedSpawnSync(
+  cmd: string[],
+  timeout = HELM_PROCESS_TIMEOUT_MS,
+): Bun.SyncSubprocess<"pipe", "pipe"> {
   return Bun.spawnSync({
-    cmd: ["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs],
+    cmd,
     stdout: "pipe",
     stderr: "pipe",
+    timeout,
+    killSignal: "SIGKILL",
+    maxBuffer: HELM_PROCESS_MAX_BUFFER_BYTES,
   });
 }
 
