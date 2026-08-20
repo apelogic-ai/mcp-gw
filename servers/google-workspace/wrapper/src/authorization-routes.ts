@@ -45,6 +45,8 @@ export interface CreateAuthorizationServerRouteHandlerOptions {
   registration?: DcrHttpContract;
   googleCallbackUri?: string;
   registrationRateLimitKey?: (request: Request, context: AuthorizationRequestContext) => string;
+  authorizationRateLimitKey?: (request: Request, context: AuthorizationRequestContext) => string;
+  consumeAuthorizationAttempt?: (rateLimitKey: string) => Promise<"allowed" | "limited">;
 }
 
 export interface AuthorizationRequestContext {
@@ -59,6 +61,7 @@ const NO_STORE_HEADERS = {
   pragma: "no-cache",
 };
 const MAX_REGISTRATION_BODY_BYTES = 16 * 1024;
+const MAX_TOKEN_BODY_BYTES = 16 * 1024;
 const CLIENT_AUTHENTICATION_PARAMETERS = [
   "client_secret",
   "client_assertion",
@@ -179,6 +182,7 @@ export function createAuthorizationServerRouteHandler(
       }
 
       if (request.method === "GET" && url.pathname === paths.authorization) {
+        await enforceAuthorizationRateLimit(options, request, context);
         const authorization = authorizationRequest(url.searchParams);
         const started = await options.broker.beginAuthorization(authorization);
         return consentPage({
@@ -286,7 +290,69 @@ async function readForm(request: Request): Promise<URLSearchParams> {
       "Expected application/x-www-form-urlencoded request",
     );
   }
-  return new URLSearchParams(await request.text());
+  const text = await readBoundedText(request, MAX_TOKEN_BODY_BYTES, () => {
+    throw new OAuthBrokerError("invalid_request", "Token request body is too large");
+  });
+  return new URLSearchParams(text);
+}
+
+// Buffer a request body up to maxBytes, aborting the stream as soon as the cap
+// is exceeded so a public route cannot be forced to hold an unbounded body in
+// memory. Mirrors the streamed cap applied to the /register endpoint.
+async function readBoundedText(
+  request: Request,
+  maxBytes: number,
+  onTooLarge: () => never,
+): Promise<string> {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    onTooLarge();
+  }
+  const reader = (request.body as ReadableStream<Uint8Array> | null)?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let readResult = await reader.read();
+  while (!readResult.done) {
+    bytes += readResult.value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      onTooLarge();
+    }
+    chunks.push(readResult.value);
+    readResult = await reader.read();
+  }
+  const body = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8").decode(body);
+}
+
+// Fail closed if a per-caller authorization rate limit is wired but no
+// admission identity is available; otherwise reject once the caller exceeds the
+// authorization attempt budget before any transaction row is persisted.
+async function enforceAuthorizationRateLimit(
+  options: CreateAuthorizationServerRouteHandlerOptions,
+  request: Request,
+  context: AuthorizationRequestContext,
+): Promise<void> {
+  if (!options.consumeAuthorizationAttempt) return;
+  if (!options.authorizationRateLimitKey) {
+    throw new ConstrainedDcrError(
+      "Authorization admission identity is unavailable",
+      "registry_full",
+      503,
+    );
+  }
+  const decision = await options.consumeAuthorizationAttempt(
+    options.authorizationRateLimitKey(request, context),
+  );
+  if (decision === "limited") {
+    throw new ConstrainedDcrError("Authorization requests are rate limited", "rate_limited", 429);
+  }
 }
 
 async function readBoundedJson(request: Request): Promise<unknown> {

@@ -416,6 +416,145 @@ describe("authorization-server HTTP routes", () => {
     });
     expect(registration.headers.get("retry-after")).toBe("60");
   });
+
+  test("rejects an oversized chunked token body before buffering the remaining stream", async () => {
+    let pulls = 0;
+    let canceled = false;
+    let exchanged = false;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array(9 * 1024));
+        },
+        cancel() {
+          canceled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const handler = createAuthorizationServerRouteHandler({
+      broker: {
+        ...brokerStub(),
+        exchangeAuthorizationCode: () => {
+          exchanged = true;
+          return brokerStub().exchangeAuthorizationCode();
+        },
+      },
+    });
+
+    const response = await handler(
+      new Request(`${issuer}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: stream,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "invalid_request",
+      error_description: "Token request body is too large",
+    });
+    expect(pulls).toBe(2);
+    expect(canceled).toBe(true);
+    expect(exchanged).toBe(false);
+  });
+
+  test("rate limits /authorize before persisting a transaction", async () => {
+    let began = false;
+    let consumedKey: string | undefined;
+    const handler = createAuthorizationServerRouteHandler({
+      broker: {
+        ...brokerStub(),
+        beginAuthorization: () => {
+          began = true;
+          return brokerStub().beginAuthorization();
+        },
+      },
+      authorizationRateLimitKey: () => "ip:192.0.2.1",
+      consumeAuthorizationAttempt: (key) => {
+        consumedKey = key;
+        return Promise.resolve("limited");
+      },
+    });
+
+    const response = await handler(
+      new Request(
+        `${issuer}/authorize?response_type=code&client_id=client&redirect_uri=${encodeURIComponent(
+          "https://client.example/callback",
+        )}&resource=${encodeURIComponent(resource)}&scope=mcp&code_challenge=${"A".repeat(
+          43,
+        )}&code_challenge_method=S256&state=opaque-client-state`,
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error: "temporarily_unavailable",
+      error_description: "Authorization requests are rate limited",
+    });
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(consumedKey).toBe("ip:192.0.2.1");
+    expect(began).toBe(false);
+  });
+
+  test("admits /authorize within the rate budget", async () => {
+    let began = false;
+    const handler = createAuthorizationServerRouteHandler({
+      broker: {
+        ...brokerStub(),
+        beginAuthorization: () => {
+          began = true;
+          return brokerStub().beginAuthorization();
+        },
+      },
+      authorizationRateLimitKey: () => "ip:192.0.2.1",
+      consumeAuthorizationAttempt: () => Promise.resolve("allowed"),
+    });
+
+    const response = await handler(
+      new Request(
+        `${issuer}/authorize?response_type=code&client_id=client&redirect_uri=${encodeURIComponent(
+          "https://client.example/callback",
+        )}&resource=${encodeURIComponent(resource)}&scope=mcp&code_challenge=${"A".repeat(
+          43,
+        )}&code_challenge_method=S256&state=opaque-client-state`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(began).toBe(true);
+  });
+
+  test("fails closed when /authorize rate limiting lacks an admission identity", async () => {
+    let began = false;
+    const handler = createAuthorizationServerRouteHandler({
+      broker: {
+        ...brokerStub(),
+        beginAuthorization: () => {
+          began = true;
+          return brokerStub().beginAuthorization();
+        },
+      },
+      consumeAuthorizationAttempt: () => Promise.resolve("allowed"),
+    });
+
+    const response = await handler(
+      new Request(
+        `${issuer}/authorize?response_type=code&client_id=client&redirect_uri=${encodeURIComponent(
+          "https://client.example/callback",
+        )}&resource=${encodeURIComponent(resource)}&scope=mcp&code_challenge=${"A".repeat(
+          43,
+        )}&code_challenge_method=S256&state=opaque-client-state`,
+      ),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "temporarily_unavailable" });
+    expect(began).toBe(false);
+  });
 });
 
 function brokerStub() {

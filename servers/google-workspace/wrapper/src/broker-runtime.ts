@@ -34,6 +34,14 @@ import type { RuntimeTrustedIssuer } from "./runtime";
 
 const DEFAULT_GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 
+// Durable per-caller budget for unauthenticated /authorize requests. Each
+// request persists a transaction row before consent, so this bounds pre-consent
+// write and prune amplification. Reuses the same durable store as /register with
+// a distinct key namespace so the two limits never collide.
+const AUTHORIZATION_RATE_LIMIT_MAX_ATTEMPTS = 30;
+const AUTHORIZATION_RATE_LIMIT_WINDOW_MS = 60_000;
+const AUTHORIZATION_RATE_LIMIT_MAX_KEYS = 10_000;
+
 export interface AuthorizationBrokerRuntimeConfig {
   issuer: string;
   resource: string;
@@ -70,12 +78,13 @@ export async function createAuthorizationBrokerRuntime(input: {
     input.config.activeSigningKid,
     input.readSigningJwks,
   );
+  const dcrStore = new SqlDcrRegistrationStore(input.queryClient);
   const registry = new ConstrainedDcrRegistry({
     ...input.config.dcr,
     allowedScopes: input.config.scopes,
     defaultScopes: input.config.scopes,
     staticClients: input.config.staticClients,
-    store: new SqlDcrRegistrationStore(input.queryClient),
+    store: dcrStore,
   });
   const clients: BrokerClientRegistry = {
     get: async (clientId) => {
@@ -126,6 +135,15 @@ export async function createAuthorizationBrokerRuntime(input: {
     googleCallbackUri: input.config.googleCallbackUri,
     registrationRateLimitKey: (request: Request, context: AuthorizationRequestContext) =>
       registrationAdmissionKey(request, context, input.config.dcrTrustedProxy),
+    authorizationRateLimitKey: (request: Request, context: AuthorizationRequestContext) =>
+      registrationAdmissionKey(request, context, input.config.dcrTrustedProxy),
+    consumeAuthorizationAttempt: (rateLimitKey: string) =>
+      dcrStore.consumeRegistrationAttempt(`authorize:${rateLimitKey}`, {
+        maxAttempts: AUTHORIZATION_RATE_LIMIT_MAX_ATTEMPTS,
+        maxKeys: AUTHORIZATION_RATE_LIMIT_MAX_KEYS,
+        nowMs: Date.now(),
+        windowMs: AUTHORIZATION_RATE_LIMIT_WINDOW_MS,
+      }),
   };
   const handler = createAuthorizationServerRouteHandler(routeOptions);
   const paths = authorizationServerPublicPaths(routeOptions);
