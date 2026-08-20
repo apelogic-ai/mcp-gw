@@ -59,6 +59,13 @@ const NO_STORE_HEADERS = {
   pragma: "no-cache",
 };
 const MAX_REGISTRATION_BODY_BYTES = 16 * 1024;
+const CLIENT_AUTHENTICATION_PARAMETERS = [
+  "client_secret",
+  "client_assertion",
+  "client_assertion_type",
+  "token_endpoint_auth_method",
+] as const;
+const HTTP_AUTH_SCHEME_PATTERN = /^([!#$%&'*+\-.^_`|~0-9A-Za-z]+)(?:\s|$)/u;
 
 export interface AuthorizationServerPublicPaths {
   authorizationServerMetadata: string;
@@ -195,9 +202,20 @@ export function createAuthorizationServerRouteHandler(
       }
 
       if (request.method === "POST" && url.pathname === paths.token) {
+        const authorizationHeaderError = rejectAuthorizationClientAuthentication(request);
+        if (authorizationHeaderError) {
+          return authorizationHeaderError;
+        }
         const params = await readForm(request);
-        if (params.has("client_secret") || params.has("refresh_token")) {
-          return oauthError("invalid_client", "Only public clients are supported", 400);
+        if (hasFormClientAuthentication(params)) {
+          return tokenError(
+            "invalid_client",
+            "Only unauthenticated public clients are supported",
+            400,
+          );
+        }
+        if (params.has("refresh_token")) {
+          return tokenError("invalid_request", "Refresh tokens are not supported", 400);
         }
         const exchanged = await options.broker.exchangeAuthorizationCode({
           grantType: params.get("grant_type") ?? "",
@@ -404,6 +422,22 @@ function redirect(location: string): Response {
   return new Response(null, { status: 302, headers: { location, ...NO_STORE_HEADERS } });
 }
 
+function rejectAuthorizationClientAuthentication(request: Request): Response | undefined {
+  if (!request.headers.has("authorization")) return undefined;
+  const authorization = request.headers.get("authorization") ?? "";
+  const scheme = HTTP_AUTH_SCHEME_PATTERN.exec(authorization.trim())?.[1];
+  return tokenError(
+    "invalid_client",
+    "Only unauthenticated public clients are supported",
+    401,
+    scheme ? `${scheme} realm="token"` : undefined,
+  );
+}
+
+function hasFormClientAuthentication(params: URLSearchParams): boolean {
+  return CLIENT_AUTHENTICATION_PARAMETERS.some((parameter) => params.has(parameter));
+}
+
 function publicJson(body: unknown): Response {
   return json(body, 200, { "cache-control": "public, max-age=300" });
 }
@@ -412,6 +446,18 @@ function oauthError(error: string, description: string, status: number): Respons
   return json({ error, error_description: description }, status, {
     ...NO_STORE_HEADERS,
     "www-authenticate": `Bearer error="${error}"`,
+  });
+}
+
+function tokenError(
+  error: string,
+  description: string,
+  status: number,
+  challenge?: string,
+): Response {
+  return json({ error, error_description: description }, status, {
+    ...NO_STORE_HEADERS,
+    ...(challenge ? { "www-authenticate": challenge } : {}),
   });
 }
 

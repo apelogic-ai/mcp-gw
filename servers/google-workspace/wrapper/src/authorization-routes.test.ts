@@ -234,6 +234,72 @@ describe("authorization-server HTTP routes", () => {
     expect(response.headers.get("pragma")).toBe("no-cache");
   });
 
+  test.each([
+    ["HTTP Basic", { authorization: "Basic cHVibGljOmludmVudGVk" }, {}, 401, 'Basic realm="token"'],
+    [
+      "HTTP Bearer",
+      { authorization: "Bearer resource-access-token" },
+      {},
+      401,
+      'Bearer realm="token"',
+    ],
+    ["client_secret_post", {}, { client_secret: "invented-secret" }, 400, null],
+    ["client assertion", {}, { client_assertion: "invented-assertion" }, 400, null],
+    [
+      "client assertion type",
+      {},
+      { client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer" },
+      400,
+      null,
+    ],
+    ["declared auth method", {}, { token_endpoint_auth_method: "private_key_jwt" }, 400, null],
+  ])(
+    "rejects %s credentials because the token endpoint supports public auth method none",
+    async (_label, extraHeaders, extraForm, expectedStatus, expectedChallenge) => {
+      let exchangeCalled = false;
+      const handler = createAuthorizationServerRouteHandler({
+        broker: {
+          ...brokerStub(),
+          exchangeAuthorizationCode: () => {
+            exchangeCalled = true;
+            return Promise.resolve({
+              accessToken: "must-not-be-issued",
+              tokenType: "Bearer" as const,
+              expiresIn: 300,
+              scope: "mcp",
+            });
+          },
+        },
+      });
+      const response = await handler(
+        new Request(`${issuer}/token`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            ...extraHeaders,
+          },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code: "broker-code",
+            client_id: "client",
+            redirect_uri: "https://client.example/callback",
+            resource,
+            code_verifier: "v".repeat(64),
+            ...extraForm,
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(expectedStatus);
+      expect(await response.json()).toMatchObject({
+        error: "invalid_client",
+        error_description: "Only unauthenticated public clients are supported",
+      });
+      expect(response.headers.get("www-authenticate")).toBe(expectedChallenge);
+      expect(exchangeCalled).toBe(false);
+    },
+  );
+
   test("exposes constrained DCR only when configured and never returns client credentials", async () => {
     const disabled = createAuthorizationServerRouteHandler({ broker: brokerStub() });
     expect(
