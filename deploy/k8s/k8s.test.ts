@@ -18,6 +18,12 @@ const VALID_STATIC_CLIENT = {
 };
 const HELM_PROCESS_TIMEOUT_MS = 2_000;
 const HELM_PROCESS_MAX_BUFFER_BYTES = 1024 * 1024;
+type BoundedProcessResult = {
+  stdout: Bun.SyncSubprocess<"pipe", "pipe">["stdout"];
+  stderr: Bun.SyncSubprocess<"pipe", "pipe">["stderr"];
+  exitCode: number | null;
+  signalCode: string | null;
+};
 
 describe("Kubernetes production chart", () => {
   test("ships wrapper images with a numeric non-root runtime user", async () => {
@@ -153,7 +159,7 @@ describe("Kubernetes production chart", () => {
         `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.${field}=${value}`,
       ]);
 
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker.*signingKeyring.*secretKeyRef/);
     }
   });
@@ -176,7 +182,7 @@ describe("Kubernetes production chart", () => {
         override,
       ]);
 
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker/);
     }
 
@@ -184,7 +190,7 @@ describe("Kubernetes production chart", () => {
       "--set",
       "googleWorkspace.authorizationBroker.issuer=https://mcp.example.com/oauth",
     ]);
-    expect(silentlyDisabled.exitCode).not.toBe(0);
+    assertHelmRejected(silentlyDisabled);
     expect(silentlyDisabled.stderr.toString()).toMatch(/authorizationBroker/);
 
     for (const selector of ["namespaceSelector", "podSelector"]) {
@@ -194,7 +200,7 @@ describe("Kubernetes production chart", () => {
         "--set-json",
         `googleWorkspace.authorizationBroker.ingressControllerPeer.${selector}.matchLabels={}`,
       ]);
-      expect(missingIngressPeer.exitCode).not.toBe(0);
+      assertHelmRejected(missingIngressPeer);
       expect(missingIngressPeer.stderr.toString()).toMatch(/ingressControllerPeer/);
     }
 
@@ -202,7 +208,7 @@ describe("Kubernetes production chart", () => {
       "--set-string",
       "googleWorkspace.authorizationBroker.scopes[0]=openid",
     ]);
-    expect(disabledScopeOverride.exitCode).not.toBe(0);
+    assertHelmRejected(disabledScopeOverride);
     expect(disabledScopeOverride.stderr.toString()).toMatch(/authorizationBroker/);
 
     const disabledDcrPolicy = helmTemplateResult([
@@ -217,7 +223,7 @@ describe("Kubernetes production chart", () => {
       "--set",
       "googleWorkspace.authorizationBroker.dcr.rateLimit=10",
     ]);
-    expect(disabledDcrPolicy.exitCode).not.toBe(0);
+    assertHelmRejected(disabledDcrPolicy);
     expect(disabledDcrPolicy.stderr.toString()).toMatch(/authorizationBroker.*dcr/);
 
     const loopbackClient = [
@@ -229,7 +235,7 @@ describe("Kubernetes production chart", () => {
       "googleWorkspace.authorizationBroker.staticClients[0].redirectUris[0]=http://127.0.0.1:53682/callback",
     ];
     const rejectedLoopback = helmTemplateResult(loopbackClient);
-    expect(rejectedLoopback.exitCode).not.toBe(0);
+    assertHelmRejected(rejectedLoopback);
     expect(rejectedLoopback.stderr.toString()).toMatch(/loopback/);
 
     const acceptedLoopback = helmTemplateResult([
@@ -281,7 +287,7 @@ describe("Kubernetes production chart", () => {
         "deploy/k8s/examples/values-oauth-broker.example.yaml",
         ...args,
       ]);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker/);
     }
 
@@ -300,7 +306,7 @@ describe("Kubernetes production chart", () => {
         "--set-string",
         `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
       ]);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker/);
     }
   });
@@ -320,7 +326,7 @@ describe("Kubernetes production chart", () => {
       "--set-string",
       `agentgateway.mcpAuthentication.resourceMetadata.resource=https://${host}/mcp`,
     ]);
-    expect(broker.exitCode).not.toBe(0);
+    assertHelmRejected(broker);
   });
 
   test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects client metadata IPv4 host %s", (host) => {
@@ -330,7 +336,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, clientUri: `https://${host}/app` })}]`,
     ]);
-    expect(clientUri.exitCode).not.toBe(0);
+    assertHelmRejected(clientUri);
   });
 
   test.each(INVALID_PUBLIC_IPV4_HOSTS)("rejects HTTPS redirect IPv4 host %s", (host) => {
@@ -340,7 +346,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, redirectUris: [`https://${host}/callback`] })}]`,
     ]);
-    expect(redirect.exitCode).not.toBe(0);
+    assertHelmRejected(redirect);
   });
 
   test.each([...NONCANONICAL_WHATWG_IPV4_HOSTS])("rejects HTTP loopback IPv4 alias %s", (host) => {
@@ -352,7 +358,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...VALID_STATIC_CLIENT, redirectUris: [`http://${host}/callback`] })}]`,
     ]);
-    expect(loopbackAlias.exitCode).not.toBe(0);
+    assertHelmRejected(loopbackAlias);
   });
 
   test.each([...CANONICAL_PUBLIC_IPV4_HOSTS])("accepts canonical public IPv4 host %s", (host) => {
@@ -370,6 +376,7 @@ describe("Kubernetes production chart", () => {
 
     expect(result.exitCode).toBeNull();
     expect(result.signalCode).toBe("SIGKILL");
+    expect(() => assertHelmRejected(result)).toThrow(/terminated by signal SIGKILL/);
   });
 
   test("rejects every broker route collision before deployment", () => {
@@ -396,7 +403,7 @@ describe("Kubernetes production chart", () => {
         "--set-string",
         `googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com${callbackPath}`,
       ]);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker.*route/i);
     }
 
@@ -410,7 +417,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       'agentgateway.ingress.paths=["/oauth/token","/.well-known/oauth-protected-resource/oauth/token"]',
     ]);
-    expect(resourceCollision.exitCode).not.toBe(0);
+    assertHelmRejected(resourceCollision);
     expect(resourceCollision.stderr.toString()).toMatch(/authorizationBroker.*route/i);
 
     const operatorPathCollision = helmTemplateResult([
@@ -419,7 +426,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       'agentgateway.ingress.paths=["/mcp","/.well-known/oauth-protected-resource/mcp","/oauth/token"]',
     ]);
-    expect(operatorPathCollision.exitCode).not.toBe(0);
+    assertHelmRejected(operatorPathCollision);
     expect(operatorPathCollision.stderr.toString()).toMatch(/ingress\.paths/);
   });
 
@@ -463,7 +470,7 @@ describe("Kubernetes production chart", () => {
         "--set-json",
         `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(client)}]`,
       ]);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker|values don't meet/i);
     }
 
@@ -481,7 +488,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(validClient)},${JSON.stringify({ ...validClient, redirectUris: ["https://other.example.com/callback"] })}]`,
     ]);
-    expect(duplicateIds.exitCode).not.toBe(0);
+    assertHelmRejected(duplicateIds);
 
     for (const redirect of [
       "http://127.0.0.1:080/callback",
@@ -499,7 +506,7 @@ describe("Kubernetes production chart", () => {
         "--set-json",
         `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify({ ...validClient, redirectUris: [redirect] })}]`,
       ]);
-      expect(invalidLoopback.exitCode).not.toBe(0);
+      assertHelmRejected(invalidLoopback);
     }
 
     const canonicalLoopback = helmTemplateResult([
@@ -523,7 +530,7 @@ describe("Kubernetes production chart", () => {
         "--set-string",
         `googleWorkspace.authorizationBroker.dcr.trustedProxy.addresses[0]=${address}`,
       ]);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/authorizationBroker|values don't meet/i);
     }
 
@@ -533,7 +540,7 @@ describe("Kubernetes production chart", () => {
       "--set-string",
       "googleWorkspace.authorizationBroker.dcr.maxClients=9007199254740992",
     ]);
-    expect(unsafeBound.exitCode).not.toBe(0);
+    assertHelmRejected(unsafeBound);
 
     for (const address of ["203.0.113.10", "2001:db8::1", "1:2:3:4:5::1.2.3.4", "::1.2.3.4"]) {
       const accepted = helmTemplateResult([
@@ -558,7 +565,7 @@ describe("Kubernetes production chart", () => {
         "--set-json",
         `agentgateway.mcpAuthentication.resourceMetadata.scopesSupported=[${JSON.stringify(scope)}]`,
       ]);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
     }
 
     const googleHop1 = helmTemplateResult([
@@ -567,7 +574,7 @@ describe("Kubernetes production chart", () => {
       "--set-json",
       'hop1.issuers=[{"name":"google","issuer":"https://accounts.google.com","audiences":["google-client"],"jwksUrl":"https://www.googleapis.com/oauth2/v3/certs","allowedAlgorithms":["RS256"]}]',
     ]);
-    expect(googleHop1.exitCode).not.toBe(0);
+    assertHelmRejected(googleHop1);
     expect(googleHop1.stderr.toString()).toMatch(/authorizationBroker|Google/i);
   });
 
@@ -587,7 +594,7 @@ describe("Kubernetes production chart", () => {
         `googleWorkspace.env.${name}=forbidden`,
       ]);
 
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/googleWorkspace\.env.*reserved/);
     }
 
@@ -632,7 +639,7 @@ describe("Kubernetes production chart", () => {
       ],
     ]) {
       const result = helmTemplateResult(args);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/oauthMigrations.*secretKeyRef/);
     }
   });
@@ -739,7 +746,7 @@ describe("Kubernetes production chart", () => {
 
     for (const args of invalidArgs) {
       const result = helmTemplateResult(args);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/postgresql(?:\.|\/)caBundle/);
     }
   });
@@ -875,7 +882,7 @@ describe("Kubernetes production chart", () => {
       ],
     ]) {
       const result = helmTemplateResult(args);
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/productionProfile/);
     }
   });
@@ -996,14 +1003,14 @@ describe("Kubernetes production chart", () => {
     };
 
     const missing = helmTemplateResult(["--set-json", `hop1.issuers=[${JSON.stringify(issuer)}]`]);
-    expect(missing.exitCode).not.toBe(0);
+    assertHelmRejected(missing);
     expect(missing.stderr.toString()).toMatch(/allowedAlgorithms/);
 
     const empty = helmTemplateResult([
       "--set-json",
       `hop1.issuers=[${JSON.stringify({ ...issuer, allowedAlgorithms: [] })}]`,
     ]);
-    expect(empty.exitCode).not.toBe(0);
+    assertHelmRejected(empty);
     expect(empty.stderr.toString()).toMatch(/allowedAlgorithms/);
   });
 
@@ -1011,7 +1018,7 @@ describe("Kubernetes production chart", () => {
     for (const component of ["agentgateway", "googleWorkspace", "githubWrapper"]) {
       const result = helmTemplateResult(["--set", `${component}.enabled=true`]);
 
-      expect(result.exitCode).not.toBe(0);
+      assertHelmRejected(result);
       expect(result.stderr.toString()).toMatch(/hop1(?:\.|\/)issuers/);
     }
   });
@@ -1032,7 +1039,7 @@ describe("Kubernetes production chart", () => {
       })}]`,
     ]);
 
-    expect(result.exitCode).not.toBe(0);
+    assertHelmRejected(result);
     expect(result.stderr.toString()).toMatch(/credentialSecretKeyRef/);
   });
 
@@ -1062,7 +1069,7 @@ describe("Kubernetes production chart", () => {
       "agentgateway.replicas=not-a-number",
     ]);
 
-    expect(result.exitCode).not.toBe(0);
+    assertHelmRejected(result);
     expect(result.stderr.toString()).toMatch(/agentgateway(?:\.|\/)replicas/);
   });
 
@@ -1109,15 +1116,26 @@ function helmTemplate(extraArgs: string[] = []): string {
   return result.stdout.toString();
 }
 
-function helmTemplateResult(extraArgs: string[] = []): Bun.SyncSubprocess<"pipe", "pipe"> {
+function helmTemplateResult(extraArgs: string[] = []): BoundedProcessResult {
   return boundedSpawnSync(["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs]);
 }
 
-function boundedSpawnSync(
-  cmd: string[],
-  timeout = HELM_PROCESS_TIMEOUT_MS,
-): Bun.SyncSubprocess<"pipe", "pipe"> {
-  return Bun.spawnSync({
+function assertHelmRejected(result: BoundedProcessResult): void {
+  const stderr = result.stderr.toString().slice(0, 4_096).trim() || "<empty>";
+  if (result.signalCode !== null) {
+    throw new Error(
+      `Expected Helm validation rejection, but process terminated by signal ${result.signalCode}. stderr: ${stderr}`,
+    );
+  }
+  if (!Number.isInteger(result.exitCode) || result.exitCode === 0) {
+    throw new Error(
+      `Expected Helm validation rejection with a real nonzero exit code, got ${String(result.exitCode)}. stderr: ${stderr}`,
+    );
+  }
+}
+
+function boundedSpawnSync(cmd: string[], timeout = HELM_PROCESS_TIMEOUT_MS): BoundedProcessResult {
+  const result = Bun.spawnSync({
     cmd,
     stdout: "pipe",
     stderr: "pipe",
@@ -1125,6 +1143,12 @@ function boundedSpawnSync(
     killSignal: "SIGKILL",
     maxBuffer: HELM_PROCESS_MAX_BUFFER_BYTES,
   });
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: Number.isInteger(result.exitCode) ? result.exitCode : null,
+    signalCode: result.signalCode ?? null,
+  };
 }
 
 function renderedResource(rendered: string, kind: string, name: string): string {
