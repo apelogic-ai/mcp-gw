@@ -232,6 +232,27 @@ describe("release artifacts", () => {
     expect(handoff).toContain("GITHUB_OAUTH_CLIENT_SECRET");
     expect(handoff).toContain("readiness");
     expect(handoff).toContain("8080");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.enabled");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.issuer");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.resource");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.googleCallbackUri");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.dcr.enabled");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.staticClients");
+    expect(handoff).toContain(
+      "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name",
+    );
+    expect(handoff).toContain(
+      "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.key",
+    );
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.activeSigningKid");
+    expect(handoff).toContain("/var/run/secrets/mcp-gateway/broker/signing-jwks.json");
+    expect(handoff).toContain('"keys"');
+    expect(handoff).toContain("RFC 8414");
+    expect(handoff).toContain("DCR-enabled mode");
+    expect(handoff).toContain("static-only mode");
+    expect(handoff).toContain("GitOps-owned");
+    expect(handoff).toContain("tested-client evidence");
+    expect(handoff).toContain("does not establish compatibility");
   });
 
   test("documents the static release handoff contract", async () => {

@@ -13,6 +13,13 @@ import { hasCanonicalIpv4Hostname, isSpecialUseIpv4 } from "./public-host";
 const GOOGLE_ISSUER = "https://accounts.google.com";
 const GOOGLE_AUTHORIZATION_ENDPOINT = `${GOOGLE_ISSUER}/o/oauth2/v2/auth`;
 const GOOGLE_SIGNING_ALGORITHMS = ["RS256"] as const;
+// Google assertions are accepted only when their NumericDate `iat` is inside
+// the inclusive window [now - max age - skew, now + skew]. The skew absorbs
+// ordinary verifier/issuer clock drift; the maximum age prevents a still-
+// unexpired but implausibly old identity assertion from starting a new broker
+// session. These are generic token-timing controls, not organization policy.
+export const GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS = 300;
+export const GOOGLE_ID_TOKEN_MAX_AGE_SECONDS = 3_600;
 const DEFAULT_TRANSACTION_TTL_SECONDS = 600;
 const DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS = 120;
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 300;
@@ -593,6 +600,22 @@ function googleIdentityFromPayload(
 ): GoogleIdentity {
   if (payload.exp === undefined) {
     throw new OAuthBrokerError("invalid_grant", "Google ID token is missing expiration");
+  }
+  if (typeof payload.iat !== "number" || !Number.isFinite(payload.iat)) {
+    throw new OAuthBrokerError(
+      "invalid_grant",
+      "Google ID token is missing a numeric issued-at time",
+    );
+  }
+  const nowSeconds = (options.now ?? Date.now()) / 1_000;
+  if (payload.iat > nowSeconds + GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS) {
+    throw new OAuthBrokerError("invalid_grant", "Google ID token was issued in the future");
+  }
+  if (
+    payload.iat <
+    nowSeconds - GOOGLE_ID_TOKEN_MAX_AGE_SECONDS - GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS
+  ) {
+    throw new OAuthBrokerError("invalid_grant", "Google ID token issuance is too old");
   }
   if (payload.nonce !== options.expectedNonce) {
     throw new OAuthBrokerError("invalid_grant", "Google ID token nonce does not match");

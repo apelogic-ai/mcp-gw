@@ -45,6 +45,13 @@ Client `state`, broker-to-Google CSRF state, and the broker authorization code a
 values. Google authorization codes and Google access, ID, or refresh tokens are never returned to
 the MCP client.
 
+The upstream Google ID token must carry a finite numeric `iat`. In addition to signature, algorithm,
+issuer, audience/authorized-party, expiry, nonce, stable subject, and verified-email checks, broker
+issuance applies a generic 3,600-second maximum issuance age and 300-second clock skew. The inclusive
+accepted interval is `now - 3,600 - 300 <= iat <= now + 300`; assertions outside it are rejected even
+when their `exp` has not elapsed. These timing bounds are identity-provider freshness controls and
+do not encode a hosted domain, email suffix, or organization policy.
+
 Before continuing to Google, the broker displays the persisted client name and client URI when
 present, the immutable client ID, the redirect origin, and the exact redirect URI. Metadata URLs
 are displayed as escaped text and are never fetched or dereferenced by MCP-GW.

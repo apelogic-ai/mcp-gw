@@ -54,5 +54,8 @@ describe("public OAuth routing contract", () => {
     expect(contract).toContain("issues no public refresh token");
     expect(contract).toContain("private control-plane APIs");
     expect(contract).toContain("same email remain different");
+    expect(contract).toContain("numeric `iat`");
+    expect(contract).toContain("3,600-second maximum issuance age");
+    expect(contract).toContain("300-second clock skew");
   });
 });

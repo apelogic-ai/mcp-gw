@@ -92,3 +92,9 @@ For a release that enables direct-client OAuth, the handoff must also identify:
 The first broker release renews access through a complete authorization-code + PKCE flow. It does
 not issue a public refresh token. A source commit or local fixture is not a GitOps artifact; publish
 this contract only with the exact versioned chart and image digests described above.
+
+The generated release handoff describes the product capability with the exact typed chart paths,
+route-derivation rules, static-only and DCR-enabled modes, signing-keyring JWKS schema, existing
+Secret name/key reference fields, fixed read-only projection path, active-key/rotation contract, and
+tested-client claim limits. Environment-specific issuer, resource, callback, Secret name, and active
+`kid` remain GitOps-owned deployment evidence; they are never hard-coded into the product release.

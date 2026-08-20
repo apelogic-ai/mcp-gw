@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from "jose";
 
 import {
+  GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS,
+  GOOGLE_ID_TOKEN_MAX_AGE_SECONDS,
   InMemoryAuthorizationBrokerStore,
   OAuthBroker,
   OAuthBrokerError,
@@ -117,14 +119,21 @@ function authorizationRequest(overrides: Partial<Record<string, string>> = {}) {
 async function googleIdToken(
   nonce: string,
   claims: Record<string, unknown> = {},
-  options: { algorithm?: "RS256" | "PS256"; key?: CryptoKey } = {},
+  options: {
+    algorithm?: "RS256" | "PS256";
+    includeIssuedAt?: boolean;
+    key?: CryptoKey;
+  } = {},
 ): Promise<string> {
-  const { iss, aud, sub, exp, ...payload } = claims;
-  return new SignJWT({
+  const { iss, aud, sub, exp, iat, ...payload } = claims;
+  let token = new SignJWT({
     email: "person@example.com",
     email_verified: true,
     nonce,
     ...payload,
+    // Deliberately permit an invalid runtime claim in negative verification
+    // fixtures while keeping the production JOSE contract strongly typed.
+    ...(iat === undefined ? {} : { iat: iat as number }),
   })
     .setProtectedHeader({
       alg: options.algorithm ?? "RS256",
@@ -133,9 +142,11 @@ async function googleIdToken(
     .setIssuer(typeof iss === "string" ? iss : "https://accounts.google.com")
     .setAudience(typeof aud === "string" || Array.isArray(aud) ? aud : GOOGLE_CLIENT_ID)
     .setSubject(typeof sub === "string" ? sub : "google-subject")
-    .setIssuedAt(Math.floor(NOW / 1000))
-    .setExpirationTime(typeof exp === "number" ? exp : Math.floor(NOW / 1000) + 300)
-    .sign(options.key ?? googlePrivateKey);
+    .setExpirationTime(typeof exp === "number" ? exp : Math.floor(NOW / 1000) + 300);
+  if (options.includeIssuedAt !== false && iat === undefined) {
+    token = token.setIssuedAt(Math.floor(NOW / 1000));
+  }
+  return token.sign(options.key ?? googlePrivateKey);
 }
 
 describe("OAuthBroker authorization transaction", () => {
@@ -596,6 +607,64 @@ describe("Google identity verification", () => {
       }),
       "invalid_grant",
     );
+  });
+
+  test.each([
+    [
+      "missing",
+      {},
+      { includeIssuedAt: false },
+      "Google ID token is missing a numeric issued-at time",
+    ],
+    ["non-numeric", { iat: "not-a-numeric-date" }, {}, "Google ID token verification failed"],
+    [
+      "implausibly future",
+      { iat: Math.floor(NOW / 1000) + GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS + 1 },
+      {},
+      "Google ID token was issued in the future",
+    ],
+    [
+      "stale",
+      {
+        iat:
+          Math.floor(NOW / 1000) -
+          GOOGLE_ID_TOKEN_MAX_AGE_SECONDS -
+          GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS -
+          1,
+      },
+      {},
+      "Google ID token issuance is too old",
+    ],
+  ] as const)("rejects a %s issued-at claim", async (_name, claims, tokenOptions, message) => {
+    await expectBrokerError(
+      verifyGoogleIdentityToken(await googleIdToken("expected-nonce", claims, tokenOptions), {
+        clientId: GOOGLE_CLIENT_ID,
+        expectedNonce: "expected-nonce",
+        jwks: [googlePublicJwk],
+        now: NOW,
+      }),
+      "invalid_grant",
+      message,
+    );
+  });
+
+  test.each([
+    ["future-skew", Math.floor(NOW / 1000) + GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS],
+    [
+      "maximum-age-with-skew",
+      Math.floor(NOW / 1000) - GOOGLE_ID_TOKEN_MAX_AGE_SECONDS - GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS,
+    ],
+  ])("accepts the inclusive %s issued-at boundary", async (_name, iat) => {
+    const identity = await verifyGoogleIdentityToken(
+      await googleIdToken("expected-nonce", { iat }),
+      {
+        clientId: GOOGLE_CLIENT_ID,
+        expectedNonce: "expected-nonce",
+        jwks: [googlePublicJwk],
+        now: NOW,
+      },
+    );
+    expect(identity.subject).toBe("google-subject");
   });
 });
 
