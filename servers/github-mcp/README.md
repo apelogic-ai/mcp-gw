@@ -120,6 +120,15 @@ revoke only the newly issued token and stores nothing. Self-hosted or isolated
 GitHub API deployments can override the token-revocation endpoint with
 `GITHUB_OAUTH_TOKEN_REVOCATION_URL`.
 
+`POST /oauth/github/disconnect` authenticates the caller, deletes the stored
+access token at GitHub using the OAuth application's client credentials, and
+only then marks the local grant revoked. The GitHub request has a five-second
+deadline and must return `204 No Content`. If GitHub cannot confirm revocation,
+the endpoint returns a sanitized `503` response, emits an OAuth error audit
+event, and leaves the local grant active rather than falsely claiming that
+provider access is gone. Neither the provider token nor a provider response
+body is returned or written to the audit event.
+
 ## Credential Boundary
 
 In HTTP mode, the official GitHub MCP server reads the GitHub credential from
