@@ -29,6 +29,7 @@ describe("GitHub MCP wrapper main config", () => {
         tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
       },
       githubScopes: ["repo", "read:org", "workflow", "notifications", "user:email"],
+      githubRedirectAfterAllowedOrigins: [],
       aliases: {},
       policy: undefined,
       audit: undefined,
@@ -71,6 +72,31 @@ describe("GitHub MCP wrapper main config", () => {
       userEmailsUrl: "http://provider-fixture:8090/github/emails",
       tokenRevocationUrl: "http://provider-fixture:8090/github/applications/github-client/token",
     });
+  });
+
+  test("loads an explicit exact-origin allowlist for browser OAuth return targets", () => {
+    expect(
+      loadMainConfig({
+        ...baseEnv,
+        GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS:
+          "https://admin.example.com,http://127.0.0.1:4173",
+      }).githubRedirectAfterAllowedOrigins,
+    ).toEqual(["https://admin.example.com", "http://127.0.0.1:4173"]);
+  });
+
+  test.each([
+    "https://admin.example.com/path",
+    "https://admin.example.com?next=/connections",
+    "https://user:pass@admin.example.com",
+    "http://admin.example.com",
+    "https://*.example.com",
+  ])("rejects a non-origin GitHub OAuth redirect allowlist entry: %s", (entry) => {
+    expect(() =>
+      loadMainConfig({
+        ...baseEnv,
+        GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS: entry,
+      }),
+    ).toThrow("GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS must contain canonical HTTPS origins");
   });
 
   test("loads optional policy, audit, and alias settings", () => {

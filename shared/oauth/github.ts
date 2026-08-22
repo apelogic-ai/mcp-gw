@@ -9,6 +9,8 @@ export type GitHubOAuthErrorCode =
   | "invalid_state"
   | "missing_access_token"
   | "token_exchange_failed"
+  | "token_revocation_failed"
+  | "token_revocation_persist_failed"
   | "userinfo_failed"
   | "reauth_required";
 
@@ -61,9 +63,21 @@ export interface CompleteGitHubOAuthResult {
   redirectAfter?: string;
 }
 
+export interface CancelGitHubOAuthOptions {
+  state: string;
+  stateStore: OAuthStateStore;
+}
+
 export interface GitHubTokenBrokerOptions {
   config: GitHubOAuthConfig;
   tokenStore: OAuthTokenStore;
+}
+
+export interface RevokeGitHubOAuthOptions {
+  identity: Hop1Identity;
+  config: GitHubOAuthConfig;
+  tokenStore: OAuthTokenStore;
+  fetch?: OAuthFetch;
 }
 
 interface GitHubTokenResponse {
@@ -161,6 +175,21 @@ export async function completeGithubOAuth(
   };
 }
 
+/**
+ * Consume an authorization transaction when GitHub returns an OAuth error.
+ * A provider denial has no bearer header to authenticate, so the opaque,
+ * one-time state record is the sole principal binding just as it is on the
+ * successful browser callback path.
+ */
+export async function cancelGithubOAuth(options: CancelGitHubOAuthOptions): Promise<Hop1Identity> {
+  const stateRecord = await options.stateStore.consume(options.state);
+  if (!stateRecord) {
+    throw new GitHubOAuthError("OAuth state is invalid or expired", "invalid_state");
+  }
+
+  return identityFromStateRecord(stateRecord);
+}
+
 export class GitHubTokenBroker {
   constructor(private readonly options: GitHubTokenBrokerOptions) {}
 
@@ -182,6 +211,53 @@ export class GitHubTokenBroker {
     }
 
     return decryptSecret(account.encryptedRefreshToken, this.options.config.tokenEncryptionKey);
+  }
+}
+
+/**
+ * Revoke the provider-side credential before changing local state. A failed or
+ * timed-out provider request deliberately leaves the local grant active so a
+ * caller cannot receive a false confirmation that GitHub access is gone.
+ */
+export async function revokeGithubOAuth(options: RevokeGitHubOAuthOptions): Promise<void> {
+  const account = await options.tokenStore.getAccount(
+    options.identity.issuer,
+    options.identity.subject,
+    "github",
+  );
+  if (!account || account.revokedAt) {
+    return;
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = decryptSecret(account.encryptedRefreshToken, options.config.tokenEncryptionKey);
+  } catch {
+    throw tokenRevocationFailed();
+  }
+
+  try {
+    const response = await revokeGithubAccessToken(
+      options.config,
+      accessToken,
+      options.fetch ?? fetch,
+    );
+    if (response.status !== 204) {
+      throw new Error("GitHub token revocation request was rejected");
+    }
+  } catch {
+    throw tokenRevocationFailed();
+  }
+
+  try {
+    await options.tokenStore.markRevoked(
+      options.identity.issuer,
+      options.identity.subject,
+      new Date(),
+      "github",
+    );
+  } catch {
+    throw tokenRevocationPersistFailed();
   }
 }
 
@@ -262,25 +338,47 @@ async function bestEffortRevokeAccessToken(
   accessToken: string,
   fetchImpl: OAuthFetch,
 ): Promise<void> {
+  try {
+    await revokeGithubAccessToken(config, accessToken, fetchImpl);
+  } catch {
+    // The identity mismatch still fails closed when GitHub revocation is unavailable.
+  }
+}
+
+function revokeGithubAccessToken(
+  config: GitHubOAuthConfig,
+  accessToken: string,
+  fetchImpl: OAuthFetch,
+): Promise<Response> {
   const url =
     config.tokenRevocationUrl ??
     `${DEFAULT_GITHUB_APPLICATIONS_URL}/${encodeURIComponent(config.clientId)}/token`;
 
-  try {
-    await fetchImpl(url, {
-      method: "DELETE",
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
-        "content-type": "application/json",
-        "x-github-api-version": "2022-11-28",
-      },
-      body: JSON.stringify({ access_token: accessToken }),
-      signal: AbortSignal.timeout(TOKEN_REVOCATION_TIMEOUT_MS),
-    });
-  } catch {
-    // The identity mismatch still fails closed when GitHub revocation is unavailable.
-  }
+  return fetchImpl(url, {
+    method: "DELETE",
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28",
+    },
+    body: JSON.stringify({ access_token: accessToken }),
+    signal: AbortSignal.timeout(TOKEN_REVOCATION_TIMEOUT_MS),
+  });
+}
+
+function tokenRevocationFailed(): GitHubOAuthError {
+  return new GitHubOAuthError(
+    "GitHub account disconnect could not be completed",
+    "token_revocation_failed",
+  );
+}
+
+function tokenRevocationPersistFailed(): GitHubOAuthError {
+  return new GitHubOAuthError(
+    "GitHub account disconnect could not be completed",
+    "token_revocation_persist_failed",
+  );
 }
 
 function scopeStringToArray(scope: string | undefined): string[] {

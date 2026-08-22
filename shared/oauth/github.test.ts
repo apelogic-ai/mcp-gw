@@ -6,8 +6,10 @@ import {
   GitHubOAuthError,
   GitHubTokenBroker,
   completeGithubOAuth,
+  revokeGithubOAuth,
   startGithubOAuth,
 } from "./github";
+import { encryptSecret } from "./crypto";
 
 const identity: Hop1Identity = {
   profile: "test",
@@ -403,5 +405,117 @@ describe("GitHub token broker", () => {
     expect(error).toBeInstanceOf(GitHubOAuthError);
     expect((error as GitHubOAuthError).code).toBe("reauth_required");
     expect((error as GitHubOAuthError).message).toBe("GitHub account must be connected");
+  });
+});
+
+describe("GitHub OAuth disconnect", () => {
+  test("revokes the remote token with a bounded request before revoking the local grant", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const accessToken = "gho_disconnect_access_token";
+    await tokenStore.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: encryptSecret(accessToken, config.tokenEncryptionKey),
+      createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-22T00:00:00.000Z"),
+    });
+    const requests: { url: string; init?: RequestInit }[] = [];
+
+    await revokeGithubOAuth({
+      identity,
+      config,
+      tokenStore,
+      fetch: (url, init) => {
+        requests.push({ url, init });
+        return Promise.resolve(new Response(null, { status: 204 }));
+      },
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(config.tokenRevocationUrl);
+    expect(requests[0]?.init?.method).toBe("DELETE");
+    expect(requests[0]?.init?.headers).toEqual({
+      accept: "application/vnd.github+json",
+      authorization: `Basic ${Buffer.from("github-client:github-secret").toString("base64")}`,
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28",
+    });
+    expect(requests[0]?.init?.body).toBe(JSON.stringify({ access_token: accessToken }));
+    expect(requests[0]?.init?.signal).toBeInstanceOf(AbortSignal);
+    expect(
+      (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
+    ).toBeInstanceOf(Date);
+  });
+
+  test("fails closed without revoking the local grant or exposing a token when GitHub refuses revocation", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const accessToken = "gho_disconnect_access_token";
+    await tokenStore.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: encryptSecret(accessToken, config.tokenEncryptionKey),
+      createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-22T00:00:00.000Z"),
+    });
+
+    let error: unknown;
+    try {
+      await revokeGithubOAuth({
+        identity,
+        config,
+        tokenStore,
+        fetch: () => Promise.resolve(Response.json({ error: accessToken }, { status: 500 })),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(GitHubOAuthError);
+    expect((error as GitHubOAuthError).code).toBe("token_revocation_failed");
+    expect((error as GitHubOAuthError).message).not.toContain(accessToken);
+    expect(
+      (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
+    ).toBeUndefined();
+  });
+
+  test("requires GitHub's documented no-content acknowledgement before revoking locally", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    await tokenStore.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: encryptSecret(
+        "gho_disconnect_access_token",
+        config.tokenEncryptionKey,
+      ),
+      createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-22T00:00:00.000Z"),
+    });
+
+    let error: unknown;
+    try {
+      await revokeGithubOAuth({
+        identity,
+        config,
+        tokenStore,
+        fetch: () => Promise.resolve(Response.json({ status: "unexpected" })),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({ code: "token_revocation_failed" });
+
+    expect(
+      (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
+    ).toBeUndefined();
   });
 });

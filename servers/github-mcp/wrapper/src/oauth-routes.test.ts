@@ -6,6 +6,8 @@ import {
   InMemoryOAuthStateStore,
   InMemoryOAuthTokenStore,
 } from "../../../../shared/oauth/memory-store";
+import { encryptSecret } from "../../../../shared/oauth/crypto";
+import { startGithubOAuth } from "../../../../shared/oauth/github";
 import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
 
@@ -60,6 +62,7 @@ describe("GitHub OAuth routes", () => {
       scopes: ["repo"],
       stateStore: new InMemoryOAuthStateStore(),
       tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://client.example.com"],
     });
 
     const response = await handler(
@@ -77,6 +80,70 @@ describe("GitHub OAuth routes", () => {
     const body = (await response.json()) as { authorizationUrl: string };
     expect(body.authorizationUrl).toContain("https://github.example.com/login/oauth/authorize");
     expect(body.authorizationUrl).toContain("scope=repo");
+  });
+
+  test("rejects an unallowlisted remote redirect target before it creates OAuth state", async () => {
+    const stateStore = new CountingStateStore();
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://admin.example.com"],
+    });
+
+    const response = await handler(
+      new Request(
+        "https://mcp.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fevil.example.com%2Fcallback",
+        { headers: { authorization: "Bearer hop1" } },
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "OAuth redirect target is not allowed" });
+    expect(stateStore.saveCalls).toBe(0);
+  });
+
+  test("rejects a scheme-relative or backslash-normalized redirect target", async () => {
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+    });
+
+    for (const redirectAfter of ["//evil.example.com/callback", "/\\evil.example.com/callback"]) {
+      const response = await handler(
+        new Request(
+          `https://mcp.example.com/oauth/github/start?redirect_after=${encodeURIComponent(redirectAfter)}`,
+          { headers: { authorization: "Bearer hop1" } },
+        ),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "OAuth redirect target is not allowed" });
+    }
+  });
+
+  test("allows an exact configured remote redirect origin and preserves its path", async () => {
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://admin.example.com"],
+    });
+
+    const response = await handler(
+      new Request(
+        "https://mcp.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fadmin.example.com%2Fconnections%3Fprovider%3Dgithub",
+        { headers: { authorization: "Bearer hop1" } },
+      ),
+    );
+
+    expect(response.status).toBe(302);
   });
 
   test("completes callback without bearer auth by recovering identity from state", async () => {
@@ -120,6 +187,106 @@ describe("GitHub OAuth routes", () => {
       email: "user@example.com",
       scopesGranted: ["repo", "read:org"],
     });
+  });
+
+  test("never authenticates a browser callback and consumes its state exactly once", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+    let authenticateCalls = 0;
+    let providerCalls = 0;
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => {
+        authenticateCalls += 1;
+        return Promise.reject(new Error("browser callback must not authenticate a bearer"));
+      },
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore,
+      fetch: (url) => {
+        providerCalls += 1;
+        return Promise.resolve(
+          url.includes("/login/oauth/access_token")
+            ? jsonResponse({ access_token: "gho_access", scope: "repo" })
+            : jsonResponse([{ email: identity.email, verified: true }]),
+        );
+      },
+    });
+    const callbackUrl = `https://mcp.example.com/oauth/github/callback?code=code&state=${started.state}`;
+
+    const callback = await handler(new Request(callbackUrl));
+    expect(callback.status).toBe(200);
+    expect(authenticateCalls).toBe(0);
+    expect(providerCalls).toBe(2);
+    expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).not.toBeNull();
+
+    const replay = await handler(new Request(callbackUrl));
+    expect(replay.status).toBe(400);
+    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(authenticateCalls).toBe(0);
+    expect(providerCalls).toBe(2);
+  });
+
+  test("rejects an unknown callback state without authenticating or contacting GitHub", async () => {
+    let authenticateCalls = 0;
+    let providerCalls = 0;
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => {
+        authenticateCalls += 1;
+        return Promise.resolve(identity);
+      },
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+      fetch: () => {
+        providerCalls += 1;
+        return Promise.reject(new Error("GitHub must not be called"));
+      },
+    });
+
+    const response = await handler(
+      new Request("https://mcp.example.com/oauth/github/callback?code=code&state=unknown-state"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(authenticateCalls).toBe(0);
+    expect(providerCalls).toBe(0);
+  });
+
+  test("consumes a denied provider callback state and returns a sanitized response", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.reject(new Error("callback must not authenticate a bearer")),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore: new InMemoryOAuthTokenStore(),
+    });
+    const callbackUrl =
+      `https://mcp.example.com/oauth/github/callback?state=${started.state}` +
+      "&error=access_denied&error_description=the+user%27s+private+reason";
+
+    const denied = await handler(new Request(callbackUrl));
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toEqual({ error: "GitHub authorization was not completed" });
+
+    const replay = await handler(new Request(callbackUrl));
+    expect(replay.status).toBe(400);
+    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
   });
 
   test("rejects an OAuth callback for a different GitHub email without persisting it", async () => {
@@ -249,6 +416,113 @@ describe("GitHub OAuth routes", () => {
     expect(await afterDisconnect.json()).toEqual({ connected: false });
   });
 
+  test("fails closed and reports a sanitized audit event when GitHub rejects disconnect", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const accessToken = "gho_disconnect_access_token";
+    const audit = new MemoryAuditSink();
+    await tokenStore.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: encryptSecret(accessToken, config.tokenEncryptionKey),
+      createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-22T00:00:00.000Z"),
+    });
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+      audit,
+      fetch: () => Promise.resolve(Response.json({ error: accessToken }, { status: 500 })),
+    });
+
+    const response = await handler(
+      new Request("https://mcp.example.com/oauth/github/disconnect", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({
+      error: "GitHub account disconnect could not be completed",
+    });
+    expect(
+      (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
+    ).toBeUndefined();
+    expect(audit.events).toHaveLength(1);
+    expect(audit.events[0]).toMatchObject({
+      category: "oauth",
+      principal: identity.email,
+      event: "github.disconnect",
+      status: "error",
+      error: "github_token_revocation_failed",
+    });
+    expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
+      accessToken,
+    );
+  });
+
+  test("reports a sanitized disconnect failure when local revocation persistence fails after GitHub accepts it", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const accessToken = "gho_disconnect_access_token";
+    const audit = new MemoryAuditSink();
+    await tokenStore.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: encryptSecret(accessToken, config.tokenEncryptionKey),
+      createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-22T00:00:00.000Z"),
+    });
+    tokenStore.markRevoked = () => Promise.reject(new Error(`database failed for ${accessToken}`));
+    let providerRevocationCalls = 0;
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+      audit,
+      fetch: () => {
+        providerRevocationCalls += 1;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      },
+    });
+
+    const response = await handler(
+      new Request("https://mcp.example.com/oauth/github/disconnect", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(providerRevocationCalls).toBe(1);
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({
+      error: "GitHub account disconnect could not be completed",
+    });
+    expect(audit.events).toHaveLength(1);
+    expect(audit.events[0]).toMatchObject({
+      category: "oauth",
+      principal: identity.email,
+      event: "github.disconnect",
+      status: "error",
+      error: "github_token_revocation_persist_failed",
+    });
+    expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
+      accessToken,
+    );
+  });
+
   test("requires authenticated HOP-1 identity for non-callback routes", async () => {
     const handler = createGitHubOAuthRouteHandler({
       authenticate: () => Promise.reject(new Error("bad token")),
@@ -282,6 +556,10 @@ function githubOAuthFetch(): OAuthFetch {
       );
     }
 
+    if (url.includes("/applications/")) {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+
     return Promise.resolve(jsonResponse({ error: "not found" }, 404));
   };
 }
@@ -299,5 +577,14 @@ class MemoryAuditSink {
   emit(event: AuditEvent): Promise<void> {
     this.events.push(event);
     return Promise.resolve();
+  }
+}
+
+class CountingStateStore extends InMemoryOAuthStateStore {
+  saveCalls = 0;
+
+  override save(record: Parameters<InMemoryOAuthStateStore["save"]>[0]): Promise<void> {
+    this.saveCalls += 1;
+    return super.save(record);
   }
 }

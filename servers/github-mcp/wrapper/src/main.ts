@@ -38,6 +38,7 @@ export interface MainConfig {
   upstreamUrl: string;
   githubOAuth: GitHubOAuthConfig;
   githubScopes: string[];
+  githubRedirectAfterAllowedOrigins: string[];
   aliases: Record<string, string>;
   policy?: PolicyConfig;
   audit?: AuditConfig;
@@ -73,6 +74,9 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
       tokenRevocationUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_REVOCATION_URL"),
     },
     githubScopes: parseScopes(env.GITHUB_OAUTH_SCOPES) ?? DEFAULT_GITHUB_SCOPES,
+    githubRedirectAfterAllowedOrigins: parseGithubRedirectAfterAllowedOrigins(
+      env.GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS,
+    ),
     aliases: parseAliases(env.GITHUB_TOOL_ALIASES_JSON),
     policy:
       env.OPA_POLICY_URL || env.GITHUB_POLICY_FILE
@@ -124,6 +128,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     scopes: config.githubScopes,
     stateStore,
     tokenStore,
+    redirectAfterAllowedOrigins: config.githubRedirectAfterAllowedOrigins,
     audit,
   });
   const mcpHandler = createGithubMcpProxyHandler({
@@ -168,6 +173,45 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     const path = new URL(request.url).pathname;
     return path.startsWith("/oauth/github/") ? oauthRoutes(request) : mcpHandler(request);
   };
+}
+
+function parseGithubRedirectAfterAllowedOrigins(value: string | undefined): string[] {
+  if (!value?.trim()) {
+    return [];
+  }
+
+  return value.split(",").map((entry) => {
+    const candidate = entry.trim();
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      throw invalidGithubRedirectAfterAllowedOrigins();
+    }
+
+    const explicitLoopbackHttp =
+      url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "::1");
+    if (
+      (url.protocol !== "https:" && !explicitLoopbackHttp) ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      url.origin === "null" ||
+      url.hostname.includes("*")
+    ) {
+      throw invalidGithubRedirectAfterAllowedOrigins();
+    }
+
+    return url.origin;
+  });
+}
+
+function invalidGithubRedirectAfterAllowedOrigins(): Error {
+  return new Error(
+    "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS must contain canonical HTTPS origins or explicit loopback HTTP origins",
+  );
 }
 
 function createAuditSink(config: MainConfig): AuditSink | undefined {
