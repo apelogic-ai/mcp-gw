@@ -135,14 +135,21 @@ export function createGitHubOAuthRouteHandler(
           fetch: options.fetch,
         });
       } catch (error) {
-        if (error instanceof GitHubOAuthError && error.code === "token_revocation_failed") {
+        if (
+          error instanceof GitHubOAuthError &&
+          (error.code === "token_revocation_failed" ||
+            error.code === "token_revocation_persist_failed")
+        ) {
           await options.audit?.emit({
             ts: new Date().toISOString(),
             category: "oauth",
             principal: identity.email,
             event: "github.disconnect",
             status: "error",
-            error: "github_token_revocation_failed",
+            error:
+              error.code === "token_revocation_persist_failed"
+                ? "github_token_revocation_persist_failed"
+                : "github_token_revocation_failed",
           });
           return json({ error: "GitHub account disconnect could not be completed" }, 503);
         }

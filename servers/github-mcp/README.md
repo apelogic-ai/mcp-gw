@@ -129,6 +129,11 @@ event, and leaves the local grant active rather than falsely claiming that
 provider access is gone. Neither the provider token nor a provider response
 body is returned or written to the audit event.
 
+If local persistence fails after GitHub confirms revocation, MCP-GW also returns
+the same sanitized `503` and records a distinct persistence audit error. That
+state is intentionally reportable because GitHub access is gone but local
+connection status could not be updated.
+
 ## Credential Boundary
 
 In HTTP mode, the official GitHub MCP server reads the GitHub credential from

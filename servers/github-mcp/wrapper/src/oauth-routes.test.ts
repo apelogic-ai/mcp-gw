@@ -302,6 +302,61 @@ describe("GitHub OAuth routes", () => {
     );
   });
 
+  test("reports a sanitized disconnect failure when local revocation persistence fails after GitHub accepts it", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const accessToken = "gho_disconnect_access_token";
+    const audit = new MemoryAuditSink();
+    await tokenStore.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: ["repo"],
+      encryptedRefreshToken: encryptSecret(accessToken, config.tokenEncryptionKey),
+      createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-22T00:00:00.000Z"),
+    });
+    tokenStore.markRevoked = () => Promise.reject(new Error(`database failed for ${accessToken}`));
+    let providerRevocationCalls = 0;
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+      audit,
+      fetch: () => {
+        providerRevocationCalls += 1;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      },
+    });
+
+    const response = await handler(
+      new Request("https://mcp.example.com/oauth/github/disconnect", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(providerRevocationCalls).toBe(1);
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({
+      error: "GitHub account disconnect could not be completed",
+    });
+    expect(audit.events).toHaveLength(1);
+    expect(audit.events[0]).toMatchObject({
+      category: "oauth",
+      principal: identity.email,
+      event: "github.disconnect",
+      status: "error",
+      error: "github_token_revocation_persist_failed",
+    });
+    expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
+      accessToken,
+    );
+  });
+
   test("requires authenticated HOP-1 identity for non-callback routes", async () => {
     const handler = createGitHubOAuthRouteHandler({
       authenticate: () => Promise.reject(new Error("bad token")),

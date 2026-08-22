@@ -10,6 +10,7 @@ export type GitHubOAuthErrorCode =
   | "missing_access_token"
   | "token_exchange_failed"
   | "token_revocation_failed"
+  | "token_revocation_persist_failed"
   | "userinfo_failed"
   | "reauth_required";
 
@@ -228,12 +229,16 @@ export async function revokeGithubOAuth(options: RevokeGitHubOAuthOptions): Prom
     throw tokenRevocationFailed();
   }
 
-  await options.tokenStore.markRevoked(
-    options.identity.issuer,
-    options.identity.subject,
-    new Date(),
-    "github",
-  );
+  try {
+    await options.tokenStore.markRevoked(
+      options.identity.issuer,
+      options.identity.subject,
+      new Date(),
+      "github",
+    );
+  } catch {
+    throw tokenRevocationPersistFailed();
+  }
 }
 
 function identityFromStateRecord(stateRecord: {
@@ -346,6 +351,13 @@ function tokenRevocationFailed(): GitHubOAuthError {
   return new GitHubOAuthError(
     "GitHub account disconnect could not be completed",
     "token_revocation_failed",
+  );
+}
+
+function tokenRevocationPersistFailed(): GitHubOAuthError {
+  return new GitHubOAuthError(
+    "GitHub account disconnect could not be completed",
+    "token_revocation_persist_failed",
   );
 }
 
