@@ -7,6 +7,7 @@ import {
   InMemoryOAuthTokenStore,
 } from "../../../../shared/oauth/memory-store";
 import { encryptSecret } from "../../../../shared/oauth/crypto";
+import { startGithubOAuth } from "../../../../shared/oauth/github";
 import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
 
@@ -61,6 +62,7 @@ describe("GitHub OAuth routes", () => {
       scopes: ["repo"],
       stateStore: new InMemoryOAuthStateStore(),
       tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://client.example.com"],
     });
 
     const response = await handler(
@@ -78,6 +80,70 @@ describe("GitHub OAuth routes", () => {
     const body = (await response.json()) as { authorizationUrl: string };
     expect(body.authorizationUrl).toContain("https://github.example.com/login/oauth/authorize");
     expect(body.authorizationUrl).toContain("scope=repo");
+  });
+
+  test("rejects an unallowlisted remote redirect target before it creates OAuth state", async () => {
+    const stateStore = new CountingStateStore();
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://admin.example.com"],
+    });
+
+    const response = await handler(
+      new Request(
+        "https://mcp.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fevil.example.com%2Fcallback",
+        { headers: { authorization: "Bearer hop1" } },
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "OAuth redirect target is not allowed" });
+    expect(stateStore.saveCalls).toBe(0);
+  });
+
+  test("rejects a scheme-relative or backslash-normalized redirect target", async () => {
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+    });
+
+    for (const redirectAfter of ["//evil.example.com/callback", "/\\evil.example.com/callback"]) {
+      const response = await handler(
+        new Request(
+          `https://mcp.example.com/oauth/github/start?redirect_after=${encodeURIComponent(redirectAfter)}`,
+          { headers: { authorization: "Bearer hop1" } },
+        ),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "OAuth redirect target is not allowed" });
+    }
+  });
+
+  test("allows an exact configured remote redirect origin and preserves its path", async () => {
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://admin.example.com"],
+    });
+
+    const response = await handler(
+      new Request(
+        "https://mcp.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fadmin.example.com%2Fconnections%3Fprovider%3Dgithub",
+        { headers: { authorization: "Bearer hop1" } },
+      ),
+    );
+
+    expect(response.status).toBe(302);
   });
 
   test("completes callback without bearer auth by recovering identity from state", async () => {
@@ -121,6 +187,106 @@ describe("GitHub OAuth routes", () => {
       email: "user@example.com",
       scopesGranted: ["repo", "read:org"],
     });
+  });
+
+  test("never authenticates a browser callback and consumes its state exactly once", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+    let authenticateCalls = 0;
+    let providerCalls = 0;
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => {
+        authenticateCalls += 1;
+        return Promise.reject(new Error("browser callback must not authenticate a bearer"));
+      },
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore,
+      fetch: (url) => {
+        providerCalls += 1;
+        return Promise.resolve(
+          url.includes("/login/oauth/access_token")
+            ? jsonResponse({ access_token: "gho_access", scope: "repo" })
+            : jsonResponse([{ email: identity.email, verified: true }]),
+        );
+      },
+    });
+    const callbackUrl = `https://mcp.example.com/oauth/github/callback?code=code&state=${started.state}`;
+
+    const callback = await handler(new Request(callbackUrl));
+    expect(callback.status).toBe(200);
+    expect(authenticateCalls).toBe(0);
+    expect(providerCalls).toBe(2);
+    expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).not.toBeNull();
+
+    const replay = await handler(new Request(callbackUrl));
+    expect(replay.status).toBe(400);
+    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(authenticateCalls).toBe(0);
+    expect(providerCalls).toBe(2);
+  });
+
+  test("rejects an unknown callback state without authenticating or contacting GitHub", async () => {
+    let authenticateCalls = 0;
+    let providerCalls = 0;
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => {
+        authenticateCalls += 1;
+        return Promise.resolve(identity);
+      },
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+      fetch: () => {
+        providerCalls += 1;
+        return Promise.reject(new Error("GitHub must not be called"));
+      },
+    });
+
+    const response = await handler(
+      new Request("https://mcp.example.com/oauth/github/callback?code=code&state=unknown-state"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(authenticateCalls).toBe(0);
+    expect(providerCalls).toBe(0);
+  });
+
+  test("consumes a denied provider callback state and returns a sanitized response", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.reject(new Error("callback must not authenticate a bearer")),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore: new InMemoryOAuthTokenStore(),
+    });
+    const callbackUrl =
+      `https://mcp.example.com/oauth/github/callback?state=${started.state}` +
+      "&error=access_denied&error_description=the+user%27s+private+reason";
+
+    const denied = await handler(new Request(callbackUrl));
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toEqual({ error: "GitHub authorization was not completed" });
+
+    const replay = await handler(new Request(callbackUrl));
+    expect(replay.status).toBe(400);
+    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
   });
 
   test("rejects an OAuth callback for a different GitHub email without persisting it", async () => {
@@ -411,5 +577,14 @@ class MemoryAuditSink {
   emit(event: AuditEvent): Promise<void> {
     this.events.push(event);
     return Promise.resolve();
+  }
+}
+
+class CountingStateStore extends InMemoryOAuthStateStore {
+  saveCalls = 0;
+
+  override save(record: Parameters<InMemoryOAuthStateStore["save"]>[0]): Promise<void> {
+    this.saveCalls += 1;
+    return super.save(record);
   }
 }

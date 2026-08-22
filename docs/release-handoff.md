@@ -50,6 +50,7 @@ GitHub keys:
 - `GITHUB_OAUTH_CLIENT_ID`
 - `GITHUB_OAUTH_CLIENT_SECRET`
 - `GITHUB_OAUTH_REDIRECT_URI`
+- `GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS` (when a separate browser UI receives post-consent redirects)
 - `GITHUB_TOKEN_ENCRYPTION_KEY`
 
 Issuer introspection credentials are not assigned a public fixed name. Each issuer selects an
