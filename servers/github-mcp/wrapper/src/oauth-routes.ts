@@ -3,6 +3,7 @@ import type { AuditSink } from "../../../../shared/audit/audit";
 import {
   completeGithubOAuth,
   GitHubOAuthError,
+  revokeGithubOAuth,
   startGithubOAuth,
   type GitHubOAuthConfig,
 } from "../../../../shared/oauth/github";
@@ -126,7 +127,34 @@ export function createGitHubOAuthRouteHandler(
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {
-      await options.tokenStore.markRevoked(identity.issuer, identity.subject, new Date(), "github");
+      try {
+        await revokeGithubOAuth({
+          identity,
+          config: options.config,
+          tokenStore: options.tokenStore,
+          fetch: options.fetch,
+        });
+      } catch (error) {
+        if (
+          error instanceof GitHubOAuthError &&
+          (error.code === "token_revocation_failed" ||
+            error.code === "token_revocation_persist_failed")
+        ) {
+          await options.audit?.emit({
+            ts: new Date().toISOString(),
+            category: "oauth",
+            principal: identity.email,
+            event: "github.disconnect",
+            status: "error",
+            error:
+              error.code === "token_revocation_persist_failed"
+                ? "github_token_revocation_persist_failed"
+                : "github_token_revocation_failed",
+          });
+          return json({ error: "GitHub account disconnect could not be completed" }, 503);
+        }
+        throw error;
+      }
       await options.audit?.emit({
         ts: new Date().toISOString(),
         category: "oauth",

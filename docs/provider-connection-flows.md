@@ -113,6 +113,18 @@ Expected response:
 204 No Content
 ```
 
+For GitHub, MCP-GW first asks GitHub to revoke the stored OAuth access token
+with the configured OAuth application's client credentials. MCP-GW marks the
+local grant revoked only after GitHub returns `204 No Content`. A timeout or
+any other GitHub response leaves the local grant active, produces a sanitized
+OAuth audit error, and returns `503 Service Unavailable`; neither the token nor
+the provider error response is exposed.
+
+If GitHub confirms revocation but MCP-GW cannot persist the corresponding local
+state, it returns the same sanitized `503` and emits a distinct persistence
+audit error. Operators must reconcile that condition because GitHub access is
+already revoked while local connection status may still appear active.
+
 If `connected` is `false`, the control plane should show a connect action. If `missingScopes` is
 non-empty, the control plane should show a reconnect action.
 
