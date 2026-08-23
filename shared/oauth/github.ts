@@ -63,6 +63,11 @@ export interface CompleteGitHubOAuthResult {
   redirectAfter?: string;
 }
 
+export interface CancelGitHubOAuthOptions {
+  state: string;
+  stateStore: OAuthStateStore;
+}
+
 export interface GitHubTokenBrokerOptions {
   config: GitHubOAuthConfig;
   tokenStore: OAuthTokenStore;
@@ -168,6 +173,21 @@ export async function completeGithubOAuth(
     identity,
     redirectAfter: stateRecord.redirectAfter,
   };
+}
+
+/**
+ * Consume an authorization transaction when GitHub returns an OAuth error.
+ * A provider denial has no bearer header to authenticate, so the opaque,
+ * one-time state record is the sole principal binding just as it is on the
+ * successful browser callback path.
+ */
+export async function cancelGithubOAuth(options: CancelGitHubOAuthOptions): Promise<Hop1Identity> {
+  const stateRecord = await options.stateStore.consume(options.state);
+  if (!stateRecord) {
+    throw new GitHubOAuthError("OAuth state is invalid or expired", "invalid_state");
+  }
+
+  return identityFromStateRecord(stateRecord);
 }
 
 export class GitHubTokenBroker {

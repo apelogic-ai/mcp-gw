@@ -120,6 +120,13 @@ revoke only the newly issued token and stores nothing. Self-hosted or isolated
 GitHub API deployments can override the token-revocation endpoint with
 `GITHUB_OAUTH_TOKEN_REVOCATION_URL`.
 
+`redirect_after` is never an implicit open redirect. Relative paths remain on
+the wrapper origin. A browser UI on a separate origin must be listed exactly in
+`GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS` (comma-separated HTTPS origins).
+For a local-only browser UI, an explicitly listed `http://127.0.0.1:<port>` or
+`http://[::1]:<port>` origin is also accepted. Paths, query strings,
+credentials, and wildcard origins in that allowlist are rejected at startup.
+
 `POST /oauth/github/disconnect` authenticates the caller, deletes the stored
 access token at GitHub using the OAuth application's client credentials, and
 only then marks the local grant revoked. The GitHub request has a five-second
