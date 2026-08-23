@@ -8,6 +8,16 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-23
+
+### Security
+
+- Bind the GitHub OAuth callback to its single-use provider state record before
+  resolving the authenticated HOP-1 principal, so concurrent or replayed callbacks
+  cannot be associated with the wrong authorization attempt.
+- Revoke the saved GitHub provider token when an authorized caller disconnects,
+  preventing a disconnected consent from remaining usable upstream.
+
 ## [0.3.0] - 2026-08-20
 
 ### Added
@@ -227,7 +237,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.12...v0.3.0
 [0.2.12]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.10...v0.2.11
