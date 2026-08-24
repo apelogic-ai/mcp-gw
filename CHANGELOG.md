@@ -8,6 +8,13 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-23
+
+### Changed
+
+- Publish every first-party runtime image as a signed linux/amd64 and linux/arm64
+  OCI index. Release CI now builds all components for arm64 before publication.
+
 ## [0.3.1] - 2026-08-23
 
 ### Security
@@ -237,7 +244,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.12...v0.3.0
 [0.2.12]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.11...v0.2.12
