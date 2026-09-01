@@ -54,11 +54,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
-      - name: Set up QEMU for arm64 image builds
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
-        with:
-          platforms: arm64
-
       - name: Build pinned agentgateway candidate
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
@@ -136,13 +131,59 @@ jobs:
         env:
           LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
 
-  arm64-image-build:
+  arm64-inputs:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.paths.outputs.required }}
+    steps:
+      - name: Check out pull request history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Detect image-affecting changes
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq \
+            '^(\.github/workflows/(ci|release)\.yml|package\.json|bun\.lock|tsconfig\.json|src/|shared/|servers/)'; then
+            printf 'required=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'required=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+  arm64-image-build:
+    needs: arm64-inputs
+    if: >-
+      ${{
+        always() &&
+        (github.event_name != 'pull_request' || needs.arm64-inputs.outputs.required == 'true')
+      }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: agentgateway
+            context: .build/agentgateway
+            dockerfile: .build/agentgateway/Dockerfile
+          - component: google-workspace
+            context: .
+            dockerfile: servers/google-workspace/wrapper/Dockerfile
+          - component: github-wrapper
+            context: .
+            dockerfile: servers/github-mcp/wrapper/Dockerfile
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Check out pinned agentgateway source
+        if: matrix.component == 'agentgateway'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: apelogic-ai/agentgateway
@@ -152,24 +193,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
-      - name: Set up QEMU for arm64 image builds
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
+      - name: Build ${{ matrix.component }} for arm64
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
-          platforms: arm64
-
-      - name: Build every released component for arm64
-        run: |
-          set -euo pipefail
-          docker buildx build --platform linux/arm64 --load \
-            --build-arg VERSION=smoke --build-arg GIT_REVISION=360a5dfd2f088ddb91d8f506f329934fe8b92c43 \
-            --cache-from type=gha,scope=arm64-agentgateway \
-            --cache-to type=gha,mode=max,scope=arm64-agentgateway \
-            --tag mcp-gw-agentgateway:arm64-smoke .build/agentgateway
-          docker buildx build --platform linux/arm64 --load \
-            --cache-from type=gha,scope=arm64-google-workspace \
-            --cache-to type=gha,mode=max,scope=arm64-google-workspace \
-            --tag mcp-gw-google-workspace:arm64-smoke -f servers/google-workspace/wrapper/Dockerfile .
-          docker buildx build --platform linux/arm64 --load \
-            --cache-from type=gha,scope=arm64-github-wrapper \
-            --cache-to type=gha,mode=max,scope=arm64-github-wrapper \
-            --tag mcp-gw-github-wrapper:arm64-smoke -f servers/github-mcp/wrapper/Dockerfile .
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          tags: mcp-gw-${{ matrix.component }}:arm64-smoke
+          build-args: |
+            VERSION=smoke
+            GIT_REVISION=360a5dfd2f088ddb91d8f506f329934fe8b92c43
+          cache-from: type=gha,scope=arm64-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=arm64-${{ matrix.component }}

@@ -57,15 +57,24 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("release-handoff.md");
   });
 
-  test("caches each ARM64 candidate image build in CI", async () => {
+  test("runs bounded native ARM64 checks only for image-affecting pull requests", async () => {
     const ciWorkflow = await readFile(".github/workflows/ci.yml", "utf8");
 
     expect(ciWorkflow).toContain("concurrency:");
     expect(ciWorkflow).toContain("cancel-in-progress: true");
-    for (const component of ["agentgateway", "google-workspace", "github-wrapper"]) {
-      expect(ciWorkflow).toContain(`--cache-from type=gha,scope=arm64-${component}`);
-      expect(ciWorkflow).toContain(`--cache-to type=gha,mode=max,scope=arm64-${component}`);
-    }
+    expect(ciWorkflow).toContain("arm64-inputs:");
+    expect(ciWorkflow).toContain("git diff --name-only");
+    expect(ciWorkflow).toContain("arm64-image-build:");
+    expect(ciWorkflow).toContain("runs-on: ubuntu-24.04-arm");
+    expect(ciWorkflow).toContain("timeout-minutes: 45");
+    expect(ciWorkflow).toContain("component: agentgateway");
+    expect(ciWorkflow).toContain("component: google-workspace");
+    expect(ciWorkflow).toContain("component: github-wrapper");
+    expect(ciWorkflow).toContain("platforms: linux/arm64");
+    expect(ciWorkflow).toContain("cache-from: type=gha,scope=arm64-${{ matrix.component }}");
+    expect(ciWorkflow).toContain("cache-to: type=gha,mode=max,scope=arm64-${{ matrix.component }}");
+    expect(ciWorkflow).not.toContain("--platform linux/arm64 --load");
+    expect(ciWorkflow).not.toContain("docker/setup-qemu-action@");
   });
 
   test("keeps Helm chart versions aligned with the package release", async () => {
