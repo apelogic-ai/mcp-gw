@@ -57,6 +57,17 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("release-handoff.md");
   });
 
+  test("caches each ARM64 candidate image build in CI", async () => {
+    const ciWorkflow = await readFile(".github/workflows/ci.yml", "utf8");
+
+    expect(ciWorkflow).toContain("concurrency:");
+    expect(ciWorkflow).toContain("cancel-in-progress: true");
+    for (const component of ["agentgateway", "google-workspace", "github-wrapper"]) {
+      expect(ciWorkflow).toContain(`--cache-from type=gha,scope=arm64-${component}`);
+      expect(ciWorkflow).toContain(`--cache-to type=gha,mode=max,scope=arm64-${component}`);
+    }
+  });
+
   test("keeps Helm chart versions aligned with the package release", async () => {
     const [packageJson, chartYaml] = await Promise.all([
       readFile("package.json", "utf8"),

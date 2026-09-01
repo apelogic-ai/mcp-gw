@@ -7,6 +7,10 @@ on:
       - main
       - master
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -158,8 +162,14 @@ jobs:
           set -euo pipefail
           docker buildx build --platform linux/arm64 --load \
             --build-arg VERSION=smoke --build-arg GIT_REVISION=360a5dfd2f088ddb91d8f506f329934fe8b92c43 \
+            --cache-from type=gha,scope=arm64-agentgateway \
+            --cache-to type=gha,mode=max,scope=arm64-agentgateway \
             --tag mcp-gw-agentgateway:arm64-smoke .build/agentgateway
           docker buildx build --platform linux/arm64 --load \
+            --cache-from type=gha,scope=arm64-google-workspace \
+            --cache-to type=gha,mode=max,scope=arm64-google-workspace \
             --tag mcp-gw-google-workspace:arm64-smoke -f servers/google-workspace/wrapper/Dockerfile .
           docker buildx build --platform linux/arm64 --load \
+            --cache-from type=gha,scope=arm64-github-wrapper \
+            --cache-to type=gha,mode=max,scope=arm64-github-wrapper \
             --tag mcp-gw-github-wrapper:arm64-smoke -f servers/github-mcp/wrapper/Dockerfile .
