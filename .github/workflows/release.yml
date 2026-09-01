@@ -52,11 +52,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
-      - name: Set up QEMU for arm64 image builds
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
-        with:
-          platforms: arm64
-
       - name: Build pinned agentgateway candidate
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
@@ -104,9 +99,9 @@ jobs:
         env:
           LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
 
-  publish-images:
+  build-platform-images:
     needs: [validate, kubernetes-smoke]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -120,14 +115,44 @@ jobs:
             repository: mcp-gw-agentgateway
             context: .release/agentgateway
             dockerfile: .release/agentgateway/Dockerfile
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - component: agentgateway
+            repository: mcp-gw-agentgateway
+            context: .release/agentgateway
+            dockerfile: .release/agentgateway/Dockerfile
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - component: google-workspace
             repository: mcp-gw-google-workspace
             context: .
             dockerfile: servers/google-workspace/wrapper/Dockerfile
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - component: google-workspace
+            repository: mcp-gw-google-workspace
+            context: .
+            dockerfile: servers/google-workspace/wrapper/Dockerfile
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - component: github-wrapper
             repository: mcp-gw-github-wrapper
             context: .
             dockerfile: servers/github-mcp/wrapper/Dockerfile
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - component: github-wrapper
+            repository: mcp-gw-github-wrapper
+            context: .
+            dockerfile: servers/github-mcp/wrapper/Dockerfile
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -150,21 +175,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve release version
-        id: version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Build and publish immutable image
+      - name: Build and publish ${{ matrix.architecture }} image by digest
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}:${{ steps.version.outputs.version }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             VERSION=${{ github.ref_name }}
             GIT_REVISION=${{ github.sha }}
@@ -174,18 +192,80 @@ jobs:
             org.opencontainers.image.version=${{ github.ref_name }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+          cache-from: type=gha,scope=release-${{ matrix.component }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}-${{ matrix.architecture }}
 
-      - name: Record image digest
+      - name: Record ${{ matrix.architecture }} image digest
         run: |
           mkdir -p dist
-          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'dist/${{ matrix.component }}.digest'
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'dist/${{ matrix.component }}-${{ matrix.architecture }}.digest'
+
+      - name: Upload platform digest
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: platform-digest-${{ matrix.component }}-${{ matrix.architecture }}
+          path: dist/${{ matrix.component }}-${{ matrix.architecture }}.digest
+          if-no-files-found: error
+
+  publish-images:
+    needs: build-platform-images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: agentgateway
+            repository: mcp-gw-agentgateway
+          - component: google-workspace
+            repository: mcp-gw-google-workspace
+          - component: github-wrapper
+            repository: mcp-gw-github-wrapper
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download platform digests
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: platform-digest-${{ matrix.component }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble immutable multi-platform manifest
+        id: merge
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repository }}"
+          AMD64_DIGEST="$(cat "dist/${{ matrix.component }}-amd64.digest")"
+          ARM64_DIGEST="$(cat "dist/${{ matrix.component }}-arm64.digest")"
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" \
+            "$IMAGE@$AMD64_DIGEST" \
+            "$IMAGE@$ARM64_DIGEST"
+          DIGEST="sha256:$(docker buildx imagetools inspect "$IMAGE:$VERSION" --raw | sha256sum | awk '{print $1}')"
+          printf '%s\n' "$DIGEST" > "dist/${{ matrix.component }}.digest"
+          printf 'digest=%s\n' "$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
-          image: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.build.outputs.digest }}
+          image: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.merge.outputs.digest }}
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: spdx-json
@@ -196,7 +276,7 @@ jobs:
       - name: Generate vulnerability report
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.build.outputs.digest }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.merge.outputs.digest }}
           format: json
           output: dist/${{ matrix.component }}.vulnerabilities.json
           exit-code: "0"
@@ -205,7 +285,7 @@ jobs:
       - name: Enforce zero critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.build.outputs.digest }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}@${{ steps.merge.outputs.digest }}
           format: table
           exit-code: "1"
           severity: CRITICAL
@@ -214,7 +294,7 @@ jobs:
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
           push-to-registry: true
 
       - name: Upload image release evidence
