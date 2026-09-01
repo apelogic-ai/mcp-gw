@@ -102,6 +102,63 @@ describe("runtime wrapper wiring", () => {
     });
   });
 
+  test("accepts broker and internal workload issuer tokens in one deployment", async () => {
+    const authenticate = createRuntimeAuthenticator({
+      issuers: [
+        {
+          profile: {
+            name: "internal-workload",
+            issuer: "https://identity.example.com",
+            audiences: ["https://mcp.example.com/mcp"],
+            allowedAlgorithms: ["RS256"],
+            emailClaim: "email",
+          },
+          jwksProvider: () => Promise.resolve([publicJwk]),
+        },
+        {
+          profile: {
+            name: "mcp-broker",
+            issuer: "https://mcp.example.com/oauth",
+            audiences: ["https://mcp.example.com/mcp"],
+            allowedAlgorithms: ["RS256"],
+            emailClaim: "email",
+          },
+          jwksProvider: () => Promise.resolve([publicJwk]),
+        },
+      ],
+    });
+
+    const [internal, broker] = await Promise.all([
+      authenticate(
+        await signHop1Token({
+          iss: "https://identity.example.com",
+          aud: "https://mcp.example.com/mcp",
+          sub: "internal-user",
+          email: "person@example.com",
+        }),
+      ),
+      authenticate(
+        await signHop1Token({
+          iss: "https://mcp.example.com/oauth",
+          aud: "https://mcp.example.com/mcp",
+          sub: "google-user",
+          email: "person@example.com",
+        }),
+      ),
+    ]);
+
+    expect(internal).toMatchObject({
+      profile: "internal-workload",
+      issuer: "https://identity.example.com",
+      subject: "internal-user",
+    });
+    expect(broker).toMatchObject({
+      profile: "mcp-broker",
+      issuer: "https://mcp.example.com/oauth",
+      subject: "google-user",
+    });
+  });
+
   test("does not contact an unavailable issuer when another issuer matches the token", async () => {
     let unavailableIssuerCalls = 0;
     const authenticate = createRuntimeAuthenticator({
