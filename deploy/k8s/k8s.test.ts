@@ -144,6 +144,92 @@ describe("Kubernetes production chart", () => {
     expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
   });
 
+  test("renders a broker-only Google deployment without an unrelated HOP-1 issuer", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      "hop1.issuers=[]",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+
+    expect(deployment).not.toContain("HOP1_ISSUERS_JSON");
+    expect(gatewayConfig).toContain("- issuer: https://mcp.example.com/oauth");
+    expect(gatewayConfig).not.toContain("https://identity.example.com");
+  });
+
+  test("renders ALB/IP-target broker ingress with CIDR NetworkPolicy peers", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-json",
+      'googleWorkspace.authorizationBroker.ingressControllerPeer={"namespaceSelector":{"matchLabels":{}},"podSelector":{"matchLabels":{}}}',
+      "--set-string",
+      "googleWorkspace.authorizationBroker.ingressSourceCidrs[0]=10.0.0.0/8",
+    ]);
+    const networkPolicy = renderedResource(
+      rendered,
+      "NetworkPolicy",
+      "mcp-gateway-google-workspace",
+    );
+
+    expect(networkPolicy).toContain("ipBlock:");
+    expect(networkPolicy).toContain("cidr: 10.0.0.0/8");
+    expect(networkPolicy).not.toContain("app.kubernetes.io/component: controller");
+  });
+
+  test.each([
+    [
+      "missing broker ingress source",
+      [
+        "--set-json",
+        'googleWorkspace.authorizationBroker.ingressControllerPeer={"namespaceSelector":{"matchLabels":{}},"podSelector":{"matchLabels":{}}}',
+      ],
+    ],
+    [
+      "mixed broker ingress sources",
+      ["--set-string", "googleWorkspace.authorizationBroker.ingressSourceCidrs[0]=10.0.0.0/8"],
+    ],
+    [
+      "partial controller broker ingress source",
+      [
+        "--set-json",
+        'googleWorkspace.authorizationBroker.ingressControllerPeer={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ingress-nginx"}},"podSelector":{"matchLabels":{}}}',
+      ],
+    ],
+    [
+      "unsafe broker ingress CIDRs",
+      [
+        "--set-json",
+        'googleWorkspace.authorizationBroker.ingressControllerPeer={"namespaceSelector":{"matchLabels":{}},"podSelector":{"matchLabels":{}}}',
+        "--set-string",
+        "googleWorkspace.authorizationBroker.ingressSourceCidrs[0]=0.0.0.0/0",
+      ],
+    ],
+    [
+      "invalid broker ingress CIDR prefixes",
+      [
+        "--set-json",
+        'googleWorkspace.authorizationBroker.ingressControllerPeer={"namespaceSelector":{"matchLabels":{}},"podSelector":{"matchLabels":{}}}',
+        "--set-string",
+        "googleWorkspace.authorizationBroker.ingressSourceCidrs[0]=10.0.0.0/33",
+      ],
+    ],
+  ])("rejects %s", (_name, args) => {
+    const result = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      ...args,
+    ]);
+
+    assertHelmRejected(result);
+  });
+
   test("merges base and broker Ingress annotations with broker keys winning", () => {
     const rendered = helmTemplate([
       "--values",
@@ -1070,7 +1156,7 @@ describe("Kubernetes production chart", () => {
       const result = helmTemplateResult(["--set", `${component}.enabled=true`]);
 
       assertHelmRejected(result);
-      expect(result.stderr.toString()).toMatch(/hop1(?:\.|\/)issuers/);
+      expect(result.stderr.toString()).toMatch(/hop1|authorizationBroker/);
     }
   });
 
@@ -1227,6 +1313,8 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",
+    "values-customer-google-broker.example.yaml",
+    "google-provider-callback.example.yaml",
     "values-oauth-broker.example.yaml",
     "values-private-overlay.example.yaml",
     "values-production-bundle.example.yaml",

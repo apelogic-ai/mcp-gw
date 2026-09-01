@@ -1,5 +1,5 @@
 {{- if .Values.agentgateway.enabled }}
-{{- if not .Values.hop1.issuers }}
+{{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
 {{- fail "hop1.issuers must contain at least one issuer when agentgateway is enabled" }}
 {{- end }}
 {{- $introspectionIssuers := list }}

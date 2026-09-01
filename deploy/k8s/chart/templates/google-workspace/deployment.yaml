@@ -1,5 +1,5 @@
 {{- if .Values.googleWorkspace.enabled }}
-{{- if not .Values.hop1.issuers }}
+{{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
 {{- fail "hop1.issuers must contain at least one issuer when googleWorkspace is enabled" }}
 {{- end }}
 apiVersion: apps/v1

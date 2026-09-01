@@ -166,10 +166,12 @@ metadata-advertised authorization surface to the wrapper, routes the exact MCP
 resource through AgentGateway, and automatically adds the broker issuer's
 public RS256 JWKS as an AgentGateway verifier. Issuer, resource, callback, and
 Ingress host are validated as one public HTTPS origin.
-The required `ingressControllerPeer` namespace and pod selectors constrain the
-wrapper NetworkPolicy to AgentGateway plus the installed Ingress controller;
-empty selectors fail rendering. Generated broker authorization routes use
-exact-path Ingress matches.
+Choose exactly one trusted ingress-source model for the wrapper NetworkPolicy:
+`ingressControllerPeer` with complete Namespace and Pod selectors for an
+in-cluster Ingress controller, or `ingressSourceCidrs` with the real source
+CIDRs for an ALB/IP-target data plane. The selected source is admitted alongside
+AgentGateway; missing, partial, or mixed models fail rendering. Generated broker
+authorization routes use exact-path Ingress matches.
 
 Helm repeats the runtime's deployment-visible rejection rules so an invalid
 release fails during schema/render validation rather than after startup. Public
@@ -199,5 +201,6 @@ before the configured issuer/resource path, while authorization, token, registra
 Google callback paths remain exactly aligned with their advertised absolute URLs.
 
 When the broker is enabled, a direct Google issuer profile is rejected at startup. The broker's
-own issuer is added to the wrapper's trusted HOP-1 profiles, while any separately configured
-enterprise issuer remains a distinct `(issuer, subject)` principal.
+own issuer is added to the wrapper's trusted HOP-1 profiles, so a Google-only external deployment
+may omit `hop1.issuers` entirely. Any separately configured enterprise issuer remains a distinct
+`(issuer, subject)` principal for internal workload calls.

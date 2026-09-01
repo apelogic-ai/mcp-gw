@@ -43,8 +43,10 @@ const DEFAULT_GOOGLE_OAUTH_SCOPES = [
 const DEFAULT_HOP1_OAUTH_SCOPES = ["openid", "email"];
 
 export function loadMainConfig(env: Record<string, string | undefined>): MainConfig {
-  const wrapper = loadWrapperConfig(env);
   const authorizationBroker = parseAuthorizationBrokerConfig(env);
+  const wrapper = loadWrapperConfig(env, {
+    allowEmptyHop1Issuers: authorizationBroker !== undefined,
+  });
   if (
     authorizationBroker &&
     wrapper.hop1Issuers.some((issuer) => issuer.issuer === "https://accounts.google.com")

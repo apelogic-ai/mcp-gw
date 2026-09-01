@@ -89,6 +89,21 @@ owns these non-secret public coordinates and policy values:
 - \`googleWorkspace.authorizationBroker.activeSigningKid\`: non-secret active signing-key ID.
 - \`googleWorkspace.authorizationBroker.staticClients\`: immutable public-client registrations.
 - \`googleWorkspace.authorizationBroker.dcr.enabled\`: constrained DCR mode switch.
+- \`googleWorkspace.authorizationBroker.ingressControllerPeer\`: the Namespace and Pod selectors for
+  an in-cluster ingress controller.
+- \`googleWorkspace.authorizationBroker.ingressSourceCidrs\`: CIDRs for a load balancer or other
+  IP-target ingress data plane.
+
+Choose exactly one broker ingress-source model: a complete \`ingressControllerPeer\` selector pair
+for an in-cluster reverse proxy, or non-empty \`ingressSourceCidrs\` for an ALB/IP-target data
+plane. The chart rejects missing, partial, or mixed models and renders the Google wrapper
+NetworkPolicy from the selected trusted source. Do not use \`0.0.0.0/0\` as a substitute for the
+load balancer's real source range.
+
+The broker may be the sole configured HOP-1 issuer for a Google-only external deployment: omit
+\`hop1.issuers\` and the chart adds the broker issuer to AgentGateway trust. A configured internal
+workload issuer may coexist; it remains a distinct principal. Direct
+\`https://accounts.google.com\` HOP-1 trust is intentionally rejected in broker mode.
 
 Public routes are derived, not separately configured. For an issuer whose pathname is
 \`<issuer-path>\`, RFC 8414 metadata is served at

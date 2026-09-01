@@ -1,0 +1,176 @@
+# Customer-owned Google SSO + Google Workspace MCP overlay.
+#
+# Copy this into the customer's private GitOps repository and replace every
+# <...> value. Pin the first-party images to the digests in the immutable
+# MCP-GW release handoff before production use. This example intentionally
+# leaves GitHub and db-mcp disabled.
+#
+# This is a Google-only external deployment: omit `hop1.issuers` and the chart
+# automatically trusts the broker issuer. Add a real internal issuer only when
+# this same endpoint must also accept workload tokens; it
+# it remains a distinct principal from the Google-broker identity.
+
+productionProfile:
+  # The built-in full profile intentionally requires Google + GitHub. Keep it
+  # disabled for this Google-only deployment.
+  enabled: false
+
+oauthMigrations:
+  enabled: true
+  secretKeyRef:
+    name: mcp-gw-oauth-db
+    key: TOKEN_STORE_DSN
+
+agentgateway:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: "0.3.1" # Replace with the release-handoff digest.
+  replicas: 2
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.<customer-domain>/mcp
+      scopesSupported:
+        - mcp
+      bearerMethodsSupported:
+        - header
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: github-mcp
+      enabled: false
+      serviceName: github-wrapper
+      port: 8080
+      path: /mcp
+  ingress:
+    enabled: true
+    host: mcp.<customer-domain>
+    className: <ingress-class>
+    annotations:
+      cert-manager.io/cluster-issuer: <customer-cluster-issuer>
+    # These only apply to the dedicated unauthenticated broker Ingress, never
+    # the MCP resource path. Annotation names shown are ingress-nginx-specific.
+    brokerAnnotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+      nginx.ingress.kubernetes.io/limit-rps: "10"
+      nginx.ingress.kubernetes.io/limit-connections: "20"
+    paths:
+      - /mcp
+      - /.well-known/oauth-protected-resource/mcp
+    tls:
+      - secretName: mcp-gw-tls
+        hosts:
+          - mcp.<customer-domain>
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+googleWorkspace:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: "0.3.1" # Replace with the release-handoff digest.
+  replicas: 2
+  secretRef:
+    name: mcp-gw-google-runtime
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  # Initial least-privilege Workspace rollout. Expand this list and its policy
+  # only through a separately approved customer change.
+  env:
+    GOOGLE_OAUTH_SCOPES: >-
+      openid
+      https://www.googleapis.com/auth/userinfo.email
+      https://www.googleapis.com/auth/drive.readonly
+      https://www.googleapis.com/auth/gmail.readonly
+      https://www.googleapis.com/auth/calendar.readonly
+      https://www.googleapis.com/auth/documents.readonly
+      https://www.googleapis.com/auth/spreadsheets.readonly
+      https://www.googleapis.com/auth/presentations.readonly
+      https://www.googleapis.com/auth/tasks.readonly
+
+  policy:
+    enabled: true
+    yaml: |
+      default: deny
+      rules:
+        # Permit provider consent while keeping subsequent Workspace use read-only.
+        - effect: allow
+          match:
+            tool: google_oauth_start
+        - effect: allow
+          match:
+            actionClass: read
+
+  authorizationBroker:
+    enabled: true
+    issuer: https://mcp.<customer-domain>/oauth
+    resource: https://mcp.<customer-domain>/mcp
+    googleCallbackUri: https://mcp.<customer-domain>/oauth/google/broker/callback
+    activeSigningKid: <customer-broker-kid>
+    scopes:
+      - mcp
+
+    # Static public-client registration is the preferred initial rollout.
+    # Replace these values with the exact client identity and redirect URI.
+    staticClients:
+      - clientId: <customer-client-id-min-8-chars>
+        applicationType: web
+        clientName: <customer-client-name>
+        clientUri: https://<customer-client-homepage>
+        redirectUris:
+          - https://<customer-client-host>/<exact-oauth-callback>
+        scopes:
+          - mcp
+
+    signingKeyring:
+      secretKeyRef:
+        name: mcp-gw-broker-signing
+        key: signing-jwks.json
+
+    # ALB/IP-target deployment: supply the CIDRs that can be source addresses
+    # at the pod, not public client CIDRs. Replace 10.0.0.0/8 with the
+    # customer's actual load-balancer/VPC source range. Do not use 0.0.0.0/0.
+    # Exactly one of ingressSourceCidrs and ingressControllerPeer is permitted.
+    ingressSourceCidrs:
+      - 10.0.0.0/8
+    ingressControllerPeer:
+      namespaceSelector:
+        matchLabels: {}
+      podSelector:
+        matchLabels: {}
+
+    dcr:
+      enabled: false
+      allowLoopbackRedirects: false
+      trustedProxy:
+        header: ""
+        addresses: []
+      clientTtlMs: 0
+      maxClients: 0
+      maxRateKeys: 0
+      rateLimit: 0
+      rateWindowMs: 0
+
+githubWrapper:
+  enabled: false
+
+githubMcp:
+  enabled: false

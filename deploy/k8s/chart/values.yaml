@@ -215,6 +215,10 @@ googleWorkspace:
         matchLabels: {}
       podSelector:
         matchLabels: {}
+    # For load balancers that send data-plane traffic directly from VPC or
+    # other routable addresses, configure one or more source CIDRs instead of
+    # ingressControllerPeer. Broker mode requires exactly one source model.
+    ingressSourceCidrs: []
     dcr:
       enabled: false
       allowLoopbackRedirects: false

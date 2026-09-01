@@ -63,6 +63,13 @@
 {{- $brokerProxy := $brokerDcr.trustedProxy }}
 {{- $brokerProxyAny := or $brokerProxy.header (gt (len $brokerProxy.addresses) 0) }}
 {{- $brokerBoundsAny := or (gt (int $brokerDcr.clientTtlMs) 0) (gt (int $brokerDcr.maxClients) 0) (gt (int $brokerDcr.maxRateKeys) 0) (gt (int $brokerDcr.rateLimit) 0) (gt (int $brokerDcr.rateWindowMs) 0) }}
+{{- $brokerIngressPeer := $broker.ingressControllerPeer }}
+{{- $brokerIngressPeerNamespaceLabels := $brokerIngressPeer.namespaceSelector.matchLabels }}
+{{- $brokerIngressPeerPodLabels := $brokerIngressPeer.podSelector.matchLabels }}
+{{- $brokerIngressPeerAny := or (gt (len $brokerIngressPeerNamespaceLabels) 0) (gt (len $brokerIngressPeerPodLabels) 0) }}
+{{- $brokerIngressPeerComplete := and (gt (len $brokerIngressPeerNamespaceLabels) 0) (gt (len $brokerIngressPeerPodLabels) 0) }}
+{{- $brokerIngressCidrs := $broker.ingressSourceCidrs }}
+{{- $brokerIngressCidrsConfigured := gt (len $brokerIngressCidrs) 0 }}
 {{- if $broker.enabled }}
 {{- if not .Values.googleWorkspace.enabled }}
 {{- fail "googleWorkspace.authorizationBroker requires googleWorkspace.enabled=true" }}
@@ -112,8 +119,22 @@
 {{- if not (and $brokerKeyRef.name $brokerKeyRef.key) }}
 {{- fail "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef requires both name and key" }}
 {{- end }}
-{{- if or (eq (len $broker.ingressControllerPeer.namespaceSelector.matchLabels) 0) (eq (len $broker.ingressControllerPeer.podSelector.matchLabels) 0) }}
-{{- fail "googleWorkspace.authorizationBroker.ingressControllerPeer requires non-empty namespace and pod selector labels" }}
+{{- if and $brokerIngressPeerAny (not $brokerIngressPeerComplete) }}
+{{- fail "googleWorkspace.authorizationBroker.ingressControllerPeer requires both non-empty namespace and pod selector labels" }}
+{{- end }}
+{{- if and (not $brokerIngressPeerComplete) (not $brokerIngressCidrsConfigured) }}
+{{- fail "googleWorkspace.authorizationBroker requires exactly one ingress source: ingressControllerPeer or ingressSourceCidrs" }}
+{{- end }}
+{{- if and $brokerIngressPeerComplete $brokerIngressCidrsConfigured }}
+{{- fail "googleWorkspace.authorizationBroker requires exactly one ingress source: ingressControllerPeer or ingressSourceCidrs" }}
+{{- end }}
+{{- range $index, $cidr := $brokerIngressCidrs }}
+{{- if not (regexMatch "^(?:(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(?:[0-9]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$" $cidr) }}
+{{- fail (printf "googleWorkspace.authorizationBroker.ingressSourceCidrs[%d] must be an IP CIDR" $index) }}
+{{- end }}
+{{- if or (eq $cidr "0.0.0.0/0") (eq $cidr "::/0") }}
+{{- fail (printf "googleWorkspace.authorizationBroker.ingressSourceCidrs[%d] must not admit every source address" $index) }}
+{{- end }}
 {{- end }}
 {{- if and (not $brokerDcr.enabled) (eq (len $broker.staticClients) 0) }}
 {{- fail "googleWorkspace.authorizationBroker requires constrained DCR or at least one static client" }}
@@ -185,7 +206,7 @@
 {{- end }}
 {{- end }}
 {{- else }}
-{{- if or $broker.issuer $broker.resource $broker.googleCallbackUri $broker.activeSigningKid (ne (toJson $broker.scopes) "[\"mcp\"]") $brokerKeyRefAny (gt (len $broker.ingressControllerPeer.namespaceSelector.matchLabels) 0) (gt (len $broker.ingressControllerPeer.podSelector.matchLabels) 0) (gt (len $broker.staticClients) 0) $brokerDcr.enabled $brokerDcr.allowLoopbackRedirects $brokerProxyAny $brokerBoundsAny }}
+{{- if or $broker.issuer $broker.resource $broker.googleCallbackUri $broker.activeSigningKid (ne (toJson $broker.scopes) "[\"mcp\"]") $brokerKeyRefAny $brokerIngressPeerAny $brokerIngressCidrsConfigured (gt (len $broker.staticClients) 0) $brokerDcr.enabled $brokerDcr.allowLoopbackRedirects $brokerProxyAny $brokerBoundsAny }}
 {{- fail "googleWorkspace.authorizationBroker.enabled must be true when broker configuration is set" }}
 {{- end }}
 {{- end }}
