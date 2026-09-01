@@ -50,12 +50,29 @@ describe("release artifacts", () => {
     expect(workflow).toContain("oci://ghcr.io/${{ github.repository_owner }}/charts");
     expect(workflow).toContain("generate-release-handoff.ts");
     expect(workflow).toContain('VERSION="${GITHUB_REF_NAME#v}"');
-    expect(workflow).toContain("steps.version.outputs.version");
+    expect(workflow).toContain('VERSION="${GITHUB_REF_NAME#v}"');
     expect(workflow).not.toContain("matrix.repository }}:${{ github.ref_name }}");
     expect(workflow).toContain("Verify public artifact access");
     expect(workflow).toContain("docker buildx imagetools inspect");
     expect(workflow).toContain("helm pull");
     expect(workflow).not.toContain(":latest");
+  });
+
+  test("builds each release architecture natively before assembling the multi-platform manifest", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+
+    expect(workflow).toContain("build-platform-images:");
+    expect(workflow).toContain("runner: ubuntu-latest");
+    expect(workflow).toContain("runner: ubuntu-24.04-arm");
+    expect(workflow).toContain("platform: linux/amd64");
+    expect(workflow).toContain("platform: linux/arm64");
+    expect(workflow).toContain("push-by-digest=true");
+    expect(workflow).toContain(
+      "platform-digest-${{ matrix.component }}-${{ matrix.architecture }}",
+    );
+    expect(workflow).toContain("docker buildx imagetools create");
+    expect(workflow).toContain('docker buildx imagetools inspect "$IMAGE:$VERSION" --raw');
+    expect(workflow).not.toContain("docker/setup-qemu-action@");
   });
 
   test("authenticates OCI chart provenance pushes through Docker credentials", async () => {

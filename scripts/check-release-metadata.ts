@@ -30,13 +30,13 @@ async function main(): Promise<void> {
   expectText(releaseWorkflow, "gh release create", "release workflow must create GitHub Releases");
   expectText(
     releaseWorkflow,
-    "docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130",
-    "release workflow must pin QEMU for arm64 image builds",
+    "runner: ubuntu-24.04-arm",
+    "release workflow must build ARM64 images on native ARM64 runners",
   );
   expectText(
     releaseWorkflow,
-    "platforms: linux/amd64,linux/arm64",
-    "release workflow must publish both supported image platforms",
+    "docker buildx imagetools create",
+    "release workflow must assemble both supported image platforms into one manifest",
   );
   expectText(ciWorkflow, "arm64-image-build:", "CI must build every released component for arm64");
 }
