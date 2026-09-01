@@ -83,8 +83,10 @@ For a release that enables direct-client OAuth, the handoff must also identify:
 - the chart-managed Ingress host/path contract and the generated AgentGateway
   broker-issuer trust entry, including confirmation that the MCP resource stays
   behind AgentGateway while broker authorization routes reach the wrapper;
-- the exact namespace and pod labels used to admit only the environment's
-  Ingress controller through the wrapper NetworkPolicy;
+- exactly one trusted broker ingress-source model: complete
+  `googleWorkspace.authorizationBroker.ingressControllerPeer` Namespace/Pod selectors for an
+  in-cluster controller, or `googleWorkspace.authorizationBroker.ingressSourceCidrs` for an
+  ALB/IP-target data plane, rendered into the wrapper NetworkPolicy;
 - the static-client or constrained-DCR registration mode and exact tested-client versions/evidence;
   and
 - explicit exclusion of authenticated `/oauth/google|github/start|status|disconnect` handlers from
@@ -95,7 +97,9 @@ not issue a public refresh token. A source commit or local fixture is not a GitO
 this contract only with the exact versioned chart and image digests described above.
 
 The generated release handoff describes the product capability with the exact typed chart paths,
-route-derivation rules, static-only and DCR-enabled modes, signing-keyring JWKS schema, existing
-Secret name/key reference fields, fixed read-only projection path, active-key/rotation contract, and
-tested-client claim limits. Environment-specific issuer, resource, callback, Secret name, and active
-`kid` remain GitOps-owned deployment evidence; they are never hard-coded into the product release.
+route-derivation rules, Google-only broker use as the sole configured HOP-1 issuer or coexistence
+with a distinct internal issuer, static-only and DCR-enabled modes, signing-keyring JWKS schema,
+existing Secret name/key reference fields, fixed read-only projection path, active-key/rotation
+contract, ingress-source selection, and tested-client claim limits. Environment-specific issuer,
+resource, callback, Secret name, and active `kid` remain GitOps-owned deployment evidence; they are
+never hard-coded into the product release.

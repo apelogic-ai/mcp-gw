@@ -1,0 +1,64 @@
+# Customer-owned add-on for the Google Workspace provider callback.
+#
+# The chart exposes direct-client broker routes, including
+# /oauth/google/broker/callback, but intentionally does not expose the
+# authenticated provider-control surface. Google Workspace consent still needs
+# this one exact public return route. Keep this manifest in the same private
+# GitOps package as the customer values overlay.
+#
+# Assumptions:
+# - Helm release name: mcp-gateway
+# - Namespace: <mcp-gateway-namespace>
+# - This example matches an ALB/IP-target deployment. Replace the CIDR below
+#   with the data-plane source range observed at the Google wrapper Pod. An
+#   in-cluster controller deployment may instead use the matching Namespace and
+#   Pod selectors as its `ingressControllerPeer` chart value.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-gw-google-provider-callback
+  namespace: <mcp-gateway-namespace>
+spec:
+  ingressClassName: <ingress-class>
+  tls:
+    - secretName: mcp-gw-tls
+      hosts:
+        - mcp.<customer-domain>
+  rules:
+    - host: mcp.<customer-domain>
+      http:
+        paths:
+          - path: /oauth/google/callback
+            pathType: Exact
+            backend:
+              service:
+                name: mcp-gateway-google-workspace
+                port:
+                  name: http
+---
+# The chart's baseline NetworkPolicy admits AgentGateway and its configured
+# broker ingress source. This additive policy permits that same ALB/IP-target
+# source to deliver the exact provider callback routed by the Ingress above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-gw-google-provider-callback
+  namespace: <mcp-gateway-namespace>
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-gateway
+      app.kubernetes.io/instance: mcp-gateway
+      app.kubernetes.io/component: google-workspace
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            # Replace with the same real source CIDR as
+            # googleWorkspace.authorizationBroker.ingressSourceCidrs.
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 8080

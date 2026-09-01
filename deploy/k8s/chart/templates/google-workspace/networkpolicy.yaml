@@ -18,6 +18,16 @@ spec:
         - protocol: TCP
           port: {{ .Values.googleWorkspace.port }}
     {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+    {{- if .Values.googleWorkspace.authorizationBroker.ingressSourceCidrs }}
+    - from:
+        {{- range .Values.googleWorkspace.authorizationBroker.ingressSourceCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.googleWorkspace.port }}
+    {{- else }}
     - from:
         - namespaceSelector:
             matchLabels:
@@ -28,5 +38,6 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.googleWorkspace.port }}
+    {{- end }}
     {{- end }}
 {{- end }}

@@ -342,6 +342,32 @@ describe("wrapper main config", () => {
         trustedAddresses: ["10.0.0.10", "10.0.0.11"],
       },
     });
+    expect(config.wrapper.hop1Issuers).toMatchObject([{ issuer: "https://identity.example.com" }]);
+  });
+
+  test("loads a Google-only broker without an unrelated configured HOP-1 issuer", () => {
+    const config = loadMainConfig({
+      GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "google-client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://mcp.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      TOKEN_STORE_DSN: "postgres://mcp:mcp@token-store:5432/mcp",
+      MCP_BROKER_ENABLED: "true",
+      MCP_AUTHORIZATION_ISSUER: "https://mcp.example.com/oauth",
+      MCP_RESOURCE_URI: "https://mcp.example.com/mcp",
+      MCP_BROKER_GOOGLE_REDIRECT_URI: "https://mcp.example.com/oauth/google/broker/callback",
+      MCP_BROKER_SIGNING_JWKS_FILE: "/var/run/secrets/mcp-broker/signing-jwks.json",
+      MCP_BROKER_ACTIVE_KID: "active-2026-09",
+      MCP_DCR_ENABLED: "true",
+    });
+
+    expect(config.wrapper.hop1Issuers).toEqual([]);
+    expect(config.authorizationBroker).toMatchObject({
+      issuer: "https://mcp.example.com/oauth",
+      resource: "https://mcp.example.com/mcp",
+      dcr: { allowLoopbackRedirects: false },
+    });
   });
 
   test("rejects direct Google access-token trust when the broker is enabled", () => {

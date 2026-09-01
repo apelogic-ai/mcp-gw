@@ -262,6 +262,8 @@ describe("release artifacts", () => {
       "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.key",
     );
     expect(handoff).toContain("googleWorkspace.authorizationBroker.activeSigningKid");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.ingressControllerPeer");
+    expect(handoff).toContain("googleWorkspace.authorizationBroker.ingressSourceCidrs");
     expect(handoff).toContain("/var/run/secrets/mcp-gateway/broker/signing-jwks.json");
     expect(handoff).toContain('"keys"');
     expect(handoff).toContain("RFC 8414");
@@ -270,6 +272,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("GitOps-owned");
     expect(handoff).toContain("tested-client evidence");
     expect(handoff).toContain("does not establish compatibility");
+    expect(handoff).toContain("sole configured HOP-1 issuer");
   });
 
   test("documents the static release handoff contract", async () => {

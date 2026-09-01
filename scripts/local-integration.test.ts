@@ -109,7 +109,7 @@ describe("local Docker integration smoke", () => {
     const [packageJson, workflow, smoke, compose, gatewayConfig, providerFixture, client] =
       await Promise.all([
         readFile("package.json", "utf8"),
-        readFile(".github/workflows/ci.yml", "utf8"),
+        readFile(".github/workflows/release.yml", "utf8"),
         readFile("scripts/smoke-full-bundle.sh", "utf8"),
         readFile("deploy/compose/docker-compose.full-bundle-smoke.yaml", "utf8"),
         readFile("gateway/agentgateway/local-full-bundle-smoke.yaml", "utf8"),

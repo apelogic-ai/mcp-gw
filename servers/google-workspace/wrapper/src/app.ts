@@ -20,11 +20,19 @@ interface ServerInfo {
 
 export interface WrapperConfig {
   gwsBinary: string;
-  hop1: IssuerProfile;
+  hop1?: IssuerProfile;
   hop1Issuers: Hop1IssuerConfig[];
   oauth: GoogleOAuthConfig;
   policy?: PolicyConfig;
   audit?: AuditConfig;
+}
+
+export interface LoadWrapperConfigOptions {
+  /**
+   * The public authorization broker supplies its own issuer profile at runtime.
+   * A broker-only deployment therefore needs no unrelated direct HOP-1 issuer.
+   */
+  allowEmptyHop1Issuers?: boolean;
 }
 
 export interface PolicyConfig {
@@ -82,7 +90,10 @@ export function createGoogleWorkspaceWrapperHandler(
   });
 }
 
-export function loadWrapperConfig(env: Record<string, string | undefined>): WrapperConfig {
+export function loadWrapperConfig(
+  env: Record<string, string | undefined>,
+  options: LoadWrapperConfigOptions = {},
+): WrapperConfig {
   const oauth: GoogleOAuthConfig = {
     clientId: requiredEnv(env, "GOOGLE_OAUTH_CLIENT_ID"),
     clientSecret: requiredEnv(env, "GOOGLE_OAUTH_CLIENT_SECRET"),
@@ -93,9 +104,9 @@ export function loadWrapperConfig(env: Record<string, string | undefined>): Wrap
     userInfoUrl: optionalEnv(env, "GOOGLE_OAUTH_USERINFO_URL"),
     googleJwksUrl: optionalEnv(env, "GOOGLE_OAUTH_JWKS_URL"),
   };
-  const hop1Issuers = loadHop1Issuers(env);
+  const hop1Issuers = loadHop1Issuers(env, options.allowEmptyHop1Issuers ?? false);
   const defaultHop1Issuer = hop1Issuers[0];
-  if (!defaultHop1Issuer) {
+  if (!defaultHop1Issuer && !options.allowEmptyHop1Issuers) {
     throw new Error("At least one HOP-1 issuer is required");
   }
 
@@ -123,7 +134,10 @@ function optionalEnv(env: Record<string, string | undefined>, name: string): str
   return value;
 }
 
-function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerConfig[] {
+function loadHop1Issuers(
+  env: Record<string, string | undefined>,
+  allowEmptyHop1Issuers: boolean,
+): Hop1IssuerConfig[] {
   if (env.HOP1_ISSUERS_JSON) {
     const parsed = JSON.parse(env.HOP1_ISSUERS_JSON) as unknown;
     if (!Array.isArray(parsed) || parsed.length === 0) {
@@ -133,6 +147,10 @@ function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerCon
     return validateHop1IssuerProfiles(
       parsed.map((issuer, index) => parseHop1IssuerConfig(issuer, index, env)),
     );
+  }
+
+  if (!env.HOP1_ISSUER && allowEmptyHop1Issuers) {
+    return [];
   }
 
   const introspection = introspectionConfig(

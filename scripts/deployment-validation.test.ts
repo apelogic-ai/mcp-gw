@@ -17,13 +17,18 @@ describe("deployment validation scripts", () => {
   });
 
   test("wires deployment validation into GitHub Actions", async () => {
-    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const [ciWorkflow, releaseWorkflow] = await Promise.all([
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+    ]);
 
-    expect(workflow).toContain("azure/setup-helm");
-    expect(workflow).not.toContain("hashicorp/setup-terraform");
-    expect(workflow).not.toContain("pipx install ansible-core");
-    expect(workflow).toContain("bun run deploy:check");
-    expect(workflow).toContain("bun run integration:local");
+    expect(ciWorkflow).toContain("azure/setup-helm");
+    expect(ciWorkflow).not.toContain("hashicorp/setup-terraform");
+    expect(ciWorkflow).not.toContain("pipx install ansible-core");
+    expect(ciWorkflow).toContain("bun run deploy:check");
+    expect(ciWorkflow).not.toContain("bun run integration:local");
+    expect(releaseWorkflow).toContain("bun run integration:local");
+    expect(releaseWorkflow).toContain("bun run integration:k8s");
   });
 
   test("pins third-party GitHub Actions by immutable commit SHA", async () => {
