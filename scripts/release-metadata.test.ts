@@ -57,24 +57,24 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("release-handoff.md");
   });
 
-  test("runs bounded native ARM64 checks only for image-affecting pull requests", async () => {
-    const ciWorkflow = await readFile(".github/workflows/ci.yml", "utf8");
+  test("builds candidate and release images only in the release workflow", async () => {
+    const [ciWorkflow, releaseWorkflow] = await Promise.all([
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+    ]);
 
     expect(ciWorkflow).toContain("concurrency:");
     expect(ciWorkflow).toContain("cancel-in-progress: true");
-    expect(ciWorkflow).toContain("arm64-inputs:");
-    expect(ciWorkflow).toContain("git diff --name-only");
-    expect(ciWorkflow).toContain("arm64-image-build:");
-    expect(ciWorkflow).toContain("runs-on: ubuntu-24.04-arm");
-    expect(ciWorkflow).toContain("timeout-minutes: 45");
-    expect(ciWorkflow).toContain("component: agentgateway");
-    expect(ciWorkflow).toContain("component: google-workspace");
-    expect(ciWorkflow).toContain("component: github-wrapper");
-    expect(ciWorkflow).toContain("platforms: linux/arm64");
-    expect(ciWorkflow).toContain("cache-from: type=gha,scope=arm64-${{ matrix.component }}");
-    expect(ciWorkflow).toContain("cache-to: type=gha,mode=max,scope=arm64-${{ matrix.component }}");
-    expect(ciWorkflow).not.toContain("--platform linux/arm64 --load");
-    expect(ciWorkflow).not.toContain("docker/setup-qemu-action@");
+    expect(ciWorkflow).not.toContain("docker/build-push-action@");
+    expect(ciWorkflow).not.toContain("docker/setup-buildx-action@");
+    expect(ciWorkflow).not.toContain("arm64-inputs:");
+    expect(ciWorkflow).not.toContain("arm64-image-build:");
+    expect(ciWorkflow).not.toContain("helm/kind-action@");
+
+    expect(releaseWorkflow).toContain("docker/build-push-action@");
+    expect(releaseWorkflow).toContain("runner: ubuntu-24.04-arm");
+    expect(releaseWorkflow).toContain("platform: linux/arm64");
+    expect(releaseWorkflow).not.toContain("docker/setup-qemu-action@");
   });
 
   test("keeps Helm chart versions aligned with the package release", async () => {

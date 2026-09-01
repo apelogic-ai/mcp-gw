@@ -38,11 +38,21 @@ async function main(): Promise<void> {
     "docker buildx imagetools create",
     "release workflow must assemble both supported image platforms into one manifest",
   );
-  expectText(ciWorkflow, "arm64-image-build:", "CI must build every released component for arm64");
+  expectNotText(
+    ciWorkflow,
+    "docker/build-push-action@",
+    "CI must not build images; image builds belong exclusively to the release workflow",
+  );
 }
 
 function expectText(content: string, needle: string, message: string): void {
   if (!content.includes(needle)) {
+    throw new Error(message);
+  }
+}
+
+function expectNotText(content: string, needle: string, message: string): void {
+  if (content.includes(needle)) {
     throw new Error(message);
   }
 }

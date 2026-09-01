@@ -84,19 +84,24 @@ exit 0
     expect(template).toContain("$brokerPaths");
   });
 
-  test("runs the Kubernetes smoke in GitHub CI", async () => {
-    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  test("runs the Kubernetes smoke in the release workflow, not PR CI", async () => {
+    const [ciWorkflow, releaseWorkflow] = await Promise.all([
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+    ]);
 
-    expect(workflow).toContain("helm/kind-action@");
-    expect(workflow).toContain("repository: apelogic-ai/agentgateway");
-    expect(workflow).toContain("ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43");
-    expect(workflow).toContain("docker/build-push-action@");
-    expect(workflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
-    expect(workflow).toContain("bun run integration:k8s");
+    expect(ciWorkflow).not.toContain("helm/kind-action@");
+    expect(ciWorkflow).not.toContain("docker/build-push-action@");
+    expect(releaseWorkflow).toContain("helm/kind-action@");
+    expect(releaseWorkflow).toContain("repository: apelogic-ai/agentgateway");
+    expect(releaseWorkflow).toContain("ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43");
+    expect(releaseWorkflow).toContain("docker/build-push-action@");
+    expect(releaseWorkflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
+    expect(releaseWorkflow).toContain("bun run integration:k8s");
   });
 
   test("starts migrations and provider workloads as non-root processes in Kind", async () => {
-    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const smoke = await readFile("scripts/smoke-k8s-provider-runtime.sh", "utf8");
     const values = await readFile(
       "deploy/k8s/examples/values-k8s-provider-runtime-smoke.yaml",
