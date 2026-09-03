@@ -4,6 +4,7 @@ import { InMemoryAuditSink } from "../../../../shared/audit/audit";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import type { ToolPolicy, ToolPolicyInput } from "../../../../shared/policy/policy";
+import { GITHUB_MCP_TOOLS } from "./catalog/github-mcp";
 import { createGithubMcpProxyHandler } from "./proxy";
 
 describe("GitHub MCP proxy wrapper", () => {
@@ -131,6 +132,10 @@ describe("GitHub MCP proxy wrapper", () => {
                       name: "actions_list",
                       description: "List GitHub Actions resources.",
                       inputSchema: { type: "object" },
+                      annotations: {
+                        readOnlyHint: true,
+                        idempotentHint: false,
+                      },
                     },
                   ],
                 },
@@ -727,7 +732,15 @@ describe("GitHub MCP proxy wrapper", () => {
           return Response.json({
             jsonrpc: "2.0",
             id: payload.id,
-            result: { tools: [{ name: "get_file_contents", inputSchema: { type: "object" } }] },
+            result: {
+              tools: [
+                {
+                  name: "get_file_contents",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: true, idempotentHint: false },
+                },
+              ],
+            },
           });
         }
         if (payload.method === "resources/templates/list") {
@@ -792,7 +805,7 @@ describe("GitHub MCP proxy wrapper", () => {
     ]);
   });
 
-  test("prepends GitHub OAuth helper tools to connected upstream tool lists", async () => {
+  test("advertises only pinned upstream tools with matching annotations", async () => {
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
       authenticate: () => Promise.resolve(identity),
@@ -803,7 +816,32 @@ describe("GitHub MCP proxy wrapper", () => {
             jsonrpc: "2.0",
             id: 12,
             result: {
-              tools: [{ name: "github_list_pull_requests", inputSchema: { type: "object" } }],
+              tools: [
+                {
+                  name: "list_pull_requests",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: true, idempotentHint: false },
+                },
+                {
+                  name: "create_branch",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: false, idempotentHint: false },
+                },
+                {
+                  name: "pull_request_read",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: false, idempotentHint: false },
+                },
+                {
+                  name: "get_file_contents",
+                  inputSchema: { type: "object" },
+                },
+                {
+                  name: "issue_write",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: true, idempotentHint: false },
+                },
+              ],
             },
           }),
         ),
@@ -825,7 +863,39 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
       "github_oauth_status",
       "github_oauth_start",
-      "github_list_pull_requests",
+      "list_pull_requests",
+      "create_branch",
+    ]);
+  });
+
+  test("advertises the complete pinned unrestricted catalog when upstream annotations match", async () => {
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("gho_user_token"),
+      fetch: () =>
+        Promise.resolve(
+          Response.json({
+            jsonrpc: "2.0",
+            id: 13,
+            result: {
+              tools: GITHUB_MCP_TOOLS.map((tool) => ({
+                name: tool.name,
+                inputSchema: { type: "object" },
+                annotations: tool.annotations,
+              })),
+            },
+          }),
+        ),
+    });
+
+    const response = await rpc(handler, { jsonrpc: "2.0", id: 13, method: "tools/list" });
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+
+    expect(body.result.tools.map((tool) => tool.name)).toEqual([
+      "github_oauth_status",
+      "github_oauth_start",
+      ...GITHUB_MCP_TOOLS.map((tool) => tool.name),
     ]);
   });
 
@@ -1013,7 +1083,65 @@ describe("GitHub MCP proxy wrapper", () => {
     });
   });
 
-  test("denies tool calls before resolving GitHub credentials when policy rejects them", async () => {
+  test("rejects missing and unknown selectors for every mixed-action tool before side effects", async () => {
+    const mixedTools = [
+      { name: "actions_run_trigger", selector: "method" },
+      { name: "discussion_comment_write", selector: "method" },
+      { name: "label_write", selector: "method" },
+      { name: "manage_notification_subscription", selector: "action" },
+      { name: "manage_repository_notification_subscription", selector: "action" },
+      { name: "projects_write", selector: "method" },
+      { name: "pull_request_review_write", selector: "method" },
+      { name: "sub_issue_write", selector: "method" },
+    ] as const;
+    let policyCalls = 0;
+    let tokenCalls = 0;
+    let upstreamCalls = 0;
+    const audit = new InMemoryAuditSink();
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => {
+        tokenCalls += 1;
+        return Promise.resolve("gho_user_token");
+      },
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      audit,
+      fetch: () => {
+        upstreamCalls += 1;
+        return Promise.resolve(Response.json({}));
+      },
+    });
+
+    for (const tool of mixedTools) {
+      for (const arguments_ of [{}, { [tool.selector]: "unknown" }]) {
+        const response = await rpc(handler, {
+          jsonrpc: "2.0",
+          id: `${tool.name}-${JSON.stringify(arguments_)}`,
+          method: "tools/call",
+          params: { name: tool.name, arguments: arguments_ },
+        });
+        expect(await response.json()).toMatchObject({
+          error: {
+            code: -32601,
+            message: `GitHub MCP tool is not supported: ${tool.name}`,
+          },
+        });
+      }
+    }
+
+    expect(policyCalls).toBe(0);
+    expect(tokenCalls).toBe(0);
+    expect(upstreamCalls).toBe(0);
+    expect(audit.events).toHaveLength(mixedTools.length * 2);
+  });
+
+  test("rejects non-catalog tool calls before policy, credentials, and upstream", async () => {
     const policyInputs: ToolPolicyInput[] = [];
     const audit = new InMemoryAuditSink();
     const identityWithAuthority = {
@@ -1022,13 +1150,7 @@ describe("GitHub MCP proxy wrapper", () => {
         controlPlane: {
           acting_as: "user",
           runtime_uid: "runtime-uid-a",
-          tools: [
-            {
-              provider: "github",
-              resource: "github_create_issue",
-              action: "write",
-            },
-          ],
+          tools: [{ provider: "github", resource: "totally_new_tool", action: "write" }],
           version: 1,
         },
       },
@@ -1042,7 +1164,7 @@ describe("GitHub MCP proxy wrapper", () => {
       policy: {
         decide: (input) => {
           policyInputs.push(input);
-          return Promise.resolve({ kind: "deny", reason: "writes disabled" });
+          return Promise.resolve({ kind: "allow" });
         },
       },
       fetch: () => Promise.reject(new Error("should not call upstream")),
@@ -1059,7 +1181,7 @@ describe("GitHub MCP proxy wrapper", () => {
           id: 9,
           method: "tools/call",
           params: {
-            name: "github_create_issue",
+            name: "totally_new_tool",
             arguments: { owner: "acme", repo: "app", title: "Bug" },
           },
         }),
@@ -1071,33 +1193,19 @@ describe("GitHub MCP proxy wrapper", () => {
       jsonrpc: "2.0",
       id: 9,
       error: {
-        code: -32003,
-        message: "Policy denied github_create_issue: writes disabled",
+        code: -32601,
+        message: "GitHub MCP tool is not supported: totally_new_tool",
       },
     });
-    expect(policyInputs).toEqual([
-      {
-        principal: "user@example.com",
-        tokenClaims: {
-          ...identityWithAuthority.claims,
-          email: "user@example.com",
-          sub: "user-123",
-        },
-        tool: "github_create_issue",
-        service: "github",
-        actionClass: "write",
-        scopes: ["repo"],
-        args: { owner: "acme", repo: "app", title: "Bug" },
-      },
-    ]);
+    expect(policyInputs).toEqual([]);
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]).toMatchObject({
       category: "tool_call",
       principal: "user@example.com",
       status: "deny",
       event: "deny",
-      tool: "github_create_issue",
-      error: "writes disabled",
+      tool: "totally_new_tool",
+      error: "unsupported GitHub MCP tool",
     });
   });
 
@@ -1117,7 +1225,7 @@ describe("GitHub MCP proxy wrapper", () => {
       resolveGithubToken: () => Promise.resolve("gho_user_token"),
       githubScopes: ["repo"],
       aliases: {
-        github_issues_create: "github_create_issue",
+        github_contents_get: "get_file_contents",
       },
       audit,
       policy: allowPolicy,
@@ -1138,15 +1246,11 @@ describe("GitHub MCP proxy wrapper", () => {
           id: 10,
           method: "tools/call",
           params: {
-            name: "github_issues_create",
+            name: "github_contents_get",
             arguments: {
               owner: "apelogic-ai",
               repo: "mcp-gw",
-              issue_number: 39,
-              title: "Bug",
-              dry_run: false,
-              labels: ["bug"],
-              confidence: 0.9,
+              path: "README.md",
             },
           },
         }),
@@ -1154,21 +1258,18 @@ describe("GitHub MCP proxy wrapper", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(seenPolicies[0]?.tool).toBe("github_create_issue");
+    expect(seenPolicies[0]?.tool).toBe("get_file_contents");
+    expect(seenPolicies[0]?.actionClass).toBe("read");
     expect(await seenRequests[0]?.json()).toEqual({
       jsonrpc: "2.0",
       id: 10,
       method: "tools/call",
       params: {
-        name: "github_create_issue",
+        name: "get_file_contents",
         arguments: {
           owner: "apelogic-ai",
           repo: "mcp-gw",
-          issue_number: 39,
-          title: "Bug",
-          dry_run: false,
-          labels: ["bug"],
-          confidence: 0.9,
+          path: "README.md",
         },
         _meta: {
           "io.modelcontextprotocol/protocolVersion": "2025-06-18",
@@ -1180,20 +1281,16 @@ describe("GitHub MCP proxy wrapper", () => {
         },
       },
     });
-    expect(seenRequests[0]?.headers.get("mcp-name")).toBe("github_create_issue");
+    expect(seenRequests[0]?.headers.get("mcp-name")).toBe("get_file_contents");
     expect(seenRequests[0]?.headers.get("mcp-param-owner")).toBe("apelogic-ai");
     expect(seenRequests[0]?.headers.get("mcp-param-repo")).toBe("mcp-gw");
-    expect(seenRequests[0]?.headers.get("mcp-param-issue_number")).toBe("39");
-    expect(seenRequests[0]?.headers.get("mcp-param-title")).toBe("Bug");
-    expect(seenRequests[0]?.headers.get("mcp-param-dry_run")).toBe("false");
-    expect(seenRequests[0]?.headers.has("mcp-param-labels")).toBe(false);
-    expect(seenRequests[0]?.headers.has("mcp-param-confidence")).toBe(false);
+    expect(seenRequests[0]?.headers.get("mcp-param-path")).toBe("README.md");
     expect(audit.events[0]?.status).toBe("allow");
-    expect(audit.events[0]?.tool).toBe("github_create_issue");
+    expect(audit.events[0]?.tool).toBe("get_file_contents");
     expect(typeof audit.events[0]?.resultSize).toBe("number");
     expect(audit.events[0]).toMatchObject({
       status: "allow",
-      tool: "github_create_issue",
+      tool: "get_file_contents",
     });
   });
 });

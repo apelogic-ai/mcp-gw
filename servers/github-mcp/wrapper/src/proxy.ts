@@ -7,6 +7,11 @@ import {
   type PolicyDecision,
   type ToolPolicy,
 } from "../../../../shared/policy/policy";
+import {
+  classifyGithubToolAction,
+  isPinnedGithubTool,
+  pinnedGithubToolAnnotationsMatch,
+} from "./catalog/github-mcp";
 
 export interface CreateGithubMcpProxyHandlerOptions {
   upstreamUrl: string;
@@ -41,7 +46,7 @@ interface ToolCallContext {
   originalName: string;
   toolName: string;
   args: Record<string, unknown>;
-  actionClass: PolicyActionClass;
+  actionClass: PolicyActionClass | undefined;
   body: string;
 }
 
@@ -62,6 +67,7 @@ const LOCAL_TOOLS = [
       properties: {},
       required: [],
     },
+    annotations: { readOnlyHint: true },
   },
   {
     name: "github_oauth_start",
@@ -142,13 +148,32 @@ export function createGithubMcpProxyHandler(
     }
 
     const toolCall = parseToolCall(body, options.aliases ?? {});
-    if (toolCall && toolCall.toolName !== "github_oauth_status") {
+    const actionClass = toolCall?.actionClass;
+    if (toolCall && actionClass === undefined) {
+      await options.audit?.emit({
+        ts: new Date().toISOString(),
+        category: "tool_call",
+        principal: identity.email,
+        status: "deny",
+        event: "deny",
+        tool: toolCall.toolName,
+        argDigest: digestArgs(toolCall.args),
+        latencyMs: Date.now() - started,
+        error: "unsupported GitHub MCP tool",
+      });
+      return mcpError(
+        toolCall.id,
+        -32601,
+        `GitHub MCP tool is not supported: ${toolCall.toolName}`,
+      );
+    }
+    if (toolCall && toolCall.toolName !== "github_oauth_status" && actionClass) {
       const decision = await policy.decide({
         principal: identity.email,
         tokenClaims: normalizedHop1Claims(identity),
         tool: toolCall.toolName,
         service: "github",
-        actionClass: toolCall.actionClass,
+        actionClass,
         scopes: options.githubScopes ?? [],
         args: toolCall.args,
       });
@@ -444,7 +469,7 @@ function mergeToolPayload(payload: unknown): Record<string, unknown> | undefined
     return undefined;
   }
 
-  const upstreamTools = payload.result.tools as unknown[];
+  const upstreamTools = (payload.result.tools as unknown[]).filter(isSupportedUpstreamTool);
   const existingNames = new Set(
     upstreamTools
       .map((tool) => (isRecord(tool) && typeof tool.name === "string" ? tool.name : undefined))
@@ -459,6 +484,14 @@ function mergeToolPayload(payload: unknown): Record<string, unknown> | undefined
       tools: [...localTools, ...upstreamTools],
     },
   };
+}
+
+function isSupportedUpstreamTool(tool: unknown): boolean {
+  if (!isRecord(tool) || typeof tool.name !== "string" || !isPinnedGithubTool(tool.name)) {
+    return false;
+  }
+
+  return pinnedGithubToolAnnotationsMatch(tool.name, tool.annotations);
 }
 
 function bearerToken(request: Request): string | undefined {
@@ -623,42 +656,13 @@ function parseToolCall(body: string, aliases: Record<string, string>): ToolCallC
     originalName: name,
     toolName,
     args,
-    actionClass: classifyAction(toolName),
+    actionClass: classifyGithubToolAction(toolName, args),
     body: JSON.stringify(rewritten),
   };
 }
 
 function jsonRpcId(value: unknown): JsonRpcId {
   return typeof value === "string" || typeof value === "number" || value === null ? value : null;
-}
-
-function classifyAction(toolName: string): PolicyActionClass {
-  const normalized = toolName.toLowerCase();
-  if (normalized === "github_oauth_start") {
-    return "write";
-  }
-  if (["delete", "remove", "destroy"].some((verb) => normalized.includes(verb))) {
-    return "destructive";
-  }
-  if (
-    [
-      "create",
-      "update",
-      "edit",
-      "merge",
-      "close",
-      "reopen",
-      "add",
-      "set",
-      "request",
-      "review",
-      "comment",
-    ].some((verb) => normalized.includes(verb))
-  ) {
-    return "write";
-  }
-
-  return "read";
 }
 
 function mcpError(id: JsonRpcId, code: number, message: string, status = 200): Response {
