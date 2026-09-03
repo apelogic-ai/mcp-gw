@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import {
   GWS_VISIBLE_GENERATED_TOOLS,
+  GOOGLE_WORKSPACE_CATALOG_ACTION_COUNTS,
+  GOOGLE_WORKSPACE_CATALOG_ID,
+  GOOGLE_WORKSPACE_TOOL_GRANTS_SHA256,
+  GOOGLE_WORKSPACE_TOOL_GRANTS,
   GOOGLE_WORKSPACE_TOOLS,
+  classifyGoogleWorkspaceToolAction,
   getGoogleWorkspaceTool,
   listGoogleWorkspaceTools,
 } from "./google-workspace";
@@ -19,7 +25,98 @@ const REQUIRED_SERVICE_GROUPS: WorkspaceService[] = [
   "tasks",
 ];
 
+const NON_DELETE_DESTRUCTIVE_TOOLS = [
+  "google_docs_batch_update",
+  "gws_calendar_calendars_clear",
+  "gws_calendar_calendars_transfer_ownership",
+  "gws_calendar_channels_stop",
+  "gws_docs_documents_batch_update",
+  "gws_drive_accessproposals_resolve",
+  "gws_drive_approvals_cancel",
+  "gws_drive_approvals_decline",
+  "gws_drive_channels_stop",
+  "gws_gmail_users_messages_batch_delete",
+  "gws_gmail_users_messages_trash",
+  "gws_gmail_users_settings_cse_keypairs_disable",
+  "gws_gmail_users_settings_cse_keypairs_obliterate",
+  "gws_gmail_users_stop",
+  "gws_gmail_users_threads_trash",
+  "gws_meet_spaces_end_active_conference",
+  "gws_sheets_spreadsheets_batch_update",
+  "gws_sheets_spreadsheets_values_batch_clear",
+  "gws_sheets_spreadsheets_values_batch_clear_by_data_filter",
+  "gws_sheets_spreadsheets_values_clear",
+  "gws_slides_presentations_batch_update",
+  "gws_tasks_tasks_clear",
+] as const;
+
 describe("Google Workspace tool catalog", () => {
+  test("publishes the opt-in exact visible catalog as per-service provider grants", () => {
+    const tools = listGoogleWorkspaceTools(GOOGLE_WORKSPACE_CATALOG_ID);
+
+    expect(GOOGLE_WORKSPACE_CATALOG_ID).toBe("google-workspace-cli@0.22.5/visible-v1/actions-v1");
+    expect(tools).toHaveLength(280);
+    expect(GOOGLE_WORKSPACE_TOOL_GRANTS).toHaveLength(280);
+    expect(GOOGLE_WORKSPACE_CATALOG_ACTION_COUNTS).toEqual({
+      read: 110,
+      write: 120,
+      destructive: 50,
+    });
+    const actualCounts = { read: 0, write: 0, destructive: 0 };
+    for (const grant of GOOGLE_WORKSPACE_TOOL_GRANTS) {
+      actualCounts[grant.action] += 1;
+    }
+    expect(actualCounts).toEqual(GOOGLE_WORKSPACE_CATALOG_ACTION_COUNTS);
+    const canonicalGrants = JSON.stringify(
+      GOOGLE_WORKSPACE_TOOL_GRANTS.map(({ provider, resource, action }) => [
+        provider,
+        resource,
+        action,
+      ]),
+    );
+    expect(`sha256:${createHash("sha256").update(canonicalGrants).digest("hex")}`).toBe(
+      GOOGLE_WORKSPACE_TOOL_GRANTS_SHA256,
+    );
+    expect(new Set(GOOGLE_WORKSPACE_TOOL_GRANTS.map((grant) => grant.resource)).size).toBe(280);
+    expect(
+      GOOGLE_WORKSPACE_TOOL_GRANTS.map((grant) => [grant.provider, grant.resource, grant.action]),
+    ).toEqual(tools.map((tool) => [tool.service, tool.name, tool.actionClass]));
+  });
+
+  test("classifies every governed visible tool and fails closed for unknown provider operations", () => {
+    for (const tool of listGoogleWorkspaceTools(GOOGLE_WORKSPACE_CATALOG_ID)) {
+      expect(classifyGoogleWorkspaceToolAction(tool.name)).toBe(tool.actionClass);
+    }
+
+    expect(classifyGoogleWorkspaceToolAction("google_oauth_status")).toBeUndefined();
+    expect(classifyGoogleWorkspaceToolAction("google_oauth_start")).toBeUndefined();
+    expect(classifyGoogleWorkspaceToolAction("future_google_tool")).toBeUndefined();
+  });
+
+  test("corrects non-DELETE destructive semantics only in the opt-in catalog", () => {
+    for (const name of NON_DELETE_DESTRUCTIVE_TOOLS) {
+      const legacyTool = getGoogleWorkspaceTool(name);
+      const governedTool = getGoogleWorkspaceTool(name, GOOGLE_WORKSPACE_CATALOG_ID);
+
+      expect(legacyTool.command.at(-1)).not.toBe("delete");
+      expect(legacyTool.actionClass).toBe("write");
+      expect(legacyTool.annotations).toEqual({ readOnlyHint: false });
+      expect(governedTool.actionClass).toBe("destructive");
+      expect(governedTool.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
+    }
+  });
+
+  test("keeps the absent-pin catalog byte-equivalent to the legacy visible surface", () => {
+    const expected = [...GOOGLE_WORKSPACE_TOOLS, ...GWS_VISIBLE_GENERATED_TOOLS];
+    const actual = listGoogleWorkspaceTools();
+    const counts = { read: 0, write: 0, destructive: 0 };
+    for (const tool of actual) counts[tool.actionClass] += 1;
+
+    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+    expect(actual).toEqual(expected);
+    expect(counts).toEqual({ read: 110, write: 142, destructive: 28 });
+  });
+
   test("uses federation-safe unique tool names", () => {
     const names = GOOGLE_WORKSPACE_TOOLS.map((tool) => tool.name);
     const uniqueNames = new Set(names);

@@ -40,7 +40,7 @@ describe("provider lifecycle conformance", () => {
     expect(googleAfterBothConsents).toContain("google_drive_files_list");
     expect(await githubToolNames(store, brokerIdentity)).toEqual([
       ...GITHUB_HELPERS,
-      "github_fixture_read",
+      "get_file_contents",
     ]);
   });
 
@@ -58,7 +58,7 @@ describe("provider lifecycle conformance", () => {
     await saveGrant(store, "github", brokerIdentity, GITHUB_SCOPES);
 
     expect(await googleToolNames(store, brokerIdentity)).toContain("google_drive_files_list");
-    expect(await githubToolNames(store, brokerIdentity)).toContain("github_fixture_read");
+    expect(await githubToolNames(store, brokerIdentity)).toContain("get_file_contents");
 
     expect(await googleToolNames(store, alternateIdentity)).toEqual(GOOGLE_HELPERS);
     expect(await githubToolNames(store, alternateIdentity)).toEqual(GITHUB_HELPERS);
@@ -138,9 +138,10 @@ async function githubToolNames(store: OAuthTokenStore, identity: Hop1Identity): 
           result: {
             tools: [
               {
-                name: "github_fixture_read",
+                name: "get_file_contents",
                 description: "Fixture-approved GitHub read tool.",
                 inputSchema: { type: "object" },
+                annotations: { readOnlyHint: true, idempotentHint: false },
               },
             ],
           },

@@ -1,5 +1,12 @@
-import { defineWorkspaceTool, type CatalogParam, type WorkspaceToolDefinition } from "./types";
+import {
+  annotationsForActionClass,
+  defineWorkspaceTool,
+  type ActionClass,
+  type CatalogParam,
+  type WorkspaceToolDefinition,
+} from "./types";
 import { GWS_GENERATED_TOOLS } from "./gws-generated";
+import { classifyGovernedGwsToolAction } from "./gws-action-classification";
 
 const DRIVE_SHARED_DEFAULTS = {
   includeItemsFromAllDrives: true,
@@ -467,21 +474,84 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
 
 export const GWS_VISIBLE_GENERATED_TOOLS = GWS_GENERATED_TOOLS.filter(isVisibleGeneratedTool);
 
-const GOOGLE_WORKSPACE_TOOL_BY_NAME = new Map(
-  [...GOOGLE_WORKSPACE_TOOLS, ...GWS_VISIBLE_GENERATED_TOOLS].map((tool) => [tool.name, tool]),
-);
+export const GOOGLE_WORKSPACE_CATALOG_ID =
+  "google-workspace-cli@0.22.5/visible-v1/actions-v1" as const;
 
-export function listGoogleWorkspaceTools(): WorkspaceToolDefinition[] {
-  return [...GOOGLE_WORKSPACE_TOOLS, ...GWS_VISIBLE_GENERATED_TOOLS];
+export type GoogleWorkspaceCatalogId = typeof GOOGLE_WORKSPACE_CATALOG_ID;
+
+export const GOOGLE_WORKSPACE_CATALOG_ACTION_COUNTS = {
+  read: 110,
+  write: 120,
+  destructive: 50,
+} as const;
+
+export const GOOGLE_WORKSPACE_TOOL_GRANTS_SHA256 =
+  "sha256:3e333e2776e9686279c357f78b362c12e727692fa3f96121d78d7cb0ab76e482" as const;
+
+export interface GoogleWorkspaceToolGrant {
+  provider: string;
+  resource: string;
+  action: ActionClass;
 }
 
-export function getGoogleWorkspaceTool(name: string): WorkspaceToolDefinition {
-  const tool = GOOGLE_WORKSPACE_TOOL_BY_NAME.get(name);
+const LEGACY_GOOGLE_WORKSPACE_TOOLS = [
+  ...GOOGLE_WORKSPACE_TOOLS,
+  ...GWS_VISIBLE_GENERATED_TOOLS,
+] as const;
+
+const GOVERNED_GOOGLE_WORKSPACE_TOOLS = LEGACY_GOOGLE_WORKSPACE_TOOLS.map((tool) => {
+  const commandPath = tool.command.slice(1).join(".");
+  const actionClass = classifyGovernedGwsToolAction(tool.service, commandPath, tool.actionClass);
+  if (actionClass === tool.actionClass) {
+    return tool;
+  }
+  return {
+    ...tool,
+    actionClass,
+    annotations: annotationsForActionClass(actionClass),
+  };
+});
+
+export const GOOGLE_WORKSPACE_TOOL_GRANTS: readonly GoogleWorkspaceToolGrant[] =
+  GOVERNED_GOOGLE_WORKSPACE_TOOLS.map((tool) => ({
+    provider: tool.service,
+    resource: tool.name,
+    action: tool.actionClass,
+  }));
+
+const LEGACY_GOOGLE_WORKSPACE_TOOL_BY_NAME = new Map(
+  LEGACY_GOOGLE_WORKSPACE_TOOLS.map((tool) => [tool.name, tool]),
+);
+const GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME = new Map(
+  GOVERNED_GOOGLE_WORKSPACE_TOOLS.map((tool) => [tool.name, tool]),
+);
+
+export function listGoogleWorkspaceTools(
+  catalogId?: GoogleWorkspaceCatalogId,
+): WorkspaceToolDefinition[] {
+  return catalogId === GOOGLE_WORKSPACE_CATALOG_ID
+    ? [...GOVERNED_GOOGLE_WORKSPACE_TOOLS]
+    : [...LEGACY_GOOGLE_WORKSPACE_TOOLS];
+}
+
+export function getGoogleWorkspaceTool(
+  name: string,
+  catalogId?: GoogleWorkspaceCatalogId,
+): WorkspaceToolDefinition {
+  const tool = (
+    catalogId === GOOGLE_WORKSPACE_CATALOG_ID
+      ? GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME
+      : LEGACY_GOOGLE_WORKSPACE_TOOL_BY_NAME
+  ).get(name);
   if (!tool) {
     throw new Error(`Unknown Google Workspace tool: ${name}`);
   }
 
   return tool;
+}
+
+export function classifyGoogleWorkspaceToolAction(name: string): ActionClass | undefined {
+  return GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME.get(name)?.actionClass;
 }
 
 function isVisibleGeneratedTool(tool: WorkspaceToolDefinition): boolean {

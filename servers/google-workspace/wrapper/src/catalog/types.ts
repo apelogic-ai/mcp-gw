@@ -92,7 +92,7 @@ export function defineWorkspaceTool(spec: WorkspaceToolSpec): WorkspaceToolDefin
   };
 }
 
-function annotationsForActionClass(actionClass: ActionClass): ToolAnnotations {
+export function annotationsForActionClass(actionClass: ActionClass): ToolAnnotations {
   if (actionClass === "read") {
     return { readOnlyHint: true };
   }

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../../shared/audit/audit";
 import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
-import { getGoogleWorkspaceTool } from "../catalog/google-workspace";
+import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { GwsExecutionError } from "../executor/gws";
 import { createGoogleWorkspaceRegistry } from "./registry";
 
@@ -272,6 +272,115 @@ describe("Google Workspace request registry", () => {
     expect(audit.events[0]?.tool).toBe("google_drive_files_create");
   });
 
+  test("preserves per-service provider authority in legacy and catalog modes", async () => {
+    for (const governanceCatalogId of [undefined, GOOGLE_WORKSPACE_CATALOG_ID]) {
+      const policyInputs: ToolPolicyInput[] = [];
+      const registry = createGoogleWorkspaceRegistry({
+        identity,
+        governanceCatalogId,
+        policy: {
+          decide: (input) => {
+            policyInputs.push(input);
+            const matchesGrant =
+              input.service === "drive" &&
+              input.tool === "gws_drive_files_list" &&
+              input.actionClass === "read";
+            return Promise.resolve(
+              matchesGrant
+                ? { kind: "allow" as const }
+                : { kind: "deny" as const, reason: "provider grant absent" },
+            );
+          },
+        },
+        tokenBroker: {
+          getAccessToken: () => Promise.resolve("access-token"),
+        },
+        executor: (request) => Promise.resolve({ executionService: request.tool.service }),
+      });
+
+      const result = await registry.callTool("gws_drive_files_list", {});
+
+      expect(policyInputs).toHaveLength(1);
+      expect(policyInputs[0]).toMatchObject({
+        service: "drive",
+        tool: "gws_drive_files_list",
+        actionClass: "read",
+      });
+      expect(result.content[0]?.text).toContain('"executionService": "drive"');
+    }
+  });
+
+  test("does not accept google as authority for an ordinary per-service tool", async () => {
+    let tokenCalls = 0;
+    let executorCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: (input) =>
+          Promise.resolve(
+            input.service === "google"
+              ? { kind: "allow" as const }
+              : { kind: "deny" as const, reason: "provider grant absent" },
+          ),
+      },
+      tokenBroker: {
+        getAccessToken: () => {
+          tokenCalls += 1;
+          return Promise.resolve("access-token");
+        },
+      },
+      executor: () => {
+        executorCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    expect.assertions(3);
+    try {
+      await registry.callTool("gws_drive_files_list", {});
+    } catch (error) {
+      expect((error as Error).message).toBe(
+        "Policy denied gws_drive_files_list: provider grant absent",
+      );
+      expect(tokenCalls).toBe(0);
+      expect(executorCalls).toBe(0);
+    }
+  });
+
+  test("applies corrected semantic actions only under the exact catalog pin", async () => {
+    const observed: string[] = [];
+    for (const governanceCatalogId of [undefined, GOOGLE_WORKSPACE_CATALOG_ID]) {
+      const registry = createGoogleWorkspaceRegistry({
+        identity,
+        governanceCatalogId,
+        policy: {
+          decide: (input) => {
+            observed.push(`${input.service}:${input.actionClass}`);
+            return Promise.resolve({ kind: "deny", reason: "capture only" });
+          },
+        },
+        tokenBroker: {
+          getAccessToken: () => Promise.reject(new Error("token lookup should not run")),
+        },
+        executor: () => Promise.reject(new Error("executor should not run")),
+      });
+
+      try {
+        await registry.callTool("gws_gmail_users_messages_batch_delete", {
+          params: { userId: "me" },
+          json: { ids: ["message-1"] },
+        });
+        throw new Error("expected policy denial");
+      } catch (error) {
+        expect((error as Error).message).toBe(
+          "Policy denied gws_gmail_users_messages_batch_delete: capture only",
+        );
+      }
+    }
+
+    expect(observed).toEqual(["gmail:write", "gmail:destructive"]);
+  });
+
   test("uses caller-supplied scopes for the generic gws tool", async () => {
     const requestedScopes: string[][] = [];
     const registry = createGoogleWorkspaceRegistry({
@@ -372,6 +481,41 @@ describe("Google Workspace request registry", () => {
     expect(result.content[0]?.text).toContain("token=[redacted]");
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]?.status).toBe("error");
+  });
+
+  test("rejects unknown catalog tools before policy, token lookup, or execution", async () => {
+    let policyCalls = 0;
+    let tokenCalls = 0;
+    let executorCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getAccessToken: () => {
+          tokenCalls += 1;
+          return Promise.resolve("access-token");
+        },
+      },
+      executor: () => {
+        executorCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    expect.assertions(4);
+    try {
+      await registry.callTool("future_google_tool", {});
+    } catch (error) {
+      expect((error as Error).message).toBe("Unknown Google Workspace tool: future_google_tool");
+      expect(policyCalls).toBe(0);
+      expect(tokenCalls).toBe(0);
+      expect(executorCalls).toBe(0);
+    }
   });
 
   test("rejects missing required arguments before token lookup", async () => {

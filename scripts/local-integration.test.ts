@@ -106,16 +106,25 @@ describe("local Docker integration smoke", () => {
   });
 
   test("runs the complete provider bundle against TLS PostgreSQL and safe fixtures", async () => {
-    const [packageJson, workflow, smoke, compose, gatewayConfig, providerFixture, client] =
-      await Promise.all([
-        readFile("package.json", "utf8"),
-        readFile(".github/workflows/release.yml", "utf8"),
-        readFile("scripts/smoke-full-bundle.sh", "utf8"),
-        readFile("deploy/compose/docker-compose.full-bundle-smoke.yaml", "utf8"),
-        readFile("gateway/agentgateway/local-full-bundle-smoke.yaml", "utf8"),
-        readFile("scripts/fixtures/provider-fixture.ts", "utf8"),
-        readFile("scripts/fixtures/full-bundle-client.ts", "utf8"),
-      ]);
+    const [
+      packageJson,
+      workflow,
+      smoke,
+      compose,
+      gatewayConfig,
+      providerFixture,
+      client,
+      githubCatalogConformance,
+    ] = await Promise.all([
+      readFile("package.json", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+      readFile("scripts/smoke-full-bundle.sh", "utf8"),
+      readFile("deploy/compose/docker-compose.full-bundle-smoke.yaml", "utf8"),
+      readFile("gateway/agentgateway/local-full-bundle-smoke.yaml", "utf8"),
+      readFile("scripts/fixtures/provider-fixture.ts", "utf8"),
+      readFile("scripts/fixtures/full-bundle-client.ts", "utf8"),
+      readFile("scripts/fixtures/github-mcp-catalog-conformance.ts", "utf8"),
+    ]);
 
     expect(packageJson).toContain('"integration:bundle": "bash scripts/smoke-full-bundle.sh"');
     expect(workflow).toContain("bun run integration:bundle");
@@ -123,6 +132,14 @@ describe("local Docker integration smoke", () => {
     expect(compose).toContain("ssl=on");
     expect(compose).toContain("sslmode=verify-full");
     expect(compose).toContain("sslrootcert=/tls/ca.crt");
+    expect(compose).toContain(
+      "ghcr.io/github/github-mcp-server@sha256:2b0c48b070f61e9d3969269ead600f62d00fb237b60ac849ef3d166ee7de9ad3",
+    );
+    expect(compose).toContain("GITHUB_TOOLSETS: all");
+    expect(compose).toContain("GITHUB_MCP_GOVERNANCE_CATALOG: github-mcp-server@1.6.0/all");
+    expect(compose).toContain(
+      "GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: google-workspace-cli@0.22.5/visible-v1/actions-v1",
+    );
     expect(gatewayConfig).toMatch(
       /providers:\n\s+- issuer: http:\/\/host\.docker\.internal:18180[\s\S]*?allowedAlgorithms: \[RS256\]/,
     );
@@ -144,6 +161,9 @@ describe("local Docker integration smoke", () => {
     expect(client).toContain("resources/list");
     expect(client).toContain("assertGithubGrantStatus");
     expect(client).toContain("assertNoProviderCredentials");
+    expect(githubCatalogConformance).toContain("GITHUB_MCP_TOOLS");
+    expect(githubCatalogConformance).toContain("pinnedGithubToolAnnotationsMatch");
+    expect(smoke).toContain("github-mcp-catalog-conformance.ts");
     expect(smoke).toContain("assert_logs_do_not_contain_credentials");
   });
 });

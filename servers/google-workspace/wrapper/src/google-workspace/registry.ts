@@ -9,6 +9,7 @@ import {
   getGoogleWorkspaceTool,
   isExcludedGoogleWorkspaceScope,
   listGoogleWorkspaceTools,
+  type GoogleWorkspaceCatalogId,
 } from "../catalog/google-workspace";
 import type { WorkspaceToolDefinition } from "../catalog/types";
 import type { ToolRegistry, ToolResult } from "../mcp/registry";
@@ -40,6 +41,7 @@ export type WorkspaceToolExecutor = (request: ExecuteWorkspaceToolRequest) => Pr
 
 export interface CreateGoogleWorkspaceRegistryOptions {
   identity: Hop1Identity;
+  governanceCatalogId?: GoogleWorkspaceCatalogId;
   audit?: AuditSink;
   policy?: ToolPolicy;
   oauth?: GoogleOAuthTools;
@@ -55,11 +57,14 @@ export function createGoogleWorkspaceRegistry(
   return {
     listTools: () => {
       if (!options.oauth) {
-        return listGoogleWorkspaceTools();
+        return listGoogleWorkspaceTools(options.governanceCatalogId);
       }
 
       return options.oauth.status.connected
-        ? [...GOOGLE_OAUTH_TOOL_DEFINITIONS, ...listGoogleWorkspaceTools()]
+        ? [
+            ...GOOGLE_OAUTH_TOOL_DEFINITIONS,
+            ...listGoogleWorkspaceTools(options.governanceCatalogId),
+          ]
         : [...GOOGLE_OAUTH_TOOL_DEFINITIONS];
     },
     callTool: async (name, args) => {
@@ -87,7 +92,7 @@ export function createGoogleWorkspaceRegistry(
       }
 
       const started = Date.now();
-      const tool = getGoogleWorkspaceTool(name);
+      const tool = getGoogleWorkspaceTool(name, options.governanceCatalogId);
       validateRequiredArgs(tool, args);
 
       const decision = await policy.decide({

@@ -8,6 +8,7 @@ JWKS_PORT="${JWKS_PORT:-18180}"
 GATEWAY_PORT="${GATEWAY_PORT:-18181}"
 GOOGLE_WRAPPER_PORT="${GOOGLE_WRAPPER_PORT:-18182}"
 GITHUB_WRAPPER_PORT="${GITHUB_WRAPPER_PORT:-18183}"
+GITHUB_MCP_CATALOG_PORT="${GITHUB_MCP_CATALOG_PORT:-18184}"
 ISSUER="http://host.docker.internal:$JWKS_PORT"
 AUDIENCE="http://agentgateway:3000/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
@@ -55,11 +56,14 @@ cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
 GOOGLE_WRAPPER_PORT=$GOOGLE_WRAPPER_PORT
 GITHUB_WRAPPER_PORT=$GITHUB_WRAPPER_PORT
+GITHUB_MCP_CATALOG_PORT=$GITHUB_MCP_CATALOG_PORT
 AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.3.2}
 ENV
 
 compose_cmd config >/dev/null
-compose_cmd up -d --build --wait token-store provider-fixture
+compose_cmd up -d --build --wait token-store provider-fixture github-mcp-catalog
+bun "$ROOT_DIR/scripts/fixtures/github-mcp-catalog-conformance.ts" \
+  --url "http://127.0.0.1:$GITHUB_MCP_CATALOG_PORT/mcp"
 compose_cmd build oauth-migrations
 
 # Two simultaneous runs prove the advisory lock makes migration execution concurrency-safe.

@@ -141,6 +141,7 @@ export function createRuntimeWrapperHandler(
     }),
     audit: options.audit ?? createAuditSink(options.config),
     policy: options.policy ?? createPolicy(options.config, options.fetch),
+    governanceCatalogId: options.config.governanceCatalogId,
     getOAuthStatus: providerOAuth
       ? async (identity) => {
           const account = await options.tokenStore.getAccount(

@@ -9,6 +9,10 @@ import {
 import type { AuditSink } from "../../../../shared/audit/audit";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
+import {
+  GOOGLE_WORKSPACE_CATALOG_ID,
+  type GoogleWorkspaceCatalogId,
+} from "./catalog/google-workspace";
 import type { GoogleOAuthStatus, WorkspaceToolExecutor } from "./google-workspace/registry";
 import { createGoogleWorkspaceRegistry } from "./google-workspace/registry";
 import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
@@ -20,6 +24,7 @@ interface ServerInfo {
 
 export interface WrapperConfig {
   gwsBinary: string;
+  governanceCatalogId?: GoogleWorkspaceCatalogId;
   hop1?: IssuerProfile;
   hop1Issuers: Hop1IssuerConfig[];
   oauth: GoogleOAuthConfig;
@@ -58,6 +63,7 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
     getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
   };
   executor: WorkspaceToolExecutor;
+  governanceCatalogId?: GoogleWorkspaceCatalogId;
 }
 
 export function createGoogleWorkspaceWrapperHandler(
@@ -71,6 +77,7 @@ export function createGoogleWorkspaceWrapperHandler(
       const oauthStatus = await options.getOAuthStatus?.(identity);
       return createGoogleWorkspaceRegistry({
         identity,
+        governanceCatalogId: options.governanceCatalogId,
         audit: options.audit,
         policy: options.policy,
         tokenBroker: {
@@ -112,6 +119,7 @@ export function loadWrapperConfig(
 
   return {
     gwsBinary: requiredEnv(env, "GWS_BINARY_PATH"),
+    governanceCatalogId: parseGovernanceCatalogId(env.GOOGLE_WORKSPACE_GOVERNANCE_CATALOG),
     hop1: defaultHop1Issuer,
     hop1Issuers,
     oauth,
@@ -124,6 +132,17 @@ export function loadWrapperConfig(
         : undefined,
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
   };
+}
+
+function parseGovernanceCatalogId(value: string | undefined): GoogleWorkspaceCatalogId | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized !== GOOGLE_WORKSPACE_CATALOG_ID) {
+    throw new Error(`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG must be ${GOOGLE_WORKSPACE_CATALOG_ID}`);
+  }
+  return GOOGLE_WORKSPACE_CATALOG_ID;
 }
 
 function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {

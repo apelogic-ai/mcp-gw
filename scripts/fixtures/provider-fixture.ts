@@ -92,6 +92,7 @@ Bun.serve({
                   required: ["owner", "repo", "path"],
                   additionalProperties: false,
                 },
+                annotations: { readOnlyHint: true, idempotentHint: false },
               },
             ],
           });
