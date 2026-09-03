@@ -27,6 +27,7 @@ describe("GitHub MCP bundled backend", () => {
     expect(override).toContain("github-wrapper:");
     expect(override).toContain("dockerfile: servers/github-mcp/wrapper/Dockerfile");
     expect(override).toContain("GITHUB_MCP_UPSTREAM_URL");
+    expect(override).toContain("GITHUB_MCP_GOVERNANCE_CATALOG");
     expect(override).toContain("GITHUB_TOKEN_ENCRYPTION_KEY");
     expect(override).toContain("TOKEN_STORE_DSN");
     expect(override).toContain("github-mcp:");

@@ -136,6 +136,10 @@ describe("local Docker integration smoke", () => {
       "ghcr.io/github/github-mcp-server@sha256:2b0c48b070f61e9d3969269ead600f62d00fb237b60ac849ef3d166ee7de9ad3",
     );
     expect(compose).toContain("GITHUB_TOOLSETS: all");
+    expect(compose).toContain("GITHUB_MCP_GOVERNANCE_CATALOG: github-mcp-server@1.6.0/all");
+    expect(compose).toContain(
+      "GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: google-workspace-cli@0.22.5/visible-v1/actions-v1",
+    );
     expect(gatewayConfig).toMatch(
       /providers:\n\s+- issuer: http:\/\/host\.docker\.internal:18180[\s\S]*?allowedAlgorithms: \[RS256\]/,
     );

@@ -8,13 +8,16 @@ import {
   type ToolPolicy,
 } from "../../../../shared/policy/policy";
 import {
+  GITHUB_MCP_CATALOG_ID,
   classifyGithubToolAction,
   isPinnedGithubTool,
   pinnedGithubToolAnnotationsMatch,
+  type GithubMcpCatalogId,
 } from "./catalog/github-mcp";
 
 export interface CreateGithubMcpProxyHandlerOptions {
   upstreamUrl: string;
+  governanceCatalogId?: GithubMcpCatalogId;
   authenticate(token: string): Promise<Hop1Identity>;
   resolveGithubToken(identity: Hop1Identity): Promise<string | undefined>;
   getOAuthStatus?(identity: Hop1Identity): Promise<GithubOAuthStatus>;
@@ -67,7 +70,6 @@ const LOCAL_TOOLS = [
       properties: {},
       required: [],
     },
-    annotations: { readOnlyHint: true },
   },
   {
     name: "github_oauth_start",
@@ -147,7 +149,7 @@ export function createGithubMcpProxyHandler(
       }
     }
 
-    const toolCall = parseToolCall(body, options.aliases ?? {});
+    const toolCall = parseToolCall(body, options.aliases ?? {}, options.governanceCatalogId);
     const actionClass = toolCall?.actionClass;
     if (toolCall && actionClass === undefined) {
       await options.audit?.emit({
@@ -311,11 +313,14 @@ async function handleToolsList(
   );
   const responseBody = await upstreamResponse.text();
 
-  return new Response(mergeToolsList(responseBody), {
-    status: upstreamResponse.status,
-    statusText: upstreamResponse.statusText,
-    headers: responseHeaders(upstreamResponse),
-  });
+  return new Response(
+    mergeToolsList(responseBody, options.governanceCatalogId === GITHUB_MCP_CATALOG_ID),
+    {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers: responseHeaders(upstreamResponse),
+    },
+  );
 }
 
 async function resolveGithubTokenOrUndefined(
@@ -417,18 +422,18 @@ function parseMethod(body: string):
   };
 }
 
-function mergeToolsList(body: string): string {
+function mergeToolsList(body: string, enforceCatalog: boolean): string {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
   } catch {
-    return mergeSseToolsList(body) ?? body;
+    return mergeSseToolsList(body, enforceCatalog) ?? body;
   }
 
-  return JSON.stringify(mergeToolPayload(payload) ?? payload);
+  return JSON.stringify(mergeToolPayload(payload, enforceCatalog) ?? payload);
 }
 
-function mergeSseToolsList(body: string): string | undefined {
+function mergeSseToolsList(body: string, enforceCatalog: boolean): string | undefined {
   let changed = false;
   const lines: string[] = [];
   for (const line of body.split(/\r?\n/)) {
@@ -451,7 +456,7 @@ function mergeSseToolsList(body: string): string | undefined {
       continue;
     }
 
-    const merged = mergeToolPayload(payload);
+    const merged = mergeToolPayload(payload, enforceCatalog);
     if (!merged) {
       lines.push(line);
       continue;
@@ -464,12 +469,17 @@ function mergeSseToolsList(body: string): string | undefined {
   return changed ? lines.join("\n") : undefined;
 }
 
-function mergeToolPayload(payload: unknown): Record<string, unknown> | undefined {
+function mergeToolPayload(
+  payload: unknown,
+  enforceCatalog: boolean,
+): Record<string, unknown> | undefined {
   if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
     return undefined;
   }
 
-  const upstreamTools = (payload.result.tools as unknown[]).filter(isSupportedUpstreamTool);
+  const upstreamTools = enforceCatalog
+    ? (payload.result.tools as unknown[]).filter(isSupportedUpstreamTool)
+    : (payload.result.tools as unknown[]);
   const existingNames = new Set(
     upstreamTools
       .map((tool) => (isRecord(tool) && typeof tool.name === "string" ? tool.name : undefined))
@@ -621,7 +631,11 @@ async function denyIfNeeded(
   );
 }
 
-function parseToolCall(body: string, aliases: Record<string, string>): ToolCallContext | undefined {
+function parseToolCall(
+  body: string,
+  aliases: Record<string, string>,
+  governanceCatalogId?: GithubMcpCatalogId,
+): ToolCallContext | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
@@ -656,9 +670,21 @@ function parseToolCall(body: string, aliases: Record<string, string>): ToolCallC
     originalName: name,
     toolName,
     args,
-    actionClass: classifyGithubToolAction(toolName, args),
+    actionClass:
+      governanceCatalogId === GITHUB_MCP_CATALOG_ID
+        ? classifyGithubToolAction(toolName, args)
+        : classifyLegacyGithubToolAction(toolName),
     body: JSON.stringify(rewritten),
   };
+}
+
+function classifyLegacyGithubToolAction(toolName: string): PolicyActionClass {
+  if (toolName === "github_oauth_start") return "write";
+  if (/(?:delete|remove|destroy)/i.test(toolName)) return "destructive";
+  if (/(?:create|update|edit|merge|close|reopen|add|set|request|review|comment)/i.test(toolName)) {
+    return "write";
+  }
+  return "read";
 }
 
 function jsonRpcId(value: unknown): JsonRpcId {

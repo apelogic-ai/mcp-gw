@@ -2,6 +2,7 @@ import type { PolicyActionClass } from "../../../../../shared/policy/policy";
 
 /** Exact tools/list contract from github-mcp-server v1.6.0 with GITHUB_TOOLSETS=all. */
 export const GITHUB_MCP_CATALOG_ID = "github-mcp-server@1.6.0/all" as const;
+export type GithubMcpCatalogId = typeof GITHUB_MCP_CATALOG_ID;
 
 export const GITHUB_MCP_TOOL_NAMES = [
   "actions_get",

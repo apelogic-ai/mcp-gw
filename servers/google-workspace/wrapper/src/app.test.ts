@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../shared/audit/audit";
+import { GOOGLE_WORKSPACE_CATALOG_ID } from "./catalog/google-workspace";
 import { createGoogleWorkspaceWrapperHandler, loadWrapperConfig } from "./app";
 
 const identity: Hop1Identity = {
@@ -29,6 +30,7 @@ describe("Google Workspace wrapper app", () => {
 
     expect(config).toMatchObject({
       gwsBinary: "/usr/local/bin/gws",
+      governanceCatalogId: undefined,
       hop1: {
         issuer: "https://accounts.google.com",
         audiences: ["mcp-gateway-dev"],
@@ -44,6 +46,34 @@ describe("Google Workspace wrapper app", () => {
         clientId: "client-id",
       },
     });
+  });
+
+  test("enables only the exact opt-in governance catalog and rejects unknown pins", () => {
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://dev.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://accounts.google.com",
+      HOP1_AUDIENCE: "mcp-gateway-dev",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
+      HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
+    };
+
+    expect(
+      loadWrapperConfig({
+        ...env,
+        GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: GOOGLE_WORKSPACE_CATALOG_ID,
+      }).governanceCatalogId,
+    ).toBe(GOOGLE_WORKSPACE_CATALOG_ID);
+    expect(() =>
+      loadWrapperConfig({
+        ...env,
+        GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: "google-workspace-cli@future",
+      }),
+    ).toThrow(`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG must be ${GOOGLE_WORKSPACE_CATALOG_ID}`);
   });
 
   test("loads configurable Google OAuth endpoints for isolated integration tests", () => {

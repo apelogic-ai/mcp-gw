@@ -4,7 +4,7 @@ import { InMemoryAuditSink } from "../../../../shared/audit/audit";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import type { ToolPolicy, ToolPolicyInput } from "../../../../shared/policy/policy";
-import { GITHUB_MCP_TOOLS } from "./catalog/github-mcp";
+import { GITHUB_MCP_CATALOG_ID, GITHUB_MCP_TOOLS } from "./catalog/github-mcp";
 import { createGithubMcpProxyHandler } from "./proxy";
 
 describe("GitHub MCP proxy wrapper", () => {
@@ -238,8 +238,34 @@ describe("GitHub MCP proxy wrapper", () => {
       id: 11,
       result: {
         tools: [
-          expect.objectContaining({ name: "github_oauth_status" }),
-          expect.objectContaining({ name: "github_oauth_start" }),
+          {
+            name: "github_oauth_status",
+            description:
+              "Check whether the current MCP-GW user has connected a GitHub account for GitHub MCP tools.",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {},
+              required: [],
+            },
+          },
+          {
+            name: "github_oauth_start",
+            description:
+              "Start GitHub OAuth connection for the current MCP-GW user and return a browser authorization URL.",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                redirectAfter: {
+                  type: "string",
+                  description: "Optional URL to return to after GitHub OAuth completes.",
+                },
+              },
+              required: [],
+            },
+            annotations: { readOnlyHint: false },
+          },
         ],
       },
     });
@@ -808,6 +834,7 @@ describe("GitHub MCP proxy wrapper", () => {
   test("advertises only pinned upstream tools with matching annotations", async () => {
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
+      governanceCatalogId: GITHUB_MCP_CATALOG_ID,
       authenticate: () => Promise.resolve(identity),
       resolveGithubToken: () => Promise.resolve("gho_user_token"),
       fetch: () =>
@@ -871,6 +898,7 @@ describe("GitHub MCP proxy wrapper", () => {
   test("advertises the complete pinned unrestricted catalog when upstream annotations match", async () => {
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
+      governanceCatalogId: GITHUB_MCP_CATALOG_ID,
       authenticate: () => Promise.resolve(identity),
       resolveGithubToken: () => Promise.resolve("gho_user_token"),
       fetch: () =>
@@ -896,6 +924,88 @@ describe("GitHub MCP proxy wrapper", () => {
       "github_oauth_status",
       "github_oauth_start",
       ...GITHUB_MCP_TOOLS.map((tool) => tool.name),
+    ]);
+  });
+
+  test("keeps absent-pin tools/list pass-through shape and ordering", async () => {
+    const upstreamTools = [
+      {
+        name: "future_github_tool",
+        description: "Unknown to this wrapper version.",
+        inputSchema: { type: "object", properties: { value: { type: "string" } } },
+        annotations: { readOnlyHint: false, customHint: "preserve-me" },
+      },
+      {
+        name: "pull_request_read",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: false, idempotentHint: false },
+      },
+    ];
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("gho_user_token"),
+      fetch: () =>
+        Promise.resolve(
+          Response.json({ jsonrpc: "2.0", id: 14, result: { tools: upstreamTools } }),
+        ),
+    });
+
+    const response = await rpc(handler, { jsonrpc: "2.0", id: 14, method: "tools/list" });
+    const body = (await response.json()) as { result: { tools: unknown[] } };
+
+    expect(body.result.tools.slice(2)).toEqual(upstreamTools);
+  });
+
+  test("keeps absent-pin legacy classifications and forwards unknown upstream tools", async () => {
+    const policyInputs: ToolPolicyInput[] = [];
+    const upstreamNames: string[] = [];
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("gho_user_token"),
+      policy: {
+        decide: (input) => {
+          policyInputs.push(input);
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      fetch: async (request) => {
+        const payload = (await request.json()) as { params?: { name?: string } };
+        upstreamNames.push(payload.params?.name ?? "");
+        return Response.json({ jsonrpc: "2.0", id: 15, result: { ok: true } });
+      },
+    });
+
+    for (const name of [
+      "get_discussion_comments",
+      "list_pull_requests",
+      "pull_request_read",
+      "search_pull_requests",
+      "future_github_tool",
+    ]) {
+      const response = await rpc(handler, {
+        jsonrpc: "2.0",
+        id: name,
+        method: "tools/call",
+        params: { name, arguments: {} },
+      });
+      expect(response.status).toBe(200);
+    }
+
+    expect(policyInputs.map(({ tool, actionClass }) => [tool, actionClass])).toEqual([
+      ["get_discussion_comments", "write"],
+      ["list_pull_requests", "write"],
+      ["pull_request_read", "write"],
+      ["search_pull_requests", "write"],
+      ["future_github_tool", "read"],
+    ]);
+    expect(upstreamNames).toEqual([
+      "get_discussion_comments",
+      "list_pull_requests",
+      "pull_request_read",
+      "search_pull_requests",
+      "future_github_tool",
     ]);
   });
 
@@ -1100,6 +1210,7 @@ describe("GitHub MCP proxy wrapper", () => {
     const audit = new InMemoryAuditSink();
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
+      governanceCatalogId: GITHUB_MCP_CATALOG_ID,
       authenticate: () => Promise.resolve(identity),
       resolveGithubToken: () => {
         tokenCalls += 1;
@@ -1157,6 +1268,7 @@ describe("GitHub MCP proxy wrapper", () => {
     };
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
+      governanceCatalogId: GITHUB_MCP_CATALOG_ID,
       authenticate: () => Promise.resolve(identityWithAuthority),
       resolveGithubToken: () => Promise.reject(new Error("should not resolve token")),
       githubScopes: ["repo"],

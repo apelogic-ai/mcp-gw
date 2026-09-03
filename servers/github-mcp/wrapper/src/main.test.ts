@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { GITHUB_MCP_CATALOG_ID } from "./catalog/github-mcp";
 import { loadMainConfig } from "./main";
 
 const baseEnv = {
@@ -22,6 +23,7 @@ describe("GitHub MCP wrapper main config", () => {
       tokenStoreDsn: "postgres://mcp:mcp@token-store:5432/mcp",
       postgresCaBundlePath: undefined,
       upstreamUrl: "http://github-mcp:8082/mcp",
+      githubGovernanceCatalogId: undefined,
       githubOAuth: {
         clientId: "github-client",
         clientSecret: "github-secret",
@@ -45,6 +47,21 @@ describe("GitHub MCP wrapper main config", () => {
         },
       ],
     });
+  });
+
+  test("enables only the exact opt-in governance catalog and rejects unknown pins", () => {
+    expect(
+      loadMainConfig({
+        ...baseEnv,
+        GITHUB_MCP_GOVERNANCE_CATALOG: GITHUB_MCP_CATALOG_ID,
+      }).githubGovernanceCatalogId,
+    ).toBe(GITHUB_MCP_CATALOG_ID);
+    expect(() =>
+      loadMainConfig({
+        ...baseEnv,
+        GITHUB_MCP_GOVERNANCE_CATALOG: "github-mcp-server@future/all",
+      }),
+    ).toThrow(`GITHUB_MCP_GOVERNANCE_CATALOG must be ${GITHUB_MCP_CATALOG_ID}`);
   });
 
   test("loads an operator-mounted PostgreSQL CA bundle path", () => {

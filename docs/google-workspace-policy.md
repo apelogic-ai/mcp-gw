@@ -53,6 +53,13 @@ Match fields:
 - `actionClass` or `actionClasses`
 - `scope` or `scopes`
 
+For ordinary Workspace catalog tools, `service` remains the exact provider authority key (`drive`,
+`gmail`, `calendar`, and so on). “Google Workspace” can be used as a display grouping, but it is not
+an authority value. OAuth connection controls are internal and are not selectable catalog grants.
+The corrected semantic catalog is enabled only by the exact
+`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG=google-workspace-cli@0.22.5/visible-v1/actions-v1` pin;
+without it, legacy action classifications and policy inputs remain unchanged.
+
 An omitted `match` block matches every call.
 
 ## OPA

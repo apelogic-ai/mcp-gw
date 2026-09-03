@@ -80,6 +80,17 @@ The wrapper applies policy and audit to `tools/call` before resolving the
 user's GitHub token. Alias mappings rewrite compatibility tool names to the
 official upstream tool name before policy and forwarding.
 
+## Governed catalog contract
+
+Set `GITHUB_MCP_GOVERNANCE_CATALOG=github-mcp-server@1.6.0/all` to pin the exact
+GitHub MCP v1.6.0 unrestricted surface: 84 tools and 92 selectable grant tuples. In this mode the
+wrapper advertises only tools whose names and annotations match the pinned catalog, classifies
+argument-dependent mutations exactly, and fails closed for unknown tools or selectors. The local
+OAuth controls are not selectable catalog grants.
+
+With the variable absent, the wrapper preserves its legacy pass-through tools/list and name-based
+action classification for compatibility. Any other catalog ID is rejected at startup.
+
 The wrapper advertises a tools-only MCP capability. Some clients nevertheless
 probe `resources/templates/list` and `resources/list` during startup. While a
 user has no matching GitHub grant (or the exact grant requires reauthorization),

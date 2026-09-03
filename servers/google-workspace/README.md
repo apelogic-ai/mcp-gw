@@ -15,6 +15,28 @@ Current implementation status:
 - `GOOGLE_OAUTH_SCOPES` can replace the default compact consent scope set when a deployment
   intentionally enables a broader or narrower surface.
 
+## Governed catalog contract
+
+The selectable provider catalog is
+`google-workspace-cli@0.22.5/visible-v1/actions-v1`: exactly 280 grants (110 `read`, 120 `write`,
+and 50 `destructive`). Its canonical grant-list digest is
+`sha256:3e333e2776e9686279c357f78b362c12e727692fa3f96121d78d7cb0ab76e482`.
+
+Enable it explicitly with
+`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG=google-workspace-cli@0.22.5/visible-v1/actions-v1`.
+With that variable absent, the wrapper retains its legacy tools/list, annotations, action classes,
+and policy inputs unchanged. Any other catalog ID is rejected at startup.
+
+Every ordinary tool is authorized as `{ provider: <tool service>, resource: <tool name>, action:
+<action class> }`. The existing service values (`drive`, `gmail`, `calendar`, and so on) remain the
+authority key; “Google Workspace” is only a display grouping. The `google_oauth_status` and
+`google_oauth_start` controls are internal connection operations and are not part of the 280
+selectable grants.
+
+Per-service provider grants remain valid. Opting into the catalog requires reissuing only grants for
+operations reclassified from `write` to `destructive`; existing authority is not silently
+reinterpreted.
+
 ## Full `gws` passthrough
 
 Use `google_workspace_gws` when a client needs an upstream CLI capability that does not have a

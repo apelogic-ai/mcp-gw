@@ -20,6 +20,7 @@ describe("Docker Compose deployment skeleton", () => {
     expect(compose).toContain("HOP1_ISSUERS_JSON:");
     expect(compose).toContain("OPA_POLICY_URL:");
     expect(compose).toContain("GOOGLE_WORKSPACE_POLICY_FILE:");
+    expect(compose).toContain("GOOGLE_WORKSPACE_GOVERNANCE_CATALOG:");
     expect(compose).toContain("AUDIT_LOG_PATH:");
     expect(compose).toContain("/docker-entrypoint-initdb.d/001-oauth-schema.sql:ro");
     expect(compose).toContain("GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/app/node_modules/.bin/gws}");
@@ -42,6 +43,8 @@ describe("Docker Compose deployment skeleton", () => {
     expect(envExample).toContain("HOP1_ISSUERS_JSON=");
     expect(envExample).toContain("OPA_POLICY_URL=");
     expect(envExample).toContain("GOOGLE_WORKSPACE_POLICY_FILE=");
+    expect(envExample).toContain("GOOGLE_WORKSPACE_GOVERNANCE_CATALOG=");
+    expect(envExample).toContain("GITHUB_MCP_GOVERNANCE_CATALOG=");
     expect(envExample).toContain("AUDIT_LOG_PATH=/var/log/mcp-gw/audit.jsonl");
     expect(envExample).toContain(
       "GOOGLE_OAUTH_REDIRECT_URI=https://mcp.example.com/oauth/google/callback",

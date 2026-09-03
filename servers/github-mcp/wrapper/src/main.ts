@@ -29,6 +29,7 @@ import {
   createRemoteJwksProvider,
 } from "../../../google-workspace/wrapper/src/runtime";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
+import { GITHUB_MCP_CATALOG_ID, type GithubMcpCatalogId } from "./catalog/github-mcp";
 import { createGithubMcpProxyHandler } from "./proxy";
 
 export interface MainConfig {
@@ -36,6 +37,7 @@ export interface MainConfig {
   tokenStoreDsn: string;
   postgresCaBundlePath?: string;
   upstreamUrl: string;
+  githubGovernanceCatalogId?: GithubMcpCatalogId;
   githubOAuth: GitHubOAuthConfig;
   githubScopes: string[];
   githubRedirectAfterAllowedOrigins: string[];
@@ -63,6 +65,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
     tokenStoreDsn: requiredEnv(env, "TOKEN_STORE_DSN"),
     postgresCaBundlePath: optionalEnv(env, "POSTGRES_CA_BUNDLE_PATH"),
     upstreamUrl: env.GITHUB_MCP_UPSTREAM_URL ?? DEFAULT_UPSTREAM_URL,
+    githubGovernanceCatalogId: parseGithubGovernanceCatalogId(env.GITHUB_MCP_GOVERNANCE_CATALOG),
     githubOAuth: {
       clientId: requiredEnv(env, "GITHUB_OAUTH_CLIENT_ID"),
       clientSecret: requiredEnv(env, "GITHUB_OAUTH_CLIENT_SECRET"),
@@ -133,6 +136,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
   });
   const mcpHandler = createGithubMcpProxyHandler({
     upstreamUrl: config.upstreamUrl,
+    governanceCatalogId: config.githubGovernanceCatalogId,
     authenticate,
     resolveGithubToken: (identity) => tokenBroker.getAccessToken(identity, config.githubScopes),
     getOAuthStatus: async (identity) => {
@@ -173,6 +177,17 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     const path = new URL(request.url).pathname;
     return path.startsWith("/oauth/github/") ? oauthRoutes(request) : mcpHandler(request);
   };
+}
+
+function parseGithubGovernanceCatalogId(value: string | undefined): GithubMcpCatalogId | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized !== GITHUB_MCP_CATALOG_ID) {
+    throw new Error(`GITHUB_MCP_GOVERNANCE_CATALOG must be ${GITHUB_MCP_CATALOG_ID}`);
+  }
+  return GITHUB_MCP_CATALOG_ID;
 }
 
 function parseGithubRedirectAfterAllowedOrigins(value: string | undefined): string[] {
