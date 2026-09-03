@@ -8,6 +8,31 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-03
+
+### Added
+
+- Add opt-in, version-pinned governance catalogs for the complete GitHub MCP v1.6.0 and Google
+  Workspace CLI v0.22.5 tool surfaces.
+- Publish exact grant contracts for 84 GitHub tools and 280 Google Workspace tools while keeping
+  provider OAuth controls outside ordinary tool authority.
+
+### Security
+
+- Classify GitHub operations with exact, argument-aware read, write, and destructive semantics and
+  reject unknown tools or selectors before policy, credential lookup, or upstream execution when
+  the governed catalog is enabled.
+- Reclassify 22 Google Workspace operations whose non-DELETE methods can delete content, revoke
+  authority, or terminate live activity as destructive under the governed catalog.
+
+### Upgrade Notes
+
+- Existing deployments are unchanged unless they explicitly set `GITHUB_MCP_GOVERNANCE_CATALOG`
+  or `GOOGLE_WORKSPACE_GOVERNANCE_CATALOG` to the documented exact catalog identifier.
+- Google Workspace deployments opting into the new catalog must replace existing `write` grants
+  with `destructive` grants for the 22 reclassified operations. Tool names and per-service authority
+  keys such as `drive`, `gmail`, and `calendar` are unchanged.
+
 ## [0.3.2] - 2026-08-23
 
 ### Changed
@@ -244,7 +269,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.2.12...v0.3.0
