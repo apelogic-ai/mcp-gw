@@ -24,7 +24,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.0}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.1}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -46,7 +46,13 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("assert_rejected_token not-before");
     expect(smoke).toContain("assert_fixture_authorization_server");
     expect(smoke).toContain('curl -sS "$FIXTURE_BASE_URL/.well-known/jwks.json"');
-    expect(smoke).toContain("authorization_servers");
+    expect(smoke).toContain('BROKER_ISSUER="https://mcp.example.com/oauth"');
+    expect(smoke).toContain('BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"');
+    expect(smoke).toContain('BROKER_SIGNING_JWKS_FILE="$WORK_DIR/broker-signing-jwks.json"');
+    expect(smoke).toContain('--signing-jwks-file "$BROKER_SIGNING_JWKS_FILE"');
+    expect(fixture).toContain("signingJwksFile");
+    expect(smoke).toContain("authorization_servers must contain only the public broker issuer");
+    expect(smoke).toContain('assert_accepted_token "public broker" "$BROKER_TOKEN"');
     expect(smoke).toContain("assert_public_metadata");
     expect(fixture).toContain("`${args.tokenFile}.expired`");
     expect(fixture).toContain("`${args.tokenFile}.missing-expiration`");
@@ -66,6 +72,11 @@ describe("local Docker integration smoke", () => {
     expect(compose).toContain("${GATEWAY_PORT:-8080}:3000");
     expect(override).toContain("gateway/agentgateway/local-smoke.yaml");
     expect(override).toContain("host.docker.internal:host-gateway");
+    expect(override).toContain('MCP_BROKER_ENABLED: "true"');
+    expect(override).toContain("MCP_BROKER_SIGNING_JWKS_FILE");
+    expect(override).toContain(
+      "${LOCAL_BROKER_SIGNING_JWKS_FILE}:/var/run/secrets/mcp-gateway/broker/signing-jwks.json:ro",
+    );
     expect(config).toContain("mcpAuthentication:");
     expect(config).toContain("backendAuth:");
     expect(config).toContain("passthrough: {}");
@@ -74,7 +85,13 @@ describe("local Docker integration smoke", () => {
     expect(config).not.toContain("prefixMode: always");
     expect(config).toContain("name: google");
     expect(config).not.toContain("name: google-workspace");
-    expect(config).toContain("issuer: http://host.docker.internal:18080");
+    expect(config).toMatch(
+      /providers:\n\s+- issuer: http:\/\/host\.docker\.internal:38080[\s\S]*- issuer: https:\/\/mcp\.example\.com\/oauth/,
+    );
+    expect(config).toMatch(
+      /resourceMetadata:[\s\S]*authorizationServers:\n\s+- https:\/\/mcp\.example\.com\/oauth/,
+    );
+    expect(config).toContain("resource: https://mcp.example.com/mcp");
     expect(config).toContain("scopesSupported: [openid, email]");
     expect(config).not.toContain("scopesSupported: [read:all]");
     expect(config).toContain("host: http://google-workspace:8080/mcp");

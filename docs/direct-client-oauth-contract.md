@@ -108,6 +108,13 @@ An MCP-GW broker token and a configured trusted-issuer token with the same email
 principals when their issuer or subject differs. Email is display and provider-account verification
 data; it is not an account-linking key.
 
+Authentication providers and the public discovery authority are separate configuration concerns.
+Every entry under AgentGateway `mcpAuthentication.providers` remains eligible to authenticate a
+token for its configured audience. When the public broker is enabled, however, the chart sets
+`resourceMetadata.authorizationServers` to exactly the broker issuer. AgentGateway serializes that
+field as RFC `authorization_servers`. It must never derive or expose an internal cluster-only issuer
+as the public discovery authority merely because that provider appears first.
+
 Before consent, each provider wrapper advertises only its status/start helpers. After a provider
 grant is stored for that exact principal, the wrapper advertises its helpers plus the approved
 provider catalog. A Google grant does not unlock GitHub tools and a GitHub grant does not unlock

@@ -10,6 +10,7 @@ interface Args {
   issuer: string;
   audience: string;
   tokenFile: string;
+  signingJwksFile?: string;
   email: string;
 }
 
@@ -18,6 +19,7 @@ const keyPair = await generateKeyPair("RS256", { extractable: true });
 const wrongAlgorithmKeyPair = await generateKeyPair("ES256", { extractable: true });
 const invalidKeyPair = await generateKeyPair("RS256");
 const publicJwk = await exportJWK(keyPair.publicKey);
+const privateJwk = await exportJWK(keyPair.privateKey);
 const wrongAlgorithmPublicJwk = await exportJWK(wrongAlgorithmKeyPair.publicKey);
 const kid = "local-hop1";
 const jwks = {
@@ -50,7 +52,7 @@ const wrongAlgorithmToken = await signToken({
 });
 const notBeforeToken = await signToken({ notBefore: Math.floor(Date.now() / 1000) + 300 });
 
-await Promise.all([
+const writes = [
   writeFile(args.tokenFile, token, "utf8"),
   writeFile(`${args.tokenFile}.expired`, expiredToken, "utf8"),
   writeFile(`${args.tokenFile}.missing-expiration`, missingExpirationToken, "utf8"),
@@ -59,7 +61,17 @@ await Promise.all([
   writeFile(`${args.tokenFile}.invalid-signature`, invalidSignatureToken, "utf8"),
   writeFile(`${args.tokenFile}.wrong-algorithm`, wrongAlgorithmToken, "utf8"),
   writeFile(`${args.tokenFile}.not-before`, notBeforeToken, "utf8"),
-]);
+];
+if (args.signingJwksFile) {
+  writes.push(
+    writeFile(
+      args.signingJwksFile,
+      JSON.stringify({ keys: [{ ...privateJwk, kid, alg: "RS256", use: "sig" }] }),
+      { encoding: "utf8", mode: 0o600 },
+    ),
+  );
+}
+await Promise.all(writes);
 
 Bun.serve({
   port: args.port,
@@ -140,6 +152,7 @@ function parseArgs(argv: string[]): Args {
     issuer: required(values, "issuer"),
     audience: required(values, "audience"),
     tokenFile: required(values, "token-file"),
+    signingJwksFile: values.get("signing-jwks-file"),
     email: values.get("email") ?? "local.user@example.com",
   };
 }

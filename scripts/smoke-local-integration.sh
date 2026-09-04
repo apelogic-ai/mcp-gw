@@ -6,12 +6,17 @@ COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.yaml"
 LOCAL_COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.local-smoke.yaml"
 LOCAL_GITHUB_COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.local-github-smoke.yaml"
 WORK_DIR="${WORK_DIR:-/tmp/mcp-gw-local-integration}"
-JWKS_PORT="${JWKS_PORT:-18080}"
-GATEWAY_PORT="${GATEWAY_PORT:-18081}"
+JWKS_PORT="${JWKS_PORT:-38080}"
+BROKER_JWKS_PORT="${BROKER_JWKS_PORT:-38082}"
+GATEWAY_PORT="${GATEWAY_PORT:-38081}"
 ISSUER="http://host.docker.internal:$JWKS_PORT"
 FIXTURE_BASE_URL="http://127.0.0.1:$JWKS_PORT"
-AUDIENCE="http://agentgateway:3000/mcp"
+BROKER_ISSUER="https://mcp.example.com/oauth"
+BROKER_FIXTURE_BASE_URL="http://127.0.0.1:$BROKER_JWKS_PORT"
+AUDIENCE="https://mcp.example.com/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
+BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"
+BROKER_SIGNING_JWKS_FILE="$WORK_DIR/broker-signing-jwks.json"
 ENV_FILE="$WORK_DIR/compose.env"
 INCLUDE_GITHUB="${LOCAL_INCLUDE_GITHUB:-0}"
 COMPOSE_ARGS=(-f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE")
@@ -19,6 +24,8 @@ COMPOSE_PROFILES=()
 COMPOSE_SERVICES=(token-store google-workspace agentgateway)
 
 mkdir -p "$WORK_DIR"
+rm -f "$TOKEN_FILE" "$TOKEN_FILE".* "$BROKER_TOKEN_FILE" "$BROKER_TOKEN_FILE".* \
+  "$BROKER_SIGNING_JWKS_FILE"
 
 compose_cmd() {
   if [[ ${#COMPOSE_PROFILES[@]} -gt 0 ]]; then
@@ -35,6 +42,12 @@ cleanup() {
   if [[ -n "${FIXTURE_PID:-}" ]]; then
     kill "$FIXTURE_PID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${BROKER_FIXTURE_PID:-}" ]]; then
+    kill "$BROKER_FIXTURE_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ "${KEEP_LOCAL_INTEGRATION:-0}" != "1" ]]; then
+    rm -f "$BROKER_SIGNING_JWKS_FILE"
+  fi
 }
 trap cleanup EXIT
 
@@ -46,8 +59,19 @@ bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
   >"$WORK_DIR/hop1-fixture.log" 2>&1 &
 FIXTURE_PID=$!
 
+bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
+  --port "$BROKER_JWKS_PORT" \
+  --issuer "$BROKER_ISSUER" \
+  --audience "$AUDIENCE" \
+  --token-file "$BROKER_TOKEN_FILE" \
+  --signing-jwks-file "$BROKER_SIGNING_JWKS_FILE" \
+  >"$WORK_DIR/broker-fixture.log" 2>&1 &
+BROKER_FIXTURE_PID=$!
+
 for _ in {1..30}; do
-  if [[ -s "$TOKEN_FILE" ]] && curl -sS "$FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
+  if [[ -s "$TOKEN_FILE" ]] && [[ -s "$BROKER_TOKEN_FILE" ]] && \
+    curl -sS "$FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
+    curl -sS "$BROKER_FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
@@ -59,9 +83,19 @@ if [[ ! -s "$TOKEN_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -s "$BROKER_TOKEN_FILE" ]]; then
+  echo "Broker fixture did not produce a token." >&2
+  cat "$WORK_DIR/broker-fixture.log" >&2 || true
+  exit 1
+fi
+
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.0}
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.1}
+LOCAL_BROKER_SIGNING_JWKS_FILE=$BROKER_SIGNING_JWKS_FILE
+MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER
+MCP_RESOURCE_URI=$AUDIENCE
+MCP_BROKER_GOOGLE_REDIRECT_URI=$BROKER_ISSUER/google/broker/callback
 HOP1_PROFILE=local
 HOP1_ISSUER=$ISSUER
 HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json
@@ -123,6 +157,17 @@ assert_rejected_without_token() {
   [[ "$(auth_status)" == "401" ]]
 }
 
+assert_accepted_token() {
+  local label="$1"
+  local token="$2"
+  local status
+  status="$(auth_status "$token")"
+  if [[ "$status" != "200" ]]; then
+    echo "Local integration smoke failed: $label token returned HTTP $status; expected 200." >&2
+    return 1
+  fi
+}
+
 assert_rejected_token() {
   local label="$1"
   local token
@@ -135,8 +180,21 @@ assert_public_metadata() {
   status="$(curl -sS -o "$WORK_DIR/resource-metadata.json" -w "%{http_code}" \
     "http://127.0.0.1:$GATEWAY_PORT/.well-known/oauth-protected-resource/mcp")"
   [[ "$status" == "200" ]]
-  grep -q "authorization_servers" "$WORK_DIR/resource-metadata.json"
-  grep -q "$ISSUER" "$WORK_DIR/resource-metadata.json"
+  METADATA_FILE="$WORK_DIR/resource-metadata.json" \
+    EXPECTED_RESOURCE="$AUDIENCE" \
+    EXPECTED_ISSUER="$BROKER_ISSUER" \
+    bun -e '
+      const metadata = await Bun.file(process.env.METADATA_FILE).json();
+      const expectedIssuer = process.env.EXPECTED_ISSUER;
+      if (metadata.resource !== process.env.EXPECTED_RESOURCE) {
+        console.error("resource metadata must advertise the exact MCP resource");
+        process.exit(1);
+      }
+      if (JSON.stringify(metadata.authorization_servers) !== JSON.stringify([expectedIssuer])) {
+        console.error("authorization_servers must contain only the public broker issuer");
+        process.exit(1);
+      }
+    '
 }
 
 assert_fixture_authorization_server() {
@@ -154,6 +212,7 @@ compose_cmd up -d --build "${COMPOSE_SERVICES[@]}"
 assert_fixture_authorization_server
 TOKEN_RESPONSE="$(curl -sS -X POST "$FIXTURE_BASE_URL/token")"
 TOKEN="$(printf '%s' "$TOKEN_RESPONSE" | bun -e 'const body = JSON.parse(await Bun.stdin.text()); process.stdout.write(body.access_token)')"
+BROKER_TOKEN="$(cat "$BROKER_TOKEN_FILE")"
 INITIALIZE_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-gw-local-smoke","version":"0.1.0"}}}'
 TOOLS_PAYLOAD='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 HEADERS_FILE="$WORK_DIR/initialize.headers"
@@ -199,6 +258,7 @@ for _ in {1..60}; do
   fi
 
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
+    assert_accepted_token "public broker" "$BROKER_TOKEN"
     assert_rejected_without_token
     assert_rejected_token expired
     assert_rejected_token missing-expiration

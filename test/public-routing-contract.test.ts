@@ -57,5 +57,8 @@ describe("public OAuth routing contract", () => {
     expect(contract).toContain("numeric `iat`");
     expect(contract).toContain("3,600-second maximum issuance age");
     expect(contract).toContain("300-second clock skew");
+    expect(contract).toMatch(/authentication providers/i);
+    expect(contract).toContain("public discovery authority");
+    expect(contract).toContain("authorizationServers");
   });
 });

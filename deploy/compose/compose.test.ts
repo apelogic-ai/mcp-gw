@@ -7,7 +7,7 @@ describe("Docker Compose deployment skeleton", () => {
 
     expect(compose).toContain("agentgateway:");
     expect(compose).toContain(
-      "image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.0}",
+      "image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.1}",
     );
     expect(compose).toContain("google-workspace:");
     expect(compose).toContain("token-store:");
@@ -31,7 +31,7 @@ describe("Docker Compose deployment skeleton", () => {
 
     expect(envExample).toContain("GOOGLE_OAUTH_CLIENT_ID=");
     expect(envExample).toContain(
-      "AGENTGATEWAY_IMAGE=ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.0",
+      "AGENTGATEWAY_IMAGE=ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.1",
     );
     expect(envExample).toContain("GOOGLE_TOKEN_ENCRYPTION_KEY=");
     expect(envExample).toContain("HOP1_PROFILE=");

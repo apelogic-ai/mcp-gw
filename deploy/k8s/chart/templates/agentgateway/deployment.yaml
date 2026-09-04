@@ -8,6 +8,8 @@
 {{- $introspectionIssuers = append $introspectionIssuers (dict "index" $index "config" .) }}
 {{- end }}
 {{- end }}
+{{- $podAnnotations := deepCopy .Values.agentgateway.podAnnotations }}
+{{- $_ := set $podAnnotations "checksum/agentgateway-config" (include (print $.Template.BasePath "/agentgateway/configmap.yaml") . | sha256sum) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,10 +26,8 @@ spec:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.agentgateway.podAnnotations }}
       annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- toYaml $podAnnotations | nindent 8 }}
       labels:
         {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 8 }}
     spec:

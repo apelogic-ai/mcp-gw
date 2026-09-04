@@ -17,7 +17,7 @@ the install fails schema validation.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.0 \
+  --version 0.4.1 \
   -f my-values.yaml
 ```
 
@@ -41,7 +41,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.4.0"
+    tag: "0.4.1"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -59,7 +59,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.4.0"
+    tag: "0.4.1"
   # Existing Secret supplying GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
   # GOOGLE_OAUTH_REDIRECT_URI, GOOGLE_TOKEN_ENCRYPTION_KEY, and TOKEN_STORE_DSN.
   secretRef:
@@ -70,11 +70,11 @@ Or override the same knobs inline:
 
 ```bash
 helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.0 \
+  --version 0.4.1 \
   --set agentgateway.enabled=true \
-  --set agentgateway.image.tag=0.4.0 \
+  --set agentgateway.image.tag=0.4.1 \
   --set googleWorkspace.enabled=true \
-  --set googleWorkspace.image.tag=0.4.0 \
+  --set googleWorkspace.image.tag=0.4.1 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \
   --set-json 'hop1.issuers=[{"name":"workforce","issuer":"https://identity.example.com","audiences":["https://mcp.example.com/mcp"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"],"emailClaim":"email","subjectClaim":"sub"}]'
 ```
@@ -107,6 +107,9 @@ place of the load balancer's actual source range.
 The broker can be the only HOP-1 issuer for a Google-only external deployment:
 omit `hop1.issuers` and the chart automatically trusts the broker issuer. An
 optional internal workload issuer may coexist and remains a separate principal.
+All configured issuers remain authentication providers, while the chart sets
+`resourceMetadata.authorizationServers` to the public broker alone. Protected-resource
+discovery therefore never exposes an internal issuer based on provider ordering.
 Direct `https://accounts.google.com` HOP-1 trust
 is incompatible with broker mode and is rejected.
 

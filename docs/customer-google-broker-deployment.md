@@ -20,6 +20,12 @@ issuer profile under `hop1.issuers`. It coexists with the broker, but it is a se
 principal even when email values match. Do not configure
 `https://accounts.google.com` as a direct HOP-1 issuer in broker mode.
 
+The chart keeps every configured issuer as an authentication provider, but it explicitly selects
+the broker as the sole public discovery authority. Protected-resource metadata therefore advertises
+only the public broker issuer; it never leaks an internal service URL. The generated AgentGateway
+field is `resourceMetadata.authorizationServers`, serialized on the wire as
+`authorization_servers`.
+
 ## Inputs owned by the customer
 
 The customer GitOps repository owns these deployment coordinates:
