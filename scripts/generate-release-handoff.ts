@@ -102,7 +102,10 @@ load balancer's real source range.
 
 The broker may be the sole configured HOP-1 issuer for a Google-only external deployment: omit
 \`hop1.issuers\` and the chart adds the broker issuer to AgentGateway trust. A configured internal
-workload issuer may coexist; it remains a distinct principal. Direct
+workload issuer may coexist; it remains a distinct authentication provider and principal. In either
+mode, the chart sets \`resourceMetadata.authorizationServers\` to exactly the public broker issuer,
+so protected-resource metadata never exposes an internal issuer as the public discovery authority.
+Direct
 \`https://accounts.google.com\` HOP-1 trust is intentionally rejected in broker mode.
 
 Public routes are derived, not separately configured. For an issuer whose pathname is

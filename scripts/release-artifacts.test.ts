@@ -273,6 +273,8 @@ describe("release artifacts", () => {
     expect(handoff).toContain("tested-client evidence");
     expect(handoff).toContain("does not establish compatibility");
     expect(handoff).toContain("sole configured HOP-1 issuer");
+    expect(handoff).toContain("resourceMetadata.authorizationServers");
+    expect(handoff).toContain("public discovery authority");
   });
 
   test("documents the static release handoff contract", async () => {

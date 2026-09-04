@@ -1,11 +1,13 @@
 {{- if .Values.agentgateway.enabled }}
 {{- $mcpPath := "/mcp" }}
 {{- $resourceMetadataPath := "/.well-known/oauth-protected-resource/mcp" }}
+{{- $resourceMetadata := deepCopy .Values.agentgateway.mcpAuthentication.resourceMetadata }}
 {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
 {{- $resourceUrl := urlParse .Values.googleWorkspace.authorizationBroker.resource }}
 {{- $mcpPath = trimSuffix "/" ($resourceUrl.path | default "/") }}
 {{- if not $mcpPath }}{{- $mcpPath = "/" }}{{- end }}
 {{- $resourceMetadataPath = printf "/.well-known/oauth-protected-resource%s" (ternary "" $mcpPath (eq $mcpPath "/")) }}
+{{- $_ := set $resourceMetadata "authorizationServers" (list .Values.googleWorkspace.authorizationBroker.issuer) }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
@@ -74,7 +76,7 @@ data:
                         discoverable: false
 {{- end }}
                     resourceMetadata:
-{{ toYaml .Values.agentgateway.mcpAuthentication.resourceMetadata | nindent 22 }}
+{{ toYaml $resourceMetadata | nindent 22 }}
                 backends:
                   - mcp:
                       failureMode: failOpen

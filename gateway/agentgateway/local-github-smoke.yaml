@@ -14,15 +14,29 @@ binds:
                 exposeHeaders: ["Mcp-Session-Id"]
               mcpAuthentication:
                 mode: strict
-                issuer: http://host.docker.internal:18080
-                audiences:
-                  - http://agentgateway:3000/mcp
-                jwks:
-                  url: http://host.docker.internal:18080/.well-known/jwks.json
-                jwtValidationOptions:
-                  requiredClaims: [exp, iss, sub, aud]
+                providers:
+                  - issuer: http://host.docker.internal:38080
+                    audiences:
+                      - https://mcp.example.com/mcp
+                    jwks:
+                      url: http://host.docker.internal:38080/.well-known/jwks.json
+                    allowedAlgorithms: [RS256]
+                    jwtValidationOptions:
+                      requiredClaims: [exp, iss, sub, aud]
+                    discoverable: false
+                  - issuer: https://mcp.example.com/oauth
+                    audiences:
+                      - https://mcp.example.com/mcp
+                    jwks:
+                      url: http://host.docker.internal:38082/.well-known/jwks.json
+                    allowedAlgorithms: [RS256]
+                    jwtValidationOptions:
+                      requiredClaims: [exp, iss, sub, aud]
+                    discoverable: false
                 resourceMetadata:
-                  resource: http://agentgateway:3000/mcp
+                  resource: https://mcp.example.com/mcp
+                  authorizationServers:
+                    - https://mcp.example.com/oauth
                   scopesSupported: [openid, email]
                   bearerMethodsSupported: [header]
             backends:

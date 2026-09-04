@@ -8,3 +8,15 @@ services:
   google-workspace:
     extra_hosts:
       - host.docker.internal:host-gateway
+    environment:
+      MCP_BROKER_ENABLED: "true"
+      MCP_AUTHORIZATION_ISSUER: ${MCP_AUTHORIZATION_ISSUER}
+      MCP_RESOURCE_URI: ${MCP_RESOURCE_URI}
+      MCP_BROKER_GOOGLE_REDIRECT_URI: ${MCP_BROKER_GOOGLE_REDIRECT_URI}
+      MCP_BROKER_SIGNING_JWKS_FILE: /var/run/secrets/mcp-gateway/broker/signing-jwks.json
+      MCP_BROKER_ACTIVE_KID: local-hop1
+      MCP_BROKER_SCOPES: openid email
+      MCP_DCR_ENABLED: "true"
+      MCP_DCR_ALLOW_LOOPBACK_REDIRECTS: "false"
+    volumes:
+      - ${LOCAL_BROKER_SIGNING_JWKS_FILE}:/var/run/secrets/mcp-gateway/broker/signing-jwks.json:ro

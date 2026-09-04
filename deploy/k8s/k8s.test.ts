@@ -163,6 +163,58 @@ describe("Kubernetes production chart", () => {
     expect(gatewayConfig).not.toContain("https://identity.example.com");
   });
 
+  test("keeps hybrid token issuers while selecting only the public broker for discovery", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+    ]);
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+    const providers = gatewayConfig.slice(
+      gatewayConfig.indexOf("providers:"),
+      gatewayConfig.indexOf("resourceMetadata:"),
+    );
+    const resourceMetadata = gatewayConfig.slice(
+      gatewayConfig.indexOf("resourceMetadata:"),
+      gatewayConfig.indexOf("backends:"),
+    );
+
+    expect(providers).toContain("- issuer: https://identity.example.com");
+    expect(providers).toContain("- issuer: https://mcp.example.com/oauth");
+    expect(resourceMetadata).toMatch(
+      /authorizationServers:\n\s+- https:\/\/mcp\.example\.com\/oauth/,
+    );
+    expect(resourceMetadata).not.toContain("https://identity.example.com");
+  });
+
+  test("rolls AgentGateway pods when its generated ConfigMap changes", () => {
+    const baseline = renderedResource(
+      helmTemplate(["--values", "deploy/k8s/examples/values-oauth-broker.example.yaml"]),
+      "Deployment",
+      "mcp-gateway-agentgateway",
+    );
+    const changed = renderedResource(
+      helmTemplate([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set",
+        "hop1.issuers[0].discoverable=true",
+      ]),
+      "Deployment",
+      "mcp-gateway-agentgateway",
+    );
+    const checksumPattern = /checksum\/agentgateway-config: ([a-f0-9]{64})/;
+    const baselineChecksum = baseline.match(checksumPattern)?.[1];
+    const changedChecksum = changed.match(checksumPattern)?.[1];
+
+    expect(baselineChecksum).toHaveLength(64);
+    expect(changedChecksum).toHaveLength(64);
+    expect(changedChecksum).not.toBe(baselineChecksum);
+  });
+
   test("renders ALB/IP-target broker ingress with CIDR NetworkPolicy peers", () => {
     const rendered = helmTemplate([
       "--values",
@@ -943,7 +995,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.0");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.1");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");

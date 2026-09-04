@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.4.0";
+  const expectedVersion = "0.4.1";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -22,7 +22,7 @@ describe("release metadata", () => {
     expect(parsedPackage.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(parsedPackage.scripts["release:check"]).toBe("bun scripts/check-release-metadata.ts");
     expect(changelog).toContain("## [Unreleased]");
-    expect(changelog).toContain(`## [${parsedPackage.version}] - 2026-09-03`);
+    expect(changelog).toContain(`## [${parsedPackage.version}] - 2026-09-04`);
     expect(changelog).toContain(
       `[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v${parsedPackage.version}...HEAD`,
     );
@@ -101,7 +101,7 @@ describe("release metadata", () => {
     expect(chart.annotations["artifacthub.io/images"]).toContain(
       `ghcr.io/apelogic-ai/mcp-gw-github-wrapper:${packageVersion}`,
     );
-    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: added");
+    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: fixed");
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: security");
   });
 

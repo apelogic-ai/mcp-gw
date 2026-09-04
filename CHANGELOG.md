@@ -8,6 +8,24 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-04
+
+### Fixed
+
+- Keep every configured internal HOP-1 issuer and the public Google authorization broker as valid
+  authentication providers while advertising only the broker issuer from MCP protected-resource
+  metadata. Public clients can now discover authorization and DCR without exposing cluster-only
+  issuer URLs.
+- Restart AgentGateway pods automatically when the chart-generated gateway ConfigMap changes,
+  preventing `subPath` mounts from retaining stale authentication or routing configuration.
+
+### Upgrade Notes
+
+- Existing internal workload issuer and token semantics are unchanged. Hybrid deployments continue
+  accepting internal workload tokens alongside broker-issued public-client tokens.
+- AgentGateway receives a rolling restart when its rendered ConfigMap changes. No product-specific
+  values, credentials, or manual cluster mutation are part of this release.
+
 ## [0.4.0] - 2026-09-03
 
 ### Added
@@ -269,7 +287,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.0...v0.3.1
