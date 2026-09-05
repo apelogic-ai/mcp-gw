@@ -26,7 +26,8 @@ describe("deployment validation scripts", () => {
     expect(ciWorkflow).not.toContain("hashicorp/setup-terraform");
     expect(ciWorkflow).not.toContain("pipx install ansible-core");
     expect(ciWorkflow).toContain("bun run deploy:check");
-    expect(ciWorkflow).not.toContain("bun run integration:local");
+    expect(ciWorkflow).toContain("Run Linux broker integration smoke");
+    expect(ciWorkflow).toContain("bun run integration:local");
     expect(releaseWorkflow).toContain("bun run integration:local");
     expect(releaseWorkflow).toContain("bun run integration:k8s");
   });

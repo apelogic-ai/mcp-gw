@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.4.2";
+  const expectedVersion = "0.4.3";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -65,6 +65,11 @@ describe("release metadata", () => {
 
     expect(ciWorkflow).toContain("concurrency:");
     expect(ciWorkflow).toContain("cancel-in-progress: true");
+    expect(ciWorkflow).toContain("Run Linux broker integration smoke");
+    expect(ciWorkflow).toContain("bun run integration:local");
+    expect(ciWorkflow).toContain(
+      "ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859",
+    );
     expect(ciWorkflow).not.toContain("docker/build-push-action@");
     expect(ciWorkflow).not.toContain("docker/setup-buildx-action@");
     expect(ciWorkflow).not.toContain("arm64-inputs:");

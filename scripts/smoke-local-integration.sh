@@ -16,14 +16,16 @@ BROKER_FIXTURE_BASE_URL="http://127.0.0.1:$BROKER_JWKS_PORT"
 AUDIENCE="https://mcp.example.com/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
 BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"
-BROKER_SIGNING_JWKS_FILE="$WORK_DIR/broker-signing-jwks.json"
+BROKER_SIGNING_JWKS_DIR="$WORK_DIR/broker"
+BROKER_SIGNING_JWKS_FILE="$BROKER_SIGNING_JWKS_DIR/signing-jwks.json"
 ENV_FILE="$WORK_DIR/compose.env"
 INCLUDE_GITHUB="${LOCAL_INCLUDE_GITHUB:-0}"
 COMPOSE_ARGS=(-f "$COMPOSE_FILE" -f "$LOCAL_COMPOSE_FILE")
 COMPOSE_PROFILES=()
 COMPOSE_SERVICES=(token-store google-workspace agentgateway)
 
-mkdir -p "$WORK_DIR"
+mkdir -p "$WORK_DIR" "$BROKER_SIGNING_JWKS_DIR"
+chmod 700 "$BROKER_SIGNING_JWKS_DIR"
 rm -f "$TOKEN_FILE" "$TOKEN_FILE".* "$BROKER_TOKEN_FILE" "$BROKER_TOKEN_FILE".* \
   "$BROKER_SIGNING_JWKS_FILE"
 
@@ -46,7 +48,9 @@ cleanup() {
     kill "$BROKER_FIXTURE_PID" >/dev/null 2>&1 || true
   fi
   if [[ "${KEEP_LOCAL_INTEGRATION:-0}" != "1" ]]; then
+    chmod 700 "$BROKER_SIGNING_JWKS_DIR" >/dev/null 2>&1 || true
     rm -f "$BROKER_SIGNING_JWKS_FILE"
+    rmdir "$BROKER_SIGNING_JWKS_DIR" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -104,10 +108,15 @@ if ! broker_signing_jwks_ready; then
   exit 1
 fi
 
+# The wrapper runs as UID 10001. Finalize this ephemeral fixture with the same
+# read-only access semantics it gets from a projected Kubernetes Secret volume.
+chmod 444 "$BROKER_SIGNING_JWKS_FILE"
+chmod 555 "$BROKER_SIGNING_JWKS_DIR"
+
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.2}
-LOCAL_BROKER_SIGNING_JWKS_FILE=$BROKER_SIGNING_JWKS_FILE
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.3}
+LOCAL_BROKER_SIGNING_JWKS_DIR=$BROKER_SIGNING_JWKS_DIR
 MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER
 MCP_RESOURCE_URI=$AUDIENCE
 MCP_BROKER_GOOGLE_REDIRECT_URI=$BROKER_ISSUER/google/broker/callback
