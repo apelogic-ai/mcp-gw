@@ -8,6 +8,39 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-05
+
+### Fixed
+
+- Accept constrained DCR registrations that request both `authorization_code` and `refresh_token`,
+  while preserving authorization-code-only clients and applying the compatible RFC 7591 defaults
+  for omitted grant and response metadata.
+- Issue rotating MCP-GW refresh credentials to eligible dynamic public clients so short-lived MCP
+  access tokens can be renewed without repeating interactive Google sign-in.
+- Keep dynamic registrations persistent by default because RFC 7591 registration responses expose
+  no client-expiry signal. An explicit positive client TTL remains available and caps the associated
+  refresh family to the same deadline.
+
+### Security
+
+- Bind refresh credentials to the exact client, issuer-qualified principal, MCP resource, and
+  non-widening scope; persist only SHA-256 token digests; serialize concurrent rotation per family;
+  and revoke every descendant when a consumed credential is replayed.
+- Preserve public-client PKCE, state and nonce separation, exact MCP token audience, provider-token
+  isolation, Google Workspace grants, and existing trusted-issuer behavior.
+
+### Upgrade Notes
+
+- Run OAuth migrations `003_broker_refresh_tokens.sql` and
+  `004_persistent_dcr_clients.sql` before the updated Google Workspace wrapper becomes ready. The
+  chart's existing `oauthMigrations` hook performs this when enabled.
+- Native clients such as Codex require
+  `googleWorkspace.authorizationBroker.dcr.allowLoopbackRedirects=true`; the secure chart default
+  remains `false` and must be enabled deliberately by the deployment owner.
+- Set `googleWorkspace.authorizationBroker.dcr.clientTtlMs=0` for persistent dynamic
+  registrations. A positive value intentionally expires registrations and limits refresh-family
+  lifetime.
+
 ## [0.4.3] - 2026-09-04
 
 ### Fixed
@@ -309,7 +342,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.0...v0.4.1
