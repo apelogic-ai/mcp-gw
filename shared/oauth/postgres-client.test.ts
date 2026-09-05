@@ -28,7 +28,7 @@ describe("Postgres OAuth query client", () => {
 
     expect(result.rows).toEqual([{ ok: true }]);
     expect(pool.connection.calls.map(({ sql }) => sql)).toEqual([
-      "BEGIN",
+      "BEGIN ISOLATION LEVEL READ COMMITTED",
       "SELECT $1::text",
       "COMMIT",
     ]);
@@ -47,7 +47,10 @@ describe("Postgres OAuth query client", () => {
     }
 
     expect(failure).toEqual(new Error("transaction failed"));
-    expect(pool.connection.calls.map(({ sql }) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(pool.connection.calls.map(({ sql }) => sql)).toEqual([
+      "BEGIN ISOLATION LEVEL READ COMMITTED",
+      "ROLLBACK",
+    ]);
     expect(pool.connection.released).toBe(true);
   });
 

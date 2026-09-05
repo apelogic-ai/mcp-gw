@@ -83,7 +83,7 @@ export function createPostgresQueryClient(pool: PgPoolLike | Pool): Transactiona
         query: (sql, params) => connection.query(sql, params),
       };
       try {
-        await connection.query("BEGIN");
+        await connection.query("BEGIN ISOLATION LEVEL READ COMMITTED");
         const result = await operation(transactionClient);
         await connection.query("COMMIT");
         return result;
