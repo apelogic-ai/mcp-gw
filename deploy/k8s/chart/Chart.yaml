@@ -2,8 +2,8 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.4.3
-appVersion: "0.4.3"
+version: 0.4.4
+appVersion: "0.4.4"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -19,11 +19,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.3
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.4
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.3
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.4
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.3
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.4
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -34,8 +34,8 @@ annotations:
   # and is intentionally omitted.
   artifacthub.io/changes: |
     - kind: fixed
-      description: Advertise only the public Google authorization broker from protected-resource metadata while preserving internal HOP-1 authentication providers.
+      description: Accept refresh-token-capable public clients through constrained DCR while preserving authorization-code-only clients and RFC 7591 metadata defaults.
     - kind: security
-      description: Prevent public OAuth discovery from exposing cluster-only issuer URLs.
+      description: Rotate client refresh credentials, persist only their digests, bind them to client, principal, resource, and scope, and revoke the complete family on replay.
     - kind: fixed
-      description: Roll AgentGateway pods when the chart-generated ConfigMap changes.
+      description: Keep dynamic registrations persistent by default and cap refresh lifetime when an operator configures an explicit client TTL.
