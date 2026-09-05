@@ -19,4 +19,4 @@ services:
       MCP_DCR_ENABLED: "true"
       MCP_DCR_ALLOW_LOOPBACK_REDIRECTS: "false"
     volumes:
-      - ${LOCAL_BROKER_SIGNING_JWKS_FILE}:/var/run/secrets/mcp-gateway/broker/signing-jwks.json:ro
+      - ${LOCAL_BROKER_SIGNING_JWKS_DIR}:/var/run/secrets/mcp-gateway/broker:ro

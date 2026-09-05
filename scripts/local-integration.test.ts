@@ -24,7 +24,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.2}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.3}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -48,10 +48,15 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('curl -sS "$FIXTURE_BASE_URL/.well-known/jwks.json"');
     expect(smoke).toContain('BROKER_ISSUER="https://mcp.example.com/oauth"');
     expect(smoke).toContain('BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"');
-    expect(smoke).toContain('BROKER_SIGNING_JWKS_FILE="$WORK_DIR/broker-signing-jwks.json"');
+    expect(smoke).toContain('BROKER_SIGNING_JWKS_DIR="$WORK_DIR/broker"');
+    expect(smoke).toContain(
+      'BROKER_SIGNING_JWKS_FILE="$BROKER_SIGNING_JWKS_DIR/signing-jwks.json"',
+    );
     expect(smoke).toContain('--signing-jwks-file "$BROKER_SIGNING_JWKS_FILE"');
     expect(smoke).toContain("broker_signing_jwks_ready");
     expect(smoke).toContain("Broker fixture did not produce a complete signing JWKS.");
+    expect(smoke).toContain('chmod 444 "$BROKER_SIGNING_JWKS_FILE"');
+    expect(smoke).toContain('chmod 555 "$BROKER_SIGNING_JWKS_DIR"');
     expect(fixture).toContain("signingJwksFile");
     expect(smoke).toContain("authorization_servers must contain only the public broker issuer");
     expect(smoke).toContain('assert_accepted_token "public broker" "$BROKER_TOKEN"');
@@ -77,7 +82,7 @@ describe("local Docker integration smoke", () => {
     expect(override).toContain('MCP_BROKER_ENABLED: "true"');
     expect(override).toContain("MCP_BROKER_SIGNING_JWKS_FILE");
     expect(override).toContain(
-      "${LOCAL_BROKER_SIGNING_JWKS_FILE}:/var/run/secrets/mcp-gateway/broker/signing-jwks.json:ro",
+      "${LOCAL_BROKER_SIGNING_JWKS_DIR}:/var/run/secrets/mcp-gateway/broker:ro",
     );
     expect(config).toContain("mcpAuthentication:");
     expect(config).toContain("backendAuth:");

@@ -8,6 +8,18 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-04
+
+### Fixed
+
+- Finalize the generated broker keyring as a read-only fixture and mount its dedicated secret
+  directory during local and release integration tests. This matches Kubernetes Secret volume
+  access semantics for the non-root wrapper and avoids Linux host-ownership failures.
+- Run the broker integration smoke on Ubuntu pull requests against an immutable published
+  AgentGateway digest so host-to-container permission regressions fail before a release tag.
+- Supersede the unpublished v0.4.2 tag. v0.4.3 is the first artifact release after v0.4.0 and
+  includes the hybrid broker-discovery and AgentGateway rollout fixes recorded below.
+
 ## [0.4.2] - 2026-09-04
 
 ### Fixed
@@ -297,7 +309,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.2...v0.4.0
