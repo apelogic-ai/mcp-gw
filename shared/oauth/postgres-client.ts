@@ -6,6 +6,16 @@ import type { SqlQueryClient } from "./sql-store";
 
 export interface PgPoolLike {
   query(sql: string, params: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+  connect(): Promise<PgClientLike>;
+}
+
+export interface PgClientLike {
+  query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+  release(): void;
+}
+
+export interface TransactionalSqlQueryClient extends SqlQueryClient {
+  transaction<T>(operation: (client: SqlQueryClient) => Promise<T>): Promise<T>;
 }
 
 export type ReadPostgresCaBundle = (path: string) => string;
@@ -64,8 +74,25 @@ function removeConnectionStringTlsOptions(connectionString: string): string {
   return url.toString();
 }
 
-export function createPostgresQueryClient(pool: PgPoolLike | Pool): SqlQueryClient {
+export function createPostgresQueryClient(pool: PgPoolLike | Pool): TransactionalSqlQueryClient {
   return {
     query: (sql, params) => pool.query(sql, params),
+    transaction: async (operation) => {
+      const connection = await pool.connect();
+      const transactionClient: SqlQueryClient = {
+        query: (sql, params) => connection.query(sql, params),
+      };
+      try {
+        await connection.query("BEGIN");
+        const result = await operation(transactionClient);
+        await connection.query("COMMIT");
+        return result;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+    },
   };
 }

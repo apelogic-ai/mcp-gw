@@ -59,6 +59,7 @@ export interface BrokerClient {
   redirectUris: string[];
   grantTypes: readonly ("authorization_code" | "refresh_token")[];
   scopes: string[];
+  expiresAtMs?: number;
   clientName?: string;
   clientUri?: string;
 }
@@ -595,6 +596,10 @@ export class OAuthBroker {
     };
     if (client.grantTypes.includes("refresh_token")) {
       const refreshToken = randomSecret();
+      const refreshExpiresAt = Math.min(
+        this.now() + this.refreshTokenTtlSeconds * 1000,
+        client.expiresAtMs ?? Number.POSITIVE_INFINITY,
+      );
       await this.options.store.saveRefreshToken({
         tokenHash: hashSecret(refreshToken),
         familyId: randomSecret(),
@@ -602,7 +607,7 @@ export class OAuthBroker {
         resource: record.resource,
         scopes: [...record.scopes],
         identity: structuredClone(record.identity),
-        expiresAt: this.now() + this.refreshTokenTtlSeconds * 1000,
+        expiresAt: refreshExpiresAt,
       });
       response.refreshToken = refreshToken;
     }

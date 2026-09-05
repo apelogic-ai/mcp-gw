@@ -95,6 +95,7 @@ export async function createAuthorizationBrokerRuntime(input: {
             redirectUris: client.redirect_uris,
             grantTypes: [...client.grant_types],
             scopes: client.scope?.split(" ").filter(Boolean) ?? [],
+            expiresAtMs: client.expiresAtMs,
             clientName: client.client_name,
             clientUri: client.client_uri,
           }

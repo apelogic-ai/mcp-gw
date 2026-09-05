@@ -47,7 +47,7 @@ export interface DcrRegistrationResponse {
 
 export interface StoredDynamicDcrClient {
   registration: DcrRegistrationResponse;
-  expiresAtMs: number;
+  expiresAtMs?: number;
 }
 
 export interface DcrStoreRegistrationPolicy {
@@ -120,7 +120,7 @@ export class InMemoryDcrRegistrationStore implements DcrRegistrationStore {
     if (!client) {
       return Promise.resolve(null);
     }
-    if (client.expiresAtMs <= nowMs) {
+    if (client.expiresAtMs !== undefined && client.expiresAtMs <= nowMs) {
       this.clients.delete(clientId);
       return Promise.resolve(null);
     }
@@ -144,7 +144,7 @@ export class InMemoryDcrRegistrationStore implements DcrRegistrationStore {
 
   private pruneClients(nowMs: number): void {
     for (const [clientId, client] of this.clients) {
-      if (client.expiresAtMs <= nowMs) {
+      if (client.expiresAtMs !== undefined && client.expiresAtMs <= nowMs) {
         this.clients.delete(clientId);
       }
     }
@@ -201,7 +201,6 @@ export interface ResolvedDcrClient extends DcrRegistrationResponse {
   registrationType: "dynamic" | "static";
 }
 
-const DEFAULT_DYNAMIC_CLIENT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_DYNAMIC_CLIENTS = 10_000;
 const DEFAULT_MAX_RATE_LIMIT_KEYS = 10_000;
 const DEFAULT_MAX_REGISTRATIONS_PER_WINDOW = 10;
@@ -236,7 +235,7 @@ const URL_METADATA_KEYS = ["client_uri", "logo_uri", "policy_uri", "tos_uri"] as
 export class ConstrainedDcrRegistry {
   private readonly allowedScopes: Set<string>;
   private readonly allowLoopbackRedirects: boolean;
-  private readonly dynamicClientTtlMs: number;
+  private readonly dynamicClientTtlMs?: number;
   private readonly defaultScopes: string[];
   private readonly generateClientId: () => string;
   private readonly maxDynamicClients: number;
@@ -254,10 +253,10 @@ export class ConstrainedDcrRegistry {
     if (this.defaultScopes.some((scope) => !this.allowedScopes.has(scope))) {
       throw new TypeError("defaultScopes must be a subset of allowedScopes");
     }
-    this.dynamicClientTtlMs = positiveInteger(
-      options.dynamicClientTtlMs ?? DEFAULT_DYNAMIC_CLIENT_TTL_MS,
-      "dynamicClientTtlMs",
-    );
+    this.dynamicClientTtlMs =
+      options.dynamicClientTtlMs === undefined
+        ? undefined
+        : positiveInteger(options.dynamicClientTtlMs, "dynamicClientTtlMs");
     this.maxDynamicClients = positiveInteger(
       options.maxDynamicClients ?? DEFAULT_MAX_DYNAMIC_CLIENTS,
       "maxDynamicClients",
@@ -320,7 +319,9 @@ export class ConstrainedDcrRegistry {
       const result = await this.store.saveDynamicClient(
         {
           registration,
-          expiresAtMs: nowMs + this.dynamicClientTtlMs,
+          ...(this.dynamicClientTtlMs === undefined
+            ? {}
+            : { expiresAtMs: nowMs + this.dynamicClientTtlMs }),
         },
         { maxDynamicClients: this.maxDynamicClients, nowMs },
       );

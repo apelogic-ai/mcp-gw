@@ -122,7 +122,8 @@ Choose one reviewed registration mode:
 - **DCR-enabled mode:** set \`googleWorkspace.authorizationBroker.dcr.enabled=true\`; constrained
   public-client registration is advertised and \`/register\` is exposed. Authorization code,
   \`token_endpoint_auth_method=none\`, PKCE S256, exact redirect persistence, and configured bounds
-  remain mandatory.
+  remain mandatory. Dynamic registrations persist when \`dcr.clientTtlMs=0\`; an explicit positive
+  TTL expires the registration and caps any refresh family to the same deadline.
 - **static-only mode:** keep DCR disabled and populate
   \`googleWorkspace.authorizationBroker.staticClients\`; no registration endpoint is advertised or
   routed. Static clients remain immutable and receive no secret.
@@ -140,8 +141,9 @@ environment variables, or this handoff.
 Repository protocol fixtures provide tested-client evidence for discovery, authorization code,
 PKCE, constrained DCR, static registration, rotating client refresh tokens, and renewal after access
 token expiry. Refresh-enabled dynamic public clients receive an opaque rotating credential bound to
-the exact client, principal, resource, and non-widening scope; only its digest is persisted. Static
-and authorization-code-only clients receive none. That evidence proves the product protocol
+the exact client, principal, resource, and non-widening scope; only its digest is persisted. Replay
+is serialized per family and revokes every descendant. Static and authorization-code-only clients
+receive none. That evidence proves the product protocol
 contract; it does not establish compatibility with any named third-party client or version. A
 deployment may claim such compatibility only with separate exact-version journey evidence. The
 broker never issues a confidential-client credential or downstream provider token to the MCP

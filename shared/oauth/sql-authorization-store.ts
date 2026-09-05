@@ -137,7 +137,33 @@ INSERT INTO oauth_broker_refresh_tokens (
   async rotateRefreshToken(
     request: RotateBrokerRefreshTokenRequest,
   ): Promise<RotateBrokerRefreshTokenResult> {
-    const result = await this.client.query(
+    if (!this.client.transaction) {
+      throw new Error("Refresh-token rotation requires a transactional SQL client");
+    }
+    return this.client.transaction(async (transaction) => {
+      const family = await transaction.query(
+        `
+SELECT family_id
+FROM oauth_broker_refresh_tokens
+WHERE token_hash = $1
+LIMIT 1
+`,
+        [request.tokenHash],
+      );
+      const familyId = family.rows[0]?.family_id;
+      if (typeof familyId !== "string" || familyId.length === 0) {
+        return { status: "invalid" };
+      }
+      await transaction.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [familyId]);
+      return this.rotateLockedRefreshToken(transaction, request);
+    });
+  }
+
+  private async rotateLockedRefreshToken(
+    transaction: SqlQueryClient,
+    request: RotateBrokerRefreshTokenRequest,
+  ): Promise<RotateBrokerRefreshTokenResult> {
+    const result = await transaction.query(
       `
 WITH current_token AS MATERIALIZED (
   SELECT token_hash, family_id, client_id, resource, scopes,
@@ -281,7 +307,7 @@ SELECT EXISTS(SELECT 1 FROM upserted) AS allowed
 SELECT registration, expires_at
 FROM oauth_dcr_clients
 WHERE client_id = $1
-  AND expires_at > $2
+  AND (expires_at IS NULL OR expires_at > $2)
 LIMIT 1
 `,
       [clientId, new Date(nowMs)],
@@ -292,7 +318,7 @@ LIMIT 1
     }
     return {
       registration: registrationFromRow(row.registration),
-      expiresAtMs: dateField(row, "expires_at").getTime(),
+      ...(row.expires_at === null ? {} : { expiresAtMs: dateField(row, "expires_at").getTime() }),
     };
   }
 
@@ -306,7 +332,8 @@ WITH lock AS MATERIALIZED (
   SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
 ), pruned AS (
   DELETE FROM oauth_dcr_clients
-  WHERE expires_at <= $3
+  WHERE expires_at IS NOT NULL
+    AND expires_at <= $3
   RETURNING 1
 ), existing AS (
   SELECT 1
@@ -315,7 +342,7 @@ WITH lock AS MATERIALIZED (
 ), live_capacity AS (
   SELECT COUNT(*)::INTEGER AS count
   FROM oauth_dcr_clients, lock
-  WHERE expires_at > $3
+  WHERE expires_at IS NULL OR expires_at > $3
 ), inserted AS (
   INSERT INTO oauth_dcr_clients (client_id, registration, expires_at)
   SELECT $2, $4::JSONB, $5
@@ -336,7 +363,7 @@ END AS result
         client.registration.client_id,
         new Date(policy.nowMs),
         JSON.stringify(client.registration),
-        new Date(client.expiresAtMs),
+        client.expiresAtMs === undefined ? null : new Date(client.expiresAtMs),
         policy.maxDynamicClients,
       ],
     );

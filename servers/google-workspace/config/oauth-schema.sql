@@ -62,7 +62,7 @@ CREATE INDEX IF NOT EXISTS oauth_broker_codes_expiry_idx
 CREATE TABLE IF NOT EXISTS oauth_dcr_clients (
   client_id TEXT PRIMARY KEY,
   registration JSONB NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL
+  expires_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS oauth_dcr_clients_expiry_idx

@@ -18,6 +18,39 @@ describe("Postgres OAuth query client", () => {
     expect(pool.calls).toEqual([{ sql: "SELECT $1::text", params: ["value"] }]);
   });
 
+  test("runs a transaction on one acquired connection and always releases it", async () => {
+    const pool = new RecordingPool([{ ok: true }]);
+    const client = createPostgresQueryClient(pool);
+
+    const result = await client.transaction(async (transaction) =>
+      transaction.query("SELECT $1::text", ["transaction-value"]),
+    );
+
+    expect(result.rows).toEqual([{ ok: true }]);
+    expect(pool.connection.calls.map(({ sql }) => sql)).toEqual([
+      "BEGIN",
+      "SELECT $1::text",
+      "COMMIT",
+    ]);
+    expect(pool.connection.released).toBe(true);
+  });
+
+  test("rolls back and releases a failed transaction", async () => {
+    const pool = new RecordingPool([]);
+    const client = createPostgresQueryClient(pool);
+
+    let failure: unknown;
+    try {
+      await client.transaction(() => Promise.reject(new Error("transaction failed")));
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toEqual(new Error("transaction failed"));
+    expect(pool.connection.calls.map(({ sql }) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(pool.connection.released).toBe(true);
+  });
+
   test("builds a verified TLS pool config from an operator-mounted CA bundle", () => {
     const config = createPostgresPoolConfig(
       "postgres://mcp:mcp@token-store:5432/mcp?sslmode=require",
@@ -87,11 +120,34 @@ describe("Postgres OAuth query client", () => {
 
 class RecordingPool implements PgPoolLike {
   readonly calls: { sql: string; params: unknown[] }[] = [];
+  readonly connection: RecordingConnection;
 
-  constructor(private readonly rows: Record<string, unknown>[]) {}
+  constructor(private readonly rows: Record<string, unknown>[]) {
+    this.connection = new RecordingConnection(rows);
+  }
 
   query(sql: string, params: unknown[]): Promise<{ rows: Record<string, unknown>[] }> {
     this.calls.push({ sql, params });
     return Promise.resolve({ rows: this.rows });
+  }
+
+  connect(): Promise<RecordingConnection> {
+    return Promise.resolve(this.connection);
+  }
+}
+
+class RecordingConnection {
+  readonly calls: { sql: string; params: unknown[] }[] = [];
+  released = false;
+
+  constructor(private readonly rows: Record<string, unknown>[]) {}
+
+  query(sql: string, params: unknown[] = []): Promise<{ rows: Record<string, unknown>[] }> {
+    this.calls.push({ sql, params });
+    return Promise.resolve({ rows: this.rows });
+  }
+
+  release(): void {
+    this.released = true;
   }
 }

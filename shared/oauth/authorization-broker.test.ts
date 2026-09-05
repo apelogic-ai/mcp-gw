@@ -671,6 +671,30 @@ describe("OAuthBroker refresh-token exchange", () => {
       "invalid_grant",
     );
   });
+
+  test("does not issue a refresh credential beyond an explicitly expiring client", async () => {
+    const store = new RecordingBrokerStore();
+    await authorizedBrokerWithRefreshToken({
+      store,
+      refreshTokenTtlSeconds: 7_200,
+      clients: {
+        get: (clientId) =>
+          Promise.resolve(
+            clientId === CLIENT_ID
+              ? {
+                  clientId: CLIENT_ID,
+                  redirectUris: [REDIRECT_URI],
+                  grantTypes: ["authorization_code", "refresh_token"],
+                  scopes: ["mcp"],
+                  expiresAtMs: NOW + 3_600_000,
+                }
+              : null,
+          ),
+      },
+    });
+
+    expect(store.refreshToken?.expiresAt).toBe(NOW + 3_600_000);
+  });
 });
 
 describe("Google identity verification", () => {

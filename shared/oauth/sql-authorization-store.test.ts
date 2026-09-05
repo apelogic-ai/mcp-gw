@@ -110,6 +110,8 @@ describe("SQL authorization broker store", () => {
   test("persists only a refresh-token digest and atomically rotates a live token", async () => {
     const client = new QueueSqlClient([
       [],
+      [{ family_id: refreshToken.familyId }],
+      [],
       [
         {
           result: "rotated",
@@ -141,15 +143,22 @@ describe("SQL authorization broker store", () => {
       now: Date.parse("2026-08-20T00:00:00.000Z"),
     });
     expect(result).toEqual({ status: "rotated", record: refreshToken });
-    expect(client.calls[1]?.sql).toContain("FOR UPDATE");
-    expect(client.calls[1]?.sql).toContain("consumed_at");
-    expect(client.calls[1]?.sql).toContain("revoked_at");
-    expect(client.calls[1]?.sql).toContain("INSERT INTO oauth_broker_refresh_tokens");
-    expect(client.calls[1]?.params).toContain("hashed-rotated-token");
+    expect(client.transactionCalls).toBe(1);
+    expect(client.calls[1]?.sql).toContain("SELECT family_id");
+    expect(client.calls[2]?.sql).toContain("pg_advisory_xact_lock");
+    expect(client.calls[3]?.sql).toContain("FOR UPDATE");
+    expect(client.calls[3]?.sql).toContain("consumed_at");
+    expect(client.calls[3]?.sql).toContain("revoked_at");
+    expect(client.calls[3]?.sql).toContain("INSERT INTO oauth_broker_refresh_tokens");
+    expect(client.calls[3]?.params).toContain("hashed-rotated-token");
   });
 
   test("surfaces replay so the complete refresh family is revoked", async () => {
-    const client = new QueueSqlClient([[{ result: "replayed" }]]);
+    const client = new QueueSqlClient([
+      [{ family_id: refreshToken.familyId }],
+      [],
+      [{ result: "replayed" }],
+    ]);
     const store = new SqlAuthorizationBrokerStore(client);
 
     expect(
@@ -161,8 +170,31 @@ describe("SQL authorization broker store", () => {
         now: Date.parse("2026-08-20T00:00:00.000Z"),
       }),
     ).toEqual({ status: "replayed" });
-    expect(client.calls[0]?.sql).toContain("family_id");
-    expect(client.calls[0]?.sql).toContain("revoked_at");
+    expect(client.calls[2]?.sql).toContain("family_id");
+    expect(client.calls[2]?.sql).toContain("revoked_at");
+  });
+
+  test("serializes a refresh family before taking the rotation snapshot", async () => {
+    const client = new QueueSqlClient([
+      [{ family_id: refreshToken.familyId }],
+      [],
+      [{ result: "replayed" }],
+    ]);
+    const store = new SqlAuthorizationBrokerStore(client);
+
+    expect(
+      await store.rotateRefreshToken({
+        tokenHash: refreshToken.tokenHash,
+        replacementTokenHash: "hashed-rotated-token",
+        clientId: refreshToken.clientId,
+        resource: refreshToken.resource,
+        now: Date.parse("2026-08-20T00:00:00.000Z"),
+      }),
+    ).toEqual({ status: "replayed" });
+    expect(client.transactionCalls).toBe(1);
+    expect(client.calls[0]?.sql).toContain("SELECT family_id");
+    expect(client.calls[1]?.sql).toContain("pg_advisory_xact_lock");
+    expect(client.calls[2]?.sql).toContain("FOR UPDATE");
   });
 });
 
@@ -180,6 +212,7 @@ describe("SQL constrained DCR store", () => {
   });
 
   test("atomically enforces dynamic capacity and restores unexpired registrations", async () => {
+    const expiresAtMs = 1_800_086_400_000;
     const stored: StoredDynamicDcrClient = {
       registration: {
         client_id: "mcp_dynamic_client",
@@ -190,11 +223,11 @@ describe("SQL constrained DCR store", () => {
         token_endpoint_auth_method: "none",
         scope: "mcp",
       },
-      expiresAtMs: 1_800_086_400_000,
+      expiresAtMs,
     };
     const client = new QueueSqlClient([
       [{ result: "saved" }],
-      [{ registration: stored.registration, expires_at: new Date(stored.expiresAtMs) }],
+      [{ registration: stored.registration, expires_at: new Date(expiresAtMs) }],
     ]);
     const store = new SqlDcrRegistrationStore(client);
 
@@ -209,15 +242,50 @@ describe("SQL constrained DCR store", () => {
     expect(await store.getDynamicClient("mcp_dynamic_client", 1_800_000_000_000)).toEqual(stored);
     expect(client.calls[1]?.sql).toContain("expires_at > $2");
   });
+
+  test("persists and restores a default non-expiring dynamic registration", async () => {
+    const stored: StoredDynamicDcrClient = {
+      registration: {
+        client_id: "persistent_client",
+        client_id_issued_at: 1_800_000_000,
+        redirect_uris: ["https://client.example/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        scope: "mcp",
+      },
+    };
+    const client = new QueueSqlClient([
+      [{ result: "saved" }],
+      [{ registration: stored.registration, expires_at: null }],
+    ]);
+    const store = new SqlDcrRegistrationStore(client);
+
+    expect(
+      await store.saveDynamicClient(stored, {
+        maxDynamicClients: 1000,
+        nowMs: 1_800_000_000_000,
+      }),
+    ).toBe("saved");
+    expect(client.calls[0]?.params[4]).toBeNull();
+    expect(await store.getDynamicClient("persistent_client", 1_900_000_000_000)).toEqual(stored);
+    expect(client.calls[1]?.sql).toContain("expires_at IS NULL");
+  });
 });
 
 class QueueSqlClient implements SqlQueryClient {
   readonly calls: { sql: string; params: unknown[] }[] = [];
+  transactionCalls = 0;
 
   constructor(readonly queue: Record<string, unknown>[][] = []) {}
 
   query(sql: string, params: unknown[]): Promise<{ rows: Record<string, unknown>[] }> {
     this.calls.push({ sql, params });
     return Promise.resolve({ rows: this.queue.shift() ?? [] });
+  }
+
+  transaction<T>(operation: (client: SqlQueryClient) => Promise<T>): Promise<T> {
+    this.transactionCalls += 1;
+    return operation(this);
   }
 }

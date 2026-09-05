@@ -9,6 +9,7 @@ WORK_DIR="${WORK_DIR:-/tmp/mcp-gw-local-integration}"
 JWKS_PORT="${JWKS_PORT:-38080}"
 BROKER_JWKS_PORT="${BROKER_JWKS_PORT:-38082}"
 GATEWAY_PORT="${GATEWAY_PORT:-38081}"
+TOKEN_STORE_PORT="${TOKEN_STORE_PORT:-35432}"
 ISSUER="http://host.docker.internal:$JWKS_PORT"
 FIXTURE_BASE_URL="http://127.0.0.1:$JWKS_PORT"
 BROKER_ISSUER="https://mcp.example.com/oauth"
@@ -115,6 +116,7 @@ chmod 555 "$BROKER_SIGNING_JWKS_DIR"
 
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
+TOKEN_STORE_PORT=$TOKEN_STORE_PORT
 AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.3}
 LOCAL_BROKER_SIGNING_JWKS_DIR=$BROKER_SIGNING_JWKS_DIR
 MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER
@@ -233,6 +235,23 @@ assert_fixture_authorization_server() {
 compose_cmd config >/dev/null
 compose_cmd up -d --build "${COMPOSE_SERVICES[@]}"
 
+MIGRATION_LOG="$WORK_DIR/oauth-migrations.log"
+MIGRATION_READY=0
+for _ in {1..30}; do
+  if TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
+    bun "$ROOT_DIR/shared/oauth/migrate.ts" >"$MIGRATION_LOG" 2>&1; then
+    MIGRATION_READY=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$MIGRATION_READY" != "1" ]]; then
+  echo "Local integration smoke failed: OAuth migrations did not complete." >&2
+  cat "$MIGRATION_LOG" >&2 || true
+  exit 1
+fi
+
 assert_fixture_authorization_server
 TOKEN_RESPONSE="$(curl -sS -X POST "$FIXTURE_BASE_URL/token")"
 TOKEN="$(printf '%s' "$TOKEN_RESPONSE" | bun -e 'const body = JSON.parse(await Bun.stdin.text()); process.stdout.write(body.access_token)')"
@@ -282,6 +301,8 @@ for _ in {1..60}; do
   fi
 
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
+    TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
+      bun "$ROOT_DIR/scripts/fixtures/refresh-token-race.ts"
     assert_accepted_token "public broker" "$BROKER_TOKEN"
     assert_rejected_without_token
     assert_rejected_token expired

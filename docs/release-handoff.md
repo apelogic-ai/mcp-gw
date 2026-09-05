@@ -96,10 +96,11 @@ Refresh-enabled dynamic public clients receive an opaque MCP-GW refresh credenti
 authorization-code + PKCE exchange. Every successful refresh rotates that credential; MCP-GW binds
 it to the exact client, principal, resource, and non-widening scope and persists only its SHA-256
 digest. Reuse of a consumed credential revokes its token family. Authorization-code-only and static
-clients receive no refresh credential. These client credentials are distinct from downstream
-provider refresh tokens, which are never exposed to the MCP client. A source commit or local fixture
-is not a GitOps artifact; publish this contract only with the exact versioned chart and image digests
-described above.
+clients receive no refresh credential. Dynamic registrations persist by default; an explicit
+operator client TTL also caps the refresh-family expiry. These client credentials are distinct from
+downstream provider refresh tokens, which are never exposed to the MCP client. A source commit or
+local fixture is not a GitOps artifact; publish this contract only with the exact versioned chart
+and image digests described above.
 
 The generated release handoff describes the product capability with the exact typed chart paths,
 route-derivation rules, Google-only broker use as the sole configured HOP-1 issuer or coexistence

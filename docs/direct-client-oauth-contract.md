@@ -166,10 +166,13 @@ contract is:
 | `MCP_DCR_TRUSTED_PROXY_ADDRESSES`  | Comma-separated exact IP addresses of proxies that overwrite the configured header.       |
 
 Optional positive-integer DCR bounds are `MCP_DCR_CLIENT_TTL_MS`, `MCP_DCR_MAX_CLIENTS`,
-`MCP_DCR_MAX_RATE_KEYS`, `MCP_DCR_RATE_LIMIT`, and `MCP_DCR_RATE_WINDOW_MS`. Broker state,
-authorization codes, registrations, hashed rotating client refresh credentials, and rate limits
-share the existing `TOKEN_STORE_DSN` PostgreSQL database. The signing file is a secret mount,
-never an environment value or ConfigMap.
+`MCP_DCR_MAX_RATE_KEYS`, `MCP_DCR_RATE_LIMIT`, and `MCP_DCR_RATE_WINDOW_MS`. When
+`MCP_DCR_CLIENT_TTL_MS` is absent, dynamic registrations persist; the Helm value `clientTtlMs: 0`
+represents that default by omitting the environment variable. An explicitly configured client TTL
+also caps refresh-family expiry so a refresh credential never claims a lifetime beyond its client
+registration. Broker state, authorization codes, registrations, hashed rotating client refresh
+credentials, and rate limits share the existing `TOKEN_STORE_DSN` PostgreSQL database. The signing
+file is a secret mount, never an environment value or ConfigMap.
 
 For Kubernetes, configure these fields through the typed
 `googleWorkspace.authorizationBroker` Helm values. The chart rejects generic

@@ -1,4 +1,8 @@
 services:
+  token-store:
+    ports:
+      - "127.0.0.1:${TOKEN_STORE_PORT:-35432}:5432"
+
   agentgateway:
     extra_hosts:
       - host.docker.internal:host-gateway

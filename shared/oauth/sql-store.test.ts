@@ -40,18 +40,27 @@ describe("SQL OAuth token store", () => {
   });
 
   test("keeps the checked-in schema artifact aligned", async () => {
-    const [schema, migration, brokerMigration, refreshMigration] = await Promise.all([
-      readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
-      readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
-      readFile("shared/oauth/migrations/002_authorization_broker.sql", "utf8"),
-      readFile("shared/oauth/migrations/003_broker_refresh_tokens.sql", "utf8"),
-    ]);
+    const [schema, migration, brokerMigration, refreshMigration, persistentDcrMigration] =
+      await Promise.all([
+        readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
+        readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
+        readFile("shared/oauth/migrations/002_authorization_broker.sql", "utf8"),
+        readFile("shared/oauth/migrations/003_broker_refresh_tokens.sql", "utf8"),
+        readFile("shared/oauth/migrations/004_persistent_dcr_clients.sql", "utf8"),
+      ]);
 
     expect(migration.replaceAll(/\s+/g, " ").trim()).toBe(
       OAUTH_SCHEMA_SQL.replaceAll(/\s+/g, " ").trim(),
     );
+    const consolidatedBrokerMigration = brokerMigration.replace(
+      "  registration JSONB NOT NULL,\n  expires_at TIMESTAMPTZ NOT NULL\n);",
+      "  registration JSONB NOT NULL,\n  expires_at TIMESTAMPTZ\n);",
+    );
+    expect(persistentDcrMigration.trim()).toBe(
+      "ALTER TABLE oauth_dcr_clients\n  ALTER COLUMN expires_at DROP NOT NULL;",
+    );
     expect(schema.replaceAll(/\s+/g, " ").trim()).toBe(
-      `${migration.trim()}\n\n${brokerMigration.trim()}\n\n${refreshMigration.trim()}`
+      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}`
         .replaceAll(/\s+/g, " ")
         .trim(),
     );

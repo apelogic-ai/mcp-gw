@@ -372,6 +372,21 @@ describe("constrained dynamic client registration", () => {
     ]);
   });
 
+  test("does not silently expire a dynamic client registration by default", async () => {
+    let now = 1_700_000_000_000;
+    const registry = new ConstrainedDcrRegistry({
+      generateClientId: () => "persistent-dynamic-client",
+      now: () => now,
+    });
+    const registration = await registry.register(validMetadata, {
+      rateLimitKey: "persistent-client",
+    });
+
+    now += 31 * 24 * 60 * 60 * 1_000;
+
+    expect((await registry.getClient(registration.client_id))?.registrationType).toBe("dynamic");
+  });
+
   test("returns defensive copies of persisted registrations", async () => {
     const registry = createRegistry();
     const registered = await registry.register(validMetadata, { rateLimitKey: "copy" });
