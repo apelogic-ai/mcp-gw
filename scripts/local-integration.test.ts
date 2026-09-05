@@ -24,7 +24,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.1}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.2}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -50,6 +50,8 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"');
     expect(smoke).toContain('BROKER_SIGNING_JWKS_FILE="$WORK_DIR/broker-signing-jwks.json"');
     expect(smoke).toContain('--signing-jwks-file "$BROKER_SIGNING_JWKS_FILE"');
+    expect(smoke).toContain("broker_signing_jwks_ready");
+    expect(smoke).toContain("Broker fixture did not produce a complete signing JWKS.");
     expect(fixture).toContain("signingJwksFile");
     expect(smoke).toContain("authorization_servers must contain only the public broker issuer");
     expect(smoke).toContain('assert_accepted_token "public broker" "$BROKER_TOKEN"');

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.4.1";
+  const expectedVersion = "0.4.2";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([

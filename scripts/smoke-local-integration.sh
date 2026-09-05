@@ -68,8 +68,17 @@ bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
   >"$WORK_DIR/broker-fixture.log" 2>&1 &
 BROKER_FIXTURE_PID=$!
 
+broker_signing_jwks_ready() {
+  [[ -s "$BROKER_SIGNING_JWKS_FILE" ]] && \
+    BROKER_SIGNING_JWKS_FILE="$BROKER_SIGNING_JWKS_FILE" bun -e '
+      const jwks = await Bun.file(process.env.BROKER_SIGNING_JWKS_FILE).json();
+      if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) process.exit(1);
+    ' >/dev/null 2>&1
+}
+
 for _ in {1..30}; do
   if [[ -s "$TOKEN_FILE" ]] && [[ -s "$BROKER_TOKEN_FILE" ]] && \
+    broker_signing_jwks_ready && \
     curl -sS "$FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
     curl -sS "$BROKER_FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
     break
@@ -89,9 +98,15 @@ if [[ ! -s "$BROKER_TOKEN_FILE" ]]; then
   exit 1
 fi
 
+if ! broker_signing_jwks_ready; then
+  echo "Broker fixture did not produce a complete signing JWKS." >&2
+  cat "$WORK_DIR/broker-fixture.log" >&2 || true
+  exit 1
+fi
+
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.1}
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.2}
 LOCAL_BROKER_SIGNING_JWKS_FILE=$BROKER_SIGNING_JWKS_FILE
 MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER
 MCP_RESOURCE_URI=$AUDIENCE
