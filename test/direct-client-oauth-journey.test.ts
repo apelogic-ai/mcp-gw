@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { decodeJwt, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+import { decodeJwt, exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from "jose";
 
 import {
   InMemoryAuthorizationBrokerStore,
@@ -13,15 +13,16 @@ import { createAuthorizationServerRouteHandler } from "../servers/google-workspa
 import { createRuntimeAuthenticator } from "../servers/google-workspace/wrapper/src/runtime";
 
 // End-to-end journey for a "direct MCP client" (the runbook's neutral term for a
-// client that drives OAuth itself, Claude-style). It stitches the per-stage
+// client that drives OAuth itself). It stitches the per-stage
 // broker units into one flow: DCR registration -> /authorize consent -> upstream
-// Google identity callback -> /token -> the issued gateway token being accepted
-// by the same runtime authenticator that guards /mcp.
+// Google identity callback -> /token -> refresh after access-token expiry ->
+// the renewed gateway token being accepted by the same runtime authenticator
+// that guards /mcp. The DCR request is the exact Codex 0.147/RMCP 3 shape.
 
 const NOW = 1_800_000_000_000;
 const ISSUER = "https://auth.example.com";
 const RESOURCE = "https://mcp.example.com/mcp";
-const REDIRECT_URI = "https://claude.ai/api/mcp/auth_callback";
+const REDIRECT_URI = "http://127.0.0.1:49152/callback/abcDEF012_-x";
 const GOOGLE_CLIENT_ID = "google-client-id.apps.googleusercontent.com";
 const GOOGLE_CALLBACK = "https://auth.example.com/oauth/google/broker/callback";
 const GOOGLE_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -70,7 +71,8 @@ function unescapeHtml(value: string): string {
 }
 
 describe("direct MCP client OAuth journey", () => {
-  test("registers, authorizes, exchanges a code, and produces an /mcp-accepted token", async () => {
+  test("registers, authorizes, and renews an /mcp-accepted token after expiry", async () => {
+    let current = NOW;
     // 1. Real broker backbone: in-memory transaction/code store plus a stubbed
     //    upstream Google exchange that returns a nonce-bound identity token and
     //    the provider secrets that must never leak downstream. The nonce is only
@@ -87,6 +89,7 @@ describe("direct MCP client OAuth journey", () => {
     // backs the broker's client lookup, mirroring broker-runtime.ts wiring.
     const registry = new ConstrainedDcrRegistry({
       allowedScopes: ["mcp"],
+      allowLoopbackRedirects: true,
       defaultScopes: ["mcp"],
       store: new InMemoryDcrRegistrationStore(),
     });
@@ -97,6 +100,7 @@ describe("direct MCP client OAuth journey", () => {
           ? {
               clientId: client.client_id,
               redirectUris: client.redirect_uris,
+              grantTypes: [...client.grant_types],
               scopes: client.scope?.split(" ").filter(Boolean) ?? [],
               clientName: client.client_name,
               clientUri: client.client_uri,
@@ -127,7 +131,7 @@ describe("direct MCP client OAuth journey", () => {
       clients,
       store: brokerStore,
       exchangeGoogleCode,
-      now: () => NOW,
+      now: () => current,
     });
 
     const routeOptions = {
@@ -158,11 +162,11 @@ describe("direct MCP client OAuth journey", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           redirect_uris: [REDIRECT_URI],
-          grant_types: ["authorization_code"],
+          grant_types: ["authorization_code", "refresh_token"],
           response_types: ["code"],
           token_endpoint_auth_method: "none",
           scope: "mcp",
-          client_name: "Direct MCP Client",
+          client_name: "Codex",
         }),
       }),
     );
@@ -219,6 +223,7 @@ describe("direct MCP client OAuth journey", () => {
     const tokenBodyText = await tokenResponse.text();
     const tokenBody = JSON.parse(tokenBodyText) as {
       access_token: string;
+      refresh_token: string;
       token_type: string;
       scope: string;
     };
@@ -234,7 +239,7 @@ describe("direct MCP client OAuth journey", () => {
     // No upstream Google access_token / refresh_token / id_token is echoed to the
     // client anywhere in the token response.
     expect(tokenBodyText).not.toContain(UPSTREAM_SECRET_MARKER);
-    expect(tokenBody).not.toHaveProperty("refresh_token");
+    expect(tokenBody.refresh_token).toBeString();
     expect(tokenBody).not.toHaveProperty("id_token");
     // The gateway token is a fresh at+jwt, not a pass-through of Google's token.
     expect(payload.iss).not.toBe("https://accounts.google.com");
@@ -272,6 +277,43 @@ describe("direct MCP client OAuth journey", () => {
     expect(identity.subject).toBe(GOOGLE_SUBJECT);
     expect(identity.email).toBe(GOOGLE_EMAIL);
     expect(identity.profile).toBe("mcp-oauth-broker");
+
+    // 5. Codex/RMCP refreshes near expiry with the exact resource and granted
+    //    scope, receives a rotated credential, and can use the renewed token.
+    current += 301_000;
+    expect(
+      jwtVerify(accessToken, brokerPublicJwk, {
+        issuer: ISSUER,
+        audience: RESOURCE,
+        algorithms: ["RS256"],
+        currentDate: new Date(current),
+      }),
+    ).rejects.toThrow();
+    const refreshResponse = await handler(refreshRequest(tokenBody.refresh_token, clientId));
+    expect(refreshResponse.status).toBe(200);
+    const refreshed = (await refreshResponse.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+      scope: string;
+    };
+    expect(refreshed.refresh_token).toBeString();
+    expect(refreshed.refresh_token).not.toBe(tokenBody.refresh_token);
+    expect(refreshed.expires_in).toBe(300);
+    expect(refreshed.scope).toBe("mcp");
+    expect(decodeJwt(refreshed.access_token)).toMatchObject({
+      aud: RESOURCE,
+      iss: ISSUER,
+      sub: GOOGLE_SUBJECT,
+      email: GOOGLE_EMAIL,
+      scope: "mcp",
+    });
+    const renewedIdentity = await authenticate(refreshed.access_token);
+    expect(renewedIdentity.subject).toBe(GOOGLE_SUBJECT);
+
+    const refreshReplay = await handler(refreshRequest(tokenBody.refresh_token, clientId));
+    expect(refreshReplay.status).toBe(400);
+    expect(await refreshReplay.json()).toMatchObject({ error: "invalid_grant" });
   });
 });
 
@@ -286,6 +328,20 @@ function tokenRequest(code: string, clientId: string): Request {
       redirect_uri: REDIRECT_URI,
       resource: RESOURCE,
       code_verifier: VERIFIER,
+    }).toString(),
+  });
+}
+
+function refreshRequest(refreshToken: string, clientId: string): Request {
+  return new Request(`${ISSUER}/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: clientId,
+      resource: RESOURCE,
+      scope: "mcp",
     }).toString(),
   });
 }

@@ -24,11 +24,13 @@ export class ConstrainedDcrError extends Error {
   }
 }
 
+export type DcrGrantTypes = ["authorization_code"] | ["authorization_code", "refresh_token"];
+
 export interface DcrRegistrationResponse {
   client_id: string;
   client_id_issued_at: number;
   redirect_uris: string[];
-  grant_types: ["authorization_code"];
+  grant_types: DcrGrantTypes;
   response_types: ["code"];
   token_endpoint_auth_method: "none";
   application_type?: "native" | "web";
@@ -45,7 +47,7 @@ export interface DcrRegistrationResponse {
 
 export interface StoredDynamicDcrClient {
   registration: DcrRegistrationResponse;
-  expiresAtMs: number;
+  expiresAtMs?: number;
 }
 
 export interface DcrStoreRegistrationPolicy {
@@ -118,7 +120,7 @@ export class InMemoryDcrRegistrationStore implements DcrRegistrationStore {
     if (!client) {
       return Promise.resolve(null);
     }
-    if (client.expiresAtMs <= nowMs) {
+    if (client.expiresAtMs !== undefined && client.expiresAtMs <= nowMs) {
       this.clients.delete(clientId);
       return Promise.resolve(null);
     }
@@ -142,7 +144,7 @@ export class InMemoryDcrRegistrationStore implements DcrRegistrationStore {
 
   private pruneClients(nowMs: number): void {
     for (const [clientId, client] of this.clients) {
-      if (client.expiresAtMs <= nowMs) {
+      if (client.expiresAtMs !== undefined && client.expiresAtMs <= nowMs) {
         this.clients.delete(clientId);
       }
     }
@@ -199,7 +201,6 @@ export interface ResolvedDcrClient extends DcrRegistrationResponse {
   registrationType: "dynamic" | "static";
 }
 
-const DEFAULT_DYNAMIC_CLIENT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_DYNAMIC_CLIENTS = 10_000;
 const DEFAULT_MAX_RATE_LIMIT_KEYS = 10_000;
 const DEFAULT_MAX_REGISTRATIONS_PER_WINDOW = 10;
@@ -234,7 +235,7 @@ const URL_METADATA_KEYS = ["client_uri", "logo_uri", "policy_uri", "tos_uri"] as
 export class ConstrainedDcrRegistry {
   private readonly allowedScopes: Set<string>;
   private readonly allowLoopbackRedirects: boolean;
-  private readonly dynamicClientTtlMs: number;
+  private readonly dynamicClientTtlMs?: number;
   private readonly defaultScopes: string[];
   private readonly generateClientId: () => string;
   private readonly maxDynamicClients: number;
@@ -252,10 +253,10 @@ export class ConstrainedDcrRegistry {
     if (this.defaultScopes.some((scope) => !this.allowedScopes.has(scope))) {
       throw new TypeError("defaultScopes must be a subset of allowedScopes");
     }
-    this.dynamicClientTtlMs = positiveInteger(
-      options.dynamicClientTtlMs ?? DEFAULT_DYNAMIC_CLIENT_TTL_MS,
-      "dynamicClientTtlMs",
-    );
+    this.dynamicClientTtlMs =
+      options.dynamicClientTtlMs === undefined
+        ? undefined
+        : positiveInteger(options.dynamicClientTtlMs, "dynamicClientTtlMs");
     this.maxDynamicClients = positiveInteger(
       options.maxDynamicClients ?? DEFAULT_MAX_DYNAMIC_CLIENTS,
       "maxDynamicClients",
@@ -318,7 +319,9 @@ export class ConstrainedDcrRegistry {
       const result = await this.store.saveDynamicClient(
         {
           registration,
-          expiresAtMs: nowMs + this.dynamicClientTtlMs,
+          ...(this.dynamicClientTtlMs === undefined
+            ? {}
+            : { expiresAtMs: nowMs + this.dynamicClientTtlMs }),
         },
         { maxDynamicClients: this.maxDynamicClients, nowMs },
       );
@@ -439,15 +442,20 @@ function validateClientMetadata(
     }
   }
 
-  requireExactStringArray(input.grant_types, ["authorization_code"], "grant_types");
-  requireExactStringArray(input.response_types, ["code"], "response_types");
+  const grantTypes: DcrGrantTypes =
+    input.grant_types === undefined
+      ? ["authorization_code"]
+      : validateGrantTypes(input.grant_types);
+  if (input.response_types !== undefined) {
+    requireExactStringArray(input.response_types, ["code"], "response_types");
+  }
   if (input.token_endpoint_auth_method !== "none") {
     throw invalidMetadata("token_endpoint_auth_method must be none");
   }
 
   const registration: Omit<DcrRegistrationResponse, "client_id" | "client_id_issued_at"> = {
     redirect_uris: validateRedirectUris(input.redirect_uris, allowLoopbackRedirects),
-    grant_types: ["authorization_code"],
+    grant_types: grantTypes,
     response_types: ["code"],
     token_endpoint_auth_method: "none",
   };
@@ -523,6 +531,27 @@ function validateRedirectUris(input: unknown, allowLoopback: boolean): string[] 
     unique.add(value);
   }
   return [...unique];
+}
+
+function validateGrantTypes(input: unknown): DcrGrantTypes {
+  if (!Array.isArray(input) || !input.every((value) => typeof value === "string")) {
+    throw invalidMetadata(
+      'grant_types must be ["authorization_code"] or ["authorization_code","refresh_token"]',
+    );
+  }
+  const values = new Set(input);
+  if (
+    values.size !== input.length ||
+    !values.has("authorization_code") ||
+    [...values].some((value) => value !== "authorization_code" && value !== "refresh_token")
+  ) {
+    throw invalidMetadata(
+      'grant_types must be ["authorization_code"] or ["authorization_code","refresh_token"]',
+    );
+  }
+  return values.has("refresh_token")
+    ? ["authorization_code", "refresh_token"]
+    : ["authorization_code"];
 }
 
 function validatePublicMetadataUrl(input: unknown, field: string): string {
@@ -714,7 +743,7 @@ function cloneRegistration(registration: DcrRegistrationResponse): DcrRegistrati
   const cloned: DcrRegistrationResponse = {
     ...registration,
     redirect_uris: [...registration.redirect_uris],
-    grant_types: ["authorization_code"],
+    grant_types: [...registration.grant_types],
     response_types: ["code"],
   };
   if (registration.contacts) {

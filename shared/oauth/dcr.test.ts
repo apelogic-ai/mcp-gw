@@ -22,6 +22,18 @@ const validMetadata = {
   client_uri: "https://client.example",
 };
 
+// Codex CLI 0.147.0, through its pinned rmcp 3.0.0 dependency, registers a
+// public client with both grants and an ephemeral RFC 8252 loopback callback.
+// The port and server-derived callback suffix vary per login.
+const codex0147Metadata = {
+  client_name: "Codex",
+  redirect_uris: ["http://127.0.0.1:49152/callback/abcDEF012_-x"],
+  grant_types: ["authorization_code", "refresh_token"],
+  token_endpoint_auth_method: "none",
+  response_types: ["code"],
+  scope: "mcp",
+};
+
 describe("constrained dynamic client registration", () => {
   test("registers only a public authorization-code client and returns no credentials", async () => {
     const registry = createRegistry();
@@ -49,10 +61,35 @@ describe("constrained dynamic client registration", () => {
     });
   });
 
+  test("registers the exact Codex 0.147 public-client grant and loopback shape", async () => {
+    const registry = createRegistry({ allowLoopbackRedirects: true });
+
+    const registration = await registry.register(codex0147Metadata, {
+      rateLimitKey: "198.51.100.10",
+    });
+
+    expect(registration).toMatchObject({
+      client_id: "dynamic-client-1",
+      client_name: "Codex",
+      redirect_uris: ["http://127.0.0.1:49152/callback/abcDEF012_-x"],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "mcp",
+    });
+    expect(await registry.getClient(registration.client_id)).toMatchObject({
+      grant_types: ["authorization_code", "refresh_token"],
+    });
+  });
+
   test("rejects unsupported grants, response types, and authentication methods", async () => {
     const attempts: unknown[] = [
       { ...validMetadata, grant_types: ["client_credentials"] },
-      { ...validMetadata, grant_types: ["authorization_code", "refresh_token"] },
+      { ...validMetadata, grant_types: ["refresh_token"] },
+      {
+        ...validMetadata,
+        grant_types: ["authorization_code", "refresh_token", "refresh_token"],
+      },
       { ...validMetadata, response_types: ["token"] },
       { ...validMetadata, token_endpoint_auth_method: "client_secret_basic" },
       { ...validMetadata, token_endpoint_auth_method: undefined },
@@ -64,6 +101,29 @@ describe("constrained dynamic client registration", () => {
         "invalid_client_metadata",
       );
     }
+  });
+
+  test("treats grant_types as an unordered metadata set and returns canonical values", async () => {
+    const registration = await createRegistry().register(
+      { ...validMetadata, grant_types: ["refresh_token", "authorization_code"] },
+      { rateLimitKey: "198.51.100.11" },
+    );
+    expect(registration.grant_types).toEqual(["authorization_code", "refresh_token"]);
+  });
+
+  test("applies RFC 7591 defaults when grant and response metadata are omitted", async () => {
+    const metadata = {
+      redirect_uris: validMetadata.redirect_uris,
+      token_endpoint_auth_method: validMetadata.token_endpoint_auth_method,
+      client_name: validMetadata.client_name,
+      client_uri: validMetadata.client_uri,
+    };
+    const registration = await createRegistry().register(metadata, {
+      rateLimitKey: "198.51.100.12",
+    });
+
+    expect(registration.grant_types).toEqual(["authorization_code"]);
+    expect(registration.response_types).toEqual(["code"]);
   });
 
   test("requires exact HTTPS redirects and optionally permits loopback HTTP redirects", async () => {
@@ -310,6 +370,21 @@ describe("constrained dynamic client registration", () => {
     expect((await registry.getClient("static-client"))?.redirect_uris).toEqual([
       "https://static.example/callback",
     ]);
+  });
+
+  test("does not silently expire a dynamic client registration by default", async () => {
+    let now = 1_700_000_000_000;
+    const registry = new ConstrainedDcrRegistry({
+      generateClientId: () => "persistent-dynamic-client",
+      now: () => now,
+    });
+    const registration = await registry.register(validMetadata, {
+      rateLimitKey: "persistent-client",
+    });
+
+    now += 31 * 24 * 60 * 60 * 1_000;
+
+    expect((await registry.getClient(registration.client_id))?.registrationType).toBe("dynamic");
   });
 
   test("returns defensive copies of persisted registrations", async () => {

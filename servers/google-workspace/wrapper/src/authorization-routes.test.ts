@@ -19,7 +19,7 @@ describe("authorization-server HTTP routes", () => {
       token_endpoint: `${issuer}/token`,
       jwks_uri: `${issuer}/.well-known/jwks.json`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
     });
@@ -151,7 +151,7 @@ describe("authorization-server HTTP routes", () => {
         token_endpoint: `${tenantIssuer}/token`,
         jwks_uri: `${tenantIssuer}/.well-known/jwks.json`,
         response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none"],
       }),
@@ -206,7 +206,7 @@ describe("authorization-server HTTP routes", () => {
     ).toMatchObject({ status: 404 });
   });
 
-  test("exchanges a broker code without exposing Google material or refresh credentials", async () => {
+  test("exchanges a broker code without exposing Google provider credentials", async () => {
     const handler = createAuthorizationServerRouteHandler({ broker: brokerStub() });
     const response = await handler(
       new Request(`${issuer}/token`, {
@@ -229,9 +229,59 @@ describe("authorization-server HTTP routes", () => {
       token_type: "Bearer",
       expires_in: 300,
       scope: "mcp",
+      refresh_token: "client-refresh-token",
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("pragma")).toBe("no-cache");
+  });
+
+  test("routes an rmcp-compatible refresh request and returns the rotated credential", async () => {
+    let received: unknown;
+    const handler = createAuthorizationServerRouteHandler({
+      broker: {
+        ...brokerStub(),
+        exchangeRefreshToken: (request) => {
+          received = request;
+          return Promise.resolve({
+            accessToken: "renewed-access-token",
+            refreshToken: "rotated-refresh-token",
+            tokenType: "Bearer" as const,
+            expiresIn: 300,
+            scope: "mcp",
+          });
+        },
+      },
+    });
+    const response = await handler(
+      new Request(`${issuer}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: "current-refresh-token",
+          client_id: "client",
+          resource,
+          scope: "mcp",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(received).toEqual({
+      grantType: "refresh_token",
+      refreshToken: "current-refresh-token",
+      clientId: "client",
+      resource,
+      scope: "mcp",
+    });
+    expect(await response.json()).toEqual({
+      access_token: "renewed-access-token",
+      refresh_token: "rotated-refresh-token",
+      token_type: "Bearer",
+      expires_in: 300,
+      scope: "mcp",
+    });
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   test.each([
@@ -565,7 +615,7 @@ function brokerStub() {
       token_endpoint: `${issuer}/token`,
       jwks_uri: `${issuer}/.well-known/jwks.json`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
     }),
@@ -586,6 +636,7 @@ function brokerStub() {
           clientName: "Client <unsafe>",
           clientUri: "https://client.example/about?x=1&y=2",
           redirectUris: ["https://client.example/callback?a=1&b=2"],
+          grantTypes: ["authorization_code", "refresh_token"] as const,
           scopes: ["mcp"],
         },
       }),
@@ -602,6 +653,15 @@ function brokerStub() {
     exchangeAuthorizationCode: () =>
       Promise.resolve({
         accessToken: "broker-access-token",
+        refreshToken: "client-refresh-token",
+        tokenType: "Bearer" as const,
+        expiresIn: 300,
+        scope: "mcp",
+      }),
+    exchangeRefreshToken: () =>
+      Promise.resolve({
+        accessToken: "renewed-access-token",
+        refreshToken: "rotated-refresh-token",
         tokenType: "Bearer" as const,
         expiresIn: 300,
         scope: "mcp",

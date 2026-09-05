@@ -9,6 +9,7 @@ import type {
 
 export interface SqlQueryClient {
   query(sql: string, params: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+  transaction?<T>(operation: (client: SqlQueryClient) => Promise<T>): Promise<T>;
 }
 
 export const OAUTH_SCHEMA_SQL = `

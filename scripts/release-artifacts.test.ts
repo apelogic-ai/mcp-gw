@@ -254,6 +254,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("googleWorkspace.authorizationBroker.resource");
     expect(handoff).toContain("googleWorkspace.authorizationBroker.googleCallbackUri");
     expect(handoff).toContain("googleWorkspace.authorizationBroker.dcr.enabled");
+    expect(handoff).toContain("dcr.clientTtlMs=0");
     expect(handoff).toContain("googleWorkspace.authorizationBroker.staticClients");
     expect(handoff).toContain(
       "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name",
@@ -272,6 +273,10 @@ describe("release artifacts", () => {
     expect(handoff).toContain("GitOps-owned");
     expect(handoff).toContain("tested-client evidence");
     expect(handoff).toContain("does not establish compatibility");
+    expect(handoff).toContain("rotating client refresh tokens");
+    expect(handoff).toContain("only its digest is persisted");
+    expect(handoff).toContain("exact client, principal, resource, and non-widening scope");
+    expect(handoff).toMatch(/Replay\s+is serialized per family/i);
     expect(handoff).toContain("sole configured HOP-1 issuer");
     expect(handoff).toContain("resourceMetadata.authorizationServers");
     expect(handoff).toContain("public discovery authority");
@@ -287,5 +292,8 @@ describe("release artifacts", () => {
     expect(handoff).toContain("existing Kubernetes Secret");
     expect(handoff).toContain("TOKEN_STORE_DSN");
     expect(handoff).toContain("private values overlay");
+    expect(handoff).toContain("Every successful refresh rotates that credential");
+    expect(handoff).toContain("persists only its SHA-256");
+    expect(handoff).toContain("Dynamic registrations persist by default");
   });
 });
