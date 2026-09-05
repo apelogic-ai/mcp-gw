@@ -74,6 +74,59 @@ describe("authorization broker runtime", () => {
     });
   });
 
+  test("derives the same canonical issuer from slashless and slash-terminated inputs", async () => {
+    const createRuntime = (issuer: string) =>
+      createAuthorizationBrokerRuntime({
+        config: {
+          issuer,
+          resource: "https://mcp.example.com/mcp",
+          googleCallbackUri: "https://auth.example.com/oauth/google/broker/callback",
+          signingJwksFile: "/mounted/signing-jwks.json",
+          activeSigningKid: "active-key",
+          scopes: ["mcp"],
+          staticClients: [],
+          dcr: {},
+        },
+        google: {
+          clientId: "google-client",
+          clientSecret: "google-secret",
+          redirectUri: "https://auth.example.com/oauth/google/callback",
+          tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
+        },
+        queryClient: { query: () => Promise.reject(new Error("metadata must not persist")) },
+        readSigningJwks: () => JSON.stringify({ keys: [privateJwk] }),
+      });
+    const [slashless, slashTerminated] = await Promise.all([
+      createRuntime("https://auth.example.com/oauth"),
+      createRuntime("https://auth.example.com/oauth/"),
+    ]);
+
+    const metadataUrl = "https://auth.example.com/.well-known/oauth-authorization-server/oauth";
+    const resourceMetadataUrl = "https://auth.example.com/.well-known/oauth-protected-resource/mcp";
+    const metadata = await slashless.handler(new Request(metadataUrl));
+    const trailingMetadata = await slashTerminated.handler(new Request(metadataUrl));
+    const resourceMetadata = await slashTerminated.handler(new Request(resourceMetadataUrl));
+
+    expect(await trailingMetadata.json()).toEqual(await metadata.json());
+    expect(slashTerminated.issuer.profile.issuer).toBe("https://auth.example.com/oauth");
+    expect(await resourceMetadata.json()).toMatchObject({
+      authorization_servers: ["https://auth.example.com/oauth"],
+    });
+    expect([...slashTerminated.publicPaths]).toEqual([...slashless.publicPaths]);
+    expect([...slashTerminated.publicPaths]).toContain("/oauth/.well-known/jwks.json");
+
+    const root = await createRuntime("https://auth.example.com/");
+    const rootMetadata = await root.handler(
+      new Request("https://auth.example.com/.well-known/oauth-authorization-server"),
+    );
+    expect(await rootMetadata.json()).toMatchObject({
+      issuer: "https://auth.example.com",
+      jwks_uri: "https://auth.example.com/.well-known/jwks.json",
+    });
+    expect(root.issuer.profile.issuer).toBe("https://auth.example.com");
+    expect([...root.publicPaths]).toContain("/.well-known/jwks.json");
+  });
+
   test("fails closed unless the active key is private RS256 signing material", async () => {
     let failure: unknown;
     try {

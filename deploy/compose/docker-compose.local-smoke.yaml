@@ -10,6 +10,8 @@ services:
       - ../../gateway/agentgateway/local-smoke.yaml:/etc/agentgateway/config.yaml:ro
 
   google-workspace:
+    ports:
+      - "127.0.0.1:${GOOGLE_WRAPPER_PORT:-38083}:8080"
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
@@ -22,5 +24,8 @@ services:
       MCP_BROKER_SCOPES: openid email
       MCP_DCR_ENABLED: "true"
       MCP_DCR_ALLOW_LOOPBACK_REDIRECTS: "false"
+      GOOGLE_OAUTH_AUTHORIZATION_URL: ${GOOGLE_OAUTH_AUTHORIZATION_URL}
+      GOOGLE_OAUTH_TOKEN_URL: ${GOOGLE_OAUTH_TOKEN_URL}
+      GOOGLE_OAUTH_JWKS_URL: ${GOOGLE_OAUTH_JWKS_URL}
     volumes:
       - ${LOCAL_BROKER_SIGNING_JWKS_DIR}:/var/run/secrets/mcp-gateway/broker:ro

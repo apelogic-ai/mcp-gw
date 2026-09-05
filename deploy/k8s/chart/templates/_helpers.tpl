@@ -19,6 +19,11 @@
 {{- .Release.Name -}}
 {{- end -}}
 
+{{/* Canonical broker issuer shared by every rendered consumer. */}}
+{{- define "mcp-gateway.authorizationBrokerIssuer" -}}
+{{- trimSuffix "/" .Values.googleWorkspace.authorizationBroker.issuer -}}
+{{- end -}}
+
 {{- define "mcp-gateway.labels" -}}
 app.kubernetes.io/name: {{ include "mcp-gateway.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
@@ -164,6 +169,7 @@ readinessProbe:
 {{- $name := .name -}}
 {{- $value := .value -}}
 {{- $allowQuery := .allowQuery | default false -}}
+{{- $allowEmptyPath := .allowEmptyPath | default false -}}
 {{- $canonical := .canonical | default false -}}
 {{- $routeSafe := .routeSafe | default false -}}
 {{- $url := urlParse $value -}}
@@ -177,7 +183,7 @@ readinessProbe:
 {{- end -}}
 {{- $unsafePath := regexMatch "(?i)https://[^/?#]+(?:/[^?#]*)?(?:/(?:[.]{1,2}|%2e(?:%2e)?)(?:/|$)|%2f|%5c|//)" $value -}}
 {{- $unsafeRawCharacters := regexMatch "[^\\x21-\\x7e]|[\\x22\\x3c\\x3e\\x5c\\x5e\\x60\\x7b\\x7d]" $value -}}
-{{- if and $canonical (or (ne $authority (lower $authority)) (eq $port "443") (not $url.path) $unsafePath $unsafeRawCharacters) -}}
+{{- if and $canonical (or (ne $authority (lower $authority)) (eq $port "443") (and (not $allowEmptyPath) (not $url.path)) $unsafePath $unsafeRawCharacters) -}}
 {{- fail (printf "%s must be an exact canonical URL" $name) -}}
 {{- end -}}
 {{- if and $routeSafe (or $port (and (ne $url.path "/") (hasSuffix "/" $value))) -}}

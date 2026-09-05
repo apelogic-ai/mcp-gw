@@ -66,6 +66,10 @@ export interface AuthorizationBrokerRuntime {
   publicPaths: ReadonlySet<string>;
 }
 
+export function canonicalAuthorizationBrokerIssuer(issuer: string): string {
+  return issuer.replace(/\/$/u, "");
+}
+
 export async function createAuthorizationBrokerRuntime(input: {
   config: AuthorizationBrokerRuntimeConfig;
   google: GoogleOAuthConfig;
@@ -102,7 +106,7 @@ export async function createAuthorizationBrokerRuntime(input: {
         : null;
     },
   };
-  const issuer = input.config.issuer.replace(/\/$/u, "");
+  const issuer = canonicalAuthorizationBrokerIssuer(input.config.issuer);
   const fetchImpl = input.fetch ?? fetch;
   const broker = new OAuthBroker({
     issuer,

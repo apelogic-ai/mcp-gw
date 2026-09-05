@@ -1,0 +1,261 @@
+#!/usr/bin/env bun
+
+import { createHash } from "node:crypto";
+
+import { decodeJwt } from "jose";
+
+interface Args {
+  brokerBaseUrl: string;
+  expectedIssuer: string;
+  expectedTools: string[];
+  gatewayUrl: string;
+  googleFixtureBaseUrl: string;
+  resource: string;
+}
+
+interface RpcEnvelope {
+  result?: Record<string, unknown>;
+  error?: { code?: number; message?: string };
+}
+
+const args = parseArgs(process.argv.slice(2));
+const redirectUri = "https://client.example.com/oauth/callback";
+const verifier = "v".repeat(64);
+const challenge = createHash("sha256").update(verifier).digest("base64url");
+
+const metadataUrl = new URL(args.brokerBaseUrl);
+metadataUrl.pathname = `/.well-known/oauth-authorization-server${metadataUrl.pathname.replace(/\/$/u, "")}`;
+const metadataResponse = await fetch(metadataUrl);
+assertStatus(metadataResponse, 200, "authorization-server metadata");
+const metadata = (await metadataResponse.json()) as Record<string, unknown>;
+if (metadata.issuer !== args.expectedIssuer) {
+  throw new Error(`Metadata issuer was not canonical: ${JSON.stringify(metadata)}`);
+}
+if (metadata.jwks_uri !== `${args.expectedIssuer}/.well-known/jwks.json`) {
+  throw new Error(`Metadata JWKS URI was not canonical: ${JSON.stringify(metadata)}`);
+}
+
+const registrationResponse = await fetch(`${args.brokerBaseUrl}/register`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    redirect_uris: [redirectUri],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+    scope: "openid email",
+    client_name: "issuer-normalization-smoke",
+  }),
+});
+assertStatus(registrationResponse, 201, "dynamic client registration");
+const registration = (await registrationResponse.json()) as Record<string, unknown>;
+const clientId = requiredString(registration, "client_id");
+
+const authorizeUrl = new URL(`${args.brokerBaseUrl}/authorize`);
+authorizeUrl.searchParams.set("response_type", "code");
+authorizeUrl.searchParams.set("client_id", clientId);
+authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+authorizeUrl.searchParams.set("resource", args.resource);
+authorizeUrl.searchParams.set("scope", "openid email");
+authorizeUrl.searchParams.set("code_challenge", challenge);
+authorizeUrl.searchParams.set("code_challenge_method", "S256");
+authorizeUrl.searchParams.set("state", "issuer-normalization-state");
+const authorizeResponse = await fetch(authorizeUrl);
+assertStatus(authorizeResponse, 200, "broker authorization");
+const consent = await authorizeResponse.text();
+const consentMatch = /<a href="([^"]+)">Continue with Google<\/a>/u.exec(consent);
+if (!consentMatch?.[1]) {
+  throw new Error("Broker consent page did not contain the Google authorization link");
+}
+const googleAuthorizationUrl = new URL(unescapeHtml(consentMatch[1]));
+replaceOrigin(googleAuthorizationUrl, args.googleFixtureBaseUrl);
+const googleAuthorization = await fetch(googleAuthorizationUrl, { redirect: "manual" });
+assertStatus(googleAuthorization, 302, "fixture Google authorization");
+const brokerCallback = new URL(requiredHeader(googleAuthorization, "location"));
+replaceOrigin(brokerCallback, args.brokerBaseUrl);
+const callbackResponse = await fetch(brokerCallback, { redirect: "manual" });
+assertStatus(callbackResponse, 302, "broker Google callback");
+const clientCallback = new URL(requiredHeader(callbackResponse, "location"));
+if (`${clientCallback.origin}${clientCallback.pathname}` !== redirectUri) {
+  throw new Error(`Broker redirected to an unregistered client URI: ${clientCallback}`);
+}
+if (clientCallback.searchParams.get("state") !== "issuer-normalization-state") {
+  throw new Error("Broker did not preserve the client state");
+}
+const authorizationCode = clientCallback.searchParams.get("code");
+if (!authorizationCode) {
+  throw new Error("Broker callback did not issue an authorization code");
+}
+
+const tokenResponse = await fetch(`${args.brokerBaseUrl}/token`, {
+  method: "POST",
+  headers: { "content-type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams({
+    grant_type: "authorization_code",
+    code: authorizationCode,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    resource: args.resource,
+    code_verifier: verifier,
+  }),
+});
+assertStatus(tokenResponse, 200, "broker token exchange");
+const tokenBody = (await tokenResponse.json()) as Record<string, unknown>;
+const accessToken = requiredString(tokenBody, "access_token");
+const claims = decodeJwt(accessToken);
+if (claims.iss !== args.expectedIssuer || claims.aud !== args.resource) {
+  throw new Error(`Broker token issuer or audience was not canonical: ${JSON.stringify(claims)}`);
+}
+
+const initialize = await rpcRequest(
+  {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "issuer-normalization-smoke", version: "1.0.0" },
+    },
+  },
+  accessToken,
+);
+const sessionId = initialize.headers.get("mcp-session-id");
+if (!sessionId) {
+  throw new Error("Release-built AgentGateway did not create an MCP session");
+}
+await decodeRpcResponse(initialize);
+const initialized = await rpcRequest(
+  { jsonrpc: "2.0", method: "notifications/initialized" },
+  accessToken,
+  sessionId,
+);
+if (!initialized.ok) {
+  throw new Error(`MCP initialized notification failed (${String(initialized.status)})`);
+}
+const toolsResponse = await rpcRequest(
+  { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+  accessToken,
+  sessionId,
+);
+const toolsPayload = await decodeRpcResponse(toolsResponse);
+const tools = toolsPayload.result?.tools;
+if (!Array.isArray(tools)) {
+  throw new Error(`tools/list did not return tools: ${JSON.stringify(toolsPayload)}`);
+}
+const toolNames = tools
+  .flatMap((tool) => (isRecord(tool) && typeof tool.name === "string" ? [tool.name] : []))
+  .sort();
+const expectedTools = [...args.expectedTools].sort();
+if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
+  throw new Error(
+    `Pre-consent tools must be exactly ${expectedTools.join(", ")}; received ${toolNames.join(", ")}`,
+  );
+}
+
+console.log("Trailing-slash broker DCR journey passed through release-built AgentGateway.");
+
+async function rpcRequest(
+  body: unknown,
+  accessToken: string,
+  sessionId?: string,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    accept: "application/json, text/event-stream",
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+    "mcp-protocol-version": "2025-06-18",
+  };
+  if (sessionId) headers["mcp-session-id"] = sessionId;
+  const response = await fetch(args.gatewayUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`MCP request failed (${String(response.status)}): ${await response.text()}`);
+  }
+  return response;
+}
+
+async function decodeRpcResponse(response: Response): Promise<RpcEnvelope> {
+  const body = await response.text();
+  const data = response.headers.get("content-type")?.includes("text/event-stream")
+    ? body
+        .split(/\r?\n/u)
+        .find((line) => line.startsWith("data:"))
+        ?.slice(5)
+        .trim()
+    : body;
+  if (!data) throw new Error("MCP response body was empty");
+  const payload = JSON.parse(data) as RpcEnvelope;
+  if (payload.error) throw new Error(`MCP error: ${JSON.stringify(payload.error)}`);
+  return payload;
+}
+
+function assertStatus(response: Response, expected: number, label: string): void {
+  if (response.status !== expected) {
+    throw new Error(
+      `${label} returned HTTP ${String(response.status)}; expected ${String(expected)}`,
+    );
+  }
+}
+
+function replaceOrigin(url: URL, replacement: string): void {
+  const origin = new URL(replacement);
+  url.protocol = origin.protocol;
+  url.host = origin.host;
+}
+
+function requiredHeader(response: Response, name: string): string {
+  const value = response.headers.get(name);
+  if (!value) throw new Error(`Response did not contain ${name}`);
+  return value;
+}
+
+function requiredString(record: Record<string, unknown>, name: string): string {
+  const value = record[name];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Response did not contain ${name}`);
+  }
+  return value;
+}
+
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&amp;/gu, "&")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&quot;/gu, '"')
+    .replace(/&#39;/gu, "'");
+}
+
+function parseArgs(argv: string[]): Args {
+  const values = new Map<string, string>();
+  for (let index = 0; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key?.startsWith("--") || !value) {
+      throw new Error(`Invalid argument pair near ${key ?? "<end>"}`);
+    }
+    values.set(key.slice(2), value);
+  }
+  return {
+    brokerBaseUrl: required(values, "broker-base-url"),
+    expectedIssuer: required(values, "expected-issuer"),
+    expectedTools: required(values, "expected-tools").split(",").filter(Boolean),
+    gatewayUrl: required(values, "gateway-url"),
+    googleFixtureBaseUrl: required(values, "google-fixture-base-url"),
+    resource: required(values, "resource"),
+  };
+}
+
+function required(values: Map<string, string>, key: string): string {
+  const value = values.get(key);
+  if (!value) throw new Error(`Missing required arg: --${key}`);
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

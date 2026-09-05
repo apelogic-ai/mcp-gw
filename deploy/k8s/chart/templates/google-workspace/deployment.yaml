@@ -78,7 +78,7 @@ spec:
             - name: MCP_BROKER_ENABLED
               value: "true"
             - name: MCP_AUTHORIZATION_ISSUER
-              value: {{ .issuer | quote }}
+              value: {{ include "mcp-gateway.authorizationBrokerIssuer" $ | quote }}
             - name: MCP_RESOURCE_URI
               value: {{ .resource | quote }}
             - name: MCP_BROKER_GOOGLE_REDIRECT_URI

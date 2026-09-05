@@ -8,12 +8,17 @@ LOCAL_GITHUB_COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.local-github-
 WORK_DIR="${WORK_DIR:-/tmp/mcp-gw-local-integration}"
 JWKS_PORT="${JWKS_PORT:-38080}"
 BROKER_JWKS_PORT="${BROKER_JWKS_PORT:-38082}"
+GOOGLE_WRAPPER_PORT="${GOOGLE_WRAPPER_PORT:-38083}"
+GOOGLE_OIDC_PORT="${GOOGLE_OIDC_PORT:-38084}"
 GATEWAY_PORT="${GATEWAY_PORT:-38081}"
 TOKEN_STORE_PORT="${TOKEN_STORE_PORT:-35432}"
 ISSUER="http://host.docker.internal:$JWKS_PORT"
 FIXTURE_BASE_URL="http://127.0.0.1:$JWKS_PORT"
-BROKER_ISSUER="https://mcp.example.com/oauth"
+BROKER_ISSUER_INPUT="https://mcp.example.com/oauth/"
+BROKER_ISSUER="${BROKER_ISSUER_INPUT%/}"
 BROKER_FIXTURE_BASE_URL="http://127.0.0.1:$BROKER_JWKS_PORT"
+BROKER_BASE_URL="http://127.0.0.1:$GOOGLE_WRAPPER_PORT/oauth"
+GOOGLE_OIDC_FIXTURE_BASE_URL="http://127.0.0.1:$GOOGLE_OIDC_PORT"
 AUDIENCE="https://mcp.example.com/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
 BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"
@@ -48,6 +53,9 @@ cleanup() {
   if [[ -n "${BROKER_FIXTURE_PID:-}" ]]; then
     kill "$BROKER_FIXTURE_PID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${GOOGLE_OIDC_FIXTURE_PID:-}" ]]; then
+    kill "$GOOGLE_OIDC_FIXTURE_PID" >/dev/null 2>&1 || true
+  fi
   if [[ "${KEEP_LOCAL_INTEGRATION:-0}" != "1" ]]; then
     chmod 700 "$BROKER_SIGNING_JWKS_DIR" >/dev/null 2>&1 || true
     rm -f "$BROKER_SIGNING_JWKS_FILE"
@@ -73,6 +81,10 @@ bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
   >"$WORK_DIR/broker-fixture.log" 2>&1 &
 BROKER_FIXTURE_PID=$!
 
+PORT="$GOOGLE_OIDC_PORT" bun "$ROOT_DIR/scripts/fixtures/google-oidc-fixture.ts" \
+  >"$WORK_DIR/google-oidc-fixture.log" 2>&1 &
+GOOGLE_OIDC_FIXTURE_PID=$!
+
 broker_signing_jwks_ready() {
   [[ -s "$BROKER_SIGNING_JWKS_FILE" ]] && \
     BROKER_SIGNING_JWKS_FILE="$BROKER_SIGNING_JWKS_FILE" bun -e '
@@ -85,7 +97,8 @@ for _ in {1..30}; do
   if [[ -s "$TOKEN_FILE" ]] && [[ -s "$BROKER_TOKEN_FILE" ]] && \
     broker_signing_jwks_ready && \
     curl -sS "$FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
-    curl -sS "$BROKER_FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
+    curl -sS "$BROKER_FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
+    curl -sS "$GOOGLE_OIDC_FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
@@ -117,11 +130,15 @@ chmod 555 "$BROKER_SIGNING_JWKS_DIR"
 cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
 TOKEN_STORE_PORT=$TOKEN_STORE_PORT
+GOOGLE_WRAPPER_PORT=$GOOGLE_WRAPPER_PORT
 AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.4}
 LOCAL_BROKER_SIGNING_JWKS_DIR=$BROKER_SIGNING_JWKS_DIR
-MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER
+MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER_INPUT
 MCP_RESOURCE_URI=$AUDIENCE
 MCP_BROKER_GOOGLE_REDIRECT_URI=$BROKER_ISSUER/google/broker/callback
+GOOGLE_OAUTH_AUTHORIZATION_URL=https://accounts.google.com/o/oauth2/v2/auth
+GOOGLE_OAUTH_TOKEN_URL=http://host.docker.internal:$GOOGLE_OIDC_PORT/token
+GOOGLE_OAUTH_JWKS_URL=http://host.docker.internal:$GOOGLE_OIDC_PORT/jwks
 HOP1_PROFILE=local
 HOP1_ISSUER=$ISSUER
 HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json
@@ -140,15 +157,25 @@ GITHUB_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 GITHUB_OAUTH_CLIENT_ID=local-github-client
 GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
 GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
+GITHUB_SMOKE_HOP1_ISSUERS_JSON=[{"name":"local","issuer":"$ISSUER","jwksUrl":"$ISSUER/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"},{"name":"broker","issuer":"$BROKER_ISSUER","jwksUrl":"http://host.docker.internal:$BROKER_JWKS_PORT/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"}]
 ENV
 
-EXPECTED_TOOLS=("google_oauth_start")
+EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")
+BROKER_EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")
 if [[ "$INCLUDE_GITHUB" == "1" ]]; then
-  COMPOSE_ARGS+=(-f "$LOCAL_GITHUB_COMPOSE_FILE" -f "$ROOT_DIR/deploy/compose/docker-compose.github-mcp.yaml")
+  COMPOSE_ARGS+=(-f "$ROOT_DIR/deploy/compose/docker-compose.github-mcp.yaml" -f "$LOCAL_GITHUB_COMPOSE_FILE")
   COMPOSE_PROFILES+=(--profile github-mcp)
   COMPOSE_SERVICES+=(github-mcp github-wrapper)
-  EXPECTED_TOOLS+=("github_oauth_start")
+  EXPECTED_TOOLS+=("github_oauth_start" "github_oauth_status")
+  BROKER_EXPECTED_TOOLS=(
+    "google_google_oauth_start"
+    "google_google_oauth_status"
+    "github_github_oauth_start"
+    "github_github_oauth_status"
+  )
 fi
+printf -v EXPECTED_TOOLS_CSV '%s,' "${BROKER_EXPECTED_TOOLS[@]}"
+EXPECTED_TOOLS_CSV="${EXPECTED_TOOLS_CSV%,}"
 
 has_expected_tools() {
   for expected_tool in "${EXPECTED_TOOLS[@]}"; do
@@ -301,6 +328,13 @@ for _ in {1..60}; do
   fi
 
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
+    bun "$ROOT_DIR/scripts/fixtures/broker-journey-client.ts" \
+      --broker-base-url "$BROKER_BASE_URL" \
+      --expected-issuer "$BROKER_ISSUER" \
+      --expected-tools "$EXPECTED_TOOLS_CSV" \
+      --gateway-url "http://127.0.0.1:$GATEWAY_PORT/mcp" \
+      --google-fixture-base-url "$GOOGLE_OIDC_FIXTURE_BASE_URL" \
+      --resource "$AUDIENCE"
     TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
       bun "$ROOT_DIR/scripts/fixtures/refresh-token-race.ts"
     assert_accepted_token "public broker" "$BROKER_TOKEN"
