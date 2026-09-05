@@ -8,16 +8,50 @@ not broaden provider behavior, principal linking, token audiences, or deployment
 
 ## Version-pinned client evidence
 
-| Client                   | Evidence                                                                                                                                                              | Registration and renewal behavior                                                                                                                                                                                                                                                                            | Current claim                                                                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex CLI 0.147.0        | Source tag `rust-v0.147.0`, commit `be6e8eac029b183056b7e4402879f15d2c85f61b`; pinned RMCP 3.0.0 tag `rmcp-v3.0.0`, commit `4e361b715fc70b8a09f0a8aeaedc160712a3472d` | Registers a public client with `authorization_code` and `refresh_token`, `token_endpoint_auth_method=none`, PKCE S256, and an ephemeral `http://127.0.0.1:<port>/callback/<12-character-server-bound-id>` redirect. Refreshes with the exact resource and granted scopes and adopts a rotated refresh token. | Exact source behavior and repository request-shape fixture verified. Live Codex login and post-expiry renewal remain pending deployment. |
-| Claude remote connectors | [Claude connector authentication documentation](https://claude.com/docs/connectors/building/authentication)                                                           | Supports OAuth DCR, PKCE S256, hosted callback `https://claude.ai/api/mcp/auth_callback`, and proactive/on-401 token refresh.                                                                                                                                                                                | Documented behavior verified. Exact emitted registration JSON and live post-expiry renewal remain pending sanitized capture.             |
-| Claude Code              | [Claude connector authentication documentation](https://claude.com/docs/connectors/building/authentication)                                                           | Uses local loopback callbacks with ephemeral ports and supports OAuth token refresh.                                                                                                                                                                                                                         | Documented behavior verified. Exact emitted registration JSON and live post-expiry renewal remain pending sanitized capture.             |
+| Client                   | Evidence                                                                                                                                                                                                          | Registration and renewal behavior                                                                                                                                                                                                                                                                            | Current claim                                                                                                                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex CLI 0.147.0        | Source tag `rust-v0.147.0`, commit `be6e8eac029b183056b7e4402879f15d2c85f61b`; pinned RMCP 3.0.0 tag `rmcp-v3.0.0`, commit `4e361b715fc70b8a09f0a8aeaedc160712a3472d`; isolated live-client probe described below | Registers a public client with `authorization_code` and `refresh_token`, `token_endpoint_auth_method=none`, PKCE S256, and an ephemeral `http://127.0.0.1:<port>/callback/<12-character-server-bound-id>` redirect. Refreshes with the exact resource and granted scopes and adopts a rotated refresh token. | Exact source behavior, repository request-shape fixture, and live Codex protocol behavior verified. Deployed MCP-GW Google sign-in and post-five-minute renewal remain pending. |
+| Claude remote connectors | [Claude connector authentication documentation](https://claude.com/docs/connectors/building/authentication)                                                                                                       | Supports OAuth DCR, PKCE S256, hosted callback `https://claude.ai/api/mcp/auth_callback`, and proactive/on-401 token refresh.                                                                                                                                                                                | Documented behavior verified. Exact emitted registration JSON and live post-expiry renewal remain pending sanitized capture.                                                    |
+| Claude Code              | [Claude connector authentication documentation](https://claude.com/docs/connectors/building/authentication)                                                                                                       | Uses local loopback callbacks with ephemeral ports and supports OAuth token refresh.                                                                                                                                                                                                                         | Documented behavior verified. Exact emitted registration JSON and live post-expiry renewal remain pending sanitized capture.                                                    |
 
 The repository must not claim named-client compatibility from source inspection or protocol fixtures
 alone. A claim requires the exact released client version to complete discovery, registration,
 Google sign-in, MCP access, access-token expiry, refresh rotation, and renewed MCP access against the
 deployed candidate.
+
+## Sanitized live Codex protocol evidence
+
+On 2026-09-05, the installed `codex-cli 0.147.0` was run with an isolated temporary `CODEX_HOME`
+against a loopback-only OAuth/MCP recorder. This exercised the real client without using a provider
+credential, changing the user's Codex configuration, or exposing the recorder externally. The
+[official OpenAI MCP documentation](https://developers.openai.com/codex/mcp) documents OAuth with
+DCR for streamable HTTP MCP servers.
+
+The emitted registration contained only the following recorded non-secret metadata:
+
+```json
+{
+  "redirect_uris": ["http://127.0.0.1:<ephemeral-port>/callback/<server-bound-id>"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "client_name": "Codex",
+  "scope": "mcp"
+}
+```
+
+After the recorder rejected the first authenticated MCP request, Codex sent a refresh grant with
+the registered client ID, exact MCP resource, and granted `mcp` scope. The probe returned a rotated
+refresh credential. A second forced renewal proved that Codex presented that rotated credential,
+then successfully initialized the MCP server, listed its tool, and completed a tool call. The
+recorder retained and reported only field presence and equality checks; it did not log credential
+values, authorization codes, PKCE verifiers, state, nonces, cookies, or keys. All temporary
+processes and files were removed after the probe.
+
+This proves Codex's registration-response handling, on-401 refresh behavior, rotated-token adoption,
+and renewed MCP access. It does not prove MCP-GW interoperability, Google sign-in, or time-based
+renewal after the five-minute MCP-GW access-token lifetime; those claims remain gated on the
+approved deployed-candidate journey below.
 
 ## Standards and implementation matrix
 
