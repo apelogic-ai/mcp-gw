@@ -111,6 +111,21 @@ describe("constrained dynamic client registration", () => {
     expect(registration.grant_types).toEqual(["authorization_code", "refresh_token"]);
   });
 
+  test("applies RFC 7591 defaults when grant and response metadata are omitted", async () => {
+    const metadata = {
+      redirect_uris: validMetadata.redirect_uris,
+      token_endpoint_auth_method: validMetadata.token_endpoint_auth_method,
+      client_name: validMetadata.client_name,
+      client_uri: validMetadata.client_uri,
+    };
+    const registration = await createRegistry().register(metadata, {
+      rateLimitKey: "198.51.100.12",
+    });
+
+    expect(registration.grant_types).toEqual(["authorization_code"]);
+    expect(registration.response_types).toEqual(["code"]);
+  });
+
   test("requires exact HTTPS redirects and optionally permits loopback HTTP redirects", async () => {
     const rejected = [
       "http://client.example/callback",

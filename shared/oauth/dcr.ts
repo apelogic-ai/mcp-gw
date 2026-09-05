@@ -441,8 +441,13 @@ function validateClientMetadata(
     }
   }
 
-  const grantTypes = validateGrantTypes(input.grant_types);
-  requireExactStringArray(input.response_types, ["code"], "response_types");
+  const grantTypes: DcrGrantTypes =
+    input.grant_types === undefined
+      ? ["authorization_code"]
+      : validateGrantTypes(input.grant_types);
+  if (input.response_types !== undefined) {
+    requireExactStringArray(input.response_types, ["code"], "response_types");
+  }
   if (input.token_endpoint_auth_method !== "none") {
     throw invalidMetadata("token_endpoint_auth_method must be none");
   }
