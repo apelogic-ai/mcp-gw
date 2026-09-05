@@ -34,6 +34,13 @@ interface AuthorizationBrokerHttpContract {
     resource: string;
     codeVerifier: string;
   }): Promise<BrokerTokenResponse>;
+  exchangeRefreshToken(request: {
+    grantType: string;
+    refreshToken: string;
+    clientId: string;
+    resource: string;
+    scope?: string;
+  }): Promise<BrokerTokenResponse>;
 }
 
 interface DcrHttpContract {
@@ -218,23 +225,33 @@ export function createAuthorizationServerRouteHandler(
             400,
           );
         }
-        if (params.has("refresh_token")) {
-          return tokenError("invalid_request", "Refresh tokens are not supported", 400);
-        }
-        const exchanged = await options.broker.exchangeAuthorizationCode({
-          grantType: params.get("grant_type") ?? "",
-          code: params.get("code") ?? "",
-          clientId: params.get("client_id") ?? "",
-          redirectUri: params.get("redirect_uri") ?? "",
-          resource: params.get("resource") ?? "",
-          codeVerifier: params.get("code_verifier") ?? "",
-        });
+        const grantType = params.get("grant_type") ?? "";
+        const exchanged =
+          grantType === "refresh_token"
+            ? await options.broker.exchangeRefreshToken({
+                grantType,
+                refreshToken: params.get("refresh_token") ?? "",
+                clientId: params.get("client_id") ?? "",
+                resource: params.get("resource") ?? "",
+                scope: params.has("scope") ? (params.get("scope") ?? "") : undefined,
+              })
+            : await options.broker.exchangeAuthorizationCode({
+                grantType,
+                code: params.get("code") ?? "",
+                clientId: params.get("client_id") ?? "",
+                redirectUri: params.get("redirect_uri") ?? "",
+                resource: params.get("resource") ?? "",
+                codeVerifier: params.get("code_verifier") ?? "",
+              });
         return json(
           {
             access_token: exchanged.accessToken,
             token_type: exchanged.tokenType,
             expires_in: exchanged.expiresIn,
             scope: exchanged.scope,
+            ...(exchanged.refreshToken === undefined
+              ? {}
+              : { refresh_token: exchanged.refreshToken }),
           },
           200,
           NO_STORE_HEADERS,

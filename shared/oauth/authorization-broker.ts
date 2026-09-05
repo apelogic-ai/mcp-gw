@@ -23,6 +23,7 @@ export const GOOGLE_ID_TOKEN_MAX_AGE_SECONDS = 3_600;
 const DEFAULT_TRANSACTION_TTL_SECONDS = 600;
 const DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS = 120;
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 300;
+const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const PKCE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
 const MAX_CLIENT_ID_LENGTH = 256;
@@ -30,6 +31,7 @@ const MAX_URI_LENGTH = 2048;
 const MAX_SCOPE_LENGTH = 1024;
 const MAX_CLIENT_STATE_LENGTH = 1024;
 const MAX_AUTHORIZATION_CODE_LENGTH = 4096;
+const MAX_REFRESH_TOKEN_LENGTH = 512;
 
 export type OAuthBrokerErrorCode =
   | "invalid_client"
@@ -55,6 +57,7 @@ export class OAuthBrokerError extends Error {
 export interface BrokerClient {
   clientId: string;
   redirectUris: string[];
+  grantTypes: readonly ("authorization_code" | "refresh_token")[];
   scopes: string[];
   clientName?: string;
   clientUri?: string;
@@ -95,16 +98,47 @@ export interface BrokerAuthorizationCodeRecord {
   expiresAt: number;
 }
 
+export interface BrokerRefreshTokenRecord {
+  tokenHash: string;
+  familyId: string;
+  clientId: string;
+  resource: string;
+  scopes: string[];
+  identity: GoogleIdentity;
+  expiresAt: number;
+}
+
+export interface RotateBrokerRefreshTokenRequest {
+  tokenHash: string;
+  replacementTokenHash: string;
+  clientId: string;
+  resource: string;
+  scopes?: string[];
+  now: number;
+}
+
+export type RotateBrokerRefreshTokenResult =
+  | { status: "rotated"; record: BrokerRefreshTokenRecord }
+  | { status: "invalid" | "invalid_scope" | "replayed" };
+
 export interface AuthorizationBrokerStore {
   saveTransaction(record: AuthorizationTransactionRecord): Promise<void>;
   consumeTransaction(stateHash: string): Promise<AuthorizationTransactionRecord | null>;
   saveAuthorizationCode(record: BrokerAuthorizationCodeRecord): Promise<void>;
   consumeAuthorizationCode(codeHash: string): Promise<BrokerAuthorizationCodeRecord | null>;
+  saveRefreshToken(record: BrokerRefreshTokenRecord): Promise<void>;
+  rotateRefreshToken(
+    request: RotateBrokerRefreshTokenRequest,
+  ): Promise<RotateBrokerRefreshTokenResult>;
 }
 
 export class InMemoryAuthorizationBrokerStore implements AuthorizationBrokerStore {
   private readonly transactions = new Map<string, AuthorizationTransactionRecord>();
   private readonly authorizationCodes = new Map<string, BrokerAuthorizationCodeRecord>();
+  private readonly refreshTokens = new Map<
+    string,
+    BrokerRefreshTokenRecord & { consumedAt?: number; revokedAt?: number }
+  >();
 
   saveTransaction(record: AuthorizationTransactionRecord): Promise<void> {
     this.transactions.set(record.stateHash, structuredClone(record));
@@ -126,6 +160,62 @@ export class InMemoryAuthorizationBrokerStore implements AuthorizationBrokerStor
     const record = this.authorizationCodes.get(codeHash);
     this.authorizationCodes.delete(codeHash);
     return Promise.resolve(record ? structuredClone(record) : null);
+  }
+
+  saveRefreshToken(record: BrokerRefreshTokenRecord): Promise<void> {
+    this.refreshTokens.set(record.tokenHash, structuredClone(record));
+    return Promise.resolve();
+  }
+
+  rotateRefreshToken(
+    request: RotateBrokerRefreshTokenRequest,
+  ): Promise<RotateBrokerRefreshTokenResult> {
+    const record = this.refreshTokens.get(request.tokenHash);
+    if (!record) {
+      return Promise.resolve({ status: "invalid" });
+    }
+    if (record.consumedAt !== undefined) {
+      for (const token of this.refreshTokens.values()) {
+        if (token.familyId === record.familyId) token.revokedAt = request.now;
+      }
+      return Promise.resolve({ status: "replayed" });
+    }
+    const scopes = request.scopes ?? record.scopes;
+    if (
+      new Set(scopes).size !== scopes.length ||
+      scopes.length === 0 ||
+      scopes.some((scope) => !record.scopes.includes(scope))
+    ) {
+      return Promise.resolve({ status: "invalid_scope" });
+    }
+    if (
+      record.revokedAt !== undefined ||
+      record.expiresAt <= request.now ||
+      record.clientId !== request.clientId ||
+      record.resource !== request.resource
+    ) {
+      return Promise.resolve({ status: "invalid" });
+    }
+    record.consumedAt = request.now;
+    this.refreshTokens.set(request.replacementTokenHash, {
+      ...structuredClone(record),
+      tokenHash: request.replacementTokenHash,
+      scopes: [...scopes],
+      consumedAt: undefined,
+      revokedAt: undefined,
+    });
+    return Promise.resolve({
+      status: "rotated",
+      record: {
+        tokenHash: record.tokenHash,
+        familyId: record.familyId,
+        clientId: record.clientId,
+        resource: record.resource,
+        scopes: [...record.scopes],
+        identity: structuredClone(record.identity),
+        expiresAt: record.expiresAt,
+      },
+    });
   }
 }
 
@@ -178,6 +268,15 @@ export interface BrokerTokenResponse {
   tokenType: "Bearer";
   expiresIn: number;
   scope: string;
+  refreshToken?: string;
+}
+
+export interface ExchangeRefreshTokenRequest {
+  grantType: string;
+  refreshToken: string;
+  clientId: string;
+  resource: string;
+  scope?: string;
 }
 
 export interface GoogleTokenExchangeInput {
@@ -218,6 +317,7 @@ export interface OAuthBrokerOptions {
   transactionTtlSeconds?: number;
   authorizationCodeTtlSeconds?: number;
   accessTokenTtlSeconds?: number;
+  refreshTokenTtlSeconds?: number;
   now?: () => number;
 }
 
@@ -233,6 +333,7 @@ export class OAuthBroker {
   private readonly transactionTtlSeconds: number;
   private readonly authorizationCodeTtlSeconds: number;
   private readonly accessTokenTtlSeconds: number;
+  private readonly refreshTokenTtlSeconds: number;
 
   constructor(private readonly options: OAuthBrokerOptions) {
     validatePublicConfiguration(options);
@@ -276,6 +377,12 @@ export class OAuthBroker {
       "accessTokenTtlSeconds",
       60,
       600,
+    );
+    this.refreshTokenTtlSeconds = boundedTtl(
+      options.refreshTokenTtlSeconds ?? DEFAULT_REFRESH_TOKEN_TTL_SECONDS,
+      "refreshTokenTtlSeconds",
+      3_600,
+      90 * 24 * 60 * 60,
     );
   }
 
@@ -449,17 +556,14 @@ export class OAuthBroker {
     request: ExchangeAuthorizationCodeRequest,
   ): Promise<BrokerTokenResponse> {
     requireBoundedString(request.grantType, "grant_type", 64);
+    if (request.grantType !== "authorization_code") {
+      throw new OAuthBrokerError("unsupported_grant_type", "Only supported grants may be used");
+    }
     requireBoundedString(request.code, "code", 256, "invalid_grant");
     requireBoundedString(request.clientId, "client_id", MAX_CLIENT_ID_LENGTH);
     requireBoundedString(request.redirectUri, "redirect_uri", MAX_URI_LENGTH);
     requireBoundedString(request.resource, "resource", MAX_URI_LENGTH);
     requireBoundedString(request.codeVerifier, "code_verifier", 128, "invalid_grant");
-    if (request.grantType !== "authorization_code") {
-      throw new OAuthBrokerError(
-        "unsupported_grant_type",
-        "Only the authorization_code grant is supported",
-      );
-    }
     const record = await this.options.store.consumeAuthorizationCode(hashSecret(request.code));
     if (!record || record.expiresAt <= this.now()) {
       throw new OAuthBrokerError("invalid_grant", "Authorization code is invalid or expired");
@@ -483,31 +587,82 @@ export class OAuthBroker {
       throw new OAuthBrokerError("invalid_grant", "OAuth client is no longer active");
     }
 
-    const issuedAt = Math.floor(this.now() / 1000);
-    const accessToken = await new SignJWT({
-      email: record.identity.email,
-      email_verified: true,
-      identity_provider: "google",
-      scope: record.scopes.join(" "),
-    })
-      .setProtectedHeader({
-        alg: this.options.signing.algorithm,
-        kid: this.options.signing.keyId,
-        typ: "at+jwt",
-      })
-      .setIssuer(this.options.issuer)
-      .setAudience(record.resource)
-      .setSubject(record.identity.subject)
-      .setIssuedAt(issuedAt)
-      .setExpirationTime(issuedAt + this.accessTokenTtlSeconds)
-      .setJti(randomSecret())
-      .sign(this.options.signing.privateKey);
-
-    return {
-      accessToken,
+    const response: BrokerTokenResponse = {
+      accessToken: await this.issueAccessToken(record),
       tokenType: "Bearer",
       expiresIn: this.accessTokenTtlSeconds,
       scope: record.scopes.join(" "),
+    };
+    if (client.grantTypes.includes("refresh_token")) {
+      const refreshToken = randomSecret();
+      await this.options.store.saveRefreshToken({
+        tokenHash: hashSecret(refreshToken),
+        familyId: randomSecret(),
+        clientId: record.clientId,
+        resource: record.resource,
+        scopes: [...record.scopes],
+        identity: structuredClone(record.identity),
+        expiresAt: this.now() + this.refreshTokenTtlSeconds * 1000,
+      });
+      response.refreshToken = refreshToken;
+    }
+    return response;
+  }
+
+  async exchangeRefreshToken(request: ExchangeRefreshTokenRequest): Promise<BrokerTokenResponse> {
+    requireBoundedString(request.grantType, "grant_type", 64);
+    requireBoundedString(
+      request.refreshToken,
+      "refresh_token",
+      MAX_REFRESH_TOKEN_LENGTH,
+      "invalid_grant",
+    );
+    requireBoundedString(request.clientId, "client_id", MAX_CLIENT_ID_LENGTH);
+    requireBoundedString(request.resource, "resource", MAX_URI_LENGTH);
+    if (request.grantType !== "refresh_token") {
+      throw new OAuthBrokerError("unsupported_grant_type", "Only supported grants may be used");
+    }
+    if (request.resource !== this.options.resource) {
+      throw new OAuthBrokerError("invalid_target", "resource does not identify this MCP server");
+    }
+    const client = await this.options.clients.get(request.clientId);
+    if (client?.clientId !== request.clientId || !client.grantTypes.includes("refresh_token")) {
+      throw new OAuthBrokerError("invalid_grant", "Refresh token is invalid or expired");
+    }
+    const scopes =
+      request.scope === undefined
+        ? undefined
+        : parseAndValidateScopes(request.scope, [
+            ...new Set(
+              client.scopes.filter((scope) => this.options.scopesSupported.includes(scope)),
+            ),
+          ]);
+    const replacement = randomSecret();
+    const rotated = await this.options.store.rotateRefreshToken({
+      tokenHash: hashSecret(request.refreshToken),
+      replacementTokenHash: hashSecret(replacement),
+      clientId: request.clientId,
+      resource: request.resource,
+      scopes,
+      now: this.now(),
+    });
+    if (rotated.status === "invalid_scope") {
+      throw new OAuthBrokerError("invalid_scope", "Requested OAuth scope is not permitted");
+    }
+    if (rotated.status !== "rotated") {
+      throw new OAuthBrokerError("invalid_grant", "Refresh token is invalid or expired");
+    }
+    const effectiveScopes = scopes ?? rotated.record.scopes;
+    return {
+      accessToken: await this.issueAccessToken({
+        identity: rotated.record.identity,
+        resource: rotated.record.resource,
+        scopes: effectiveScopes,
+      }),
+      refreshToken: replacement,
+      tokenType: "Bearer",
+      expiresIn: this.accessTokenTtlSeconds,
+      scope: effectiveScopes.join(" "),
     };
   }
 
@@ -518,7 +673,7 @@ export class OAuthBroker {
       token_endpoint: this.options.tokenEndpoint,
       jwks_uri: this.options.jwksUri,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: [...this.options.scopesSupported],
@@ -568,6 +723,32 @@ export class OAuthBroker {
       );
     }
     return transaction;
+  }
+
+  private async issueAccessToken(input: {
+    identity: GoogleIdentity;
+    resource: string;
+    scopes: string[];
+  }): Promise<string> {
+    const issuedAt = Math.floor(this.now() / 1000);
+    return new SignJWT({
+      email: input.identity.email,
+      email_verified: true,
+      identity_provider: "google",
+      scope: input.scopes.join(" "),
+    })
+      .setProtectedHeader({
+        alg: this.options.signing.algorithm,
+        kid: this.options.signing.keyId,
+        typ: "at+jwt",
+      })
+      .setIssuer(this.options.issuer)
+      .setAudience(input.resource)
+      .setSubject(input.identity.subject)
+      .setIssuedAt(issuedAt)
+      .setExpirationTime(issuedAt + this.accessTokenTtlSeconds)
+      .setJti(randomSecret())
+      .sign(this.options.signing.privateKey);
   }
 }
 

@@ -24,11 +24,13 @@ export class ConstrainedDcrError extends Error {
   }
 }
 
+export type DcrGrantTypes = ["authorization_code"] | ["authorization_code", "refresh_token"];
+
 export interface DcrRegistrationResponse {
   client_id: string;
   client_id_issued_at: number;
   redirect_uris: string[];
-  grant_types: ["authorization_code"];
+  grant_types: DcrGrantTypes;
   response_types: ["code"];
   token_endpoint_auth_method: "none";
   application_type?: "native" | "web";
@@ -439,7 +441,7 @@ function validateClientMetadata(
     }
   }
 
-  requireExactStringArray(input.grant_types, ["authorization_code"], "grant_types");
+  const grantTypes = validateGrantTypes(input.grant_types);
   requireExactStringArray(input.response_types, ["code"], "response_types");
   if (input.token_endpoint_auth_method !== "none") {
     throw invalidMetadata("token_endpoint_auth_method must be none");
@@ -447,7 +449,7 @@ function validateClientMetadata(
 
   const registration: Omit<DcrRegistrationResponse, "client_id" | "client_id_issued_at"> = {
     redirect_uris: validateRedirectUris(input.redirect_uris, allowLoopbackRedirects),
-    grant_types: ["authorization_code"],
+    grant_types: grantTypes,
     response_types: ["code"],
     token_endpoint_auth_method: "none",
   };
@@ -523,6 +525,27 @@ function validateRedirectUris(input: unknown, allowLoopback: boolean): string[] 
     unique.add(value);
   }
   return [...unique];
+}
+
+function validateGrantTypes(input: unknown): DcrGrantTypes {
+  if (!Array.isArray(input) || !input.every((value) => typeof value === "string")) {
+    throw invalidMetadata(
+      'grant_types must be ["authorization_code"] or ["authorization_code","refresh_token"]',
+    );
+  }
+  const values = new Set(input);
+  if (
+    values.size !== input.length ||
+    !values.has("authorization_code") ||
+    [...values].some((value) => value !== "authorization_code" && value !== "refresh_token")
+  ) {
+    throw invalidMetadata(
+      'grant_types must be ["authorization_code"] or ["authorization_code","refresh_token"]',
+    );
+  }
+  return values.has("refresh_token")
+    ? ["authorization_code", "refresh_token"]
+    : ["authorization_code"];
 }
 
 function validatePublicMetadataUrl(input: unknown, field: string): string {
@@ -714,7 +737,7 @@ function cloneRegistration(registration: DcrRegistrationResponse): DcrRegistrati
   const cloned: DcrRegistrationResponse = {
     ...registration,
     redirect_uris: [...registration.redirect_uris],
-    grant_types: ["authorization_code"],
+    grant_types: [...registration.grant_types],
     response_types: ["code"],
   };
   if (registration.contacts) {

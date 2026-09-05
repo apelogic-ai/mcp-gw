@@ -16,8 +16,10 @@ MCP-GW supports two common integration modes:
   authenticates the user, starts provider connection flows, and calls MCP-GW with a HOP-1 bearer
   token. Codex or an internal agent service can use this pattern.
 
-Both modes use the same provider credential model. MCP-GW owns downstream provider credentials and
-never requires the client to store Google or GitHub refresh tokens.
+Both modes use the same provider credential model. MCP-GW owns downstream Google or GitHub
+provider credentials and never exposes those provider refresh tokens to the client. A dynamic
+public client may separately store an opaque MCP-GW refresh credential when it registers the
+`refresh_token` grant.
 
 ## MCP Endpoint
 
@@ -77,13 +79,15 @@ separately.
 For direct MCP clients that support OAuth protected-resource discovery, configure the MCP server
 URL. Use a pre-registered public client or constrained DCR when the deployment advertises its
 registration endpoint. Public clients use authorization code with PKCE S256 and receive no client
-secret. The first release issues no public refresh token: after expiry, repeat the complete
-authorization-code flow with new state and PKCE material.
+secret. A dynamically registered client that registers `refresh_token` receives a rotating,
+resource- and principal-bound client refresh token; authorization-code-only and static clients do
+not.
 
 Repository protocol fixtures do not prove compatibility with a specific third-party client
 release. Claude and Codex direct OAuth remain unclaimed until an exact client version completes the
 documented flow; see the tested-client matrix in
-[Direct-Client OAuth Contract](direct-client-oauth-contract.md).
+[Direct-Client OAuth Contract](direct-client-oauth-contract.md) and the version-pinned
+[Dynamic Client Interoperability Evidence](dcr-client-conformance.md).
 
 For control-plane mediated clients, the control plane is responsible for issuing or acquiring the
 HOP-1 bearer token. MCP-GW validates that token against configured issuers and audiences, then maps
@@ -203,8 +207,9 @@ portal. See [provider-connection-flows.md](provider-connection-flows.md).
 Clients may cache connector state. Disconnect/reconnect after changes to OAuth behavior, Google
 scopes, or the visible tool catalog.
 
-When the broker access token expires, reauthorize the connector. MCP-GW does not issue a public
-refresh token in the first release.
+When a refresh-enabled broker access token approaches expiry, the client renews it through `/token`
+without another Google login. Reauthorization is required after refresh expiry, revocation, replay,
+or loss of the client credential.
 
 If the client also offers native Google, GitHub, or other provider connectors, decide whether those
 native connectors should be disconnected. Keeping both native and MCP-GW connectors enabled can

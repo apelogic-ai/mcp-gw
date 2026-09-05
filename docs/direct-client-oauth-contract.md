@@ -12,20 +12,23 @@ credentials remain inside MCP-GW and are keyed by the exact `(issuer, subject)` 
 
 ## Client and registration matrix
 
-| Client or mode                                                                                     | Registration                                                   | Evidence and support statement                                                                                                                                                                                                                                           |
-| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Repository protocol fixture                                                                        | Static client and constrained DCR                              | Covered by automated authorization-code, PKCE, DCR, token, and provider-conformance tests. This proves the protocol contract, not a third-party client UI.                                                                                                               |
-| Pre-registered public client                                                                       | Static client                                                  | Supported when its exact redirect URIs and allowed scopes are configured by the operator. It receives no client secret.                                                                                                                                                  |
-| Dynamically registered public client                                                               | Constrained DCR                                                | Supported only when the deployment advertises and enables `/register`. Authorization code, `token_endpoint_auth_method=none`, and PKCE S256 are mandatory. Redirect URIs are immutable after registration and must pass the deployment's HTTPS/explicit-loopback policy. |
-| Claude remote connector                                                                            | Static client or constrained DCR, depending on client behavior | Not yet claimed as tested against this broker release. Add an exact client version and evidence before declaring support.                                                                                                                                                |
-| Codex remote connector                                                                             | Static client or constrained DCR, depending on client behavior | Not yet claimed as tested against this broker release. Add an exact client version and evidence before declaring support.                                                                                                                                                |
-| Trusted enterprise control plane                                                                   | Existing trusted HOP-1 bearer-token path                       | Supported as a distinct configured issuer. This is resource-server compatibility, not direct-client registration and not cross-issuer account linking.                                                                                                                   |
-| Confidential clients, implicit grants, password grants, device flow, arbitrary grants/auth methods | Not supported                                                  | The first broker release does not issue client secrets or accept these flows.                                                                                                                                                                                            |
-| Client-ID Metadata Documents                                                                       | Not supported in the first broker release                      | Do not advertise or infer CIMD support unless a later reviewed implementation applies the same redirect and SSRF policy.                                                                                                                                                 |
+| Client or mode                                                                                     | Registration                                                   | Evidence and support statement                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Repository protocol fixture                                                                        | Static client and constrained DCR                              | Covered by automated authorization-code, PKCE, DCR, rotating refresh-token, token, and provider-conformance tests. This proves the protocol contract, not a third-party client UI.                                                                                                                     |
+| Pre-registered public client                                                                       | Static client                                                  | Supported when its exact redirect URIs and allowed scopes are configured by the operator. It receives no client secret.                                                                                                                                                                                |
+| Dynamically registered public client                                                               | Constrained DCR                                                | Supported only when the deployment advertises and enables `/register`. Authorization code, optional refresh-token grant, `token_endpoint_auth_method=none`, and PKCE S256 are supported. Redirect URIs are immutable after registration and must pass the deployment's HTTPS/explicit-loopback policy. |
+| Claude remote connector                                                                            | Static client or constrained DCR, depending on client behavior | Not yet claimed as tested against this broker release. Add an exact client version and evidence before declaring support.                                                                                                                                                                              |
+| Codex remote connector                                                                             | Static client or constrained DCR, depending on client behavior | Not yet claimed as tested against this broker release. Add an exact client version and evidence before declaring support.                                                                                                                                                                              |
+| Trusted enterprise control plane                                                                   | Existing trusted HOP-1 bearer-token path                       | Supported as a distinct configured issuer. This is resource-server compatibility, not direct-client registration and not cross-issuer account linking.                                                                                                                                                 |
+| Confidential clients, implicit grants, password grants, device flow, arbitrary grants/auth methods | Not supported                                                  | The first broker release does not issue client secrets or accept these flows.                                                                                                                                                                                                                          |
+| Client-ID Metadata Documents                                                                       | Not supported in the first broker release                      | Do not advertise or infer CIMD support unless a later reviewed implementation applies the same redirect and SSRF policy.                                                                                                                                                                               |
 
 The tested matrix is deliberately conservative. A protocol fixture cannot establish that a specific
 Claude, Codex, or other third-party release correctly performs discovery, DCR, PKCE, reconnect, or
 tool refresh behavior.
+
+Version-pinned source findings, standards mappings, and the remaining live-client acceptance work
+are recorded in [Dynamic Client Interoperability Evidence](dcr-client-conformance.md).
 
 ## Direct authorization and renewal
 
@@ -40,6 +43,8 @@ The direct-client authorization flow is:
 5. Exchange the one-time broker authorization code at `/token` with the same client, redirect,
    resource, and PKCE verifier.
 6. Send the broker-issued bearer token only to the exact MCP resource.
+7. When the access token approaches expiry, exchange the current client refresh token at `/token`
+   with the same public `client_id`, exact `resource`, and no broader scope.
 
 Client `state`, broker-to-Google CSRF state, and the broker authorization code are three independent
 values. Google authorization codes and Google access, ID, or refresh tokens are never returned to
@@ -56,10 +61,14 @@ Before continuing to Google, the broker displays the persisted client name and c
 present, the immutable client ID, the redirect origin, and the exact redirect URI. Metadata URLs
 are displayed as escaped text and are never fetched or dereferenced by MCP-GW.
 
-The first broker release issues no public refresh token. When the short-lived MCP access token
-expires, the client must repeat the complete authorization-code flow with a new PKCE verifier and
-new one-time state. A client may benefit from an existing Google browser session, but MCP-GW still
-performs and verifies a fresh authorization transaction.
+When a dynamically registered public client registers both `authorization_code` and
+`refresh_token`, the code exchange returns a client-facing opaque refresh token. MCP-GW stores only
+its SHA-256 digest and binds the grant to the client ID, issuer-qualified Google principal, exact
+resource, and granted scope. Every successful refresh rotates the token without extending the
+family's lifetime. Expiry, binding mismatch, scope widening, or reuse fails closed; reuse of a
+consumed token revokes its complete token family. Authorization-code-only and static clients receive
+no refresh token. Client refresh credentials are distinct from downstream Google provider refresh
+tokens, which are never returned to the MCP client.
 
 ## Public route boundary
 
@@ -71,7 +80,7 @@ Only the following remote-client surface belongs on the public MCP ingress:
 | `/.well-known/oauth-protected-resource/mcp`                         | Protected-resource metadata for the canonical MCP resource.                                                                                   |
 | RFC 8414 authorization-server metadata route from the broker issuer | Advertises issuer-relative authorization/token/JWKS endpoints, supported PKCE methods, and registration only when constrained DCR is enabled. |
 | `/authorize`                                                        | Direct-client authorization-code entry point.                                                                                                 |
-| `/token`                                                            | Authorization-code exchange; no public refresh-token grant.                                                                                   |
+| `/token`                                                            | Public authorization-code and rotating refresh-token exchange; client authentication method remains `none`.                                   |
 | `/register`                                                         | Public only when constrained DCR is enabled and advertised.                                                                                   |
 | The `jwks_uri` advertised by authorization-server metadata          | Public verification keys only; never signing keys.                                                                                            |
 | `/oauth/google/broker/callback`                                     | State- and nonce-bound callback for the broker's upstream Google sign-in. It is not a provider-control API.                                   |
@@ -158,8 +167,9 @@ contract is:
 
 Optional positive-integer DCR bounds are `MCP_DCR_CLIENT_TTL_MS`, `MCP_DCR_MAX_CLIENTS`,
 `MCP_DCR_MAX_RATE_KEYS`, `MCP_DCR_RATE_LIMIT`, and `MCP_DCR_RATE_WINDOW_MS`. Broker state,
-authorization codes, registrations, and rate limits share the existing `TOKEN_STORE_DSN`
-PostgreSQL database. The signing file is a secret mount, never an environment value or ConfigMap.
+authorization codes, registrations, hashed rotating client refresh credentials, and rate limits
+share the existing `TOKEN_STORE_DSN` PostgreSQL database. The signing file is a secret mount,
+never an environment value or ConfigMap.
 
 For Kubernetes, configure these fields through the typed
 `googleWorkspace.authorizationBroker` Helm values. The chart rejects generic

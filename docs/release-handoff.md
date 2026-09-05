@@ -92,9 +92,14 @@ For a release that enables direct-client OAuth, the handoff must also identify:
 - explicit exclusion of authenticated `/oauth/google|github/start|status|disconnect` handlers from
   the public ingress.
 
-The first broker release renews access through a complete authorization-code + PKCE flow. It does
-not issue a public refresh token. A source commit or local fixture is not a GitOps artifact; publish
-this contract only with the exact versioned chart and image digests described above.
+Refresh-enabled dynamic public clients receive an opaque MCP-GW refresh credential after the
+authorization-code + PKCE exchange. Every successful refresh rotates that credential; MCP-GW binds
+it to the exact client, principal, resource, and non-widening scope and persists only its SHA-256
+digest. Reuse of a consumed credential revokes its token family. Authorization-code-only and static
+clients receive no refresh credential. These client credentials are distinct from downstream
+provider refresh tokens, which are never exposed to the MCP client. A source commit or local fixture
+is not a GitOps artifact; publish this contract only with the exact versioned chart and image digests
+described above.
 
 The generated release handoff describes the product capability with the exact typed chart paths,
 route-derivation rules, Google-only broker use as the sole configured HOP-1 issuer or coexistence

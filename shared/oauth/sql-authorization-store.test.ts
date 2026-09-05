@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   AuthorizationTransactionRecord,
   BrokerAuthorizationCodeRecord,
+  BrokerRefreshTokenRecord,
 } from "./authorization-broker";
 import type { StoredDynamicDcrClient } from "./dcr";
 import { SqlAuthorizationBrokerStore, SqlDcrRegistrationStore } from "./sql-authorization-store";
@@ -35,6 +36,16 @@ const authorizationCode: BrokerAuthorizationCodeRecord = {
     emailVerified: true,
   },
   expiresAt: Date.parse("2026-08-19T23:03:00.000Z"),
+};
+
+const refreshToken: BrokerRefreshTokenRecord = {
+  tokenHash: "hashed-client-refresh-token",
+  familyId: "refresh-family-id",
+  clientId: transaction.clientId,
+  resource: transaction.resource,
+  scopes: transaction.scopes,
+  identity: authorizationCode.identity,
+  expiresAt: Date.parse("2026-09-19T23:03:00.000Z"),
 };
 
 describe("SQL authorization broker store", () => {
@@ -94,6 +105,64 @@ describe("SQL authorization broker store", () => {
       authorizationCode,
     );
     expect(client.calls[1]?.sql).toContain("DELETE FROM oauth_broker_codes");
+  });
+
+  test("persists only a refresh-token digest and atomically rotates a live token", async () => {
+    const client = new QueueSqlClient([
+      [],
+      [
+        {
+          result: "rotated",
+          family_id: refreshToken.familyId,
+          client_id: refreshToken.clientId,
+          resource: refreshToken.resource,
+          scopes: refreshToken.scopes,
+          identity_issuer: refreshToken.identity.issuer,
+          identity_subject: refreshToken.identity.subject,
+          identity_email: refreshToken.identity.email,
+          identity_email_verified: true,
+          expires_at: new Date(refreshToken.expiresAt),
+        },
+      ],
+    ]);
+    const store = new SqlAuthorizationBrokerStore(client);
+
+    await store.saveRefreshToken(refreshToken);
+    expect(client.calls[0]?.sql).toContain("INSERT INTO oauth_broker_refresh_tokens");
+    expect(client.calls[0]?.params[0]).toBe("hashed-client-refresh-token");
+    expect(client.calls[0]?.params).not.toContain("raw-client-refresh-token");
+
+    const result = await store.rotateRefreshToken({
+      tokenHash: refreshToken.tokenHash,
+      replacementTokenHash: "hashed-rotated-token",
+      clientId: refreshToken.clientId,
+      resource: refreshToken.resource,
+      scopes: refreshToken.scopes,
+      now: Date.parse("2026-08-20T00:00:00.000Z"),
+    });
+    expect(result).toEqual({ status: "rotated", record: refreshToken });
+    expect(client.calls[1]?.sql).toContain("FOR UPDATE");
+    expect(client.calls[1]?.sql).toContain("consumed_at");
+    expect(client.calls[1]?.sql).toContain("revoked_at");
+    expect(client.calls[1]?.sql).toContain("INSERT INTO oauth_broker_refresh_tokens");
+    expect(client.calls[1]?.params).toContain("hashed-rotated-token");
+  });
+
+  test("surfaces replay so the complete refresh family is revoked", async () => {
+    const client = new QueueSqlClient([[{ result: "replayed" }]]);
+    const store = new SqlAuthorizationBrokerStore(client);
+
+    expect(
+      await store.rotateRefreshToken({
+        tokenHash: refreshToken.tokenHash,
+        replacementTokenHash: "hashed-rotated-token",
+        clientId: refreshToken.clientId,
+        resource: refreshToken.resource,
+        now: Date.parse("2026-08-20T00:00:00.000Z"),
+      }),
+    ).toEqual({ status: "replayed" });
+    expect(client.calls[0]?.sql).toContain("family_id");
+    expect(client.calls[0]?.sql).toContain("revoked_at");
   });
 });
 

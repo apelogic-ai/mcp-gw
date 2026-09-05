@@ -51,7 +51,9 @@ describe("public OAuth routing contract", () => {
     }
 
     expect(contract).toContain("Not yet claimed as tested against this broker release");
-    expect(contract).toContain("issues no public refresh token");
+    expect(contract).toContain("Every successful refresh rotates the token");
+    expect(contract).toContain("stores only");
+    expect(contract).toContain("its SHA-256 digest");
     expect(contract).toContain("private control-plane APIs");
     expect(contract).toContain("same email remain different");
     expect(contract).toContain("numeric `iat`");

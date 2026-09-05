@@ -11,6 +11,7 @@ import {
   verifyGoogleIdentityToken,
   type AuthorizationTransactionRecord,
   type BrokerAuthorizationCodeRecord,
+  type OAuthBrokerOptions,
 } from "./authorization-broker";
 import {
   CANONICAL_PUBLIC_IPV4_HOSTS,
@@ -87,6 +88,7 @@ function broker(
             ? {
                 clientId: CLIENT_ID,
                 redirectUris: [REDIRECT_URI],
+                grantTypes: ["authorization_code", "refresh_token"],
                 scopes: ["mcp"],
                 clientName: "Reviewed client",
                 clientUri: "https://client.example.com",
@@ -274,6 +276,8 @@ describe("OAuthBroker authorization transaction", () => {
         consumeTransaction: () => Promise.resolve(null),
         saveAuthorizationCode: () => Promise.resolve(),
         consumeAuthorizationCode: () => Promise.resolve(null),
+        saveRefreshToken: () => Promise.resolve(),
+        rotateRefreshToken: () => Promise.resolve({ status: "invalid" as const }),
       },
       now: () => NOW,
     });
@@ -351,9 +355,10 @@ describe("OAuthBroker authorization transaction", () => {
 });
 
 describe("OAuthBroker authorization-code exchange", () => {
-  test("issues a short-lived MCP-audience token and no provider credentials", async () => {
+  test("issues a short-lived MCP-audience token and a hashed client refresh credential", async () => {
+    const store = new RecordingBrokerStore();
     let nonce = "";
-    const instance = broker(undefined, async () => ({
+    const instance = broker(store, async () => ({
       idToken: await googleIdToken(nonce),
       accessToken: "google-access-token",
       refreshToken: "google-refresh-token",
@@ -379,6 +384,13 @@ describe("OAuthBroker authorization-code exchange", () => {
       expiresIn: 300,
       scope: "mcp",
     });
+    expect(response.refreshToken).toBeString();
+    expect(store.refreshToken?.tokenHash).toBe(
+      createHash("sha256")
+        .update(response.refreshToken ?? "")
+        .digest("base64url"),
+    );
+    expect(JSON.stringify(store.refreshToken)).not.toContain(response.refreshToken ?? "");
     expect(JSON.stringify(response)).not.toContain("google-");
 
     const claims = await jwtVerify(response.accessToken, brokerPublicJwk, {
@@ -409,8 +421,47 @@ describe("OAuthBroker authorization-code exchange", () => {
     );
   });
 
+  test("omits a refresh token for an authorization-code-only public client", async () => {
+    let nonce = "";
+    const options = brokerOptions(async () => ({ idToken: await googleIdToken(nonce) }));
+    const instance = new OAuthBroker({
+      ...options,
+      clients: {
+        get: (clientId) =>
+          Promise.resolve(
+            clientId === CLIENT_ID
+              ? {
+                  clientId: CLIENT_ID,
+                  redirectUris: [REDIRECT_URI],
+                  grantTypes: ["authorization_code"],
+                  scopes: ["mcp"],
+                }
+              : null,
+          ),
+      },
+      now: () => NOW,
+    });
+    const started = await instance.beginAuthorization(authorizationRequest());
+    nonce = new URL(started.authorizationUrl).searchParams.get("nonce") ?? "";
+    const completed = await instance.completeGoogleAuthorization({
+      transactionState: new URL(started.authorizationUrl).searchParams.get("state") ?? "",
+      googleCode: "google-code",
+    });
+
+    const response = await instance.exchangeAuthorizationCode({
+      grantType: "authorization_code",
+      code: completed.authorizationCode,
+      clientId: CLIENT_ID,
+      redirectUri: REDIRECT_URI,
+      resource: RESOURCE,
+      codeVerifier: VERIFIER,
+    });
+
+    expect(response.refreshToken).toBeUndefined();
+  });
+
   test.each([
-    ["grant", { grantType: "refresh_token" }, "unsupported_grant_type"],
+    ["grant", { grantType: "client_credentials" }, "unsupported_grant_type"],
     ["client", { clientId: "other-client" }, "invalid_grant"],
     ["redirect", { redirectUri: "https://attacker.example/callback" }, "invalid_grant"],
     ["resource", { resource: "https://other.example/mcp" }, "invalid_target"],
@@ -472,7 +523,14 @@ describe("OAuthBroker authorization-code exchange", () => {
       clients: {
         get: () =>
           Promise.resolve(
-            active ? { clientId: CLIENT_ID, redirectUris: [REDIRECT_URI], scopes: ["mcp"] } : null,
+            active
+              ? {
+                  clientId: CLIENT_ID,
+                  redirectUris: [REDIRECT_URI],
+                  grantTypes: ["authorization_code", "refresh_token"],
+                  scopes: ["mcp"],
+                }
+              : null,
           ),
       },
       now: () => NOW,
@@ -493,6 +551,122 @@ describe("OAuthBroker authorization-code exchange", () => {
         redirectUri: REDIRECT_URI,
         resource: RESOURCE,
         codeVerifier: VERIFIER,
+      }),
+      "invalid_grant",
+    );
+  });
+});
+
+describe("OAuthBroker refresh-token exchange", () => {
+  test("rotates a refresh token and preserves its client, principal, resource, and scope bindings", async () => {
+    const { instance, refreshToken } = await authorizedBrokerWithRefreshToken();
+
+    const refreshed = await instance.exchangeRefreshToken({
+      grantType: "refresh_token",
+      refreshToken,
+      clientId: CLIENT_ID,
+      resource: RESOURCE,
+      scope: "mcp",
+    });
+
+    expect(refreshed.refreshToken).toBeString();
+    expect(refreshed.refreshToken).not.toBe(refreshToken);
+    expect(refreshed).toMatchObject({ tokenType: "Bearer", expiresIn: 300, scope: "mcp" });
+    const claims = await jwtVerify(refreshed.accessToken, brokerPublicJwk, {
+      issuer: ISSUER,
+      audience: RESOURCE,
+      algorithms: ["RS256"],
+      currentDate: new Date(NOW),
+    });
+    expect(claims.payload).toMatchObject({
+      sub: "google-subject",
+      email: "person@example.com",
+      identity_provider: "google",
+      scope: "mcp",
+    });
+  });
+
+  test.each([
+    ["client", { clientId: "other-client" }, "invalid_grant"],
+    ["resource", { resource: "https://other.example/mcp" }, "invalid_target"],
+    ["scope", { scope: "mcp admin" }, "invalid_scope"],
+    ["grant", { grantType: "authorization_code" }, "unsupported_grant_type"],
+  ])("rejects a refresh request with a mismatched %s binding", async (_name, override, code) => {
+    const { instance, refreshToken } = await authorizedBrokerWithRefreshToken();
+    await expectBrokerError(
+      instance.exchangeRefreshToken({
+        grantType: "refresh_token",
+        refreshToken,
+        clientId: CLIENT_ID,
+        resource: RESOURCE,
+        scope: "mcp",
+        ...override,
+      }),
+      code,
+    );
+  });
+
+  test("revokes the complete token family when a consumed refresh token is replayed", async () => {
+    const { instance, refreshToken } = await authorizedBrokerWithRefreshToken();
+    const rotated = await instance.exchangeRefreshToken({
+      grantType: "refresh_token",
+      refreshToken,
+      clientId: CLIENT_ID,
+      resource: RESOURCE,
+    });
+
+    await expectBrokerError(
+      instance.exchangeRefreshToken({
+        grantType: "refresh_token",
+        refreshToken,
+        clientId: CLIENT_ID,
+        resource: RESOURCE,
+      }),
+      "invalid_grant",
+    );
+    await expectBrokerError(
+      instance.exchangeRefreshToken({
+        grantType: "refresh_token",
+        refreshToken: rotated.refreshToken ?? "",
+        clientId: CLIENT_ID,
+        resource: RESOURCE,
+      }),
+      "invalid_grant",
+    );
+  });
+
+  test("allows only one winner when the same refresh token is used concurrently", async () => {
+    const { instance, refreshToken } = await authorizedBrokerWithRefreshToken();
+    const request = {
+      grantType: "refresh_token",
+      refreshToken,
+      clientId: CLIENT_ID,
+      resource: RESOURCE,
+    };
+    const results = await Promise.allSettled([
+      instance.exchangeRefreshToken(request),
+      instance.exchangeRefreshToken(request),
+    ]);
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find(({ status }) => status === "rejected");
+    expect(rejected).toMatchObject({ reason: { code: "invalid_grant" } });
+  });
+
+  test("rejects an expired refresh token", async () => {
+    let current = NOW;
+    const { instance, refreshToken } = await authorizedBrokerWithRefreshToken({
+      now: () => current,
+      refreshTokenTtlSeconds: 3600,
+    });
+    current += 3_601_000;
+
+    await expectBrokerError(
+      instance.exchangeRefreshToken({
+        grantType: "refresh_token",
+        refreshToken,
+        clientId: CLIENT_ID,
+        resource: RESOURCE,
       }),
       "invalid_grant",
     );
@@ -686,7 +860,7 @@ describe("OAuth metadata", () => {
       token_endpoint: `${ISSUER}/token`,
       jwks_uri: `${ISSUER}/.well-known/jwks.json`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["mcp"],
@@ -799,7 +973,7 @@ function brokerOptions(
     codeVerifier: string;
     redirectUri: string;
   }) => Promise<{ idToken: string }> = () => Promise.reject(new Error("unused")),
-) {
+): OAuthBrokerOptions {
   return {
     issuer: ISSUER,
     resource: RESOURCE,
@@ -826,6 +1000,7 @@ function brokerOptions(
             ? {
                 clientId: CLIENT_ID,
                 redirectUris: [REDIRECT_URI],
+                grantTypes: ["authorization_code", "refresh_token"],
                 scopes: ["mcp"],
                 clientName: "Reviewed client",
                 clientUri: "https://client.example.com",
@@ -841,6 +1016,7 @@ function brokerOptions(
 class RecordingBrokerStore extends InMemoryAuthorizationBrokerStore {
   transaction?: AuthorizationTransactionRecord;
   authorizationCode?: BrokerAuthorizationCodeRecord;
+  refreshToken?: import("./authorization-broker").BrokerRefreshTokenRecord;
 
   override saveTransaction(record: AuthorizationTransactionRecord): Promise<void> {
     this.transaction = structuredClone(record);
@@ -851,6 +1027,37 @@ class RecordingBrokerStore extends InMemoryAuthorizationBrokerStore {
     this.authorizationCode = structuredClone(record);
     return super.saveAuthorizationCode(record);
   }
+
+  override saveRefreshToken(
+    record: import("./authorization-broker").BrokerRefreshTokenRecord,
+  ): Promise<void> {
+    this.refreshToken = structuredClone(record);
+    return super.saveRefreshToken(record);
+  }
+}
+
+async function authorizedBrokerWithRefreshToken(
+  overrides: Partial<ConstructorParameters<typeof OAuthBroker>[0]> = {},
+): Promise<{ instance: OAuthBroker; refreshToken: string }> {
+  let nonce = "";
+  const options = brokerOptions(async () => ({ idToken: await googleIdToken(nonce) }));
+  const instance = new OAuthBroker({ ...options, now: () => NOW, ...overrides });
+  const started = await instance.beginAuthorization(authorizationRequest());
+  nonce = new URL(started.authorizationUrl).searchParams.get("nonce") ?? "";
+  const completed = await instance.completeGoogleAuthorization({
+    transactionState: new URL(started.authorizationUrl).searchParams.get("state") ?? "",
+    googleCode: "google-code",
+  });
+  const tokens = await instance.exchangeAuthorizationCode({
+    grantType: "authorization_code",
+    code: completed.authorizationCode,
+    clientId: CLIENT_ID,
+    redirectUri: REDIRECT_URI,
+    resource: RESOURCE,
+    codeVerifier: VERIFIER,
+  });
+  expect(tokens.refreshToken).toBeString();
+  return { instance, refreshToken: tokens.refreshToken ?? "" };
 }
 
 async function expectBrokerError(

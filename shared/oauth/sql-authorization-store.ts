@@ -4,7 +4,10 @@ import type {
   AuthorizationBrokerStore,
   AuthorizationTransactionRecord,
   BrokerAuthorizationCodeRecord,
+  BrokerRefreshTokenRecord,
   GoogleIdentity,
+  RotateBrokerRefreshTokenRequest,
+  RotateBrokerRefreshTokenResult,
 } from "./authorization-broker";
 import type {
   DcrRegistrationResponse,
@@ -103,6 +106,117 @@ RETURNING code_hash, client_id, redirect_uri, resource, scopes, code_challenge,
     );
     const row = result.rows[0];
     return row ? authorizationCodeFromRow(row) : null;
+  }
+
+  async saveRefreshToken(record: BrokerRefreshTokenRecord): Promise<void> {
+    await this.client.query(
+      `
+WITH pruned AS (
+  DELETE FROM oauth_broker_refresh_tokens WHERE expires_at <= NOW()
+)
+INSERT INTO oauth_broker_refresh_tokens (
+  token_hash, family_id, client_id, resource, scopes,
+  identity_issuer, identity_subject, identity_email, identity_email_verified, expires_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+`,
+      [
+        record.tokenHash,
+        record.familyId,
+        record.clientId,
+        record.resource,
+        record.scopes,
+        record.identity.issuer,
+        record.identity.subject,
+        record.identity.email,
+        record.identity.emailVerified,
+        new Date(record.expiresAt),
+      ],
+    );
+  }
+
+  async rotateRefreshToken(
+    request: RotateBrokerRefreshTokenRequest,
+  ): Promise<RotateBrokerRefreshTokenResult> {
+    const result = await this.client.query(
+      `
+WITH current_token AS MATERIALIZED (
+  SELECT token_hash, family_id, client_id, resource, scopes,
+    identity_issuer, identity_subject, identity_email, identity_email_verified,
+    expires_at, consumed_at, revoked_at
+  FROM oauth_broker_refresh_tokens
+  WHERE token_hash = $1
+  FOR UPDATE
+), replay_revoked AS (
+  UPDATE oauth_broker_refresh_tokens
+  SET revoked_at = $6
+  WHERE family_id = (SELECT family_id FROM current_token)
+    AND EXISTS (SELECT 1 FROM current_token WHERE consumed_at IS NOT NULL)
+  RETURNING 1
+), valid_token AS (
+  SELECT *
+  FROM current_token
+  WHERE consumed_at IS NULL
+    AND revoked_at IS NULL
+    AND expires_at > $6
+    AND client_id = $3
+    AND resource = $4
+    AND ($5::TEXT[] IS NULL OR (cardinality($5::TEXT[]) > 0 AND $5::TEXT[] <@ scopes))
+    AND NOT EXISTS (SELECT 1 FROM replay_revoked)
+), consumed AS (
+  UPDATE oauth_broker_refresh_tokens
+  SET consumed_at = $6
+  WHERE token_hash = $1
+    AND EXISTS (SELECT 1 FROM valid_token)
+  RETURNING token_hash
+), inserted AS (
+  INSERT INTO oauth_broker_refresh_tokens (
+    token_hash, family_id, client_id, resource, scopes,
+    identity_issuer, identity_subject, identity_email, identity_email_verified, expires_at
+  )
+  SELECT $2, family_id, client_id, resource, COALESCE($5::TEXT[], scopes),
+    identity_issuer, identity_subject, identity_email, identity_email_verified, expires_at
+  FROM valid_token
+  WHERE EXISTS (SELECT 1 FROM consumed)
+  RETURNING 1
+)
+SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM replay_revoked) THEN 'replayed'
+    WHEN EXISTS (SELECT 1 FROM inserted) THEN 'rotated'
+    WHEN EXISTS (
+      SELECT 1 FROM current_token
+      WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at > $6
+        AND client_id = $3 AND resource = $4
+        AND $5::TEXT[] IS NOT NULL
+        AND (cardinality($5::TEXT[]) = 0 OR NOT ($5::TEXT[] <@ scopes))
+    ) THEN 'invalid_scope'
+    ELSE 'invalid'
+  END AS result,
+  family_id, client_id, resource, scopes,
+  identity_issuer, identity_subject, identity_email, identity_email_verified, expires_at
+FROM current_token
+UNION ALL
+SELECT 'invalid' AS result, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+WHERE NOT EXISTS (SELECT 1 FROM current_token)
+LIMIT 1
+`,
+      [
+        request.tokenHash,
+        request.replacementTokenHash,
+        request.clientId,
+        request.resource,
+        request.scopes ?? null,
+        new Date(request.now),
+      ],
+    );
+    const row = result.rows[0];
+    const status = row?.result;
+    if (status === "invalid" || status === "invalid_scope" || status === "replayed") {
+      return { status };
+    }
+    if (status !== "rotated" || !row) {
+      throw new Error("Refresh-token rotation returned an invalid result");
+    }
+    return { status, record: refreshTokenFromRow(row, request.tokenHash) };
   }
 }
 
@@ -264,6 +378,26 @@ function authorizationCodeFromRow(row: Record<string, unknown>): BrokerAuthoriza
     scopes: stringArrayField(row, "scopes"),
     codeChallenge: stringField(row, "code_challenge"),
     identity,
+    expiresAt: dateField(row, "expires_at").getTime(),
+  };
+}
+
+function refreshTokenFromRow(
+  row: Record<string, unknown>,
+  tokenHash: string,
+): BrokerRefreshTokenRecord {
+  return {
+    tokenHash,
+    familyId: stringField(row, "family_id"),
+    clientId: stringField(row, "client_id"),
+    resource: stringField(row, "resource"),
+    scopes: stringArrayField(row, "scopes"),
+    identity: {
+      issuer: stringField(row, "identity_issuer"),
+      subject: stringField(row, "identity_subject"),
+      email: stringField(row, "identity_email"),
+      emailVerified: booleanTrueField(row, "identity_email_verified"),
+    },
     expiresAt: dateField(row, "expires_at").getTime(),
   };
 }
