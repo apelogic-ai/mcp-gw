@@ -8,6 +8,16 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-04
+
+### Fixed
+
+- Wait for the generated broker signing JWKS to contain complete, valid JSON before starting the
+  local and release integration containers. This removes a Linux bind-mount race that could start
+  the Google Workspace wrapper while the fixture was still writing its keyring.
+- Supersede the unpublished v0.4.1 tag. v0.4.2 is the first artifact release after v0.4.0 and
+  includes the hybrid broker-discovery and AgentGateway rollout fixes recorded below.
+
 ## [0.4.1] - 2026-09-04
 
 ### Fixed
@@ -287,7 +297,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.3.1...v0.3.2
