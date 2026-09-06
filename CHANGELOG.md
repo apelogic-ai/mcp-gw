@@ -8,6 +8,27 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-05
+
+### Fixed
+
+- Canonicalize an authorization-broker issuer with or without one trailing slash to the same exact
+  value across authorization-server metadata, protected-resource metadata, broker JWTs,
+  AgentGateway trust, and JWKS endpoint construction.
+- Prevent direct MCP clients from completing OAuth but receiving no tools because AgentGateway
+  trusted a slash-terminated issuer while the broker issued a slashless `iss` claim.
+
+### Security
+
+- Preserve exact issuer validation at the MCP boundary and reject broker issuer values containing
+  repeated trailing slashes instead of weakening JWT issuer matching.
+
+### Upgrade Notes
+
+- Existing slashless broker issuer values remain unchanged. A value with one trailing slash now
+  renders and runs as its slashless canonical equivalent; no credential or database migration is
+  required.
+
 ## [0.4.4] - 2026-09-05
 
 ### Fixed
@@ -342,7 +363,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.1...v0.4.2
