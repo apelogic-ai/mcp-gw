@@ -9,6 +9,7 @@ WORK_DIR="${WORK_DIR:-/tmp/mcp-gw-local-integration}"
 JWKS_PORT="${JWKS_PORT:-38080}"
 BROKER_JWKS_PORT="${BROKER_JWKS_PORT:-38082}"
 GOOGLE_WRAPPER_PORT="${GOOGLE_WRAPPER_PORT:-38083}"
+GITHUB_WRAPPER_PORT="${GITHUB_WRAPPER_PORT:-38085}"
 GOOGLE_OIDC_PORT="${GOOGLE_OIDC_PORT:-38084}"
 GATEWAY_PORT="${GATEWAY_PORT:-38081}"
 TOKEN_STORE_PORT="${TOKEN_STORE_PORT:-35432}"
@@ -131,7 +132,8 @@ cat >"$ENV_FILE" <<ENV
 GATEWAY_PORT=$GATEWAY_PORT
 TOKEN_STORE_PORT=$TOKEN_STORE_PORT
 GOOGLE_WRAPPER_PORT=$GOOGLE_WRAPPER_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.5}
+GITHUB_WRAPPER_PORT=$GITHUB_WRAPPER_PORT
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.6}
 LOCAL_BROKER_SIGNING_JWKS_DIR=$BROKER_SIGNING_JWKS_DIR
 MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER_INPUT
 MCP_RESOURCE_URI=$AUDIENCE
@@ -328,13 +330,19 @@ for _ in {1..60}; do
   fi
 
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
-    bun "$ROOT_DIR/scripts/fixtures/broker-journey-client.ts" \
-      --broker-base-url "$BROKER_BASE_URL" \
-      --expected-issuer "$BROKER_ISSUER" \
-      --expected-tools "$EXPECTED_TOOLS_CSV" \
-      --gateway-url "http://127.0.0.1:$GATEWAY_PORT/mcp" \
-      --google-fixture-base-url "$GOOGLE_OIDC_FIXTURE_BASE_URL" \
+    BROKER_JOURNEY_ARGS=(
+      --broker-base-url "$BROKER_BASE_URL"
+      --expected-issuer "$BROKER_ISSUER"
+      --expected-tools "$EXPECTED_TOOLS_CSV"
+      --gateway-url "http://127.0.0.1:$GATEWAY_PORT/mcp"
+      --google-wrapper-url "http://127.0.0.1:$GOOGLE_WRAPPER_PORT/mcp"
+      --google-fixture-base-url "$GOOGLE_OIDC_FIXTURE_BASE_URL"
       --resource "$AUDIENCE"
+    )
+    if [[ "$INCLUDE_GITHUB" == "1" ]]; then
+      BROKER_JOURNEY_ARGS+=(--github-wrapper-url "http://127.0.0.1:$GITHUB_WRAPPER_PORT/mcp")
+    fi
+    bun "$ROOT_DIR/scripts/fixtures/broker-journey-client.ts" "${BROKER_JOURNEY_ARGS[@]}"
     TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
       bun "$ROOT_DIR/scripts/fixtures/refresh-token-race.ts"
     assert_accepted_token "public broker" "$BROKER_TOKEN"

@@ -24,6 +24,33 @@
 {{- trimSuffix "/" .Values.googleWorkspace.authorizationBroker.issuer -}}
 {{- end -}}
 
+{{/* Provider-neutral Service contract for the in-process authorization broker. */}}
+{{- define "mcp-gateway.authorizationBrokerServiceName" -}}
+{{- printf "%s-authorization-broker" (include "mcp-gateway.fullname" .) -}}
+{{- end -}}
+
+{{- define "mcp-gateway.authorizationBrokerJwksPath" -}}
+{{- $issuerUrl := urlParse (include "mcp-gateway.authorizationBrokerIssuer" .) -}}
+{{- $issuerPath := trimSuffix "/" ($issuerUrl.path | default "") -}}
+{{- printf "%s/.well-known/jwks.json" $issuerPath -}}
+{{- end -}}
+
+{{- define "mcp-gateway.authorizationBrokerInternalJwksUrl" -}}
+{{- printf "http://%s:%v%s" (include "mcp-gateway.authorizationBrokerServiceName" .) .Values.googleWorkspace.port (include "mcp-gateway.authorizationBrokerJwksPath" .) -}}
+{{- end -}}
+
+{{/* Canonical broker profile appended after every operator-configured issuer. */}}
+{{- define "mcp-gateway.authorizationBrokerVerificationProfile" -}}
+{{- $profile := dict "name" "mcp-oauth-broker" "issuer" (include "mcp-gateway.authorizationBrokerIssuer" .) "jwksUrl" (include "mcp-gateway.authorizationBrokerInternalJwksUrl" .) "audiences" (list .Values.googleWorkspace.authorizationBroker.resource) "allowedAlgorithms" (list "RS256") "emailClaim" (.Values.googleWorkspace.env.HOP1_EMAIL_CLAIM | default "email") "subjectClaim" (.Values.googleWorkspace.env.HOP1_SUBJECT_CLAIM | default "sub") -}}
+{{- toJson $profile -}}
+{{- end -}}
+
+{{- define "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" -}}
+{{- $profiles := include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | fromJsonArray -}}
+{{- $brokerProfile := include "mcp-gateway.authorizationBrokerVerificationProfile" . | fromJson -}}
+{{- toJson (append $profiles $brokerProfile) -}}
+{{- end -}}
+
 {{- define "mcp-gateway.labels" -}}
 app.kubernetes.io/name: {{ include "mcp-gateway.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

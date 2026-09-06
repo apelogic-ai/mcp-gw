@@ -2,8 +2,8 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.4.5
-appVersion: "0.4.5"
+version: 0.4.6
+appVersion: "0.4.6"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -19,11 +19,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.5
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.6
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.5
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.6
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.5
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.6
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -34,6 +34,6 @@ annotations:
   # and is intentionally omitted.
   artifacthub.io/changes: |
     - kind: fixed
-      description: Canonicalize broker issuers with or without one trailing slash across OAuth metadata, JWT issuance, AgentGateway trust, and JWKS construction.
+      description: Propagate chart-generated authorization-broker trust to every enabled first-party wrapper while preserving configured HOP-1 issuers.
     - kind: security
-      description: Preserve exact JWT issuer validation and reject ambiguous repeated trailing slashes instead of weakening issuer matching.
+      description: Route internal JWKS retrieval through a provider-neutral broker Service with exact-port NetworkPolicy access and no unrestricted egress.

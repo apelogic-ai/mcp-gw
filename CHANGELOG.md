@@ -8,6 +8,33 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-09-06
+
+### Fixed
+
+- Propagate the chart-generated authorization-broker verification profile to the GitHub wrapper,
+  preserving every configured HOP-1 issuer and allowing Google and GitHub MCP initialization to
+  succeed with the same broker-issued access token.
+- Add a chart-owned `<release>-authorization-broker` Service and use it for internal broker JWKS
+  retrieval and public broker-route backends while keeping the public HTTPS `jwks_uri` unchanged.
+- Retain Google Workspace's in-process broker verification and broker-disabled direct HOP-1
+  behavior, including direct-Google deployments.
+
+### Security
+
+- Restrict broker pod ingress to the existing Ingress source, AgentGateway, and—only when
+  enabled—the GitHub wrapper on the broker's exact TCP port; no unrestricted egress is added.
+- Reject manually duplicated broker issuers and issuer/resource configurations inconsistent with
+  the chart-managed public MCP contract.
+
+### Upgrade Notes
+
+- Operators must not duplicate the broker issuer under `hop1.issuers`; the chart now generates and
+  propagates that trust automatically. Existing explicit issuer profiles remain unchanged.
+- The new authorization-broker Service selects the existing Google Workspace pods in v0.4.6; no
+  standalone broker workload, bearer-token behavior, credential, scope, or lifetime changes are
+  included.
+
 ## [0.4.5] - 2026-09-05
 
 ### Fixed
@@ -363,7 +390,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.2...v0.4.3

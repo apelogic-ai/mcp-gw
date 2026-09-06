@@ -15,6 +15,7 @@ describe("release artifacts", () => {
 
     expect(kubernetesSmoke).toContain("Build pinned agentgateway candidate");
     expect(kubernetesSmoke).toContain("bun run integration:local");
+    expect(kubernetesSmoke).toContain('LOCAL_INCLUDE_GITHUB: "1"');
     expect(kubernetesSmoke).toContain("bun run integration:k8s");
     expect(kubernetesSmoke).toContain("bun run integration:bundle");
     expect(

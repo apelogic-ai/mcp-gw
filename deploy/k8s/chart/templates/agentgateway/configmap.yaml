@@ -73,7 +73,7 @@ data:
                             - sub
                             - aud
                         jwks:
-                          url: {{ $brokerIssuer }}/.well-known/jwks.json
+                          url: {{ include "mcp-gateway.authorizationBrokerInternalJwksUrl" . }}
                         discoverable: false
 {{- end }}
                     resourceMetadata:

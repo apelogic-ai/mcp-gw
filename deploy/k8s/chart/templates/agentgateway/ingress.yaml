@@ -81,7 +81,7 @@ spec:
             pathType: Exact
             backend:
               service:
-                name: {{ include "mcp-gateway.fullname" $ }}-google-workspace
+                name: {{ include "mcp-gateway.authorizationBrokerServiceName" $ }}
                 port:
                   name: http
 {{- end }}

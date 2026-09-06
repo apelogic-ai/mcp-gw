@@ -98,6 +98,7 @@ jobs:
       - name: Run local MCP integration smoke against candidate
         run: bun run integration:local
         env:
+          LOCAL_INCLUDE_GITHUB: "1"
           LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
 
       - name: Create Kubernetes cluster

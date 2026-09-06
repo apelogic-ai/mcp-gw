@@ -81,8 +81,11 @@ For a release that enables direct-client OAuth, the handoff must also identify:
 - the existing signing-keyring Secret name/key reference expected by private
   GitOps, without copying the Secret payload;
 - the chart-managed Ingress host/path contract and the generated AgentGateway
-  broker-issuer trust entry, including confirmation that the MCP resource stays
-  behind AgentGateway while broker authorization routes reach the wrapper;
+  and wrapper broker-issuer trust entries, including confirmation that the MCP
+  resource stays behind AgentGateway while broker authorization routes reach the
+  chart-owned `<release>-authorization-broker` Service;
+- the public HTTPS metadata `jwks_uri` and distinct internal JWKS URL through the
+  authorization-broker role Service;
 - exactly one trusted broker ingress-source model: complete
   `googleWorkspace.authorizationBroker.ingressControllerPeer` Namespace/Pod selectors for an
   in-cluster controller, or `googleWorkspace.authorizationBroker.ingressSourceCidrs` for an

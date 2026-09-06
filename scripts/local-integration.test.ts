@@ -24,7 +24,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.5}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.6}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
@@ -45,6 +45,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('"github_github_oauth_start"');
     expect(smoke).toContain('"${BROKER_EXPECTED_TOOLS[@]}"');
     expect(smoke).toContain("GITHUB_SMOKE_HOP1_ISSUERS_JSON=");
+    expect(smoke).toContain('GITHUB_WRAPPER_PORT="${GITHUB_WRAPPER_PORT:-38085}"');
     expect(smoke).toContain('\"issuer\":\"$BROKER_ISSUER\"');
     expect(smoke).toContain('for expected_tool in "${EXPECTED_TOOLS[@]}"');
     expect(smoke).toContain("assert_rejected_without_token");
@@ -61,6 +62,8 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('BROKER_ISSUER="${BROKER_ISSUER_INPUT%/}"');
     expect(smoke).toContain("MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER_INPUT");
     expect(smoke).toContain("broker-journey-client.ts");
+    expect(smoke).toContain('--google-wrapper-url "http://127.0.0.1:$GOOGLE_WRAPPER_PORT/mcp"');
+    expect(smoke).toContain('--github-wrapper-url "http://127.0.0.1:$GITHUB_WRAPPER_PORT/mcp"');
     expect(smoke).toContain("google-oidc-fixture.ts");
     expect(smoke).toContain('BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"');
     expect(smoke).toContain('BROKER_SIGNING_JWKS_DIR="$WORK_DIR/broker"');

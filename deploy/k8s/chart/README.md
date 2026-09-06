@@ -17,7 +17,7 @@ the install fails schema validation.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.5 \
+  --version 0.4.6 \
   -f my-values.yaml
 ```
 
@@ -41,7 +41,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.4.5"
+    tag: "0.4.6"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -59,7 +59,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.4.5"
+    tag: "0.4.6"
   # Existing Secret supplying GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
   # GOOGLE_OAUTH_REDIRECT_URI, GOOGLE_TOKEN_ENCRYPTION_KEY, and TOKEN_STORE_DSN.
   secretRef:
@@ -70,11 +70,11 @@ Or override the same knobs inline:
 
 ```bash
 helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.5 \
+  --version 0.4.6 \
   --set agentgateway.enabled=true \
-  --set agentgateway.image.tag=0.4.5 \
+  --set agentgateway.image.tag=0.4.6 \
   --set googleWorkspace.enabled=true \
-  --set googleWorkspace.image.tag=0.4.5 \
+  --set googleWorkspace.image.tag=0.4.6 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \
   --set-json 'hop1.issuers=[{"name":"workforce","issuer":"https://identity.example.com","audiences":["https://mcp.example.com/mcp"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"],"emailClaim":"email","subjectClaim":"sub"}]'
 ```
@@ -90,11 +90,14 @@ either constrained DCR or at least one static public client. The signing JWKS is
 never a values or environment value: `signingKeyring.secretKeyRef` selects one
 key from an existing Secret, and the chart projects it read-only at
 `/var/run/secrets/mcp-gateway/broker/signing-jwks.json`. Broker mode also
-requires the AgentGateway public Ingress and Google backend. The chart routes
-the exact metadata/authorize/token/register/JWKS/callback paths to the wrapper,
-keeps the MCP resource behind AgentGateway, and adds the broker issuer's public
-RS256 JWKS to AgentGateway trust automatically. The issuer, resource, callback,
-and Ingress host must describe one coherent public HTTPS origin. See
+requires the AgentGateway public Ingress and Google backend. The chart creates a
+provider-neutral `<release>-authorization-broker` Service selecting the existing
+Google wrapper pods, routes the exact metadata/authorize/token/register/JWKS/callback
+paths to that Service, keeps the MCP resource behind AgentGateway, and adds the
+broker issuer's RS256 profile to AgentGateway and every enabled first-party wrapper.
+Internal JWKS retrieval uses the broker-role Service; public OAuth metadata continues
+advertising the public HTTPS `jwks_uri`. The issuer, resource, callback, and Ingress
+host must describe one coherent public HTTPS origin. See
 `deploy/k8s/examples/values-oauth-broker.example.yaml` in the source repository.
 Choose exactly one trusted ingress-source model. `ingressControllerPeer` must
 contain non-empty Namespace and Pod label selectors for an in-cluster Ingress
@@ -104,9 +107,10 @@ AgentGateway separately, without making the wrapper Service cluster-wide; a
 missing, partial, or mixed source fails rendering. Do not use `0.0.0.0/0` in
 place of the load balancer's actual source range.
 
-The broker can be the only HOP-1 issuer for a Google-only external deployment:
-omit `hop1.issuers` and the chart automatically trusts the broker issuer. An
-optional internal workload issuer may coexist and remains a separate principal.
+The broker can be the only HOP-1 issuer for an external deployment: omit
+`hop1.issuers` and the chart automatically trusts the broker issuer in Google,
+GitHub, and AgentGateway. Optional internal workload issuers may coexist and remain
+separate principals; explicitly configured profiles are preserved unchanged.
 All configured issuers remain authentication providers, while the chart sets
 `resourceMetadata.authorizationServers` to the public broker alone. Protected-resource
 discovery therefore never exposes an internal issuer based on provider ordering.
