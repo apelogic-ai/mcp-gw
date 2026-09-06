@@ -6,3 +6,5 @@ services:
   github-wrapper:
     extra_hosts:
       - host.docker.internal:host-gateway
+    environment:
+      HOP1_ISSUERS_JSON: ${GITHUB_SMOKE_HOP1_ISSUERS_JSON}

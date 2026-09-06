@@ -30,7 +30,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('method":"initialize');
     expect(smoke).toContain("mcp-session-id");
     expect(smoke).toContain("tools/list");
-    expect(smoke).toContain('EXPECTED_TOOLS=("google_oauth_start")');
+    expect(smoke).toContain('EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")');
     expect(smoke).toContain('bun "$ROOT_DIR/shared/oauth/migrate.ts"');
     expect(smoke).toContain("OAuth migrations did not complete.");
     expect(smoke.indexOf('bun "$ROOT_DIR/shared/oauth/migrate.ts"')).toBeLessThan(
@@ -39,7 +39,13 @@ describe("local Docker integration smoke", () => {
     expect(smoke).not.toContain('EXPECTED_TOOL="google_drive_files_list"');
     expect(smoke).toContain("LOCAL_INCLUDE_GITHUB");
     expect(smoke).toContain("github_oauth_start");
-    expect(smoke).toContain('EXPECTED_TOOLS+=("github_oauth_start")');
+    expect(smoke).toContain('EXPECTED_TOOLS+=("github_oauth_start" "github_oauth_status")');
+    expect(smoke).toContain('BROKER_EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")');
+    expect(smoke).toContain('"google_google_oauth_start"');
+    expect(smoke).toContain('"github_github_oauth_start"');
+    expect(smoke).toContain('"${BROKER_EXPECTED_TOOLS[@]}"');
+    expect(smoke).toContain("GITHUB_SMOKE_HOP1_ISSUERS_JSON=");
+    expect(smoke).toContain('\"issuer\":\"$BROKER_ISSUER\"');
     expect(smoke).toContain('for expected_tool in "${EXPECTED_TOOLS[@]}"');
     expect(smoke).toContain("assert_rejected_without_token");
     expect(smoke).toContain("assert_rejected_token expired");
@@ -51,7 +57,11 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("assert_rejected_token not-before");
     expect(smoke).toContain("assert_fixture_authorization_server");
     expect(smoke).toContain('curl -sS "$FIXTURE_BASE_URL/.well-known/jwks.json"');
-    expect(smoke).toContain('BROKER_ISSUER="https://mcp.example.com/oauth"');
+    expect(smoke).toContain('BROKER_ISSUER_INPUT="https://mcp.example.com/oauth/"');
+    expect(smoke).toContain('BROKER_ISSUER="${BROKER_ISSUER_INPUT%/}"');
+    expect(smoke).toContain("MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER_INPUT");
+    expect(smoke).toContain("broker-journey-client.ts");
+    expect(smoke).toContain("google-oidc-fixture.ts");
     expect(smoke).toContain('BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"');
     expect(smoke).toContain('BROKER_SIGNING_JWKS_DIR="$WORK_DIR/broker"');
     expect(smoke).toContain(
@@ -125,6 +135,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("GITHUB_OAUTH_CLIENT_ID=local-github-client");
     expect(override).toContain("gateway/agentgateway/local-github-smoke.yaml");
     expect(override).toContain("host.docker.internal:host-gateway");
+    expect(override).toContain("HOP1_ISSUERS_JSON: ${GITHUB_SMOKE_HOP1_ISSUERS_JSON}");
     expect(config).toContain("name: google");
     expect(config).toContain("name: github");
     expect(config).toContain("host: http://github-wrapper:8080/mcp");

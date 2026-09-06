@@ -2,12 +2,13 @@
 {{- $mcpPath := "/mcp" }}
 {{- $resourceMetadataPath := "/.well-known/oauth-protected-resource/mcp" }}
 {{- $resourceMetadata := deepCopy .Values.agentgateway.mcpAuthentication.resourceMetadata }}
+{{- $brokerIssuer := include "mcp-gateway.authorizationBrokerIssuer" . }}
 {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
 {{- $resourceUrl := urlParse .Values.googleWorkspace.authorizationBroker.resource }}
 {{- $mcpPath = trimSuffix "/" ($resourceUrl.path | default "/") }}
 {{- if not $mcpPath }}{{- $mcpPath = "/" }}{{- end }}
 {{- $resourceMetadataPath = printf "/.well-known/oauth-protected-resource%s" (ternary "" $mcpPath (eq $mcpPath "/")) }}
-{{- $_ := set $resourceMetadata "authorizationServers" (list .Values.googleWorkspace.authorizationBroker.issuer) }}
+{{- $_ := set $resourceMetadata "authorizationServers" (list $brokerIssuer) }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
@@ -60,7 +61,7 @@ data:
 {{- end }}
 {{- end }}
 {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
-                      - issuer: {{ .Values.googleWorkspace.authorizationBroker.issuer }}
+                      - issuer: {{ $brokerIssuer }}
                         audiences:
                           - {{ .Values.googleWorkspace.authorizationBroker.resource }}
                         allowedAlgorithms:
@@ -72,7 +73,7 @@ data:
                             - sub
                             - aud
                         jwks:
-                          url: {{ trimSuffix "/" .Values.googleWorkspace.authorizationBroker.issuer }}/.well-known/jwks.json
+                          url: {{ $brokerIssuer }}/.well-known/jwks.json
                         discoverable: false
 {{- end }}
                     resourceMetadata:

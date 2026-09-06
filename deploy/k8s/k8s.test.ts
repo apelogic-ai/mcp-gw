@@ -144,6 +144,75 @@ describe("Kubernetes production chart", () => {
     expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
   });
 
+  test("canonicalizes a slash-terminated broker issuer across every rendered consumer", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set-string",
+      "googleWorkspace.authorizationBroker.issuer=https://mcp.example.com/oauth/",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+    const brokerIngress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway-broker");
+
+    expect(deployment).toContain("name: MCP_AUTHORIZATION_ISSUER");
+    expect(deployment).toContain('value: "https://mcp.example.com/oauth"');
+    expect(gatewayConfig).toContain("- issuer: https://mcp.example.com/oauth");
+    expect(gatewayConfig).toMatch(/authorizationServers:\n\s+- https:\/\/mcp\.example\.com\/oauth/);
+    expect(gatewayConfig).toContain("url: https://mcp.example.com/oauth/.well-known/jwks.json");
+    expect(gatewayConfig).not.toContain("https://mcp.example.com/oauth//");
+    for (const path of [
+      "/.well-known/oauth-authorization-server/oauth",
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/.well-known/jwks.json",
+    ]) {
+      expect(brokerIngress).toContain(`path: ${path}`);
+    }
+  });
+
+  test("canonicalizes root broker issuers with or without a trailing slash", () => {
+    for (const issuer of ["https://mcp.example.com", "https://mcp.example.com/"]) {
+      const rendered = helmTemplate([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        "--set-string",
+        `googleWorkspace.authorizationBroker.issuer=${issuer}`,
+      ]);
+      const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+      const gatewayConfig = renderedResource(
+        rendered,
+        "ConfigMap",
+        "mcp-gateway-agentgateway-config",
+      );
+      const brokerIngress = renderedResource(
+        rendered,
+        "Ingress",
+        "mcp-gateway-agentgateway-broker",
+      );
+
+      expect(deployment).toContain('value: "https://mcp.example.com"');
+      expect(gatewayConfig).toContain("- issuer: https://mcp.example.com");
+      expect(gatewayConfig).toMatch(/authorizationServers:\n\s+- https:\/\/mcp\.example\.com/);
+      expect(gatewayConfig).toContain("url: https://mcp.example.com/.well-known/jwks.json");
+      expect(gatewayConfig).not.toContain("https://mcp.example.com//");
+      for (const path of [
+        "/.well-known/oauth-authorization-server",
+        "/authorize",
+        "/token",
+        "/register",
+        "/.well-known/jwks.json",
+      ]) {
+        expect(brokerIngress).toContain(`path: ${path}`);
+      }
+    }
+  });
+
   test("renders a broker-only Google deployment without an unrelated HOP-1 issuer", () => {
     const rendered = helmTemplate([
       "--values",
@@ -442,6 +511,7 @@ describe("Kubernetes production chart", () => {
       ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://broker.internal/oauth"],
       ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://intranet/oauth"],
       ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://[2001:db8::1]/oauth"],
+      ["--set-string", "googleWorkspace.authorizationBroker.issuer=https://mcp.example.com//"],
       [
         "--set-string",
         "googleWorkspace.authorizationBroker.issuer=https://user:pass@mcp.example.com/oauth",

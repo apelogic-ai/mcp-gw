@@ -10,6 +10,7 @@ import {
 } from "../shared/oauth/authorization-broker";
 import { ConstrainedDcrRegistry, InMemoryDcrRegistrationStore } from "../shared/oauth/dcr";
 import { createAuthorizationServerRouteHandler } from "../servers/google-workspace/wrapper/src/authorization-routes";
+import { canonicalAuthorizationBrokerIssuer } from "../servers/google-workspace/wrapper/src/broker-runtime";
 import { createRuntimeAuthenticator } from "../servers/google-workspace/wrapper/src/runtime";
 
 // End-to-end journey for a "direct MCP client" (the runbook's neutral term for a
@@ -20,7 +21,8 @@ import { createRuntimeAuthenticator } from "../servers/google-workspace/wrapper/
 // that guards /mcp. The DCR request is the exact Codex 0.147/RMCP 3 shape.
 
 const NOW = 1_800_000_000_000;
-const ISSUER = "https://auth.example.com";
+const CONFIGURED_ISSUER = "https://auth.example.com/";
+const ISSUER = canonicalAuthorizationBrokerIssuer(CONFIGURED_ISSUER);
 const RESOURCE = "https://mcp.example.com/mcp";
 const REDIRECT_URI = "http://127.0.0.1:49152/callback/abcDEF012_-x";
 const GOOGLE_CLIENT_ID = "google-client-id.apps.googleusercontent.com";
@@ -152,8 +154,16 @@ describe("direct MCP client OAuth journey", () => {
     );
     expect(metadataResponse.status).toBe(200);
     const metadata = (await metadataResponse.json()) as Record<string, unknown>;
+    expect(CONFIGURED_ISSUER.endsWith("/")).toBe(true);
     expect(metadata.issuer).toBe(ISSUER);
     expect(metadata.registration_endpoint).toBe(`${ISSUER}/register`);
+    const resourceMetadataResponse = await handler(
+      new Request("https://mcp.example.com/.well-known/oauth-protected-resource/mcp"),
+    );
+    expect(await resourceMetadataResponse.json()).toMatchObject({
+      resource: RESOURCE,
+      authorization_servers: [ISSUER],
+    });
 
     // 2b. Dynamic client registration (constrained DCR).
     const registerResponse = await handler(
