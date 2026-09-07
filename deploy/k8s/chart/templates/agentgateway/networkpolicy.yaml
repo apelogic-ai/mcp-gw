@@ -2,7 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway") }}
 spec:
   podSelector:
     matchLabels:

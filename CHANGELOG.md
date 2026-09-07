@@ -15,8 +15,9 @@ human-maintained compatibility summary.
 - Propagate the chart-generated authorization-broker verification profile to the GitHub wrapper,
   preserving every configured HOP-1 issuer and allowing Google and GitHub MCP initialization to
   succeed with the same broker-issued access token.
-- Add a chart-owned `<release>-authorization-broker` Service and use it for internal broker JWKS
-  retrieval and public broker-route backends while keeping the public HTTPS `jwks_uri` unchanged.
+- Add a chart-owned DNS-label-bounded Service derived from
+  `<fullname>-authorization-broker` and use it for internal broker JWKS retrieval and public
+  broker-route backends while keeping the public HTTPS `jwks_uri` unchanged.
 - Retain Google Workspace's in-process broker verification and broker-disabled direct HOP-1
   behavior, including direct-Google deployments.
 
@@ -24,13 +25,15 @@ human-maintained compatibility summary.
 
 - Restrict broker pod ingress to the existing Ingress source, AgentGateway, and—only when
   enabled—the GitHub wrapper on the broker's exact TCP port; no unrestricted egress is added.
-- Reject manually duplicated broker issuers and issuer/resource configurations inconsistent with
-  the chart-managed public MCP contract.
+- Reject manually duplicated broker issuers, the reserved `mcp-oauth-broker` generated profile
+  name, and issuer/resource configurations inconsistent with the chart-managed public MCP
+  contract.
 
 ### Upgrade Notes
 
-- Operators must not duplicate the broker issuer under `hop1.issuers`; the chart now generates and
-  propagates that trust automatically. Existing explicit issuer profiles remain unchanged.
+- Operators must not duplicate the broker issuer or use the generated profile name
+  `mcp-oauth-broker` under `hop1.issuers`; the chart now generates and propagates that trust
+  automatically. Existing explicit issuer profiles remain unchanged.
 - The new authorization-broker Service selects the existing Google Workspace pods in v0.4.6; no
   standalone broker workload, bearer-token behavior, credential, scope, or lifetime changes are
   included.

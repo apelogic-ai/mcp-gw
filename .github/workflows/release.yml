@@ -101,6 +101,11 @@ jobs:
           LOCAL_INCLUDE_GITHUB: "1"
           LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
 
+      - name: Run broker-disabled external issuer integration smoke against candidate
+        run: bun run integration:external
+        env:
+          LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
+
       - name: Create Kubernetes cluster
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:

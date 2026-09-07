@@ -16,7 +16,28 @@
 {{- end -}}
 
 {{- define "mcp-gateway.fullname" -}}
-{{- .Release.Name -}}
+{{- default .Release.Name .Values.fullnameOverride -}}
+{{- end -}}
+
+{{/* DNS-1035-bounded component name; long fullnames retain a stable identity hash. */}}
+{{- define "mcp-gateway.componentName" -}}
+{{- $component := .component | toString -}}
+{{- $fullname := include "mcp-gateway.fullname" .root -}}
+{{- if not (regexMatch "^[a-z]" $fullname) -}}
+{{- fail "the MCP-GW fullname must start with an alphabetic character so generated Service names satisfy Kubernetes DNS-1035 validation" -}}
+{{- end -}}
+{{- $plainName := printf "%s-%s" $fullname $component -}}
+{{- if le (len $plainName) 63 -}}
+{{- $plainName | trimSuffix "-" -}}
+{{- else -}}
+{{- $hash := sha256sum $fullname | trunc 8 -}}
+{{- $prefixLimit := sub 53 (len $component) | int -}}
+{{- if lt $prefixLimit 1 -}}
+{{- fail (printf "component name %q is too long for a Kubernetes DNS label" $component) -}}
+{{- end -}}
+{{- $prefix := $fullname | trunc $prefixLimit | trimSuffix "-" -}}
+{{- printf "%s-%s-%s" $prefix $hash $component | trimSuffix "-" -}}
+{{- end -}}
 {{- end -}}
 
 {{/* Canonical broker issuer shared by every rendered consumer. */}}
@@ -26,7 +47,7 @@
 
 {{/* Provider-neutral Service contract for the in-process authorization broker. */}}
 {{- define "mcp-gateway.authorizationBrokerServiceName" -}}
-{{- printf "%s-authorization-broker" (include "mcp-gateway.fullname" .) -}}
+{{- include "mcp-gateway.componentName" (dict "root" . "component" "authorization-broker") -}}
 {{- end -}}
 
 {{- define "mcp-gateway.authorizationBrokerJwksPath" -}}
@@ -41,7 +62,7 @@
 
 {{/* Canonical broker profile appended after every operator-configured issuer. */}}
 {{- define "mcp-gateway.authorizationBrokerVerificationProfile" -}}
-{{- $profile := dict "name" "mcp-oauth-broker" "issuer" (include "mcp-gateway.authorizationBrokerIssuer" .) "jwksUrl" (include "mcp-gateway.authorizationBrokerInternalJwksUrl" .) "audiences" (list .Values.googleWorkspace.authorizationBroker.resource) "allowedAlgorithms" (list "RS256") "emailClaim" (.Values.googleWorkspace.env.HOP1_EMAIL_CLAIM | default "email") "subjectClaim" (.Values.googleWorkspace.env.HOP1_SUBJECT_CLAIM | default "sub") -}}
+{{- $profile := dict "name" "mcp-oauth-broker" "issuer" (include "mcp-gateway.authorizationBrokerIssuer" .) "jwksUrl" (include "mcp-gateway.authorizationBrokerInternalJwksUrl" .) "audiences" (list .Values.googleWorkspace.authorizationBroker.resource) "allowedAlgorithms" (list "RS256") "emailClaim" "email" "subjectClaim" "sub" -}}
 {{- toJson $profile -}}
 {{- end -}}
 
@@ -71,7 +92,7 @@ app.kubernetes.io/component: {{ .component }}
 {{- if $values.serviceAccount.name -}}
 {{- $values.serviceAccount.name -}}
 {{- else -}}
-{{- printf "%s-%s" (include "mcp-gateway.fullname" $root) $component -}}
+{{- include "mcp-gateway.componentName" (dict "root" $root "component" $component) -}}
 {{- end -}}
 {{- end -}}
 

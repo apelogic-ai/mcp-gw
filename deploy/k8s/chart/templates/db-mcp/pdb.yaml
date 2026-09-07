@@ -3,7 +3,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-db-mcp
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "db-mcp") }}
 spec:
   minAvailable: {{ .Values.dbMcp.pdb.minAvailable }}
   selector:

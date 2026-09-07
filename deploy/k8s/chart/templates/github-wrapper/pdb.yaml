@@ -3,7 +3,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
 spec:
   minAvailable: {{ .Values.githubWrapper.pdb.minAvailable }}
   selector:

@@ -60,3 +60,8 @@ jobs:
         env:
           LOCAL_INCLUDE_GITHUB: "1"
           LOCAL_AGENTGATEWAY_IMAGE: ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859
+
+      - name: Run Linux broker-disabled external issuer integration smoke
+        run: bun run integration:external
+        env:
+          LOCAL_AGENTGATEWAY_IMAGE: ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859

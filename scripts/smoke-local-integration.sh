@@ -70,6 +70,8 @@ bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
   --issuer "$ISSUER" \
   --audience "$AUDIENCE" \
   --token-file "$TOKEN_FILE" \
+  --email-claim "mail" \
+  --subject-claim "oid" \
   >"$WORK_DIR/hop1-fixture.log" 2>&1 &
 FIXTURE_PID=$!
 
@@ -147,8 +149,8 @@ HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json
 HOP1_AUDIENCE=$AUDIENCE
 HOP1_ALLOWED_ALGORITHMS=RS256
 HOP1_OAUTH_SCOPES=openid email
-HOP1_EMAIL_CLAIM=email
-HOP1_SUBJECT_CLAIM=sub
+HOP1_EMAIL_CLAIM=mail
+HOP1_SUBJECT_CLAIM=oid
 GOOGLE_OAUTH_CLIENT_ID=local-client
 GOOGLE_OAUTH_CLIENT_SECRET=local-secret
 GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/google/callback
@@ -159,7 +161,7 @@ GITHUB_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 GITHUB_OAUTH_CLIENT_ID=local-github-client
 GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
 GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
-GITHUB_SMOKE_HOP1_ISSUERS_JSON=[{"name":"local","issuer":"$ISSUER","jwksUrl":"$ISSUER/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"},{"name":"broker","issuer":"$BROKER_ISSUER","jwksUrl":"http://host.docker.internal:$BROKER_JWKS_PORT/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"}]
+GITHUB_SMOKE_HOP1_ISSUERS_JSON=[{"name":"local","issuer":"$ISSUER","jwksUrl":"$ISSUER/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"mail","subjectClaim":"oid"},{"name":"broker","issuer":"$BROKER_ISSUER","jwksUrl":"http://host.docker.internal:$BROKER_JWKS_PORT/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"}]
 ENV
 
 EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")

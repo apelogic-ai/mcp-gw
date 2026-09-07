@@ -6,9 +6,54 @@ import { describe, expect, test } from "bun:test";
 describe("local Docker integration smoke", () => {
   test("exposes a separate Docker-backed integration command", async () => {
     await access("scripts/smoke-local-integration.sh", constants.X_OK);
+    await access("scripts/smoke-external-issuer-integration.sh", constants.X_OK);
 
     const packageJson = await readFile("package.json", "utf8");
     expect(packageJson).toContain('"integration:local": "bash scripts/smoke-local-integration.sh"');
+    expect(packageJson).toContain(
+      '"integration:external": "bash scripts/smoke-external-issuer-integration.sh"',
+    );
+  });
+
+  test("keeps a broker-disabled multi-backend external issuer journey", async () => {
+    const [smoke, client, compose, gateway] = await Promise.all([
+      readFile("scripts/smoke-external-issuer-integration.sh", "utf8"),
+      readFile("scripts/fixtures/external-issuer-journey-client.ts", "utf8"),
+      readFile("deploy/compose/docker-compose.external-issuer-smoke.yaml", "utf8"),
+      readFile("gateway/agentgateway/local-external-issuer-smoke.yaml", "utf8"),
+    ]);
+
+    expect(smoke).toContain("MCP_BROKER_ENABLED=false");
+    expect(smoke).toContain('JWKS_PORT="38080"');
+    expect(smoke).not.toContain("EXTERNAL_JWKS_PORT");
+    expect(smoke).toContain("google-workspace");
+    expect(smoke).toContain("github-wrapper");
+    expect(smoke).toContain("github-mcp");
+    expect(smoke).toContain("external-issuer-journey-client.ts");
+    expect(smoke).toContain("HOP1_EMAIL_CLAIM=mail");
+    expect(smoke).toContain("HOP1_SUBJECT_CLAIM=oid");
+    expect(smoke).toContain('--email-claim "mail"');
+    expect(smoke).toContain('--subject-claim "oid"');
+    expect(compose).toContain('MCP_BROKER_ENABLED: "false"');
+    expect(compose).toContain('HOP1_ISSUERS_JSON: ""');
+    expect(compose).toContain("HOP1_ISSUERS_JSON: ${EXTERNAL_HOP1_ISSUERS_JSON}");
+    expect(gateway).toContain("backendAuth:");
+    expect(gateway).toContain("passthrough: {}");
+    expect(gateway).toContain("host: http://google-workspace:8080/mcp");
+    expect(gateway).toContain("host: http://github-wrapper:8080/mcp");
+    expect(gateway).not.toContain("https://mcp.example.com/oauth");
+    for (const expectation of [
+      "google_oauth_start",
+      "google_oauth_status",
+      "github_oauth_start",
+      "github_oauth_status",
+      "wrong-issuer",
+      "wrong-audience",
+      "invalid-signature",
+      "expired",
+    ]) {
+      expect(client).toContain(expectation);
+    }
   });
 
   test("uses a local JWKS fixture and signed HOP-1 JWT", async () => {
@@ -23,6 +68,12 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('FIXTURE_BASE_URL="http://127.0.0.1:$JWKS_PORT"');
     expect(smoke).toContain("HOP1_JWKS_URL=$ISSUER/.well-known/jwks.json");
     expect(smoke).toContain("HOP1_ALLOWED_ALGORITHMS=RS256");
+    expect(smoke).toContain("HOP1_EMAIL_CLAIM=mail");
+    expect(smoke).toContain("HOP1_SUBJECT_CLAIM=oid");
+    expect(smoke).toContain('--email-claim "mail"');
+    expect(smoke).toContain('--subject-claim "oid"');
+    expect(smoke).toContain('"emailClaim":"mail","subjectClaim":"oid"');
+    expect(smoke).toContain('"emailClaim":"email","subjectClaim":"sub"');
     expect(smoke).toContain(
       "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.6}",
     );
@@ -62,6 +113,9 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('BROKER_ISSUER="${BROKER_ISSUER_INPUT%/}"');
     expect(smoke).toContain("MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER_INPUT");
     expect(smoke).toContain("broker-journey-client.ts");
+    expect(await readFile("scripts/fixtures/broker-journey-client.ts", "utf8")).toContain(
+      '"mail" in claims || "oid" in claims',
+    );
     expect(smoke).toContain('--google-wrapper-url "http://127.0.0.1:$GOOGLE_WRAPPER_PORT/mcp"');
     expect(smoke).toContain('--github-wrapper-url "http://127.0.0.1:$GITHUB_WRAPPER_PORT/mcp"');
     expect(smoke).toContain("google-oidc-fixture.ts");

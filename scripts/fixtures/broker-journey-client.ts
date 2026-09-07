@@ -108,6 +108,16 @@ const claims = decodeJwt(accessToken);
 if (claims.iss !== args.expectedIssuer || claims.aud !== args.resource) {
   throw new Error(`Broker token issuer or audience was not canonical: ${JSON.stringify(claims)}`);
 }
+if (typeof claims.email !== "string" || typeof claims.sub !== "string") {
+  throw new Error(
+    `Broker token did not contain its fixed email and sub claims: ${JSON.stringify(claims)}`,
+  );
+}
+if ("mail" in claims || "oid" in claims) {
+  throw new Error(
+    `External issuer claim mappings leaked into the broker token: ${JSON.stringify(claims)}`,
+  );
+}
 
 await expectPreConsentSurface(args.googleWrapperUrl, accessToken, [
   "google_oauth_status",

@@ -3,12 +3,12 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+    name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
   minReplicas: {{ .Values.githubWrapper.hpa.minReplicas }}
   maxReplicas: {{ .Values.githubWrapper.hpa.maxReplicas }}
   metrics:

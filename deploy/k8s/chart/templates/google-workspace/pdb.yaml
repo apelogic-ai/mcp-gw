@@ -3,7 +3,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace") }}
 spec:
   minAvailable: {{ .Values.googleWorkspace.pdb.minAvailable }}
   selector:

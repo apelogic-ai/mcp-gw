@@ -1,0 +1,27 @@
+services:
+  token-store:
+    ports:
+      - "127.0.0.1:${TOKEN_STORE_PORT:-35432}:5432"
+
+  agentgateway:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ../../gateway/agentgateway/local-external-issuer-smoke.yaml:/etc/agentgateway/config.yaml:ro
+
+  google-workspace:
+    ports:
+      - "127.0.0.1:${GOOGLE_WRAPPER_PORT:-38083}:8080"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      MCP_BROKER_ENABLED: "false"
+      HOP1_ISSUERS_JSON: ""
+
+  github-wrapper:
+    ports:
+      - "127.0.0.1:${GITHUB_WRAPPER_PORT:-38085}:8080"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      HOP1_ISSUERS_JSON: ${EXTERNAL_HOP1_ISSUERS_JSON}

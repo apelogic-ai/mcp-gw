@@ -91,8 +91,11 @@ never a values or environment value: `signingKeyring.secretKeyRef` selects one
 key from an existing Secret, and the chart projects it read-only at
 `/var/run/secrets/mcp-gateway/broker/signing-jwks.json`. Broker mode also
 requires the AgentGateway public Ingress and Google backend. The chart creates a
-provider-neutral `<release>-authorization-broker` Service selecting the existing
-Google wrapper pods, routes the exact metadata/authorize/token/register/JWKS/callback
+provider-neutral DNS-label-bounded Service derived from
+`<fullname>-authorization-broker` and selecting the existing Google wrapper
+pods. Long fullnames are truncated with a stable identity hash so distinct
+releases remain distinct. The chart routes the exact
+metadata/authorize/token/register/JWKS/callback
 paths to that Service, keeps the MCP resource behind AgentGateway, and adds the
 broker issuer's RS256 profile to AgentGateway and every enabled first-party wrapper.
 Internal JWKS retrieval uses the broker-role Service; public OAuth metadata continues

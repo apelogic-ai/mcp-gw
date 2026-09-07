@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-github-mcp
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-mcp") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: github-mcp
