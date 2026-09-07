@@ -12,6 +12,8 @@ interface Args {
   tokenFile: string;
   signingJwksFile?: string;
   email: string;
+  emailClaim: string;
+  subjectClaim: string;
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -120,7 +122,11 @@ interface TokenOverrides {
 }
 
 async function signToken(overrides: TokenOverrides): Promise<string> {
-  const tokenBuilder = new SignJWT({ email: args.email })
+  const customClaims: Record<string, string> = { [args.emailClaim]: args.email };
+  if (args.subjectClaim !== "sub") {
+    customClaims[args.subjectClaim] = "local-hop1-user";
+  }
+  const tokenBuilder = new SignJWT(customClaims)
     .setProtectedHeader({ alg: overrides.algorithm ?? "RS256", kid: overrides.kid ?? kid })
     .setIssuer(overrides.issuer ?? args.issuer)
     .setSubject("local-hop1-user")
@@ -154,6 +160,8 @@ function parseArgs(argv: string[]): Args {
     tokenFile: required(values, "token-file"),
     signingJwksFile: values.get("signing-jwks-file"),
     email: values.get("email") ?? "local.user@example.com",
+    emailClaim: values.get("email-claim") ?? "email",
+    subjectClaim: values.get("subject-claim") ?? "sub",
   };
 }
 

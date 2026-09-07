@@ -9,7 +9,9 @@ interface Args {
   expectedIssuer: string;
   expectedTools: string[];
   gatewayUrl: string;
+  githubWrapperUrl?: string;
   googleFixtureBaseUrl: string;
+  googleWrapperUrl: string;
   resource: string;
 }
 
@@ -106,6 +108,27 @@ const claims = decodeJwt(accessToken);
 if (claims.iss !== args.expectedIssuer || claims.aud !== args.resource) {
   throw new Error(`Broker token issuer or audience was not canonical: ${JSON.stringify(claims)}`);
 }
+if (typeof claims.email !== "string" || typeof claims.sub !== "string") {
+  throw new Error(
+    `Broker token did not contain its fixed email and sub claims: ${JSON.stringify(claims)}`,
+  );
+}
+if ("mail" in claims || "oid" in claims) {
+  throw new Error(
+    `External issuer claim mappings leaked into the broker token: ${JSON.stringify(claims)}`,
+  );
+}
+
+await expectPreConsentSurface(args.googleWrapperUrl, accessToken, [
+  "google_oauth_status",
+  "google_oauth_start",
+]);
+if (args.githubWrapperUrl) {
+  await expectPreConsentSurface(args.githubWrapperUrl, accessToken, [
+    "github_oauth_status",
+    "github_oauth_start",
+  ]);
+}
 
 const initialize = await rpcRequest(
   {
@@ -155,7 +178,59 @@ if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
 
 console.log("Trailing-slash broker DCR journey passed through release-built AgentGateway.");
 
+async function expectPreConsentSurface(
+  url: string,
+  accessToken: string,
+  expectedTools: string[],
+): Promise<void> {
+  const initialize = await rpcRequestTo(
+    url,
+    {
+      jsonrpc: "2.0",
+      id: "direct-initialize",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "broker-wrapper-regression", version: "1.0.0" },
+      },
+    },
+    accessToken,
+  );
+  await decodeRpcResponse(initialize);
+
+  const toolsResponse = await rpcRequestTo(
+    url,
+    { jsonrpc: "2.0", id: "direct-tools", method: "tools/list", params: {} },
+    accessToken,
+  );
+  const toolsPayload = await decodeRpcResponse(toolsResponse);
+  const tools = toolsPayload.result?.tools;
+  if (!Array.isArray(tools)) {
+    throw new Error(
+      `Direct wrapper tools/list did not return tools: ${JSON.stringify(toolsPayload)}`,
+    );
+  }
+  const toolNames = tools.flatMap((tool) =>
+    isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [],
+  );
+  if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
+    throw new Error(
+      `Direct wrapper pre-consent tools must be exactly ${expectedTools.join(", ")}; received ${toolNames.join(", ")}`,
+    );
+  }
+}
+
 async function rpcRequest(
+  body: unknown,
+  accessToken: string,
+  sessionId?: string,
+): Promise<Response> {
+  return rpcRequestTo(args.gatewayUrl, body, accessToken, sessionId);
+}
+
+async function rpcRequestTo(
+  url: string,
   body: unknown,
   accessToken: string,
   sessionId?: string,
@@ -167,7 +242,7 @@ async function rpcRequest(
     "mcp-protocol-version": "2025-06-18",
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
-  const response = await fetch(args.gatewayUrl, {
+  const response = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -245,7 +320,9 @@ function parseArgs(argv: string[]): Args {
     expectedIssuer: required(values, "expected-issuer"),
     expectedTools: required(values, "expected-tools").split(",").filter(Boolean),
     gatewayUrl: required(values, "gateway-url"),
+    githubWrapperUrl: values.get("github-wrapper-url"),
     googleFixtureBaseUrl: required(values, "google-fixture-base-url"),
+    googleWrapperUrl: required(values, "google-wrapper-url"),
     resource: required(values, "resource"),
   };
 }

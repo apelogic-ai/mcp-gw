@@ -1,11 +1,11 @@
-{{- if .Values.googleWorkspace.enabled }}
+{{- if and .Values.googleWorkspace.enabled .Values.googleWorkspace.authorizationBroker.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace") }}
+  name: {{ include "mcp-gateway.authorizationBrokerServiceName" . }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
-    app.kubernetes.io/component: google-workspace
+    app.kubernetes.io/component: authorization-broker
 spec:
   type: ClusterIP
   selector:

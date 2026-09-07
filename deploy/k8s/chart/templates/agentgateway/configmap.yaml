@@ -13,7 +13,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-agentgateway-config
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway-config") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
@@ -73,7 +73,7 @@ data:
                             - sub
                             - aud
                         jwks:
-                          url: {{ $brokerIssuer }}/.well-known/jwks.json
+                          url: {{ include "mcp-gateway.authorizationBrokerInternalJwksUrl" . }}
                         discoverable: false
 {{- end }}
                     resourceMetadata:
@@ -93,7 +93,8 @@ data:
 {{- range $enabledBackends }}
 {{- $host := .host | default "" }}
 {{- if not $host }}
-{{- $host = printf "http://%s-%s:%v%s" (include "mcp-gateway.fullname" $) .serviceName (.port | default 8080) (.path | default "/mcp") }}
+{{- $serviceName := include "mcp-gateway.componentName" (dict "root" $ "component" .serviceName) }}
+{{- $host = printf "http://%s:%v%s" $serviceName (.port | default 8080) (.path | default "/mcp") }}
 {{- end }}
                         - name: {{ .name }}
                           policies:

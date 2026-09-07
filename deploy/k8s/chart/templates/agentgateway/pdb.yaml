@@ -3,7 +3,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway") }}
 spec:
   minAvailable: {{ .Values.agentgateway.pdb.minAvailable }}
   selector:

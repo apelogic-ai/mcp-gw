@@ -13,7 +13,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-agentgateway
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: agentgateway
@@ -69,7 +69,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "mcp-gateway.fullname" . }}-agentgateway-config
+            name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway-config") }}
       {{- if $introspectionIssuers }}
         - name: hop1-introspection
           projected:

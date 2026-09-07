@@ -9,9 +9,15 @@ import {
   type GoogleTokenExchangeResult,
 } from "../shared/oauth/authorization-broker";
 import { ConstrainedDcrRegistry, InMemoryDcrRegistrationStore } from "../shared/oauth/dcr";
+import { InMemoryOAuthStateStore, InMemoryOAuthTokenStore } from "../shared/oauth/memory-store";
+import { createGithubMcpProxyHandler } from "../servers/github-mcp/wrapper/src/proxy";
 import { createAuthorizationServerRouteHandler } from "../servers/google-workspace/wrapper/src/authorization-routes";
 import { canonicalAuthorizationBrokerIssuer } from "../servers/google-workspace/wrapper/src/broker-runtime";
-import { createRuntimeAuthenticator } from "../servers/google-workspace/wrapper/src/runtime";
+import {
+  createRuntimeAuthenticator,
+  createRuntimeWrapperHandler,
+  type RuntimeTrustedIssuer,
+} from "../servers/google-workspace/wrapper/src/runtime";
 
 // End-to-end journey for a "direct MCP client" (the runbook's neutral term for a
 // client that drives OAuth itself). It stitches the per-stage
@@ -268,25 +274,78 @@ describe("direct MCP client OAuth journey", () => {
     //    same runtime authenticator, built from the broker's issuer profile and
     //    published JWKS.
     const authenticate = createRuntimeAuthenticator({
-      issuers: [
-        {
-          profile: {
-            name: "mcp-oauth-broker",
-            issuer: ISSUER,
-            audiences: [RESOURCE],
-            allowedAlgorithms: ["RS256"],
-            emailClaim: "email",
-            subjectClaim: "sub",
-          },
-          jwksProvider: () => Promise.resolve(broker.jwks().keys),
-        },
-      ],
+      issuers: [brokerTrustedIssuer(broker.jwks().keys)],
     });
     const identity = await authenticate(accessToken);
     expect(identity.issuer).toBe(ISSUER);
     expect(identity.subject).toBe(GOOGLE_SUBJECT);
     expect(identity.email).toBe(GOOGLE_EMAIL);
     expect(identity.profile).toBe("mcp-oauth-broker");
+
+    // 4b. Exercise the real /mcp request handlers, not just the authenticator.
+    //     Neither provider is connected, so initialization succeeds and each
+    //     wrapper exposes only its intended authentication/status surface.
+    const googleHandler = createRuntimeWrapperHandler({
+      config: {
+        gwsBinary: "/unused-before-provider-consent",
+        hop1Issuers: [],
+        oauth: {
+          clientId: GOOGLE_CLIENT_ID,
+          clientSecret: "google-client-secret",
+          redirectUri: "https://mcp.example.com/oauth/google/callback",
+          tokenEncryptionKey: Buffer.alloc(32, 7).toString("base64"),
+        },
+      },
+      tokenStore: new InMemoryOAuthTokenStore(),
+      issuers: [brokerTrustedIssuer(broker.jwks().keys)],
+      providerOAuth: {
+        scopes: ["https://www.googleapis.com/auth/drive"],
+        stateStore: new InMemoryOAuthStateStore(),
+      },
+    });
+    const githubHandler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate,
+      resolveGithubToken: () => Promise.resolve(undefined),
+      getOAuthStatus: () =>
+        Promise.resolve({
+          connected: false,
+          scopesRequired: ["user:email"],
+          scopesGranted: [],
+          missingScopes: ["user:email"],
+        }),
+      startOAuth: () =>
+        Promise.resolve({ authorizationUrl: "https://github.com/login/oauth/authorize" }),
+      githubScopes: ["user:email"],
+      fetch: () => Promise.reject(new Error("upstream must not run before provider consent")),
+    });
+
+    await expectPreConsentMcpSurface(googleHandler, accessToken, [
+      "google_oauth_status",
+      "google_oauth_start",
+    ]);
+    await expectPreConsentMcpSurface(githubHandler, accessToken, [
+      "github_oauth_status",
+      "github_oauth_start",
+    ]);
+
+    const unknownKeys = await generateKeyPair("RS256");
+    const invalidTokens = [
+      await brokerAccessToken({ issuer: "https://wrong.example.com/oauth" }),
+      await brokerAccessToken({ audience: "https://mcp.example.com/wrong" }),
+      await brokerAccessToken({ privateKey: unknownKeys.privateKey, kid: "unknown-key" }),
+      await brokerAccessToken({ expirationTime: "1 second ago", issuedAt: "2 minutes ago" }),
+    ];
+    for (const invalidToken of invalidTokens) {
+      for (const wrapper of [googleHandler, githubHandler]) {
+        const response = await mcpRequest(wrapper, invalidToken, {
+          jsonrpc: "2.0",
+          id: "invalid",
+          method: "initialize",
+        });
+        expect(response.status).toBe(401);
+      }
+    }
 
     // 5. Codex/RMCP refreshes near expiry with the exact resource and granted
     //    scope, receives a rotated credential, and can use the renewed token.
@@ -354,4 +413,84 @@ function refreshRequest(refreshToken: string, clientId: string): Request {
       scope: "mcp",
     }).toString(),
   });
+}
+
+function brokerTrustedIssuer(jwks: JWK[]): RuntimeTrustedIssuer {
+  return {
+    profile: {
+      name: "mcp-oauth-broker",
+      issuer: ISSUER,
+      audiences: [RESOURCE],
+      allowedAlgorithms: ["RS256"],
+      emailClaim: "email",
+      subjectClaim: "sub",
+    },
+    jwksProvider: () => Promise.resolve(jwks),
+  };
+}
+
+async function brokerAccessToken(
+  overrides: {
+    issuer?: string;
+    audience?: string;
+    privateKey?: CryptoKey;
+    kid?: string;
+    issuedAt?: string;
+    expirationTime?: string;
+  } = {},
+): Promise<string> {
+  return new SignJWT({ email: GOOGLE_EMAIL, scope: "mcp" })
+    .setProtectedHeader({ alg: "RS256", kid: overrides.kid ?? "broker-key", typ: "at+jwt" })
+    .setIssuer(overrides.issuer ?? ISSUER)
+    .setAudience(overrides.audience ?? RESOURCE)
+    .setSubject(GOOGLE_SUBJECT)
+    .setIssuedAt(overrides.issuedAt ?? "1 minute ago")
+    .setExpirationTime(overrides.expirationTime ?? "5 minutes")
+    .sign(overrides.privateKey ?? brokerPrivateKey);
+}
+
+async function expectPreConsentMcpSurface(
+  handler: (request: Request) => Promise<Response>,
+  accessToken: string,
+  expectedTools: string[],
+): Promise<void> {
+  const initialize = await mcpRequest(handler, accessToken, {
+    jsonrpc: "2.0",
+    id: "initialize",
+    method: "initialize",
+    params: { protocolVersion: "2025-06-18", capabilities: {} },
+  });
+  expect(initialize.status).toBe(200);
+  expect(await initialize.json()).toMatchObject({
+    jsonrpc: "2.0",
+    id: "initialize",
+    result: { capabilities: { tools: {} } },
+  });
+
+  const tools = await mcpRequest(handler, accessToken, {
+    jsonrpc: "2.0",
+    id: "tools",
+    method: "tools/list",
+  });
+  expect(tools.status).toBe(200);
+  const body = (await tools.json()) as { result: { tools: { name: string }[] } };
+  expect(body.result.tools.map((tool) => tool.name)).toEqual(expectedTools);
+}
+
+function mcpRequest(
+  handler: (request: Request) => Promise<Response>,
+  accessToken: string,
+  body: unknown,
+): Promise<Response> {
+  return handler(
+    new Request("http://wrapper/mcp", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+      },
+      body: JSON.stringify(body),
+    }),
+  );
 }

@@ -5,7 +5,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: google-workspace
@@ -151,7 +151,7 @@ spec:
         {{- if .Values.googleWorkspace.policy.enabled }}
         - name: google-workspace-policy
           configMap:
-            name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
+            name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace-policy") }}
         {{- end }}
         {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
         - name: broker-signing-keyring

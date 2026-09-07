@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-google-workspace-policy
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace-policy") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: google-workspace

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.4.5";
+  const expectedVersion = "0.4.6";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -22,7 +22,7 @@ describe("release metadata", () => {
     expect(parsedPackage.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(parsedPackage.scripts["release:check"]).toBe("bun scripts/check-release-metadata.ts");
     expect(changelog).toContain("## [Unreleased]");
-    expect(changelog).toContain(`## [${parsedPackage.version}] - 2026-09-05`);
+    expect(changelog).toContain(`## [${parsedPackage.version}] - 2026-09-06`);
     expect(changelog).toContain(
       `[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v${parsedPackage.version}...HEAD`,
     );
@@ -67,6 +67,9 @@ describe("release metadata", () => {
     expect(ciWorkflow).toContain("cancel-in-progress: true");
     expect(ciWorkflow).toContain("Run Linux broker integration smoke");
     expect(ciWorkflow).toContain("bun run integration:local");
+    expect(ciWorkflow).toContain('LOCAL_INCLUDE_GITHUB: "1"');
+    expect(ciWorkflow).toContain("Run Linux broker-disabled external issuer integration smoke");
+    expect(ciWorkflow).toContain("bun run integration:external");
     expect(ciWorkflow).toContain(
       "ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859",
     );
@@ -79,6 +82,7 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("docker/build-push-action@");
     expect(releaseWorkflow).toContain("runner: ubuntu-24.04-arm");
     expect(releaseWorkflow).toContain("platform: linux/arm64");
+    expect(releaseWorkflow).toContain("bun run integration:external");
     expect(releaseWorkflow).not.toContain("docker/setup-qemu-action@");
   });
 

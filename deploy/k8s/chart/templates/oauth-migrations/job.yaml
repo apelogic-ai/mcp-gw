@@ -5,7 +5,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-oauth-migrations
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "oauth-migrations") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: oauth-migrations

@@ -15,11 +15,16 @@ describe("release artifacts", () => {
 
     expect(kubernetesSmoke).toContain("Build pinned agentgateway candidate");
     expect(kubernetesSmoke).toContain("bun run integration:local");
+    expect(kubernetesSmoke).toContain('LOCAL_INCLUDE_GITHUB: "1"');
+    expect(kubernetesSmoke).toContain(
+      "Run broker-disabled external issuer integration smoke against candidate",
+    );
+    expect(kubernetesSmoke).toContain("bun run integration:external");
     expect(kubernetesSmoke).toContain("bun run integration:k8s");
     expect(kubernetesSmoke).toContain("bun run integration:bundle");
     expect(
       kubernetesSmoke.match(/LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke/g),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(kubernetesSmoke.indexOf("Build pinned agentgateway candidate")).toBeLessThan(
       kubernetesSmoke.indexOf("bun run integration:local"),
     );

@@ -15,6 +15,13 @@ For a Google-only deployment, omit `hop1.issuers`. With
 `googleWorkspace.authorizationBroker.enabled=true`, the chart automatically
 adds the broker issuer to AgentGateway trust.
 
+The chart also creates a DNS-label-bounded Service derived from
+`<fullname>-authorization-broker`, using a stable identity hash when a long
+fullname must be truncated. This provider-neutral ClusterIP Service serves
+broker routes. Public OAuth metadata still advertises the
+public HTTPS JWKS URI, while in-cluster verifiers retrieve those keys through
+this role Service rather than the Google Workspace Service name.
+
 If the same endpoint must also accept internal workload tokens, add a real
 issuer profile under `hop1.issuers`. It coexists with the broker, but it is a separate `(issuer, subject)`
 principal even when email values match. Do not configure

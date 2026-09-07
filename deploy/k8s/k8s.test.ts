@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseAllDocuments } from "yaml";
 
 import {
   CANONICAL_PUBLIC_IPV4_HOSTS,
@@ -109,7 +110,9 @@ describe("Kubernetes production chart", () => {
     expect(deployment).not.toMatch(/name: MCP_BROKER_SIGNING_JWKS_FILE[\s\S]{0,120}secretKeyRef:/);
     expect(gatewayConfig).toContain("- issuer: https://mcp.example.com/oauth");
     expect(gatewayConfig).toContain("- https://mcp.example.com/mcp");
-    expect(gatewayConfig).toContain("url: https://mcp.example.com/oauth/.well-known/jwks.json");
+    expect(gatewayConfig).toContain(
+      "url: http://mcp-gateway-authorization-broker:8080/oauth/.well-known/jwks.json",
+    );
     expect(gatewayConfig).toMatch(/scopesSupported:\n\s+- mcp/);
     for (const path of ["/mcp", "/.well-known/oauth-protected-resource/mcp"]) {
       expect(ingress).toContain(`path: ${path}`);
@@ -130,7 +133,7 @@ describe("Kubernetes production chart", () => {
       expect(ingress).not.toContain(`path: ${path}`);
     }
     expect(brokerIngress).toMatch(
-      /path: \/oauth\/authorize[\s\S]*?name: mcp-gateway-google-workspace/,
+      /path: \/oauth\/authorize[\s\S]*?name: mcp-gateway-authorization-broker/,
     );
     expect(brokerIngress).toMatch(/path: \/oauth\/authorize\n\s+pathType: Exact/);
     // The dedicated broker Ingress carries the operator-configured transport caps.
@@ -142,6 +145,267 @@ describe("Kubernetes production chart", () => {
     expect(networkPolicy).toContain("kubernetes.io/metadata.name: ingress-nginx");
     expect(networkPolicy).toContain("app.kubernetes.io/component: controller");
     expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
+  });
+
+  test("propagates one canonical broker profile to Google, GitHub, and AgentGateway", () => {
+    const rendered = helmTemplate(brokerWithGithubArgs());
+    const googleDeployment = renderedResource(
+      rendered,
+      "Deployment",
+      "mcp-gateway-google-workspace",
+    );
+    const githubDeployment = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+    const brokerService = renderedResource(rendered, "Service", "mcp-gateway-authorization-broker");
+    const brokerIngress = renderedResource(rendered, "Ingress", "mcp-gateway-agentgateway-broker");
+    const networkPolicy = renderedResource(
+      rendered,
+      "NetworkPolicy",
+      "mcp-gateway-google-workspace",
+    );
+    const githubProfiles = JSON.parse(
+      deploymentEnvValue(githubDeployment, "HOP1_ISSUERS_JSON"),
+    ) as Array<Record<string, unknown>>;
+    const brokerProfiles = githubProfiles.filter(
+      (profile) => profile.issuer === "https://mcp.example.com/oauth",
+    );
+
+    expect(deploymentEnvValue(googleDeployment, "MCP_AUTHORIZATION_ISSUER")).toBe(
+      "https://mcp.example.com/oauth",
+    );
+    expect(brokerProfiles).toEqual([
+      {
+        name: "mcp-oauth-broker",
+        issuer: "https://mcp.example.com/oauth",
+        jwksUrl: "http://mcp-gateway-authorization-broker:8080/oauth/.well-known/jwks.json",
+        audiences: ["https://mcp.example.com/mcp"],
+        allowedAlgorithms: ["RS256"],
+        emailClaim: "email",
+        subjectClaim: "sub",
+      },
+    ]);
+    expect(brokerProfiles[0]).not.toHaveProperty("introspectionUrl");
+    expect(brokerProfiles[0]).not.toHaveProperty("introspectionClientCredentialEnv");
+    expect(githubProfiles[0]).toMatchObject({
+      name: "enterprise-identity",
+      issuer: "https://identity.example.com",
+      allowedAlgorithms: ["EdDSA"],
+    });
+
+    const providers = gatewayConfig.slice(
+      gatewayConfig.indexOf("providers:"),
+      gatewayConfig.indexOf("resourceMetadata:"),
+    );
+    expect(countOccurrences(providers, "- issuer: https://mcp.example.com/oauth")).toBe(1);
+    expect(providers).toContain("- https://mcp.example.com/mcp");
+    expect(providers).toContain("- RS256");
+    expect(providers).toContain(
+      "url: http://mcp-gateway-authorization-broker:8080/oauth/.well-known/jwks.json",
+    );
+    expect(brokerService).toContain("app.kubernetes.io/component: authorization-broker");
+    expect(brokerService).toContain("app.kubernetes.io/component: google-workspace");
+    expect(brokerService).toMatch(/port: 8080\n\s+targetPort: http/);
+    expect(brokerIngress).toContain("name: mcp-gateway-authorization-broker");
+    expect(brokerIngress).not.toContain("name: mcp-gateway-google-workspace");
+    expect(networkPolicy).toContain("app.kubernetes.io/component: agentgateway");
+    expect(networkPolicy).toContain("app.kubernetes.io/component: github-wrapper");
+    expect(networkPolicy).toMatch(/protocol: TCP\n\s+port: 8080/);
+    expect(rendered).not.toMatch(/policyTypes:\n(?:\s+- \w+\n)*\s+- Egress/);
+    expect(rendered).not.toMatch(/^\s*egress:/m);
+    expect(rendered).not.toContain("0.0.0.0/0");
+  });
+
+  test("keeps broker-disabled Google and GitHub issuer rendering unchanged", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+    const googleDeployment = renderedResource(
+      rendered,
+      "Deployment",
+      "mcp-gateway-google-workspace",
+    );
+    const githubDeployment = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+    const googleProfiles = deploymentEnvValue(googleDeployment, "HOP1_ISSUERS_JSON");
+    const githubProfiles = deploymentEnvValue(githubDeployment, "HOP1_ISSUERS_JSON");
+
+    expect(githubProfiles).toBe(googleProfiles);
+    expect(githubProfiles).not.toContain("mcp-oauth-broker");
+    expect(rendered).not.toContain("mcp-gateway-authorization-broker");
+    expect(rendered).not.toContain("MCP_AUTHORIZATION_ISSUER");
+    expect(rendered).not.toContain("/.well-known/oauth-authorization-server");
+  });
+
+  test("preserves external claim mappings while fixing broker claims to email and sub", () => {
+    const enterpriseIssuers = [
+      {
+        name: "enterprise-one",
+        issuer: "https://one.identity.example.com",
+        audiences: ["https://mcp.example.com/mcp"],
+        jwksUrl: "https://one.identity.example.com/jwks.json",
+        allowedAlgorithms: ["RS256"],
+        emailClaim: "mail",
+        subjectClaim: "oid",
+      },
+      {
+        name: "enterprise-two",
+        issuer: "https://two.identity.example.com",
+        audiences: ["urn:enterprise:mcp"],
+        jwksUrl: "https://two.identity.example.com/keys",
+        allowedAlgorithms: ["EdDSA"],
+        emailClaim: "email_address",
+        subjectClaim: "subject_id",
+      },
+    ];
+    const rendered = helmTemplate([
+      ...brokerWithGithubArgs(),
+      "--set-json",
+      `hop1.issuers=${JSON.stringify(enterpriseIssuers)}`,
+      "--set-string",
+      "googleWorkspace.env.HOP1_EMAIL_CLAIM=mail",
+      "--set-string",
+      "googleWorkspace.env.HOP1_SUBJECT_CLAIM=oid",
+    ]);
+    const githubDeployment = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+    const profiles = JSON.parse(deploymentEnvValue(githubDeployment, "HOP1_ISSUERS_JSON")) as Array<
+      Record<string, unknown>
+    >;
+
+    expect(profiles.slice(0, 2)).toEqual(enterpriseIssuers);
+    expect(profiles[2]).toMatchObject({
+      name: "mcp-oauth-broker",
+      issuer: "https://mcp.example.com/oauth",
+      audiences: ["https://mcp.example.com/mcp"],
+      allowedAlgorithms: ["RS256"],
+      emailClaim: "email",
+      subjectClaim: "sub",
+    });
+  });
+
+  test("reserves the generated broker profile name independently from its issuer", () => {
+    const cases = [
+      {
+        label: "reserved name with a different issuer",
+        issuer: {
+          name: "mcp-oauth-broker",
+          issuer: "https://identity.example.com",
+          audiences: ["https://mcp.example.com/mcp"],
+          jwksUrl: "https://identity.example.com/.well-known/jwks.json",
+          allowedAlgorithms: ["RS256"],
+        },
+        message: /profile name mcp-oauth-broker is reserved/,
+      },
+      {
+        label: "broker issuer under another name",
+        issuer: {
+          name: "operator-broker-copy",
+          issuer: "https://mcp.example.com/oauth",
+          audiences: ["https://mcp.example.com/mcp"],
+          jwksUrl: "https://mcp.example.com/oauth/.well-known/jwks.json",
+          allowedAlgorithms: ["RS256"],
+        },
+        message: /distinct from configured hop1 issuers/,
+      },
+      {
+        label: "slash-equivalent broker issuer under another name",
+        issuer: {
+          name: "operator-broker-copy",
+          issuer: "https://mcp.example.com/oauth/",
+          audiences: ["https://mcp.example.com/mcp"],
+          jwksUrl: "https://mcp.example.com/oauth/.well-known/jwks.json",
+          allowedAlgorithms: ["RS256"],
+        },
+        message: /distinct from configured hop1 issuers/,
+      },
+    ];
+
+    for (const fixture of cases) {
+      const result = helmTemplateResult([
+        ...brokerWithGithubArgs(),
+        "--set-json",
+        `hop1.issuers=[${JSON.stringify(fixture.issuer)}]`,
+      ]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), fixture.label).toMatch(fixture.message);
+    }
+
+    const brokerDisabled = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set-string",
+      "hop1.issuers[0].name=mcp-oauth-broker",
+    ]);
+    expect(brokerDisabled.exitCode).toBe(0);
+    expect(brokerDisabled.signalCode).toBeNull();
+  });
+
+  test("bounds the broker Service name and every generated reference to one DNS label", () => {
+    const releaseCases = [
+      { label: "immediately below boundary", releaseName: "a".repeat(42) },
+      { label: "would otherwise be 64 characters", releaseName: "b".repeat(43) },
+      { label: "maximum Helm release name", releaseName: "c".repeat(53) },
+    ];
+
+    for (const fixture of releaseCases) {
+      assertBoundedBrokerServiceReferences(
+        helmTemplateForRelease(fixture.releaseName, brokerWithGithubArgs()),
+        fixture.label,
+      );
+    }
+
+    assertBoundedBrokerServiceReferences(
+      helmTemplateForRelease("mcp-gateway", [
+        ...brokerWithGithubArgs(),
+        "--set-string",
+        `fullnameOverride=${"long-fullname-override-".repeat(5)}end`,
+      ]),
+      "long fullnameOverride",
+    );
+
+    const sharedPrefix = "d".repeat(42);
+    const firstLongRelease = brokerServiceName(
+      helmTemplateForRelease(`${sharedPrefix}${"1".repeat(11)}`, brokerWithGithubArgs()),
+    );
+    const secondLongRelease = brokerServiceName(
+      helmTemplateForRelease(`${sharedPrefix}${"2".repeat(11)}`, brokerWithGithubArgs()),
+    );
+    expect(firstLongRelease).not.toBe(secondLongRelease);
+
+    for (const fixture of [
+      {
+        label: "digit-leading fullnameOverride",
+        releaseName: "mcp-gateway",
+        args: [...brokerWithGithubArgs(), "--set-string", "fullnameOverride=1gateway"],
+        message: /fullnameOverride.*does not match pattern/i,
+      },
+      {
+        label: "digit-leading Helm release name",
+        releaseName: "1gateway",
+        args: brokerWithGithubArgs(),
+        message: /must start with an alphabetic character/,
+      },
+    ]) {
+      const result = helmTemplateResultForRelease(fixture.releaseName, fixture.args);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), fixture.label).toMatch(fixture.message);
+    }
+  });
+
+  test("rejects broker issuer or resource values inconsistent with the public MCP contract", () => {
+    for (const override of [
+      "googleWorkspace.authorizationBroker.issuer=https://other.example.com/oauth",
+      "googleWorkspace.authorizationBroker.resource=https://mcp.example.com/not-mcp",
+    ]) {
+      const result = helmTemplateResult([...brokerWithGithubArgs(), "--set-string", override]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/authorizationBroker|agentgateway\.ingress\.paths/);
+    }
   });
 
   test("canonicalizes a slash-terminated broker issuer across every rendered consumer", () => {
@@ -163,7 +427,9 @@ describe("Kubernetes production chart", () => {
     expect(deployment).toContain('value: "https://mcp.example.com/oauth"');
     expect(gatewayConfig).toContain("- issuer: https://mcp.example.com/oauth");
     expect(gatewayConfig).toMatch(/authorizationServers:\n\s+- https:\/\/mcp\.example\.com\/oauth/);
-    expect(gatewayConfig).toContain("url: https://mcp.example.com/oauth/.well-known/jwks.json");
+    expect(gatewayConfig).toContain(
+      "url: http://mcp-gateway-authorization-broker:8080/oauth/.well-known/jwks.json",
+    );
     expect(gatewayConfig).not.toContain("https://mcp.example.com/oauth//");
     for (const path of [
       "/.well-known/oauth-authorization-server/oauth",
@@ -199,7 +465,9 @@ describe("Kubernetes production chart", () => {
       expect(deployment).toContain('value: "https://mcp.example.com"');
       expect(gatewayConfig).toContain("- issuer: https://mcp.example.com");
       expect(gatewayConfig).toMatch(/authorizationServers:\n\s+- https:\/\/mcp\.example\.com/);
-      expect(gatewayConfig).toContain("url: https://mcp.example.com/.well-known/jwks.json");
+      expect(gatewayConfig).toContain(
+        "url: http://mcp-gateway-authorization-broker:8080/.well-known/jwks.json",
+      );
       expect(gatewayConfig).not.toContain("https://mcp.example.com//");
       for (const path of [
         "/.well-known/oauth-authorization-server",
@@ -1065,7 +1333,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.5");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.6");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
@@ -1369,14 +1637,25 @@ describe("Kubernetes production chart", () => {
 });
 
 function helmTemplate(extraArgs: string[] = []): string {
-  const result = helmTemplateResult(extraArgs);
+  return helmTemplateForRelease("mcp-gateway", extraArgs);
+}
+
+function helmTemplateForRelease(releaseName: string, extraArgs: string[] = []): string {
+  const result = helmTemplateResultForRelease(releaseName, extraArgs);
 
   expect(result.exitCode).toBe(0);
   return result.stdout.toString();
 }
 
 function helmTemplateResult(extraArgs: string[] = []): BoundedProcessResult {
-  return boundedSpawnSync(["helm", "template", "mcp-gateway", "deploy/k8s/chart", ...extraArgs]);
+  return helmTemplateResultForRelease("mcp-gateway", extraArgs);
+}
+
+function helmTemplateResultForRelease(
+  releaseName: string,
+  extraArgs: string[] = [],
+): BoundedProcessResult {
+  return boundedSpawnSync(["helm", "template", releaseName, "deploy/k8s/chart", ...extraArgs]);
 }
 
 function assertHelmRejected(result: BoundedProcessResult): void {
@@ -1420,6 +1699,118 @@ function renderedResource(rendered: string, kind: string, name: string): string 
 
   expect(resource).toBeDefined();
   return resource!;
+}
+
+function deploymentEnvValue(deployment: string, name: string): string {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = new RegExp(`- name: ${escapedName}\\n\\s+value: ("(?:[^"\\\\]|\\\\.)*")`, "u").exec(
+    deployment,
+  );
+
+  expect(match?.[1]).toBeString();
+  return JSON.parse(match![1]!) as string;
+}
+
+function countOccurrences(value: string, needle: string): number {
+  return value.split(needle).length - 1;
+}
+
+function assertBoundedBrokerServiceReferences(rendered: string, label: string): void {
+  const resourceIdentities = new Set<string>();
+  for (const document of parseAllDocuments(rendered)) {
+    const resource = document.toJSON() as { kind?: unknown; metadata?: { name?: unknown } } | null;
+    if (typeof resource?.metadata?.name === "string") {
+      expect(
+        resource.metadata.name.length,
+        `${label}: ${String(resource.kind)} metadata.name`,
+      ).toBeLessThanOrEqual(63);
+      const identity = `${String(resource.kind)}/${resource.metadata.name}`;
+      expect(resourceIdentities.has(identity), `${label}: duplicate ${identity}`).toBe(false);
+      resourceIdentities.add(identity);
+    }
+  }
+
+  const serviceName = brokerServiceName(rendered);
+  expect(serviceName, label).toBeString();
+  expect(serviceName.length, label).toBeLessThanOrEqual(63);
+  expect(serviceName, label).toMatch(/^[a-z](?:[-a-z0-9]*[a-z0-9])?$/);
+  expect(serviceName, label).toEndWith("-authorization-broker");
+
+  const brokerIngress = rendered
+    .split(/^---$/m)
+    .find(
+      (document) =>
+        document.includes("kind: Ingress\n") &&
+        document.includes("app.kubernetes.io/component: agentgateway") &&
+        document.includes("/.well-known/jwks.json"),
+    );
+  expect(brokerIngress, label).toBeDefined();
+  expect(brokerIngress, label).toContain(`name: ${serviceName}`);
+
+  const gatewayConfig = rendered
+    .split(/^---$/m)
+    .find(
+      (document) =>
+        document.includes("kind: ConfigMap\n") && document.includes("mcpAuthentication:"),
+    );
+  expect(gatewayConfig, label).toBeDefined();
+  expect(gatewayConfig, label).toContain(`url: http://${serviceName}:8080/`);
+
+  const githubDeployment = rendered
+    .split(/^---$/m)
+    .find(
+      (document) =>
+        document.includes("kind: Deployment\n") &&
+        document.includes("app.kubernetes.io/component: github-wrapper"),
+    );
+  expect(githubDeployment, label).toBeDefined();
+  const profiles = JSON.parse(deploymentEnvValue(githubDeployment!, "HOP1_ISSUERS_JSON")) as Array<
+    Record<string, unknown>
+  >;
+  const broker = profiles.find((profile) => profile.name === "mcp-oauth-broker");
+  expect(broker?.jwksUrl, label).toBe(`http://${serviceName}:8080/oauth/.well-known/jwks.json`);
+}
+
+function brokerServiceName(rendered: string): string {
+  const service = rendered
+    .split(/^---$/m)
+    .find(
+      (document) =>
+        document.includes("kind: Service\n") &&
+        document.includes("app.kubernetes.io/component: authorization-broker"),
+    );
+  expect(service).toBeDefined();
+  const serviceName = /^\s{2}name: ([a-z0-9-]+)$/mu.exec(service!)?.[1];
+  expect(serviceName).toBeString();
+  return serviceName!;
+}
+
+function brokerWithGithubArgs(): string[] {
+  return [
+    "--values",
+    "deploy/k8s/examples/values-oauth-broker.example.yaml",
+    "--set",
+    "githubWrapper.enabled=true",
+    "--set-string",
+    "githubWrapper.secretRef.name=mcp-runtime",
+    "--set-json",
+    `agentgateway.backends=${JSON.stringify([
+      {
+        name: "google-workspace",
+        enabled: true,
+        serviceName: "google-workspace",
+        port: 8080,
+        path: "/mcp",
+      },
+      {
+        name: "github-mcp",
+        enabled: true,
+        serviceName: "github-wrapper",
+        port: 8080,
+        path: "/mcp",
+      },
+    ])}`,
+  ];
 }
 
 async function readExample(fileName: string): Promise<string> {

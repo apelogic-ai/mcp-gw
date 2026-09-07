@@ -1,11 +1,11 @@
 {{- if .Values.githubWrapper.enabled }}
-{{- if not .Values.hop1.issuers }}
+{{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
 {{- fail "hop1.issuers must contain at least one issuer when githubWrapper is enabled" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "mcp-gateway.fullname" . }}-github-wrapper
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
   labels:
     {{- include "mcp-gateway.labels" . | nindent 4 }}
     app.kubernetes.io/component: github-wrapper
@@ -48,9 +48,14 @@ spec:
                 name: {{ . }}
           {{- end }}
           env:
-            {{- if .Values.hop1.issuers }}
+            {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}
+            {{- else if .Values.hop1.issuers }}
             - name: HOP1_ISSUERS_JSON
               value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+            {{- end }}
+            {{- if .Values.hop1.issuers }}
             {{- range $index, $issuer := .Values.hop1.issuers }}
             {{- with $issuer.introspection }}
             - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
