@@ -381,7 +381,7 @@ describe("Kubernetes production chart", () => {
         label: "digit-leading fullnameOverride",
         releaseName: "mcp-gateway",
         args: [...brokerWithGithubArgs(), "--set-string", "fullnameOverride=1gateway"],
-        message: /fullnameOverride.*Does not match pattern/,
+        message: /fullnameOverride.*does not match pattern/i,
       },
       {
         label: "digit-leading Helm release name",
