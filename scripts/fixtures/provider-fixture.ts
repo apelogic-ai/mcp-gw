@@ -65,6 +65,22 @@ Bun.serve({
       );
     }
 
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/github/applications/fixture-github-client/token"
+    ) {
+      const expectedBasic = Buffer.from("fixture-github-client:fixture-github-secret").toString(
+        "base64",
+      );
+      if (request.headers.get("authorization") !== `Basic ${expectedBasic}`) {
+        return Response.json({ error: "invalid_client" }, { status: 401 });
+      }
+      const body = (await request.json()) as Record<string, unknown>;
+      return body.access_token === GITHUB_ACCESS_TOKEN
+        ? new Response(null, { status: 204 })
+        : Response.json({ error: "invalid_token" }, { status: 400 });
+    }
+
     if (request.method === "POST" && url.pathname === "/github-mcp") {
       return requireProviderToken(request, GITHUB_ACCESS_TOKEN, async () => {
         const payload = (await request.json()) as Record<string, unknown>;

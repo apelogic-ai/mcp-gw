@@ -16,7 +16,10 @@ const identity: Hop1Identity = {
 };
 
 describe("Google Workspace request registry", () => {
-  test("advertises only Google OAuth helpers before provider consent", async () => {
+  test("advertises a stable Google catalog and fails data calls closed before consent", async () => {
+    let policyCalls = 0;
+    let tokenCalls = 0;
+    let executorCalls = 0;
     const registry = createGoogleWorkspaceRegistry({
       identity,
       oauth: {
@@ -29,17 +32,30 @@ describe("Google Workspace request registry", () => {
         startOAuth: () =>
           Promise.resolve({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth" }),
       },
-      tokenBroker: {
-        getAccessToken: () => Promise.reject(new Error("token lookup should not run")),
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
       },
-      executor: () => Promise.reject(new Error("executor should not run")),
+      tokenBroker: {
+        getAccessToken: () => {
+          tokenCalls += 1;
+          return Promise.reject(new Error("token lookup should not run"));
+        },
+      },
+      executor: () => {
+        executorCalls += 1;
+        return Promise.reject(new Error("executor should not run"));
+      },
     });
 
     const oauthTools = registry.listTools();
-    expect(oauthTools.map((tool) => tool.name)).toEqual([
+    expect(oauthTools.map((tool) => tool.name).slice(0, 2)).toEqual([
       "google_oauth_status",
       "google_oauth_start",
     ]);
+    expect(oauthTools.map((tool) => tool.name)).toContain("google_drive_files_list");
     expect(oauthTools.find((tool) => tool.name === "google_oauth_status")?.annotations).toEqual({
       readOnlyHint: true,
     });
@@ -69,6 +85,23 @@ describe("Google Workspace request registry", () => {
         },
       ],
     });
+    expect(await registry.callTool("google_drive_files_list", {})).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Google Workspace authorization is required. Call google_oauth_start to connect the provider.",
+        },
+      ],
+      structuredContent: {
+        error: "provider_oauth_required",
+        provider: "google_workspace",
+        connectionHelper: "google_oauth_start",
+      },
+    });
+    expect(policyCalls).toBe(1);
+    expect(tokenCalls).toBe(0);
+    expect(executorCalls).toBe(0);
   });
 
   test("allows Google OAuth start through policy before issuing state", async () => {
@@ -185,7 +218,7 @@ describe("Google Workspace request registry", () => {
     }
   });
 
-  test("advertises OAuth helpers and the full Google catalog after consent", () => {
+  test("keeps OAuth helpers and the full Google catalog after consent", () => {
     const registry = createGoogleWorkspaceRegistry({
       identity,
       oauth: {
@@ -208,6 +241,33 @@ describe("Google Workspace request registry", () => {
     expect(names.slice(0, 2)).toEqual(["google_oauth_status", "google_oauth_start"]);
     expect(names).toContain("google_drive_files_list");
     expect(names).toContain("google_workspace_gws");
+  });
+
+  test("keeps names, schemas, annotations, and ordering identical across consent changes", () => {
+    const status = {
+      connected: false,
+      scopesRequired: ["https://www.googleapis.com/auth/drive"],
+      scopesGranted: [] as string[],
+      missingScopes: ["https://www.googleapis.com/auth/drive"],
+    };
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      oauth: {
+        status,
+        startOAuth: () => Promise.reject(new Error("not used")),
+      },
+      tokenBroker: {
+        getAccessToken: () => Promise.resolve("unused"),
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    const before = structuredClone(registry.listTools());
+    status.connected = true;
+    status.scopesGranted = ["https://www.googleapis.com/auth/drive"];
+    status.missingScopes = [];
+
+    expect(registry.listTools()).toEqual(before);
   });
 
   test("lists catalog tools as MCP tools", () => {

@@ -8,7 +8,11 @@ import {
 } from "../../../../shared/identity/hop1";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import type { ToolPolicy, ToolPolicyInput } from "../../../../shared/policy/policy";
-import { GITHUB_MCP_CATALOG_ID, GITHUB_MCP_TOOLS } from "./catalog/github-mcp";
+import {
+  GITHUB_MCP_CATALOG_ID,
+  GITHUB_MCP_TOOLS,
+  listStableGithubTools,
+} from "./catalog/github-mcp";
 import { createGithubMcpProxyHandler } from "./proxy";
 
 describe("GitHub MCP proxy wrapper", () => {
@@ -19,6 +23,238 @@ describe("GitHub MCP proxy wrapper", () => {
     email: "user@example.com",
     claims: {},
   };
+
+  test("keeps an OAuth-backed catalog stable and gates cached tools without provider effects", async () => {
+    let connected = false;
+    let statusCalls = 0;
+    let tokenCalls = 0;
+    let policyCalls = 0;
+    let upstreamCalls = 0;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      governanceCatalogId: GITHUB_MCP_CATALOG_ID,
+      githubToolsets: ["repos"],
+      authenticate: () => Promise.resolve(identity),
+      getOAuthStatus: () => {
+        statusCalls += 1;
+        return Promise.resolve({
+          connected,
+          email: connected ? identity.email : undefined,
+          scopesRequired: ["repo"],
+          scopesGranted: connected ? ["repo"] : [],
+          missingScopes: connected ? [] : ["repo"],
+        });
+      },
+      resolveGithubToken: () => {
+        tokenCalls += 1;
+        return Promise.resolve("gho_user_token");
+      },
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      fetch: async (request) => {
+        upstreamCalls += 1;
+        const payload = (await request.json()) as {
+          id: string | number | null;
+          method?: string;
+        };
+        return Response.json({
+          jsonrpc: "2.0",
+          id: payload.id,
+          result: { content: [{ type: "text", text: "fixture contents" }] },
+        });
+      },
+    });
+
+    const initialCatalog = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "catalog-before",
+      method: "tools/list",
+      params: {},
+    });
+    const cached = ((await initialCatalog.json()) as { result: { tools: unknown[] } }).result.tools;
+    expect(cached.map((tool) => (tool as { name: string }).name)).toEqual([
+      "github_oauth_status",
+      "github_oauth_start",
+      ...listStableGithubTools(["repos"], GITHUB_MCP_CATALOG_ID).map((tool) => tool.name),
+    ]);
+    expect(cached).toContainEqual(
+      expect.objectContaining({
+        name: "get_file_contents",
+      }),
+    );
+    expect(statusCalls).toBe(0);
+    expect(tokenCalls).toBe(0);
+    expect(policyCalls).toBe(0);
+    expect(upstreamCalls).toBe(0);
+
+    const beforeConsent = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "cached-before-consent",
+      method: "tools/call",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+      },
+    });
+    expect(await beforeConsent.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "cached-before-consent",
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "GitHub authorization is required. Call github_oauth_start to connect the provider.",
+          },
+        ],
+        structuredContent: {
+          error: "provider_oauth_required",
+          provider: "github",
+          connectionHelper: "github_oauth_start",
+        },
+      },
+    });
+    expect(statusCalls).toBe(1);
+    expect(tokenCalls).toBe(0);
+    expect(policyCalls).toBe(1);
+    expect(upstreamCalls).toBe(0);
+
+    connected = true;
+    const afterConsent = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "cached-after-consent",
+      method: "tools/call",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+      },
+    });
+    expect(await afterConsent.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "cached-after-consent",
+      result: { content: [{ type: "text", text: "fixture contents" }] },
+    });
+    expect(statusCalls).toBe(2);
+    expect(tokenCalls).toBe(1);
+    expect(policyCalls).toBe(2);
+    expect(upstreamCalls).toBe(1);
+
+    const catalogAfterConsent = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "catalog-after-consent",
+      method: "tools/list",
+      params: {},
+    });
+    expect(
+      ((await catalogAfterConsent.json()) as { result: { tools: unknown[] } }).result.tools,
+    ).toEqual(cached);
+
+    connected = false;
+    const afterDisconnect = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "cached-after-disconnect",
+      method: "tools/call",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+      },
+    });
+    expect(await afterDisconnect.json()).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: {
+          error: "provider_oauth_required",
+          connectionHelper: "github_oauth_start",
+        },
+      },
+    });
+    expect(statusCalls).toBe(3);
+    expect(tokenCalls).toBe(1);
+    expect(policyCalls).toBe(3);
+    expect(upstreamCalls).toBe(1);
+
+    const catalogAfterDisconnect = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "catalog-after",
+      method: "tools/list",
+      params: {},
+    });
+    expect(
+      ((await catalogAfterDisconnect.json()) as { result: { tools: unknown[] } }).result.tools,
+    ).toEqual(cached);
+  });
+
+  test("selects the exact configured toolsets without provider or upstream effects", async () => {
+    let fetchCalls = 0;
+    let statusCalls = 0;
+    let tokenCalls = 0;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      githubToolsets: ["actions", "gists"],
+      authenticate: () => Promise.resolve(identity),
+      getOAuthStatus: () => {
+        statusCalls += 1;
+        return Promise.resolve({
+          connected: false,
+          scopesRequired: ["repo"],
+          scopesGranted: [],
+          missingScopes: ["repo"],
+        });
+      },
+      resolveGithubToken: () => {
+        tokenCalls += 1;
+        return Promise.resolve(undefined);
+      },
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.reject(new Error("tools/list must not reach the upstream server"));
+      },
+    });
+
+    const [first, concurrent] = await Promise.all([
+      rpc(handler, { jsonrpc: "2.0", id: "first", method: "tools/list" }),
+      rpc(handler, { jsonrpc: "2.0", id: "concurrent", method: "tools/list" }),
+    ]);
+    const firstPayload = (await first.json()) as { result: { tools: unknown[] } };
+    const concurrentPayload = (await concurrent.json()) as { result: { tools: unknown[] } };
+    expect(firstPayload.result.tools).toEqual([
+      expect.objectContaining({ name: "github_oauth_status" }),
+      expect.objectContaining({ name: "github_oauth_start" }),
+      ...listStableGithubTools(["actions", "gists"], undefined),
+    ]);
+    expect(concurrentPayload.result.tools).toEqual(firstPayload.result.tools);
+
+    const later = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "later",
+      method: "tools/list",
+    });
+    expect(((await later.json()) as { result: { tools: unknown[] } }).result.tools).toEqual(
+      firstPayload.result.tools,
+    );
+
+    const unselected = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "unselected",
+      method: "tools/call",
+      params: { name: "issue_read", arguments: {} },
+    });
+    expect(await unselected.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "unselected",
+      error: {
+        code: -32601,
+        message: "GitHub MCP tool is not supported: issue_read",
+      },
+    });
+    expect(fetchCalls).toBe(0);
+    expect(statusCalls).toBe(0);
+    expect(tokenCalls).toBe(0);
+  });
 
   test("rejects requests without a HOP-1 bearer token", async () => {
     const diagnostics: Hop1FailureClassification[] = [];
@@ -433,6 +669,7 @@ describe("GitHub MCP proxy wrapper", () => {
     const policyInputs: ToolPolicyInput[] = [];
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
+      githubToolsets: ["repos"],
       authenticate: () => Promise.resolve(identity),
       resolveGithubToken: () => Promise.resolve(undefined),
       getOAuthStatus: () =>
@@ -452,7 +689,7 @@ describe("GitHub MCP proxy wrapper", () => {
       fetch: async (request) => {
         const payload = (await request.json()) as { method?: string };
         if (payload.method) upstreamMethods.push(payload.method);
-        return Response.json({ jsonrpc: "2.0", id: null, result: {} });
+        throw new Error("unconnected discovery and calls must not reach GitHub MCP");
       },
     });
 
@@ -474,7 +711,11 @@ describe("GitHub MCP proxy wrapper", () => {
     const toolNames = (
       (await tools.json()) as { result: { tools: { name: string }[] } }
     ).result.tools.map((tool) => tool.name);
-    expect(toolNames).toEqual(["github_oauth_status", "github_oauth_start"]);
+    expect(toolNames).toEqual([
+      "github_oauth_status",
+      "github_oauth_start",
+      ...listStableGithubTools(["repos"], undefined).map((tool) => tool.name),
+    ]);
 
     const templates = await rpc(handler, {
       jsonrpc: "2.0",
@@ -509,11 +750,24 @@ describe("GitHub MCP proxy wrapper", () => {
         arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
       },
     });
-    expect(fixedCall.status).toBe(401);
+    expect(fixedCall.status).toBe(200);
     expect(await fixedCall.json()).toEqual({
       jsonrpc: "2.0",
-      id: null,
-      error: { code: -32001, message: "Unauthorized: GitHub account is not connected" },
+      id: 5,
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "GitHub authorization is required. Call github_oauth_start to connect the provider.",
+          },
+        ],
+        structuredContent: {
+          error: "provider_oauth_required",
+          provider: "github",
+          connectionHelper: "github_oauth_start",
+        },
+      },
     });
 
     const diagnostic = await rpc(handler, {
@@ -539,7 +793,17 @@ describe("GitHub MCP proxy wrapper", () => {
         ],
       },
     });
-    expect(policyInputs.map((input) => input.tool)).toEqual(["get_file_contents"]);
+    expect(policyInputs).toEqual([
+      {
+        actionClass: "read",
+        args: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+        principal: "user@example.com",
+        scopes: ["user:email"],
+        service: "github",
+        tokenClaims: { email: "user@example.com", sub: "user-123" },
+        tool: "get_file_contents",
+      },
+    ]);
     expect(upstreamMethods).toEqual([]);
   });
 

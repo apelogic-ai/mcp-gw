@@ -405,8 +405,47 @@ jobs:
           export K8S_BROKER_SMOKE_IMAGE_TAG="$VERSION"
           bun run integration:k8s:broker
 
+  released-full-bundle-smoke:
+    needs: publish-images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test cached catalog through OAuth and disconnect against published images
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          export LOCAL_AGENTGATEWAY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-agentgateway:$VERSION"
+          export LOCAL_GOOGLE_WORKSPACE_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-google-workspace:$VERSION"
+          export LOCAL_GITHUB_WRAPPER_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION"
+          bun run integration:bundle
+        env:
+          FULL_BUNDLE_USE_PREBUILT_IMAGES: "1"
+
   publish-chart:
-    needs: [validate, kubernetes-smoke, publish-images, released-kubernetes-broker-smoke]
+    needs:
+      [
+        validate,
+        kubernetes-smoke,
+        publish-images,
+        released-kubernetes-broker-smoke,
+        released-full-bundle-smoke,
+      ]
     runs-on: ubuntu-latest
     permissions:
       contents: read

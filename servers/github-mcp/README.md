@@ -88,16 +88,27 @@ wrapper advertises only tools whose names and annotations match the pinned catal
 argument-dependent mutations exactly, and fails closed for unknown tools or selectors. The local
 OAuth controls are not selectable catalog grants.
 
-With the variable absent, the wrapper preserves its legacy pass-through tools/list and name-based
-action classification for compatibility. Any other catalog ID is rejected at startup.
+With provider OAuth enabled, `GITHUB_MCP_TOOLSETS` is parsed against the exact catalog generated
+from the pinned v1.6.0 image. The wrapper advertises that deterministic selection without resolving
+a provider token or contacting the upstream server before consent. The wrapper default matches the
+toolset selection shipped by both Compose and Helm. Compose passes one value to both processes; for
+a Helm override, set matching values in `githubMcp.env.GITHUB_TOOLSETS` and the existing generic
+`githubWrapper.env.GITHUB_MCP_TOOLSETS` map. Unknown or empty selections fail closed at wrapper
+startup. With the `all` governance pin, only governed tools remain eligible. Change the toolset
+configuration by restarting the wrapper and upstream together. Legacy
+deployments without provider OAuth preserve per-request upstream pass-through discovery and
+name-based action classification. Any other catalog ID is rejected at startup. A release-image
+conformance check verifies `all`, `default`, the shipped selection, and a custom selection against
+the exact pinned upstream image.
 
 The wrapper advertises a tools-only MCP capability. Some clients nevertheless
 probe `resources/templates/list` and `resources/list` during startup. While a
 user has no matching GitHub grant (or the exact grant requires reauthorization),
 the wrapper returns protocol-valid empty lists for those two discovery methods.
-It still exposes only the local OAuth helpers from `tools/list`, and every
-provider tool call remains fail-closed with an authorization error. With a valid
-grant, resource discovery is forwarded unchanged so deployments that enable
+`tools/list` remains stable across connect and disconnect. An unconnected data-tool call returns
+`isError: true` with structured `provider_oauth_required` and
+`connectionHelper: github_oauth_start`, without resolving a GitHub token or contacting the upstream
+server. With a valid grant, resource discovery is forwarded unchanged so deployments that enable
 upstream GitHub resource toolsets retain those resources.
 
 ## GitHub OAuth

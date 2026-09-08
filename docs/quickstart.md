@@ -2,8 +2,8 @@
 
 Get the MCP gateway running, wire up identity and provider OAuth, and connect an
 MCP client. The gateway exposes one public `/mcp` endpoint. Callers authenticate
-with a bearer token (HOP-1); each downstream provider's full tool catalog stays
-hidden until the user completes that provider's OAuth consent.
+with a bearer token (HOP-1); each enabled downstream provider exposes a stable
+tool catalog while provider credentials are checked only when a tool is called.
 
 Two credential hops:
 
@@ -247,7 +247,9 @@ Per-user refresh tokens are stored encrypted in PostgreSQL, keyed by
 
 - **GitHub MCP:** enable `githubWrapper` and `githubMcp`, add the `github-mcp`
   backend, and register a GitHub OAuth app with callback
-  `https://<your-mcp-host>/oauth/github/callback`. Start from
+  `https://<your-mcp-host>/oauth/github/callback`. The shipped wrapper and upstream toolset defaults
+  are aligned. If you override `githubMcp.env.GITHUB_TOOLSETS`, set the same selection in the
+  existing `githubWrapper.env.GITHUB_MCP_TOOLSETS` value. Start from
   [`deploy/k8s/examples/values-github-mcp.example.yaml`](../deploy/k8s/examples/values-github-mcp.example.yaml).
 - **Google Workspace tool policy:** enable `googleWorkspace.policy` with inline
   YAML. See
@@ -288,10 +290,11 @@ github_oauth_status   github_oauth_start   # when the GitHub backend is enabled
    scopes are missing.
 2. Call `google_oauth_start` to get an `authorizationUrl`. Open it, approve the
    Google consent screen, and return.
-3. On the next `tools/list`, the wrapper advertises its helpers **plus** the full
-   Google Workspace tool catalog (`google_*` curated tools, generated `gws_*`
-   tools, and the `google_workspace_gws` passthrough) for that same HOP-1
-   principal.
+3. Call a Google Workspace data tool from the catalog that was already advertised.
+   Before consent it returns structured `provider_oauth_required`; after consent
+   the same cached tool handle succeeds without another `tools/list`, MCP session,
+   or reconnect. The catalog includes curated `google_*` tools, generated `gws_*`
+   tools, and the `google_workspace_gws` passthrough.
 
 Provider grants are never inferred from the HOP-1 login: every provider is
 gated by its own consent. Use the same stable HOP-1 subject for connect, status,

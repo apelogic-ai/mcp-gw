@@ -15,15 +15,19 @@ import {
 } from "../../../../shared/policy/policy";
 import {
   GITHUB_MCP_CATALOG_ID,
+  GITHUB_MCP_SHIPPED_TOOLSETS,
   classifyGithubToolAction,
   isPinnedGithubTool,
+  listStableGithubTools,
   pinnedGithubToolAnnotationsMatch,
   type GithubMcpCatalogId,
+  type GithubMcpToolsetName,
 } from "./catalog/github-mcp";
 
 export interface CreateGithubMcpProxyHandlerOptions {
   upstreamUrl: string;
   governanceCatalogId?: GithubMcpCatalogId;
+  githubToolsets?: readonly GithubMcpToolsetName[];
   authenticate(token: string): Promise<Hop1Identity>;
   resolveGithubToken(identity: Hop1Identity): Promise<string | undefined>;
   getOAuthStatus?(identity: Hop1Identity): Promise<GithubOAuthStatus>;
@@ -106,6 +110,15 @@ export function createGithubMcpProxyHandler(
 ): (request: Request) => Promise<Response> {
   const fetchImpl = options.fetch ?? fetch;
   const policy = options.policy ?? new AllowAllPolicy();
+  const oauthCatalog = options.getOAuthStatus
+    ? listStableGithubTools(
+        options.githubToolsets ?? GITHUB_MCP_SHIPPED_TOOLSETS,
+        options.governanceCatalogId,
+      )
+    : undefined;
+  const oauthCatalogNames: ReadonlySet<string> | undefined = oauthCatalog
+    ? new Set(oauthCatalog.map((tool) => tool.name))
+    : undefined;
 
   return async (request: Request): Promise<Response> => {
     const started = Date.now();
@@ -139,6 +152,11 @@ export function createGithubMcpProxyHandler(
       });
     }
     if (method?.method === "tools/list") {
+      if (options.getOAuthStatus) {
+        return mcpResult(method.id, {
+          tools: [...LOCAL_TOOLS, ...(oauthCatalog ?? [])],
+        });
+      }
       return handleToolsList(request, body, identity, method.id, options, fetchImpl);
     }
 
@@ -161,7 +179,13 @@ export function createGithubMcpProxyHandler(
 
     const toolCall = parseToolCall(body, options.aliases ?? {}, options.governanceCatalogId);
     const actionClass = toolCall?.actionClass;
-    if (toolCall && actionClass === undefined) {
+    if (
+      toolCall &&
+      (actionClass === undefined ||
+        (oauthCatalogNames &&
+          !isLocalTool(toolCall.toolName) &&
+          !oauthCatalogNames.has(toolCall.toolName)))
+    ) {
       await options.audit?.emit({
         ts: new Date().toISOString(),
         category: "tool_call",
@@ -194,6 +218,12 @@ export function createGithubMcpProxyHandler(
         return denied;
       }
     }
+    if (toolCall && !isLocalTool(toolCall.toolName) && options.getOAuthStatus) {
+      const status = await options.getOAuthStatus(identity);
+      if (!status.connected) {
+        return providerOAuthRequired(toolCall.id);
+      }
+    }
 
     const localTool = toolCall ? await handleLocalToolCall(toolCall, identity, options) : undefined;
     if (localTool) {
@@ -203,6 +233,9 @@ export function createGithubMcpProxyHandler(
     const githubToken =
       resourceDiscoveryToken ?? (await resolveGithubTokenOrUndefined(options, identity));
     if (!githubToken) {
+      if (toolCall) {
+        return providerOAuthRequired(toolCall.id);
+      }
       return unauthorized("GitHub account is not connected");
     }
 
@@ -253,6 +286,27 @@ export function createGithubMcpProxyHandler(
       return mcpError(toolCall?.id ?? null, -32000, "GitHub MCP upstream request failed");
     }
   };
+}
+
+function isLocalTool(toolName: string): boolean {
+  return toolName === "github_oauth_status" || toolName === "github_oauth_start";
+}
+
+function providerOAuthRequired(id: JsonRpcId): Response {
+  return mcpResult(id, {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: "GitHub authorization is required. Call github_oauth_start to connect the provider.",
+      },
+    ],
+    structuredContent: {
+      error: "provider_oauth_required",
+      provider: "github",
+      connectionHelper: "github_oauth_start",
+    },
+  });
 }
 
 function isResourceDiscoveryMethod(method: string): boolean {
@@ -483,10 +537,27 @@ function mergeToolPayload(
   payload: unknown,
   enforceCatalog: boolean,
 ): Record<string, unknown> | undefined {
-  if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
+  const tools = toolsFromPayload(payload, enforceCatalog);
+  if (!tools || !isRecord(payload) || !isRecord(payload.result)) {
     return undefined;
   }
 
+  return {
+    ...payload,
+    result: {
+      ...payload.result,
+      tools,
+    },
+  };
+}
+
+function toolsFromPayload(
+  payload: unknown,
+  enforceCatalog: boolean,
+): readonly unknown[] | undefined {
+  if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
+    return undefined;
+  }
   const upstreamTools = enforceCatalog
     ? (payload.result.tools as unknown[]).filter(isSupportedUpstreamTool)
     : (payload.result.tools as unknown[]);
@@ -496,14 +567,7 @@ function mergeToolPayload(
       .filter((name): name is string => Boolean(name)),
   );
   const localTools = LOCAL_TOOLS.filter((tool) => !existingNames.has(tool.name));
-
-  return {
-    ...payload,
-    result: {
-      ...payload.result,
-      tools: [...localTools, ...upstreamTools],
-    },
-  };
+  return [...localTools, ...upstreamTools];
 }
 
 function isSupportedUpstreamTool(tool: unknown): boolean {

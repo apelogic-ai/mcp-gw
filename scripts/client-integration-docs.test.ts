@@ -23,9 +23,10 @@ describe("client integration documentation", () => {
     expect(runbook).toContain("mcp_authentication_failed classification=<reason>");
     expect(runbook).toContain("invalid_signature");
     expect(runbook).toContain("never includes tokens, claims, client IDs");
-    expect(providerFlows).toContain("Provider-owned discovery");
+    expect(providerFlows).toContain("Stable provider discovery");
     expect(providerFlows).toContain("github_oauth_status");
-    expect(providerFlows).toContain("full provider tool catalog");
+    expect(providerFlows).toContain("provider_oauth_required");
+    expect(providerFlows).toContain("does not need another");
     expect(runbook).toContain("Do not commit");
     expect(runbook.toLowerCase()).not.toContain(`bur${"ble"}`);
   });

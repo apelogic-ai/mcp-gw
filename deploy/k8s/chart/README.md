@@ -2,8 +2,8 @@
 
 Agent-agnostic remote **MCP gateway**. It puts an `agentgateway` front door in
 front of one or more backend MCP servers behind a single public `/mcp` endpoint,
-authenticates each caller with a bearer token (HOP-1), and only exposes a
-provider's full tool catalog after that user completes the provider's OAuth
+authenticates each caller with a bearer token (HOP-1), and exposes each enabled
+provider's stable tool catalog while gating data calls on that user's OAuth
 consent. The chart ships a Google Workspace MCP wrapper, an optional official
 GitHub MCP backend, and per-user OAuth token storage in PostgreSQL. Every
 workload is disabled by default and enabled explicitly.

@@ -9,10 +9,11 @@ OAuth credentials under that authenticated principal and uses them for later MCP
 This document describes the generic integration contract for deployments that do not use a built-in
 MCP-GW portal.
 
-## Provider-owned discovery
+## Stable provider discovery
 
-After HOP-1 authentication, each enabled downstream provider advertises only its connection helpers
-until that user has granted provider access. Current helper pairs are:
+After HOP-1 authentication, each enabled downstream provider advertises its connection helpers and
+its data-tool catalog whether or not that principal has completed provider consent. Current helper
+pairs are:
 
 ```text
 google_oauth_status   google_oauth_start
@@ -20,14 +21,19 @@ github_oauth_status   github_oauth_start
 ```
 
 The status tool reports whether the provider is connected and which scopes are missing. The start
-tool returns an `authorizationUrl` that an interactive agent can present to the user. The user opens
-that URL, approves the provider's consent screen, and returns to the agent. On the next
-`tools/list`, the provider wrapper advertises its helpers plus its full provider tool catalog.
+tool returns an `authorizationUrl` that an interactive agent can present to the user. Before consent,
+a data-tool call returns an MCP tool result with `isError: true` and structured error
+`provider_oauth_required`, naming the provider and its connection helper. It does not resolve a
+provider token or contact the provider API. Existing policy and approval checks remain in force.
 
-This is the required pattern for additional downstream providers: provider-prefixed status and
-start tools are always available; all data and mutation tools are gated by a credential stored for
-the authenticated HOP-1 principal. A provider grant must never be inferred from the initial gateway
-login.
+The user opens the authorization URL, approves the provider's consent screen, and returns to the
+agent. The client may then use the tool handle it cached before consent; it does not need another
+`tools/list`, a new MCP session, or a reconnect. Disconnect or revocation makes that same cached
+call fail closed with `provider_oauth_required` again.
+
+This is the required pattern for additional downstream providers: discovery stays stable while all
+data and mutation calls are gated by a credential stored for the authenticated HOP-1 principal. A
+provider grant must never be inferred from the initial gateway login.
 
 ## Credential Model
 

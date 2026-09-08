@@ -32,6 +32,43 @@ cleanup() {
 }
 trap cleanup EXIT
 
+cat >"$ENV_FILE" <<ENV
+GATEWAY_PORT=$GATEWAY_PORT
+GOOGLE_WRAPPER_PORT=$GOOGLE_WRAPPER_PORT
+GITHUB_WRAPPER_PORT=$GITHUB_WRAPPER_PORT
+GITHUB_MCP_CATALOG_PORT=$GITHUB_MCP_CATALOG_PORT
+AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.7}
+GOOGLE_WORKSPACE_IMAGE=${LOCAL_GOOGLE_WORKSPACE_IMAGE:-mcp-gw-google-workspace:full-bundle-local}
+GITHUB_WRAPPER_IMAGE=${LOCAL_GITHUB_WRAPPER_IMAGE:-mcp-gw-github-wrapper:full-bundle-local}
+ENV
+
+compose_cmd config >/dev/null
+compose_cmd up -d --build --wait token-store provider-fixture github-mcp-catalog
+bun "$ROOT_DIR/scripts/fixtures/github-mcp-catalog-conformance.ts" \
+  --url "http://127.0.0.1:$GITHUB_MCP_CATALOG_PORT/mcp"
+if [[ "${FULL_BUNDLE_USE_PREBUILT_IMAGES:-0}" != "1" ]]; then
+  compose_cmd build oauth-migrations
+fi
+
+# Two simultaneous runs prove the advisory lock makes migration execution concurrency-safe.
+compose_cmd run --rm --no-deps oauth-migrations &
+MIGRATION_PID_ONE=$!
+compose_cmd run --rm --no-deps oauth-migrations &
+MIGRATION_PID_TWO=$!
+wait "$MIGRATION_PID_ONE"
+wait "$MIGRATION_PID_TWO"
+
+# Finish every potentially slow image build, pull, and container creation before
+# starting the JWKS-dependent AgentGateway. Otherwise AgentGateway can cache a
+# failed initial JWKS fetch while the host fixture is still starting.
+if [[ "${FULL_BUNDLE_USE_PREBUILT_IMAGES:-0}" != "1" ]]; then
+  compose_cmd build google-workspace github-wrapper
+fi
+compose_cmd create --no-build --pull missing google-workspace github-wrapper agentgateway
+
+# Mint the short-lived HOP-1 test credential only after image preparation, so a
+# cold builder cannot consume its lifetime before use.
+rm -f "$TOKEN_FILE"
 bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
   --port "$JWKS_PORT" \
   --issuer "$ISSUER" \
@@ -52,29 +89,7 @@ if [[ ! -s "$TOKEN_FILE" ]]; then
   exit 1
 fi
 
-cat >"$ENV_FILE" <<ENV
-GATEWAY_PORT=$GATEWAY_PORT
-GOOGLE_WRAPPER_PORT=$GOOGLE_WRAPPER_PORT
-GITHUB_WRAPPER_PORT=$GITHUB_WRAPPER_PORT
-GITHUB_MCP_CATALOG_PORT=$GITHUB_MCP_CATALOG_PORT
-AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.7}
-ENV
-
-compose_cmd config >/dev/null
-compose_cmd up -d --build --wait token-store provider-fixture github-mcp-catalog
-bun "$ROOT_DIR/scripts/fixtures/github-mcp-catalog-conformance.ts" \
-  --url "http://127.0.0.1:$GITHUB_MCP_CATALOG_PORT/mcp"
-compose_cmd build oauth-migrations
-
-# Two simultaneous runs prove the advisory lock makes migration execution concurrency-safe.
-compose_cmd run --rm --no-deps oauth-migrations &
-MIGRATION_PID_ONE=$!
-compose_cmd run --rm --no-deps oauth-migrations &
-MIGRATION_PID_TWO=$!
-wait "$MIGRATION_PID_ONE"
-wait "$MIGRATION_PID_TWO"
-
-compose_cmd up -d --build google-workspace github-wrapper agentgateway
+compose_cmd start google-workspace github-wrapper agentgateway
 
 TOKEN="$(cat "$TOKEN_FILE")"
 INITIALIZE_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"full-bundle-smoke","version":"1.0.0"}}}'

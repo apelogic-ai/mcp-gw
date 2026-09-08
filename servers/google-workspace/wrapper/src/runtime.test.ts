@@ -455,7 +455,7 @@ describe("runtime wrapper wiring", () => {
     });
   });
 
-  test("exposes only Google OAuth helpers when the runtime principal has no provider grant", async () => {
+  test("exposes a stable catalog when the runtime principal has no provider grant", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const stateStore = new InMemoryOAuthStateStore();
     const handler = createRuntimeWrapperHandler({
@@ -495,10 +495,9 @@ describe("runtime wrapper wiring", () => {
     );
 
     const body = (await response.json()) as { result: { tools: { name: string }[] } };
-    expect(body.result.tools.map((tool) => tool.name)).toEqual([
-      "google_oauth_status",
-      "google_oauth_start",
-    ]);
+    const names = body.result.tools.map((tool) => tool.name);
+    expect(names.slice(0, 2)).toEqual(["google_oauth_status", "google_oauth_start"]);
+    expect(names).toContain("google_drive_files_list");
   });
 
   test("creates YAML, OPA policy, and JSONL audit sinks from runtime config", async () => {

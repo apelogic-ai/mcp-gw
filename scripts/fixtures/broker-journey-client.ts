@@ -170,10 +170,15 @@ const toolNames = tools
   .flatMap((tool) => (isRecord(tool) && typeof tool.name === "string" ? [tool.name] : []))
   .sort();
 const expectedTools = [...args.expectedTools].sort();
-if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
-  throw new Error(
-    `Pre-consent tools must be exactly ${expectedTools.join(", ")}; received ${toolNames.join(", ")}`,
-  );
+for (const expectedTool of expectedTools) {
+  if (!toolNames.includes(expectedTool)) {
+    throw new Error(`Pre-consent tools omitted ${expectedTool}; received ${toolNames.join(", ")}`);
+  }
+}
+for (const dataTool of ["google_drive_files_list", "get_file_contents"]) {
+  if (!toolNames.includes(dataTool)) {
+    throw new Error(`Stable pre-consent catalog omitted ${dataTool}`);
+  }
 }
 
 if (args.invalidTokenDirectory) {
@@ -248,10 +253,36 @@ async function expectPreConsentSurface(
   const toolNames = tools.flatMap((tool) =>
     isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [],
   );
-  if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
-    throw new Error(
-      `Direct wrapper pre-consent tools must be exactly ${expectedTools.join(", ")}; received ${toolNames.join(", ")}`,
-    );
+  for (const expectedTool of expectedTools) {
+    if (!toolNames.includes(expectedTool)) {
+      throw new Error(
+        `Direct wrapper pre-consent tools omitted ${expectedTool}; received ${toolNames.join(", ")}`,
+      );
+    }
+  }
+  const isGoogle = expectedTools.includes("google_oauth_start");
+  const dataTool = isGoogle ? "google_drive_files_list" : "get_file_contents";
+  if (!toolNames.includes(dataTool)) {
+    throw new Error(`Direct wrapper stable catalog omitted ${dataTool}`);
+  }
+  const callPayload = await decodeRpcResponse(
+    await rpcRequestTo(
+      url,
+      {
+        jsonrpc: "2.0",
+        id: "direct-pre-consent-call",
+        method: "tools/call",
+        params: { name: dataTool, arguments: {} },
+      },
+      accessToken,
+    ),
+  );
+  if (
+    callPayload.result?.isError !== true ||
+    !isRecord(callPayload.result.structuredContent) ||
+    callPayload.result.structuredContent.error !== "provider_oauth_required"
+  ) {
+    throw new Error(`Pre-consent ${dataTool} did not fail closed: ${JSON.stringify(callPayload)}`);
   }
 }
 

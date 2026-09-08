@@ -32,12 +32,14 @@ describe("release artifacts", () => {
       /  validate:[\s\S]*?bun run integration:local[\s\S]*?  kubernetes-smoke:/,
     );
     // Image publication stays gated on validate + the candidate smoke. Chart
-    // publication additionally waits for the published-image broker fanout
-    // smoke, so a broken immutable image set cannot be packaged into a chart.
+    // publication additionally waits for the published-image broker fanout and
+    // cached-catalog OAuth journey, so a broken immutable image set cannot be
+    // packaged into a chart.
     expect(workflow).toContain("needs: [validate, kubernetes-smoke]");
-    expect(workflow).toContain(
-      "needs: [validate, kubernetes-smoke, publish-images, released-kubernetes-broker-smoke]",
-    );
+    expect(workflow).toContain("released-full-bundle-smoke:");
+    expect(workflow).toContain('FULL_BUNDLE_USE_PREBUILT_IMAGES: "1"');
+    expect(workflow).toContain("released-kubernetes-broker-smoke,");
+    expect(workflow).toContain("released-full-bundle-smoke,");
   });
 
   test("publishes immutable images and an OCI Helm chart with supply-chain evidence", async () => {

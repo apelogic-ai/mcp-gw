@@ -25,6 +25,7 @@ export interface ToolResultContent {
 export interface ToolResult {
   content: ToolResultContent[];
   isError?: boolean;
+  structuredContent?: Record<string, unknown>;
 }
 
 export interface ToolRegistry {

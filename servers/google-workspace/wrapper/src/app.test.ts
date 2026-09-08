@@ -313,7 +313,7 @@ describe("Google Workspace wrapper app", () => {
     expect(executed).toHaveLength(1);
   });
 
-  test("resolves Google connection state per request and gates provider tools", async () => {
+  test("resolves Google connection state per request without changing the catalog", async () => {
     let connected = false;
     const handler = createGoogleWorkspaceWrapperHandler({
       serverInfo: { name: "google-workspace-wrapper", version: "0.1.0" },
@@ -349,16 +349,17 @@ describe("Google Workspace wrapper app", () => {
     const before = (await (await listTools()).json()) as {
       result: { tools: { name: string }[] };
     };
-    expect(before.result.tools.map((tool) => tool.name)).toEqual([
+    expect(before.result.tools.map((tool) => tool.name).slice(0, 2)).toEqual([
       "google_oauth_status",
       "google_oauth_start",
     ]);
+    expect(before.result.tools.map((tool) => tool.name)).toContain("google_drive_files_list");
 
     connected = true;
     const after = (await (await listTools()).json()) as {
       result: { tools: { name: string }[] };
     };
-    expect(after.result.tools.map((tool) => tool.name)).toContain("google_drive_files_list");
+    expect(after.result.tools).toEqual(before.result.tools);
   });
 
   test("passes injected policy and audit sinks to request registries", async () => {

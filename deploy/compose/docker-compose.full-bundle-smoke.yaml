@@ -36,6 +36,7 @@ services:
       - token-store-tls:/var/lib/postgresql/tls
 
   oauth-migrations:
+    image: ${GOOGLE_WORKSPACE_IMAGE:-mcp-gw-google-workspace:full-bundle-local}
     build:
       context: ../..
       dockerfile: servers/google-workspace/wrapper/Dockerfile
@@ -77,6 +78,7 @@ services:
       - "${GITHUB_MCP_CATALOG_PORT:-18184}:8082"
 
   google-workspace:
+    image: ${GOOGLE_WORKSPACE_IMAGE:-mcp-gw-google-workspace:full-bundle-local}
     build:
       context: ../..
       dockerfile: servers/google-workspace/wrapper/Dockerfile
@@ -114,6 +116,7 @@ services:
         condition: service_healthy
 
   github-wrapper:
+    image: ${GITHUB_WRAPPER_IMAGE:-mcp-gw-github-wrapper:full-bundle-local}
     build:
       context: ../..
       dockerfile: servers/github-mcp/wrapper/Dockerfile
@@ -123,6 +126,7 @@ services:
       PORT: "8080"
       GITHUB_MCP_UPSTREAM_URL: http://provider-fixture:8090/github-mcp
       GITHUB_MCP_GOVERNANCE_CATALOG: github-mcp-server@1.6.0/all
+      GITHUB_MCP_TOOLSETS: all
       GITHUB_TOKEN_ENCRYPTION_KEY: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
       GITHUB_OAUTH_CLIENT_ID: fixture-github-client
       GITHUB_OAUTH_CLIENT_SECRET: fixture-github-secret
@@ -130,6 +134,7 @@ services:
       GITHUB_OAUTH_AUTHORIZATION_URL: http://provider-fixture:8090/github/authorize
       GITHUB_OAUTH_TOKEN_URL: http://provider-fixture:8090/github/token
       GITHUB_OAUTH_USER_EMAILS_URL: http://provider-fixture:8090/github/emails
+      GITHUB_OAUTH_TOKEN_REVOCATION_URL: http://provider-fixture:8090/github/applications/fixture-github-client/token
       GITHUB_OAUTH_SCOPES: repo read:org
       HOP1_PROFILE: fixture
       HOP1_ISSUER: http://host.docker.internal:18180
