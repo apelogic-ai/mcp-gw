@@ -1,4 +1,10 @@
-import { normalizedHop1Claims, type Hop1Identity } from "../../../../shared/identity/hop1";
+import {
+  classifyHop1ValidationFailure,
+  normalizedHop1Claims,
+  reportHop1AuthenticationFailure,
+  type Hop1FailureReporter,
+  type Hop1Identity,
+} from "../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../shared/audit/audit";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import {
@@ -30,6 +36,7 @@ export interface CreateGithubMcpProxyHandlerOptions {
   audit?: AuditSink;
   policy?: ToolPolicy;
   fetch?: GithubMcpProxyFetch;
+  onAuthenticationFailure?: Hop1FailureReporter;
 }
 
 export type GithubMcpProxyFetch = (request: Request) => Promise<Response>;
@@ -102,8 +109,10 @@ export function createGithubMcpProxyHandler(
 
   return async (request: Request): Promise<Response> => {
     const started = Date.now();
+    const reportFailure = options.onAuthenticationFailure ?? reportHop1AuthenticationFailure;
     const hop1Token = bearerToken(request);
     if (!hop1Token) {
+      reportFailure("missing_bearer");
       return unauthorized("bearer token is required");
     }
 
@@ -111,7 +120,8 @@ export function createGithubMcpProxyHandler(
     try {
       identity = await options.authenticate(hop1Token);
     } catch (error) {
-      return unauthorized(error instanceof Error ? error.message : "invalid token");
+      reportFailure(classifyHop1ValidationFailure(error));
+      return unauthorized("invalid bearer token");
     }
 
     const body = await request.text();

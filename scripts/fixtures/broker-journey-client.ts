@@ -11,8 +11,10 @@ interface Args {
   gatewayUrl: string;
   githubWrapperUrl?: string;
   googleFixtureBaseUrl: string;
-  googleWrapperUrl: string;
+  googleWrapperUrl?: string;
+  invalidTokenDirectory?: string;
   resource: string;
+  scope: string;
 }
 
 interface RpcEnvelope {
@@ -45,7 +47,7 @@ const registrationResponse = await fetch(`${args.brokerBaseUrl}/register`, {
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "none",
-    scope: "openid email",
+    scope: args.scope,
     client_name: "issuer-normalization-smoke",
   }),
 });
@@ -58,7 +60,7 @@ authorizeUrl.searchParams.set("response_type", "code");
 authorizeUrl.searchParams.set("client_id", clientId);
 authorizeUrl.searchParams.set("redirect_uri", redirectUri);
 authorizeUrl.searchParams.set("resource", args.resource);
-authorizeUrl.searchParams.set("scope", "openid email");
+authorizeUrl.searchParams.set("scope", args.scope);
 authorizeUrl.searchParams.set("code_challenge", challenge);
 authorizeUrl.searchParams.set("code_challenge_method", "S256");
 authorizeUrl.searchParams.set("state", "issuer-normalization-state");
@@ -106,23 +108,21 @@ const tokenBody = (await tokenResponse.json()) as Record<string, unknown>;
 const accessToken = requiredString(tokenBody, "access_token");
 const claims = decodeJwt(accessToken);
 if (claims.iss !== args.expectedIssuer || claims.aud !== args.resource) {
-  throw new Error(`Broker token issuer or audience was not canonical: ${JSON.stringify(claims)}`);
+  throw new Error("Broker token issuer or audience was not canonical");
 }
 if (typeof claims.email !== "string" || typeof claims.sub !== "string") {
-  throw new Error(
-    `Broker token did not contain its fixed email and sub claims: ${JSON.stringify(claims)}`,
-  );
+  throw new Error("Broker token did not contain its fixed email and sub claims");
 }
 if ("mail" in claims || "oid" in claims) {
-  throw new Error(
-    `External issuer claim mappings leaked into the broker token: ${JSON.stringify(claims)}`,
-  );
+  throw new Error("External issuer claim mappings leaked into the broker token");
 }
 
-await expectPreConsentSurface(args.googleWrapperUrl, accessToken, [
-  "google_oauth_status",
-  "google_oauth_start",
-]);
+if (args.googleWrapperUrl) {
+  await expectPreConsentSurface(args.googleWrapperUrl, accessToken, [
+    "google_oauth_status",
+    "google_oauth_start",
+  ]);
+}
 if (args.githubWrapperUrl) {
   await expectPreConsentSurface(args.githubWrapperUrl, accessToken, [
     "github_oauth_status",
@@ -176,7 +176,41 @@ if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
   );
 }
 
+if (args.invalidTokenDirectory) {
+  await expectGatewayRejection();
+  for (const name of ["wrong-issuer", "wrong-audience", "invalid-signature", "expired"]) {
+    const token = await Bun.file(`${args.invalidTokenDirectory}/${name}.jwt`).text();
+    await expectGatewayRejection(token.trim());
+  }
+}
+
 console.log("Trailing-slash broker DCR journey passed through release-built AgentGateway.");
+
+async function expectGatewayRejection(accessToken?: string): Promise<void> {
+  const headers: Record<string, string> = {
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    "mcp-protocol-version": "2025-06-18",
+  };
+  if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+  const response = await fetch(args.gatewayUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "negative-initialize",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "broker-negative-smoke", version: "1.0.0" },
+      },
+    }),
+  });
+  if (response.status !== 401) {
+    throw new Error(`Invalid MCP bearer was not rejected (${String(response.status)})`);
+  }
+}
 
 async function expectPreConsentSurface(
   url: string,
@@ -322,8 +356,10 @@ function parseArgs(argv: string[]): Args {
     gatewayUrl: required(values, "gateway-url"),
     githubWrapperUrl: values.get("github-wrapper-url"),
     googleFixtureBaseUrl: required(values, "google-fixture-base-url"),
-    googleWrapperUrl: required(values, "google-wrapper-url"),
+    googleWrapperUrl: values.get("google-wrapper-url"),
+    invalidTokenDirectory: values.get("invalid-token-directory"),
     resource: required(values, "resource"),
+    scope: values.get("scope") ?? "openid email",
   };
 }
 

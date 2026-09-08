@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
-import type { IssuerProfile } from "../../../../shared/identity/hop1";
+import {
+  Hop1ValidationError,
+  type Hop1FailureClassification,
+  type IssuerProfile,
+} from "../../../../shared/identity/hop1";
 import {
   InMemoryOAuthStateStore,
   InMemoryOAuthTokenStore,
@@ -41,7 +45,7 @@ beforeAll(async () => {
 });
 
 async function signHop1Token(
-  overrides: { iss?: string; aud?: string; sub?: string; email?: string } = {},
+  overrides: { iss?: string; aud?: string; sub?: string; email?: string; kid?: string } = {},
 ): Promise<string> {
   return new SignJWT({
     iss: overrides.iss ?? "https://accounts.google.com",
@@ -49,10 +53,25 @@ async function signHop1Token(
     sub: overrides.sub ?? "google-subject",
     email: overrides.email ?? "user@example.com",
   })
-    .setProtectedHeader({ alg: "RS256", kid: "runtime-key" })
+    .setProtectedHeader({ alg: "RS256", kid: overrides.kid ?? "runtime-key" })
     .setIssuedAt()
     .setExpirationTime("5m")
     .sign(privateKey);
+}
+
+async function expectRuntimeClassification(
+  authenticate: (token: string) => Promise<unknown>,
+  token: string,
+  classification: Hop1FailureClassification,
+): Promise<void> {
+  let failure: unknown;
+  try {
+    await authenticate(token);
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(Hop1ValidationError);
+  expect((failure as Hop1ValidationError).classification).toBe(classification);
 }
 
 describe("runtime wrapper wiring", () => {
@@ -199,6 +218,30 @@ describe("runtime wrapper wiring", () => {
     expect(authenticate(await signHop1Token())).rejects.toThrow("HOP-1 issuer is unavailable");
   });
 
+  test("classifies malformed, untrusted, unavailable, and unknown-key tokens", async () => {
+    const authenticate = createRuntimeAuthenticator({
+      issuers: [{ profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) }],
+    });
+    const unavailable = createRuntimeAuthenticator({
+      issuers: [
+        { profile: hop1, jwksProvider: () => Promise.reject(new Error("private failure")) },
+      ],
+    });
+
+    await expectRuntimeClassification(authenticate, "not-a-jwt", "malformed_token");
+    await expectRuntimeClassification(
+      authenticate,
+      await signHop1Token({ iss: "https://untrusted.example.com" }),
+      "untrusted_issuer",
+    );
+    await expectRuntimeClassification(unavailable, await signHop1Token(), "jwks_unavailable");
+    await expectRuntimeClassification(
+      authenticate,
+      await signHop1Token({ kid: "unknown-key" }),
+      "unknown_key",
+    );
+  });
+
   test("rejects a locally valid HOP-1 when issuer introspection says inactive", async () => {
     const token = await signHop1Token();
     const issuer: RuntimeTrustedIssuer = {
@@ -217,11 +260,12 @@ describe("runtime wrapper wiring", () => {
     };
     const authenticate = createRuntimeAuthenticator({ issuers: [issuer] });
 
-    expect.assertions(4);
+    expect.assertions(5);
     try {
       await authenticate(token);
     } catch (error) {
       expect((error as Error).message).toBe("HOP-1 token is inactive");
+      expect((error as Hop1ValidationError).classification).toBe("inactive_token");
     }
   });
 

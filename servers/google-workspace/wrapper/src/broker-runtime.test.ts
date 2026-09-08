@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { exportJWK, generateKeyPair, type JWK } from "jose";
+import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+
+import { validateHop1Jwt } from "../../../../shared/identity/hop1";
 
 import {
   createAuthorizationBrokerRuntime,
@@ -9,14 +11,17 @@ import {
 } from "./broker-runtime";
 
 let privateJwk: JWK;
+let privateKey: CryptoKey;
 
 beforeAll(async () => {
   const keys = await generateKeyPair("RS256", { extractable: true });
+  privateKey = keys.privateKey;
   privateJwk = {
     ...(await exportJWK(keys.privateKey)),
     kid: "active-key",
     alg: "RS256",
     use: "sig",
+    key_ops: ["sign"],
   };
 });
 
@@ -66,11 +71,27 @@ describe("authorization broker runtime", () => {
     const trustedKeys = await runtime.issuer.jwksProvider();
     expect(trustedKeys).toHaveLength(1);
     expect(trustedKeys[0]).not.toHaveProperty("d");
+    expect(trustedKeys[0]?.key_ops).toEqual(["verify"]);
     expect(runtime.issuer.profile).toMatchObject({
       issuer: "https://auth.example.com",
       audiences: ["https://mcp.example.com/mcp"],
       allowedAlgorithms: ["RS256"],
       subjectClaim: "sub",
+    });
+    const token = await new SignJWT({ email: "person@example.com" })
+      .setProtectedHeader({ alg: "RS256", kid: "active-key", typ: "at+jwt" })
+      .setIssuer("https://auth.example.com")
+      .setAudience("https://mcp.example.com/mcp")
+      .setSubject("google-subject")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(privateKey);
+    const identity = await validateHop1Jwt(token, runtime.issuer.profile, trustedKeys);
+    expect(identity).toMatchObject({
+      profile: "mcp-oauth-broker",
+      issuer: "https://auth.example.com",
+      subject: "google-subject",
+      email: "person@example.com",
     });
   });
 

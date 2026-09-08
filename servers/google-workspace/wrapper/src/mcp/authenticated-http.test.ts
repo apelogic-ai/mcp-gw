@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Hop1Identity } from "../../../../../shared/identity/hop1";
+import {
+  Hop1ValidationError,
+  type Hop1FailureClassification,
+  type Hop1Identity,
+} from "../../../../../shared/identity/hop1";
 import { createAuthenticatedMcpHttpHandler } from "./authenticated-http";
 import type { ToolDefinition, ToolRegistry } from "./registry";
 
@@ -56,8 +60,10 @@ function request(body: unknown, authorization?: string): Request {
 
 describe("authenticated MCP HTTP handler", () => {
   test("rejects requests without a bearer token", async () => {
+    const diagnostics: Hop1FailureClassification[] = [];
     const handler = createAuthenticatedMcpHttpHandler({
       authenticate: () => Promise.resolve(identity),
+      onAuthenticationFailure: (classification) => diagnostics.push(classification),
       registryFor,
       serverInfo: { name: "server", version: "0.1.0" },
     });
@@ -65,6 +71,7 @@ describe("authenticated MCP HTTP handler", () => {
     const response = await handler(request({ jsonrpc: "2.0", id: 1, method: "tools/list" }));
 
     expect(response.status).toBe(401);
+    expect(diagnostics).toEqual(["missing_bearer"]);
     expect(await response.json()).toEqual({
       jsonrpc: "2.0",
       id: null,
@@ -76,8 +83,16 @@ describe("authenticated MCP HTTP handler", () => {
   });
 
   test("rejects invalid bearer tokens", async () => {
+    const diagnostics: Hop1FailureClassification[] = [];
     const handler = createAuthenticatedMcpHttpHandler({
-      authenticate: () => Promise.reject(new Error("bad token")),
+      authenticate: () =>
+        Promise.reject(
+          new Hop1ValidationError(
+            "audience rejected for private-client-id and person@example.com",
+            "invalid_audience",
+          ),
+        ),
+      onAuthenticationFailure: (classification) => diagnostics.push(classification),
       registryFor,
       serverInfo: { name: "server", version: "0.1.0" },
     });
@@ -87,12 +102,13 @@ describe("authenticated MCP HTTP handler", () => {
     );
 
     expect(response.status).toBe(401);
+    expect(diagnostics).toEqual(["invalid_audience"]);
     expect(await response.json()).toEqual({
       jsonrpc: "2.0",
       id: null,
       error: {
         code: -32001,
-        message: "Unauthorized: bad token",
+        message: "Unauthorized: invalid bearer token",
       },
     });
   });

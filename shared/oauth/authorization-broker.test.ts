@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from "jose";
+import { createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from "jose";
 
 import {
   GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS,
@@ -867,13 +867,40 @@ describe("Google identity verification", () => {
 });
 
 describe("OAuth metadata", () => {
+  test("publishes signing-only private key material as a verification-capable public JWK", async () => {
+    const instance = new OAuthBroker({
+      ...brokerOptions(),
+      signing: {
+        ...brokerOptions().signing,
+        publicJwk: { ...brokerPublicJwk, key_ops: ["sign"] },
+      },
+    });
+    const publicJwks = instance.jwks();
+    const accessToken = await new SignJWT({ email: "person@example.com" })
+      .setProtectedHeader({ alg: "RS256", kid: "broker-key", typ: "at+jwt" })
+      .setIssuer(ISSUER)
+      .setAudience(RESOURCE)
+      .setSubject("google-subject")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(brokerPrivateKey);
+
+    expect(publicJwks.keys[0]?.key_ops).toEqual(["verify"]);
+    const verified = await jwtVerify(accessToken, createLocalJWKSet(publicJwks), {
+      issuer: ISSUER,
+      audience: RESOURCE,
+      algorithms: ["RS256"],
+    });
+    expect(verified.payload.sub).toBe("google-subject");
+  });
+
   test("publishes coherent authorization-server, protected-resource, and public JWKS metadata", () => {
     const instance = new OAuthBroker({
       ...brokerOptions(),
       signing: {
         ...brokerOptions().signing,
         verificationJwks: [
-          { ...previousBrokerPublicJwk, alg: "RS256", use: "sig" },
+          { ...previousBrokerPublicJwk, alg: "RS256", use: "sig", key_ops: ["sign"] },
           { ...brokerPublicJwk, d: "must-be-removed" },
         ],
       },
@@ -897,8 +924,10 @@ describe("OAuth metadata", () => {
     });
     const [jwk, previous] = instance.jwks().keys;
     expect(jwk).toMatchObject({ kid: "broker-key", alg: "RS256", use: "sig" });
+    expect(jwk?.key_ops).toEqual(["verify"]);
     expect(jwk?.d).toBeUndefined();
     expect(previous).toMatchObject({ kid: "previous-broker-key", alg: "RS256", use: "sig" });
+    expect(previous?.key_ops).toEqual(["verify"]);
     expect(instance.jwks().keys).toHaveLength(2);
     expect(instance.jwks().keys.every((key) => key.d === undefined)).toBe(true);
   });

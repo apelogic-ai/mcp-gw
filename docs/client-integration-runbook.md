@@ -323,6 +323,11 @@ Google shows `redirect_uri_mismatch`:
 Client connects but shows no tools:
 
 - Check gateway and wrapper logs for `initialize` and `tools/list`.
+- Wrapper authentication failures emit only
+  `mcp_authentication_failed classification=<reason>`, where `<reason>` is a bounded value such as
+  `missing_bearer`, `untrusted_issuer`, `jwks_unavailable`, `unknown_key`, `invalid_signature`,
+  `invalid_audience`, or `expired_token`. The diagnostic never includes tokens, claims, client IDs,
+  or email addresses.
 - Confirm all visible tool names are at most 64 characters for clients with that limit.
 - Disconnect/reconnect if the client cached an older catalog.
 

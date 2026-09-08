@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { InMemoryAuditSink } from "../../../../shared/audit/audit";
-import type { Hop1Identity } from "../../../../shared/identity/hop1";
+import {
+  Hop1ValidationError,
+  type Hop1FailureClassification,
+  type Hop1Identity,
+} from "../../../../shared/identity/hop1";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import type { ToolPolicy, ToolPolicyInput } from "../../../../shared/policy/policy";
 import { GITHUB_MCP_CATALOG_ID, GITHUB_MCP_TOOLS } from "./catalog/github-mcp";
@@ -17,9 +21,11 @@ describe("GitHub MCP proxy wrapper", () => {
   };
 
   test("rejects requests without a HOP-1 bearer token", async () => {
+    const diagnostics: Hop1FailureClassification[] = [];
     const handler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
       authenticate: () => Promise.resolve(identity),
+      onAuthenticationFailure: (classification) => diagnostics.push(classification),
       resolveGithubToken: () => Promise.resolve("gho_user_token"),
       fetch: () => Promise.resolve(new Response("{}")),
     });
@@ -27,6 +33,7 @@ describe("GitHub MCP proxy wrapper", () => {
     const response = await handler(new Request("http://wrapper/mcp", { method: "POST" }));
 
     expect(response.status).toBe(401);
+    expect(diagnostics).toEqual(["missing_bearer"]);
     expect(await response.json()).toEqual({
       jsonrpc: "2.0",
       id: null,
@@ -35,6 +42,37 @@ describe("GitHub MCP proxy wrapper", () => {
         message: "Unauthorized: bearer token is required",
       },
     });
+  });
+
+  test("reports only a bounded authentication failure class", async () => {
+    const diagnostics: Hop1FailureClassification[] = [];
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () =>
+        Promise.reject(
+          new Hop1ValidationError(
+            "signature rejected for private-client-id and person@example.com",
+            "invalid_signature",
+          ),
+        ),
+      onAuthenticationFailure: (classification) => diagnostics.push(classification),
+      resolveGithubToken: () => Promise.resolve(undefined),
+    });
+
+    const response = await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: { authorization: "Bearer header.payload.signature" },
+      }),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(401);
+    expect(diagnostics).toEqual(["invalid_signature"]);
+    expect(body).toContain("Unauthorized: invalid bearer token");
+    expect(body).not.toContain("private-client-id");
+    expect(body).not.toContain("person@example.com");
+    expect(body).not.toContain("header.payload.signature");
   });
 
   test("authenticates HOP-1, resolves GitHub token, and proxies MCP requests upstream", async () => {

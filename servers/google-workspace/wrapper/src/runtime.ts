@@ -65,18 +65,18 @@ export function createRuntimeAuthenticator(
     try {
       tokenIssuer = decodeJwt(token).iss;
     } catch {
-      throw new Hop1ValidationError("HOP-1 token is malformed");
+      throw new Hop1ValidationError("HOP-1 token is malformed", "malformed_token");
     }
     if (!tokenIssuer) {
-      throw new Hop1ValidationError("HOP-1 token is missing its issuer");
+      throw new Hop1ValidationError("HOP-1 token is missing its issuer", "untrusted_issuer");
     }
 
     const candidates = options.issuers.filter((issuer) => issuer.profile.issuer === tokenIssuer);
     if (candidates.length === 0) {
-      throw new Hop1ValidationError("HOP-1 issuer is not trusted");
+      throw new Hop1ValidationError("HOP-1 issuer is not trusted", "untrusted_issuer");
     }
 
-    const validationErrors: string[] = [];
+    const validationErrors: Hop1ValidationError[] = [];
     let unavailableIssuers = 0;
     for (const issuer of candidates) {
       let jwks: JWK[];
@@ -91,7 +91,11 @@ export function createRuntimeAuthenticator(
       try {
         identity = await validateHop1Jwt(token, issuer.profile, jwks);
       } catch (error) {
-        validationErrors.push(error instanceof Error ? error.message : String(error));
+        validationErrors.push(
+          error instanceof Hop1ValidationError
+            ? error
+            : new Hop1ValidationError(error instanceof Error ? error.message : String(error)),
+        );
         continue;
       }
       if (issuer.introspection) {
@@ -101,10 +105,11 @@ export function createRuntimeAuthenticator(
     }
 
     if (unavailableIssuers === candidates.length) {
-      throw new Hop1ValidationError("HOP-1 issuer is unavailable");
+      throw new Hop1ValidationError("HOP-1 issuer is unavailable", "jwks_unavailable");
     }
     throw new Hop1ValidationError(
-      `HOP-1 token validation failed: ${validationErrors[0] ?? "no matching issuer profile"}`,
+      `HOP-1 token validation failed: ${validationErrors[0]?.message ?? "no matching issuer profile"}`,
+      validationErrors[0]?.classification ?? "malformed_token",
     );
   };
 }
@@ -210,20 +215,29 @@ async function requireActiveIntrospection(
       signal: AbortSignal.timeout(config.timeoutMs ?? 5_000),
     });
   } catch {
-    throw new Hop1ValidationError("HOP-1 introspection is unavailable");
+    throw new Hop1ValidationError(
+      "HOP-1 introspection is unavailable",
+      "introspection_unavailable",
+    );
   }
   if (!response.ok) {
-    throw new Hop1ValidationError("HOP-1 introspection is unavailable");
+    throw new Hop1ValidationError(
+      "HOP-1 introspection is unavailable",
+      "introspection_unavailable",
+    );
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    throw new Hop1ValidationError("HOP-1 introspection returned an invalid response");
+    throw new Hop1ValidationError(
+      "HOP-1 introspection returned an invalid response",
+      "introspection_unavailable",
+    );
   }
   if (!isRecord(body) || body.active !== true) {
-    throw new Hop1ValidationError("HOP-1 token is inactive");
+    throw new Hop1ValidationError("HOP-1 token is inactive", "inactive_token");
   }
 }
 

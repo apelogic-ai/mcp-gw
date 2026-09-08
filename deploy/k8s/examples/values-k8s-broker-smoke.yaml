@@ -1,0 +1,90 @@
+# CI-only full broker journey. The smoke script creates every referenced Secret
+# from ephemeral fixture material and overrides first-party images with the
+# exact release images under test.
+hop1:
+  issuers:
+    - name: fixture-enterprise
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: http://mcp-broker-smoke-authorization-broker:8080/oauth/.well-known/jwks.json
+      allowedAlgorithms:
+        - RS256
+      emailClaim: email
+      subjectClaim: sub
+
+oauthMigrations:
+  enabled: true
+  secretKeyRef:
+    name: provider-runtime
+    key: TOKEN_STORE_DSN
+
+agentgateway:
+  enabled: true
+  mcpAuthentication:
+    mode: strict
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported:
+        - mcp
+      bearerMethodsSupported:
+        - header
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: github-mcp
+      enabled: true
+      serviceName: github-wrapper
+      port: 8080
+      path: /mcp
+  ingress:
+    enabled: true
+    host: mcp.example.com
+    brokerAnnotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+
+googleWorkspace:
+  enabled: true
+  secretRef:
+    name: provider-runtime
+  env:
+    PORT: "8080"
+    GWS_BINARY_PATH: /app/node_modules/.bin/gws
+    HOP1_OAUTH_SCOPES: openid email
+    HOP1_EMAIL_CLAIM: email
+    HOP1_SUBJECT_CLAIM: sub
+    GOOGLE_OAUTH_AUTHORIZATION_URL: https://accounts.google.com/o/oauth2/v2/auth
+    GOOGLE_OAUTH_TOKEN_URL: http://google-oidc-fixture:8080/token
+    GOOGLE_OAUTH_JWKS_URL: http://google-oidc-fixture:8080/jwks
+  authorizationBroker:
+    enabled: true
+    issuer: https://mcp.example.com/oauth
+    resource: https://mcp.example.com/mcp
+    googleCallbackUri: https://mcp.example.com/oauth/google/broker/callback
+    activeSigningKid: local-hop1
+    scopes:
+      - mcp
+    signingKeyring:
+      secretKeyRef:
+        name: broker-signing-keyring
+        key: signing-jwks.json
+    ingressControllerPeer:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mcp-broker-smoke
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: broker-smoke-client
+    dcr:
+      enabled: true
+
+githubWrapper:
+  enabled: true
+  secretRef:
+    name: provider-runtime
+
+githubMcp:
+  enabled: true
