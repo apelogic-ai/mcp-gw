@@ -2,8 +2,8 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.4.6
-appVersion: "0.4.6"
+version: 0.4.7
+appVersion: "0.4.7"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -19,11 +19,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.6
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.7
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.6
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.7
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.6
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.7
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -34,6 +34,6 @@ annotations:
   # and is intentionally omitted.
   artifacthub.io/changes: |
     - kind: fixed
-      description: Propagate chart-generated authorization-broker trust to every enabled first-party wrapper while preserving configured HOP-1 issuers.
+      description: Publish broker public RSA keys with verification semantics so every first-party wrapper can validate AgentGateway-forwarded broker tokens.
     - kind: security
-      description: Route internal JWKS retrieval through a provider-neutral broker Service with exact-port NetworkPolicy access and no unrestricted egress.
+      description: Add bounded wrapper authentication diagnostics and a release-image Kubernetes broker fanout gate without exposing bearer tokens or claims.

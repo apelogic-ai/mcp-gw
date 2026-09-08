@@ -8,6 +8,29 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-09-07
+
+### Fixed
+
+- Publish authorization-broker public RSA keys with verification semantics while retaining
+  sign-only private signing keyrings, allowing both `jose`-based provider wrappers to validate the
+  exact broker token already authenticated and forwarded by AgentGateway.
+- Gate chart publication on a release-image Kubernetes broker journey that requires one broker
+  token to expose the combined Google Workspace and GitHub pre-consent tool catalog.
+
+### Security
+
+- Add bounded wrapper authentication diagnostics that report only stable failure classifications,
+  without returning raw validator errors, token claims, or bearer credentials.
+- Preserve fail-closed rejection of missing credentials and tokens with an invalid issuer,
+  audience, signature, or expiration in the broker fanout release gate.
+
+### Upgrade Notes
+
+- No configuration, Secret, signing-key rotation, database migration, OAuth client, scope, or
+  NetworkPolicy change is required. Existing private keyrings may continue declaring
+  `key_ops: ["sign"]`; MCP-GW now projects their public JWKS entries as verification keys.
+
 ## [0.4.6] - 2026-09-06
 
 ### Fixed
@@ -393,7 +416,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.3...v0.4.4
