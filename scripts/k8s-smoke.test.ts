@@ -100,6 +100,59 @@ exit 0
     expect(releaseWorkflow).toContain("bun run integration:k8s");
   });
 
+  test("tests broker fanout with the published release images before publishing the chart", async () => {
+    await access("scripts/smoke-k8s-broker-integration.sh", constants.X_OK);
+    const [packageJson, smoke, values, workflow, hop1Fixture] = await Promise.all([
+      readFile("package.json", "utf8"),
+      readFile("scripts/smoke-k8s-broker-integration.sh", "utf8"),
+      readFile("deploy/k8s/examples/values-k8s-broker-smoke.yaml", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+      readFile("scripts/fixtures/hop1-fixture.ts", "utf8"),
+    ]);
+
+    expect(packageJson).toContain(
+      '"integration:k8s:broker": "bash scripts/smoke-k8s-broker-integration.sh"',
+    );
+    expect(smoke).toContain("K8S_BROKER_SMOKE_AGENTGATEWAY_REPOSITORY");
+    expect(smoke).toContain("K8S_BROKER_SMOKE_GOOGLE_REPOSITORY");
+    expect(smoke).toContain("K8S_BROKER_SMOKE_GITHUB_WRAPPER_REPOSITORY");
+    expect(smoke).toContain(
+      "google_oauth_start,google_oauth_status,github_oauth_start,github_oauth_status",
+    );
+    expect(smoke).toContain("--invalid-token-directory");
+    expect(smoke).toContain("--reuse-values");
+    expect(smoke).toContain("broker-ready=verified");
+    expect(smoke).toContain('[[ "$client_phase" == "Succeeded" ]]');
+    expect(smoke).not.toContain("rollout restart");
+    expect(values).toContain("fixture-enterprise");
+    expect(values).toContain("authorizationBroker:");
+    expect(values).toContain("dcr:");
+    expect(values).toContain("githubMcp:");
+    expect(values).toContain("enabled: true");
+    expect(hop1Fixture).toContain('key_ops: ["sign"]');
+
+    const releasedSmokeStart = workflow.indexOf("  released-kubernetes-broker-smoke:");
+    const publishChartStart = workflow.indexOf("  publish-chart:");
+    expect(releasedSmokeStart).toBeGreaterThan(workflow.indexOf("  publish-images:"));
+    expect(publishChartStart).toBeGreaterThan(releasedSmokeStart);
+    const releasedSmoke = workflow.slice(releasedSmokeStart, publishChartStart);
+    expect(releasedSmoke).toContain("needs: publish-images");
+    expect(releasedSmoke).toContain("bun run integration:k8s:broker");
+    expect(releasedSmoke).toContain("kind load docker-image");
+    expect(releasedSmoke).toContain(
+      "ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-agentgateway:$VERSION",
+    );
+    expect(releasedSmoke).toContain(
+      "ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-google-workspace:$VERSION",
+    );
+    expect(releasedSmoke).toContain(
+      "ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION",
+    );
+
+    const publishChart = workflow.slice(publishChartStart, workflow.indexOf("  promote-ecr:"));
+    expect(publishChart).toContain("released-kubernetes-broker-smoke");
+  });
+
   test("starts migrations and provider workloads as non-root processes in Kind", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const smoke = await readFile("scripts/smoke-k8s-provider-runtime.sh", "utf8");

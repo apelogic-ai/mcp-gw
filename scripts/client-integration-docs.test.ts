@@ -20,6 +20,9 @@ describe("client integration documentation", () => {
     expect(runbook).toContain("google_oauth_status");
     expect(runbook).toContain("google_oauth_start");
     expect(runbook).toContain("identity-only");
+    expect(runbook).toContain("mcp_authentication_failed classification=<reason>");
+    expect(runbook).toContain("invalid_signature");
+    expect(runbook).toContain("never includes tokens, claims, client IDs");
     expect(providerFlows).toContain("Provider-owned discovery");
     expect(providerFlows).toContain("github_oauth_status");
     expect(providerFlows).toContain("full provider tool catalog");

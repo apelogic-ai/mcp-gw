@@ -20,6 +20,7 @@
     "integration:external": "bash scripts/smoke-external-issuer-integration.sh",
     "integration:bundle": "bash scripts/smoke-full-bundle.sh",
     "integration:k8s": "bash scripts/smoke-k8s.sh",
+    "integration:k8s:broker": "bash scripts/smoke-k8s-broker-integration.sh",
     "release:check": "bun scripts/check-release-metadata.ts",
     "ci": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },

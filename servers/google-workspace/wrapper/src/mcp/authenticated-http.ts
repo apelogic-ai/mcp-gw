@@ -1,4 +1,9 @@
-import type { Hop1Identity } from "../../../../../shared/identity/hop1";
+import {
+  classifyHop1ValidationFailure,
+  reportHop1AuthenticationFailure,
+  type Hop1FailureReporter,
+  type Hop1Identity,
+} from "../../../../../shared/identity/hop1";
 import { createMcpHttpHandler } from "./http";
 import type { ToolRegistry } from "./registry";
 
@@ -11,6 +16,7 @@ export interface CreateAuthenticatedMcpHttpHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
   registryFor(identity: Hop1Identity): ToolRegistry | Promise<ToolRegistry>;
   serverInfo: ServerInfo;
+  onAuthenticationFailure?: Hop1FailureReporter;
 }
 
 const JSON_HEADERS = {
@@ -21,8 +27,10 @@ export function createAuthenticatedMcpHttpHandler(
   options: CreateAuthenticatedMcpHttpHandlerOptions,
 ): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
+    const reportFailure = options.onAuthenticationFailure ?? reportHop1AuthenticationFailure;
     const token = bearerToken(request);
     if (!token) {
+      reportFailure("missing_bearer");
       return unauthorized("bearer token is required");
     }
 
@@ -30,7 +38,8 @@ export function createAuthenticatedMcpHttpHandler(
     try {
       identity = await options.authenticate(token);
     } catch (error) {
-      return unauthorized(error instanceof Error ? error.message : "invalid token");
+      reportFailure(classifyHop1ValidationFailure(error));
+      return unauthorized("invalid bearer token");
     }
 
     const handler = createMcpHttpHandler({

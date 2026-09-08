@@ -31,11 +31,13 @@ describe("release artifacts", () => {
     expect(workflow).not.toMatch(
       /  validate:[\s\S]*?bun run integration:local[\s\S]*?  kubernetes-smoke:/,
     );
-    // Both publication jobs stay gated on validate + kubernetes-smoke;
-    // publish-chart additionally waits on publish-images so it can pin the
-    // Artifact Hub image annotations to the published digests.
+    // Image publication stays gated on validate + the candidate smoke. Chart
+    // publication additionally waits for the published-image broker fanout
+    // smoke, so a broken immutable image set cannot be packaged into a chart.
     expect(workflow).toContain("needs: [validate, kubernetes-smoke]");
-    expect(workflow).toContain("needs: [validate, kubernetes-smoke, publish-images]");
+    expect(workflow).toContain(
+      "needs: [validate, kubernetes-smoke, publish-images, released-kubernetes-broker-smoke]",
+    );
   });
 
   test("publishes immutable images and an OCI Helm chart with supply-chain evidence", async () => {

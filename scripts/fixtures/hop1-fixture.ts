@@ -68,7 +68,9 @@ if (args.signingJwksFile) {
   writes.push(
     writeFile(
       args.signingJwksFile,
-      JSON.stringify({ keys: [{ ...privateJwk, kid, alg: "RS256", use: "sig" }] }),
+      JSON.stringify({
+        keys: [{ ...privateJwk, kid, alg: "RS256", use: "sig", key_ops: ["sign"] }],
+      }),
       { encoding: "utf8", mode: 0o600 },
     ),
   );

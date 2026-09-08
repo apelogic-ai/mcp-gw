@@ -340,8 +340,73 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  released-kubernetes-broker-smoke:
+    needs: publish-images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+
+      - name: Create Kubernetes cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          cluster_name: mcp-gateway-broker-release-smoke
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load published release images into Kubernetes
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          AGENTGATEWAY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-agentgateway:$VERSION"
+          GOOGLE_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-google-workspace:$VERSION"
+          GITHUB_WRAPPER_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION"
+          GITHUB_MCP_IMAGE="ghcr.io/github/github-mcp-server:v1.6.0"
+          POSTGRES_IMAGE="postgres:16-alpine"
+
+          docker pull "$AGENTGATEWAY_IMAGE"
+          docker pull "$GOOGLE_IMAGE"
+          docker pull "$GITHUB_WRAPPER_IMAGE"
+          docker pull "$GITHUB_MCP_IMAGE"
+          docker pull "$POSTGRES_IMAGE"
+          kind load docker-image \
+            "$AGENTGATEWAY_IMAGE" \
+            "$GOOGLE_IMAGE" \
+            "$GITHUB_WRAPPER_IMAGE" \
+            "$GITHUB_MCP_IMAGE" \
+            "$POSTGRES_IMAGE" \
+            --name mcp-gateway-broker-release-smoke
+
+      - name: Test broker-authenticated Kubernetes fanout
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          export K8S_BROKER_SMOKE_AGENTGATEWAY_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-agentgateway"
+          export K8S_BROKER_SMOKE_GOOGLE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-google-workspace"
+          export K8S_BROKER_SMOKE_GITHUB_WRAPPER_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper"
+          export K8S_BROKER_SMOKE_IMAGE_TAG="$VERSION"
+          bun run integration:k8s:broker
+
   publish-chart:
-    needs: [validate, kubernetes-smoke, publish-images]
+    needs: [validate, kubernetes-smoke, publish-images, released-kubernetes-broker-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: read

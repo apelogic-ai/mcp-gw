@@ -895,6 +895,11 @@ function publicSigningJwk(jwk: JWK, active?: { keyId: string; algorithm: "RS256"
     kid: active?.keyId ?? jwk.kid,
     alg: active?.algorithm ?? "RS256",
     use: "sig",
+    // A mounted private signing JWK may correctly restrict itself to `sign`.
+    // Its public projection is consumed for signature verification, so carrying
+    // that operation restriction forward makes standards-compliant JWKS clients
+    // reject the otherwise matching key.
+    key_ops: ["verify"],
   };
 }
 

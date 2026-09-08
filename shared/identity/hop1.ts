@@ -1,4 +1,4 @@
-import { createLocalJWKSet, jwtVerify, type JWTPayload, type JWK } from "jose";
+import { createLocalJWKSet, errors, jwtVerify, type JWTPayload, type JWK } from "jose";
 
 export const HOP1_SUPPORTED_ALGORITHMS = [
   "RS256",
@@ -40,6 +40,28 @@ export interface Hop1Identity {
 export interface TrustedIssuer {
   profile: IssuerProfile;
   jwks: JWK[];
+}
+
+export const HOP1_FAILURE_CLASSIFICATIONS = [
+  "missing_bearer",
+  "malformed_token",
+  "untrusted_issuer",
+  "jwks_unavailable",
+  "unknown_key",
+  "invalid_signature",
+  "invalid_audience",
+  "expired_token",
+  "missing_subject",
+  "missing_email",
+  "inactive_token",
+  "introspection_unavailable",
+] as const;
+
+export type Hop1FailureClassification = (typeof HOP1_FAILURE_CLASSIFICATIONS)[number];
+export type Hop1FailureReporter = (classification: Hop1FailureClassification) => void;
+
+export function reportHop1AuthenticationFailure(classification: Hop1FailureClassification): void {
+  console.warn(`mcp_authentication_failed classification=${classification}`);
 }
 
 export function validateHop1IssuerProfiles<T extends Hop1IssuerConfig>(profiles: T[]): T[] {
@@ -86,10 +108,17 @@ export function normalizedHop1Claims(identity: Hop1Identity): JWTPayload {
 }
 
 export class Hop1ValidationError extends Error {
-  constructor(message: string) {
+  readonly classification: Hop1FailureClassification;
+
+  constructor(message: string, classification: Hop1FailureClassification = "malformed_token") {
     super(message);
     this.name = "Hop1ValidationError";
+    this.classification = classification;
   }
+}
+
+export function classifyHop1ValidationFailure(error: unknown): Hop1FailureClassification {
+  return error instanceof Hop1ValidationError ? error.classification : "malformed_token";
 }
 
 export async function validateHop1Jwt(
@@ -114,7 +143,10 @@ export async function validateHop1Jwt(
       throw error;
     }
 
-    throw new Hop1ValidationError(error instanceof Error ? error.message : "JWT validation failed");
+    throw new Hop1ValidationError(
+      error instanceof Error ? error.message : "JWT validation failed",
+      classifyJoseFailure(error),
+    );
   }
 }
 
@@ -122,17 +154,22 @@ export async function validateHop1JwtForIssuers(
   token: string,
   issuers: TrustedIssuer[],
 ): Promise<Hop1Identity> {
-  const errors: string[] = [];
+  const validationErrors: Hop1ValidationError[] = [];
   for (const trusted of issuers) {
     try {
       return await validateHop1Jwt(token, trusted.profile, trusted.jwks);
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+      validationErrors.push(
+        error instanceof Hop1ValidationError
+          ? error
+          : new Hop1ValidationError(error instanceof Error ? error.message : String(error)),
+      );
     }
   }
 
   throw new Hop1ValidationError(
-    `JWT did not validate against any trusted issuer: ${errors[0] ?? "no issuers configured"}`,
+    `JWT did not validate against any trusted issuer: ${validationErrors[0]?.message ?? "no issuers configured"}`,
+    validationErrors[0]?.classification ?? "untrusted_issuer",
   );
 }
 
@@ -142,19 +179,25 @@ function identityFromClaims(claims: JWTPayload, profile: IssuerProfile): Hop1Ide
   const email = claimAsString(claims, profile.emailClaim);
 
   if (claims.exp === undefined) {
-    throw new Hop1ValidationError("JWT missing expiration claim: exp");
+    throw new Hop1ValidationError("JWT missing expiration claim: exp", "malformed_token");
   }
 
   if (!subject) {
-    throw new Hop1ValidationError(`JWT missing required subject claim: ${subjectClaim}`);
+    throw new Hop1ValidationError(
+      `JWT missing required subject claim: ${subjectClaim}`,
+      "missing_subject",
+    );
   }
 
   if (!email) {
-    throw new Hop1ValidationError(`JWT missing required email claim: ${profile.emailClaim}`);
+    throw new Hop1ValidationError(
+      `JWT missing required email claim: ${profile.emailClaim}`,
+      "missing_email",
+    );
   }
 
   if (!claims.iss) {
-    throw new Hop1ValidationError("JWT missing issuer");
+    throw new Hop1ValidationError("JWT missing issuer", "untrusted_issuer");
   }
 
   return {
@@ -164,6 +207,27 @@ function identityFromClaims(claims: JWTPayload, profile: IssuerProfile): Hop1Ide
     email,
     claims,
   };
+}
+
+function classifyJoseFailure(error: unknown): Hop1FailureClassification {
+  if (error instanceof errors.JWTExpired) {
+    return "expired_token";
+  }
+  if (error instanceof errors.JWTClaimValidationFailed) {
+    if (error.claim === "aud") {
+      return "invalid_audience";
+    }
+    if (error.claim === "iss") {
+      return "untrusted_issuer";
+    }
+  }
+  if (error instanceof errors.JWKSNoMatchingKey) {
+    return "unknown_key";
+  }
+  if (error instanceof errors.JWSSignatureVerificationFailed) {
+    return "invalid_signature";
+  }
+  return "malformed_token";
 }
 
 function claimAsString(claims: JWTPayload, claimName: string): string | undefined {

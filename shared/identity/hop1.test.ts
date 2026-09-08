@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
 import {
@@ -7,6 +7,8 @@ import {
   validateHop1JwtForIssuers,
   type IssuerProfile,
   Hop1ValidationError,
+  reportHop1AuthenticationFailure,
+  type Hop1FailureClassification,
 } from "./hop1";
 
 let privateKey: CryptoKey;
@@ -62,8 +64,9 @@ async function expectHop1Rejection(
   profile: IssuerProfile,
   expectedMessage?: string,
   jwks: JWK[] = [publicJwk],
+  expectedClassification?: Hop1FailureClassification,
 ): Promise<void> {
-  expect.assertions(expectedMessage ? 2 : 1);
+  expect.assertions(1 + (expectedMessage ? 1 : 0) + (expectedClassification ? 1 : 0));
 
   try {
     await validateHop1Jwt(token, profile, jwks);
@@ -71,6 +74,9 @@ async function expectHop1Rejection(
     expect(error).toBeInstanceOf(Hop1ValidationError);
     if (expectedMessage) {
       expect((error as Error).message).toContain(expectedMessage);
+    }
+    if (expectedClassification) {
+      expect((error as Hop1ValidationError).classification).toBe(expectedClassification);
     }
   }
 }
@@ -179,7 +185,38 @@ describe("HOP-1 JWT validation", () => {
       email: "user@example.com",
     });
 
-    await expectHop1Rejection(token, fixtureProfile);
+    await expectHop1Rejection(token, fixtureProfile, undefined, [publicJwk], "invalid_audience");
+  });
+
+  test("classifies an unknown signing key", async () => {
+    const token = await new SignJWT({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      sub: "subject",
+      email: "user@example.com",
+    })
+      .setProtectedHeader({ alg: "EdDSA", kid: "unknown-key" })
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(privateKey);
+
+    await expectHop1Rejection(token, fixtureProfile, undefined, [publicJwk], "unknown_key");
+  });
+
+  test("classifies an invalid signature without exposing token material", async () => {
+    const wrongKey = await generateKeyPair("EdDSA");
+    const token = await new SignJWT({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      sub: "subject",
+      email: "user@example.com",
+    })
+      .setProtectedHeader({ alg: "EdDSA", kid: "test-key" })
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(wrongKey.privateKey);
+
+    await expectHop1Rejection(token, fixtureProfile, undefined, [publicJwk], "invalid_signature");
   });
 
   test("rejects tokens without an email claim", async () => {
@@ -189,7 +226,29 @@ describe("HOP-1 JWT validation", () => {
       sub: "subject",
     });
 
-    await expectHop1Rejection(token, fixtureProfile, "JWT missing required email claim: email");
+    await expectHop1Rejection(
+      token,
+      fixtureProfile,
+      "JWT missing required email claim: email",
+      [publicJwk],
+      "missing_email",
+    );
+  });
+
+  test("classifies a missing subject", async () => {
+    const token = await signToken({
+      iss: fixtureProfile.issuer,
+      aud: "mcp-gateway-dev",
+      email: "user@example.com",
+    });
+
+    await expectHop1Rejection(
+      token,
+      fixtureProfile,
+      "JWT missing required subject claim: sub",
+      [publicJwk],
+      "missing_subject",
+    );
   });
 
   test("rejects expired tokens", async () => {
@@ -203,7 +262,7 @@ describe("HOP-1 JWT validation", () => {
       .setIssuedAt()
       .setExpirationTime(Math.floor(Date.now() / 1000) - 60)
       .sign(privateKey);
-    await expectHop1Rejection(expired, fixtureProfile);
+    await expectHop1Rejection(expired, fixtureProfile, undefined, [publicJwk], "expired_token");
   });
 
   test("rejects tokens without an expiration claim", async () => {
@@ -234,6 +293,21 @@ describe("HOP-1 JWT validation", () => {
       .sign(privateKey);
 
     await expectHop1Rejection(future, fixtureProfile);
+  });
+});
+
+describe("HOP-1 authentication diagnostics", () => {
+  test("logs only the bounded classification", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      reportHop1AuthenticationFailure("invalid_signature");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        "mcp_authentication_failed classification=invalid_signature",
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
