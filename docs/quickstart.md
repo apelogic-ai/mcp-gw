@@ -66,7 +66,7 @@ any workload requires at least one complete `hop1.issuers` entry.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.6 \
+  --version 0.4.7 \
   -f my-values.yaml
 ```
 
@@ -89,7 +89,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.4.6"
+    tag: "0.4.7"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -107,7 +107,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.4.6"
+    tag: "0.4.7"
   secretRef:
     name: mcp-provider-runtime
 
@@ -123,7 +123,7 @@ Verify:
 
 ```bash
 helm upgrade --install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.6 -f my-values.yaml
+  --version 0.4.7 -f my-values.yaml
 kubectl rollout status deploy/mcp-gateway-agentgateway
 ```
 
