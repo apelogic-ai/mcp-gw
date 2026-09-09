@@ -2,8 +2,8 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.4.7
-appVersion: "0.4.7"
+version: 0.4.8
+appVersion: "0.4.8"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -19,11 +19,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.7
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.8
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.7
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.8
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.7
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.8
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -34,6 +34,6 @@ annotations:
   # and is intentionally omitted.
   artifacthub.io/changes: |
     - kind: fixed
-      description: Publish broker public RSA keys with verification semantics so every first-party wrapper can validate AgentGateway-forwarded broker tokens.
+      description: Keep enabled Google Workspace and GitHub tool catalogs stable across provider consent and disconnect for clients that cache the initial tool list.
     - kind: security
-      description: Add bounded wrapper authentication diagnostics and a release-image Kubernetes broker fanout gate without exposing bearer tokens or claims.
+      description: Reject unconnected provider data calls before token resolution or provider API work with a structured provider_oauth_required result.

@@ -80,7 +80,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('"emailClaim":"mail","subjectClaim":"oid"');
     expect(smoke).toContain('"emailClaim":"email","subjectClaim":"sub"');
     expect(smoke).toContain(
-      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.7}",
+      "AGENTGATEWAY_IMAGE=${LOCAL_AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.8}",
     );
     expect(smoke).toContain("accept: application/json, text/event-stream");
     expect(smoke).toContain('method":"initialize');
