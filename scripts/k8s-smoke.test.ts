@@ -122,6 +122,11 @@ exit 0
     expect(smoke).toContain("--invalid-token-directory");
     expect(smoke).toContain("--reuse-values");
     expect(smoke).toContain("broker-ready=verified");
+    expect(smoke).toContain("initContainers:");
+    expect(smoke).toContain("name: wait-for-agentgateway");
+    expect(smoke).toContain("GATEWAY_URL");
+    expect(smoke).toContain("fetch(process.env.GATEWAY_URL");
+    expect(smoke).toContain("Date.now() + 30_000");
     expect(smoke).toContain('[[ "$client_phase" == "Succeeded" ]]');
     expect(smoke).not.toContain("rollout restart");
     expect(values).toContain("fixture-enterprise");
