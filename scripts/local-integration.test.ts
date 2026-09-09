@@ -42,6 +42,11 @@ describe("local Docker integration smoke", () => {
     expect(gateway).toContain("host: http://google-workspace:8080/mcp");
     expect(gateway).toContain("host: http://github-wrapper:8080/mcp");
     expect(gateway).not.toContain("https://mcp.example.com/oauth");
+    expect(client).toContain("listGoogleWorkspaceTools");
+    expect(client).toContain("listStableGithubTools");
+    expect(client).toContain("GITHUB_MCP_SHIPPED_TOOLSETS");
+    expect(client).toContain("googleTools.map((name) => `google_${name}`)");
+    expect(client).toContain("githubTools.map((name) => `github_${name}`)");
     for (const expectation of [
       "google_oauth_start",
       "google_oauth_status",
