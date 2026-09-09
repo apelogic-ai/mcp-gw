@@ -6,6 +6,7 @@ import { decodeJwt } from "jose";
 
 interface Args {
   brokerBaseUrl: string;
+  expectedDataTools: string[];
   expectedIssuer: string;
   expectedTools: string[];
   gatewayUrl: string;
@@ -175,7 +176,7 @@ for (const expectedTool of expectedTools) {
     throw new Error(`Pre-consent tools omitted ${expectedTool}; received ${toolNames.join(", ")}`);
   }
 }
-for (const dataTool of ["google_drive_files_list", "get_file_contents"]) {
+for (const dataTool of args.expectedDataTools) {
   if (!toolNames.includes(dataTool)) {
     throw new Error(`Stable pre-consent catalog omitted ${dataTool}`);
   }
@@ -382,6 +383,7 @@ function parseArgs(argv: string[]): Args {
   }
   return {
     brokerBaseUrl: required(values, "broker-base-url"),
+    expectedDataTools: required(values, "expected-data-tools").split(",").filter(Boolean),
     expectedIssuer: required(values, "expected-issuer"),
     expectedTools: required(values, "expected-tools").split(",").filter(Boolean),
     gatewayUrl: required(values, "gateway-url"),

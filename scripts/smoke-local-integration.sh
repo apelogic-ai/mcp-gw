@@ -166,6 +166,7 @@ ENV
 
 EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")
 BROKER_EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")
+BROKER_EXPECTED_DATA_TOOLS=("google_drive_files_list")
 if [[ "$INCLUDE_GITHUB" == "1" ]]; then
   COMPOSE_ARGS+=(-f "$ROOT_DIR/deploy/compose/docker-compose.github-mcp.yaml" -f "$LOCAL_GITHUB_COMPOSE_FILE")
   COMPOSE_PROFILES+=(--profile github-mcp)
@@ -177,9 +178,15 @@ if [[ "$INCLUDE_GITHUB" == "1" ]]; then
     "github_github_oauth_start"
     "github_github_oauth_status"
   )
+  BROKER_EXPECTED_DATA_TOOLS=(
+    "google_google_drive_files_list"
+    "github_get_file_contents"
+  )
 fi
 printf -v EXPECTED_TOOLS_CSV '%s,' "${BROKER_EXPECTED_TOOLS[@]}"
 EXPECTED_TOOLS_CSV="${EXPECTED_TOOLS_CSV%,}"
+printf -v EXPECTED_DATA_TOOLS_CSV '%s,' "${BROKER_EXPECTED_DATA_TOOLS[@]}"
+EXPECTED_DATA_TOOLS_CSV="${EXPECTED_DATA_TOOLS_CSV%,}"
 
 has_expected_tools() {
   for expected_tool in "${EXPECTED_TOOLS[@]}"; do
@@ -334,6 +341,7 @@ for _ in {1..60}; do
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
     BROKER_JOURNEY_ARGS=(
       --broker-base-url "$BROKER_BASE_URL"
+      --expected-data-tools "$EXPECTED_DATA_TOOLS_CSV"
       --expected-issuer "$BROKER_ISSUER"
       --expected-tools "$EXPECTED_TOOLS_CSV"
       --gateway-url "http://127.0.0.1:$GATEWAY_PORT/mcp"

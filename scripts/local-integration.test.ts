@@ -92,9 +92,13 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("github_oauth_start");
     expect(smoke).toContain('EXPECTED_TOOLS+=("github_oauth_start" "github_oauth_status")');
     expect(smoke).toContain('BROKER_EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")');
+    expect(smoke).toContain('BROKER_EXPECTED_DATA_TOOLS=("google_drive_files_list")');
     expect(smoke).toContain('"google_google_oauth_start"');
     expect(smoke).toContain('"github_github_oauth_start"');
+    expect(smoke).toContain('"google_google_drive_files_list"');
+    expect(smoke).toContain('"github_get_file_contents"');
     expect(smoke).toContain('"${BROKER_EXPECTED_TOOLS[@]}"');
+    expect(smoke).toContain('--expected-data-tools "$EXPECTED_DATA_TOOLS_CSV"');
     expect(smoke).toContain("GITHUB_SMOKE_HOP1_ISSUERS_JSON=");
     expect(smoke).toContain('GITHUB_WRAPPER_PORT="${GITHUB_WRAPPER_PORT:-38085}"');
     expect(smoke).toContain('\"issuer\":\"$BROKER_ISSUER\"');
