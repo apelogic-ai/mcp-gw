@@ -243,6 +243,34 @@ spec:
     runAsNonRoot: true
     runAsUser: 10001
     runAsGroup: 10001
+  initContainers:
+    - name: wait-for-agentgateway
+      image: $GOOGLE_REPOSITORY:$IMAGE_TAG
+      imagePullPolicy: Never
+      command: ["bun", "-e"]
+      args:
+        - |
+          const deadline = Date.now() + 30_000;
+          let lastError;
+          while (Date.now() < deadline) {
+            try {
+              const response = await fetch(process.env.GATEWAY_URL, {
+                method: "GET",
+                redirect: "manual",
+                signal: AbortSignal.timeout(1_000),
+              });
+              await response.body?.cancel();
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              await Bun.sleep(250);
+            }
+          }
+          console.error("AgentGateway MCP endpoint did not become reachable", lastError);
+          process.exit(1);
+      env:
+        - name: GATEWAY_URL
+          value: http://$RELEASE_NAME-agentgateway:8080/mcp
   containers:
     - name: client
       image: $GOOGLE_REPOSITORY:$IMAGE_TAG
