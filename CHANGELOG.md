@@ -8,6 +8,32 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-09-08
+
+### Fixed
+
+- Keep each enabled Google Workspace and GitHub tool catalog stable before provider consent,
+  after consent, and after disconnect so clients that cache their initial `tools/list` response can
+  use the same tool handles without reconnecting.
+- Return a structured `provider_oauth_required` tool result when a cached data tool is called
+  without a matching provider grant, naming the provider connection helper without resolving a
+  provider token or contacting the provider API.
+
+### Changed
+
+- Derive the GitHub wrapper catalog locally from the exact pinned GitHub MCP Server v1.6.0 schemas
+  and configured toolsets, and reject unselected known tools before policy, credential, or upstream
+  work.
+- Gate chart publication on a published-image full-bundle journey that uses one MCP session and one
+  initial `tools/list` across Google and GitHub consent, successful calls, and disconnect.
+
+### Upgrade Notes
+
+- No configuration, Secret, database migration, OAuth client, scope, HOP-1, policy, or NetworkPolicy
+  change is required. Clients will now see enabled provider data tools before provider consent;
+  invoking one before consent returns `provider_oauth_required` instead of requiring catalog
+  refresh or reconnection.
+
 ## [0.4.7] - 2026-09-07
 
 ### Fixed
@@ -416,7 +442,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.7...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.8...HEAD
+[0.4.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.4...v0.4.5
