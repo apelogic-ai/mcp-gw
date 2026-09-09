@@ -24,6 +24,20 @@ describe("GitHub MCP wrapper main config", () => {
       postgresCaBundlePath: undefined,
       upstreamUrl: "http://github-mcp:8082/mcp",
       githubGovernanceCatalogId: undefined,
+      githubToolsets: [
+        "context",
+        "copilot",
+        "issues",
+        "pull_requests",
+        "repos",
+        "users",
+        "actions",
+        "code_security",
+        "discussions",
+        "notifications",
+        "orgs",
+        "projects",
+      ],
       githubOAuth: {
         clientId: "github-client",
         clientSecret: "github-secret",
@@ -47,6 +61,33 @@ describe("GitHub MCP wrapper main config", () => {
         },
       ],
     });
+  });
+
+  test("loads the exact configured upstream toolsets and rejects unknown or empty selections", () => {
+    expect(
+      loadMainConfig({
+        ...baseEnv,
+        GITHUB_MCP_TOOLSETS: "default,actions,code_security",
+      }).githubToolsets,
+    ).toEqual([
+      "context",
+      "copilot",
+      "issues",
+      "pull_requests",
+      "repos",
+      "users",
+      "actions",
+      "code_security",
+    ]);
+    expect(loadMainConfig({ ...baseEnv, GITHUB_MCP_TOOLSETS: "all" }).githubToolsets).toHaveLength(
+      20,
+    );
+    expect(() => loadMainConfig({ ...baseEnv, GITHUB_MCP_TOOLSETS: "repos,unknown" })).toThrow(
+      "GITHUB_MCP_TOOLSETS contains unsupported toolset unknown",
+    );
+    expect(() => loadMainConfig({ ...baseEnv, GITHUB_MCP_TOOLSETS: ",," })).toThrow(
+      "GITHUB_MCP_TOOLSETS must enable at least one",
+    );
   });
 
   test("enables only the exact opt-in governance catalog and rejects unknown pins", () => {

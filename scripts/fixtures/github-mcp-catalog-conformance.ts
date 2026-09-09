@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 
 import {
-  GITHUB_MCP_TOOLS,
+  GITHUB_MCP_CATALOG_ID,
+  listStableGithubTools,
+  parseGithubMcpToolsets,
   pinnedGithubToolAnnotationsMatch,
 } from "../../servers/github-mcp/wrapper/src/catalog/github-mcp";
 
@@ -36,27 +38,47 @@ if (!notification.ok) {
   throw new Error(`initialized notification failed (${String(notification.status)})`);
 }
 
-const listResponse = await rpcRequest(
-  { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
-  sessionId,
-);
-const payload = await decodeRpcResponse(listResponse);
-const tools = payload.result?.tools;
-if (!Array.isArray(tools)) {
-  throw new Error("pinned GitHub MCP tools/list returned no tools array");
-}
+const selections = [
+  "all",
+  "default",
+  "default,actions,code_security,discussions,notifications,orgs,projects",
+  "actions,gists",
+] as const;
 
-const actualNames = tools.flatMap((tool) =>
-  isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [],
-);
-const expectedNames = GITHUB_MCP_TOOLS.map((tool) => tool.name);
-if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
-  throw new Error(
-    `pinned GitHub MCP catalog drift: expected ${expectedNames.length} exact tools, received ${actualNames.length}`,
+let allTools: unknown[] = [];
+for (const [index, selection] of selections.entries()) {
+  const listResponse = await rpcRequest(
+    { jsonrpc: "2.0", id: 2 + index, method: "tools/list", params: {} },
+    sessionId,
+    selection,
   );
+  const payload = await decodeRpcResponse(listResponse);
+  const tools = payload.result?.tools;
+  if (!Array.isArray(tools)) {
+    throw new Error(`pinned GitHub MCP tools/list returned no tools array for ${selection}`);
+  }
+  const actualNames = toolNames(tools);
+  const expectedNames = listStableGithubTools(
+    parseGithubMcpToolsets(selection),
+    GITHUB_MCP_CATALOG_ID,
+  ).map((tool) => tool.name);
+  if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
+    throw new Error(
+      `pinned GitHub MCP catalog drift for ${selection}: expected ${expectedNames.length} exact tools, received ${actualNames.length}`,
+    );
+  }
+  const expectedTools = listStableGithubTools(
+    parseGithubMcpToolsets(selection),
+    GITHUB_MCP_CATALOG_ID,
+  );
+  const actualContract = tools.map(withoutPresentationMetadata);
+  if (canonicalJson(actualContract) !== canonicalJson(expectedTools)) {
+    throw new Error(`pinned GitHub MCP tool schema drift for ${selection}`);
+  }
+  if (selection === "all") allTools = tools;
 }
 
-for (const tool of tools) {
+for (const tool of allTools) {
   if (
     !isRecord(tool) ||
     typeof tool.name !== "string" ||
@@ -67,7 +89,9 @@ for (const tool of tools) {
   }
 }
 
-console.log(`Pinned GitHub MCP catalog conformance passed: ${String(tools.length)} tools.`);
+console.log(
+  `Pinned GitHub MCP catalog conformance passed: ${String(allTools.length)} tools and ${String(selections.length)} toolset selections.`,
+);
 
 async function waitUntilReachable(url: string): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -81,7 +105,7 @@ async function waitUntilReachable(url: string): Promise<void> {
   throw new Error("pinned GitHub MCP server did not become reachable");
 }
 
-async function rpcRequest(body: unknown, sessionId?: string): Promise<Response> {
+async function rpcRequest(body: unknown, sessionId?: string, toolsets?: string): Promise<Response> {
   const headers: Record<string, string> = {
     accept: "application/json, text/event-stream",
     authorization,
@@ -89,6 +113,7 @@ async function rpcRequest(body: unknown, sessionId?: string): Promise<Response> 
     "mcp-protocol-version": "2025-06-18",
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
+  if (toolsets) headers["x-mcp-toolsets"] = toolsets;
 
   const response = await fetch(upstreamUrl, {
     method: "POST",
@@ -99,6 +124,32 @@ async function rpcRequest(body: unknown, sessionId?: string): Promise<Response> 
     throw new Error(`pinned GitHub MCP request failed (${String(response.status)})`);
   }
   return response;
+}
+
+function toolNames(tools: unknown[]): string[] {
+  return tools.flatMap((tool) =>
+    isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [],
+  );
+}
+
+function withoutPresentationMetadata(tool: unknown): unknown {
+  if (!isRecord(tool)) return tool;
+  const { icons: _icons, ...contract } = tool;
+  return contract;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalValue(entry)]),
+  );
 }
 
 async function decodeRpcResponse(response: Response): Promise<RpcEnvelope> {

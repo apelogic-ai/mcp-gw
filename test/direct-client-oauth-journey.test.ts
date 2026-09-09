@@ -284,7 +284,7 @@ describe("direct MCP client OAuth journey", () => {
 
     // 4b. Exercise the real /mcp request handlers, not just the authenticator.
     //     Neither provider is connected, so initialization succeeds and each
-    //     wrapper exposes only its intended authentication/status surface.
+    //     wrapper exposes a stable catalog whose data tools fail closed.
     const googleHandler = createRuntimeWrapperHandler({
       config: {
         gwsBinary: "/unused-before-provider-consent",
@@ -303,8 +303,10 @@ describe("direct MCP client OAuth journey", () => {
         stateStore: new InMemoryOAuthStateStore(),
       },
     });
+    let githubUpstreamCalls = 0;
     const githubHandler = createGithubMcpProxyHandler({
       upstreamUrl: "http://github-mcp:8082/mcp",
+      githubToolsets: ["repos"],
       authenticate,
       resolveGithubToken: () => Promise.resolve(undefined),
       getOAuthStatus: () =>
@@ -317,7 +319,10 @@ describe("direct MCP client OAuth journey", () => {
       startOAuth: () =>
         Promise.resolve({ authorizationUrl: "https://github.com/login/oauth/authorize" }),
       githubScopes: ["user:email"],
-      fetch: () => Promise.reject(new Error("upstream must not run before provider consent")),
+      fetch: () => {
+        githubUpstreamCalls += 1;
+        return Promise.reject(new Error("pre-consent tools/list must not reach GitHub MCP"));
+      },
     });
 
     await expectPreConsentMcpSurface(googleHandler, accessToken, [
@@ -328,6 +333,7 @@ describe("direct MCP client OAuth journey", () => {
       "github_oauth_status",
       "github_oauth_start",
     ]);
+    expect(githubUpstreamCalls).toBe(0);
 
     const unknownKeys = await generateKeyPair("RS256");
     const invalidTokens = [
@@ -474,7 +480,28 @@ async function expectPreConsentMcpSurface(
   });
   expect(tools.status).toBe(200);
   const body = (await tools.json()) as { result: { tools: { name: string }[] } };
-  expect(body.result.tools.map((tool) => tool.name)).toEqual(expectedTools);
+  const names = body.result.tools.map((tool) => tool.name);
+  for (const expectedTool of expectedTools) expect(names).toContain(expectedTool);
+
+  const isGoogle = expectedTools.includes("google_oauth_start");
+  const dataTool = isGoogle ? "google_drive_files_list" : "get_file_contents";
+  expect(names).toContain(dataTool);
+  const call = await mcpRequest(handler, accessToken, {
+    jsonrpc: "2.0",
+    id: "pre-consent-call",
+    method: "tools/call",
+    params: { name: dataTool, arguments: {} },
+  });
+  expect(await call.json()).toMatchObject({
+    result: {
+      isError: true,
+      structuredContent: {
+        error: "provider_oauth_required",
+        provider: isGoogle ? "google_workspace" : "github",
+        connectionHelper: isGoogle ? "google_oauth_start" : "github_oauth_start",
+      },
+    },
+  });
 }
 
 function mcpRequest(

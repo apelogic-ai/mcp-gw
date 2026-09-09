@@ -42,6 +42,11 @@ describe("local Docker integration smoke", () => {
     expect(gateway).toContain("host: http://google-workspace:8080/mcp");
     expect(gateway).toContain("host: http://github-wrapper:8080/mcp");
     expect(gateway).not.toContain("https://mcp.example.com/oauth");
+    expect(client).toContain("listGoogleWorkspaceTools");
+    expect(client).toContain("listStableGithubTools");
+    expect(client).toContain("GITHUB_MCP_SHIPPED_TOOLSETS");
+    expect(client).toContain("googleTools.map((name) => `google_${name}`)");
+    expect(client).toContain("githubTools.map((name) => `github_${name}`)");
     for (const expectation of [
       "google_oauth_start",
       "google_oauth_status",
@@ -92,9 +97,13 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("github_oauth_start");
     expect(smoke).toContain('EXPECTED_TOOLS+=("github_oauth_start" "github_oauth_status")');
     expect(smoke).toContain('BROKER_EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")');
+    expect(smoke).toContain('BROKER_EXPECTED_DATA_TOOLS=("google_drive_files_list")');
     expect(smoke).toContain('"google_google_oauth_start"');
     expect(smoke).toContain('"github_github_oauth_start"');
+    expect(smoke).toContain('"google_google_drive_files_list"');
+    expect(smoke).toContain('"github_get_file_contents"');
     expect(smoke).toContain('"${BROKER_EXPECTED_TOOLS[@]}"');
+    expect(smoke).toContain('--expected-data-tools "$EXPECTED_DATA_TOOLS_CSV"');
     expect(smoke).toContain("GITHUB_SMOKE_HOP1_ISSUERS_JSON=");
     expect(smoke).toContain('GITHUB_WRAPPER_PORT="${GITHUB_WRAPPER_PORT:-38085}"');
     expect(smoke).toContain('\"issuer\":\"$BROKER_ISSUER\"');
@@ -245,6 +254,16 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("missing-expiration");
     expect(smoke).toContain("compose_cmd up -d --build --wait token-store provider-fixture");
     expect(smoke).toContain("compose_cmd build oauth-migrations");
+    expect(smoke).toContain("FULL_BUNDLE_USE_PREBUILT_IMAGES:-0");
+    expect(smoke).toContain("LOCAL_GOOGLE_WORKSPACE_IMAGE");
+    expect(smoke).toContain("LOCAL_GITHUB_WRAPPER_IMAGE");
+    expect(smoke).toContain(
+      "compose_cmd create --no-build --pull missing google-workspace github-wrapper agentgateway",
+    );
+    expect(smoke).toContain("compose_cmd start google-workspace github-wrapper agentgateway");
+    expect(smoke.indexOf('bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts"')).toBeLessThan(
+      smoke.indexOf("compose_cmd start google-workspace github-wrapper agentgateway"),
+    );
     expect(smoke.match(/compose_cmd run --rm --no-deps oauth-migrations/g)).toHaveLength(2);
     expect(smoke).toContain('wait "$MIGRATION_PID_ONE"');
     expect(smoke).toContain('wait "$MIGRATION_PID_TWO"');
@@ -258,7 +277,14 @@ describe("local Docker integration smoke", () => {
     expect(client).toContain("resources/list");
     expect(client).toContain("assertGithubGrantStatus");
     expect(client).toContain("assertNoProviderCredentials");
-    expect(githubCatalogConformance).toContain("GITHUB_MCP_TOOLS");
+    expect(client).toContain("provider_oauth_required");
+    expect(client).toContain("disconnectProvider");
+    expect(client.match(/await createSession\(\)/g)).toHaveLength(1);
+    expect(client.match(/await listTools\(/g)).toHaveLength(1);
+    expect(client.match(/method: "tools\/list"/g)).toHaveLength(1);
+    expect(githubCatalogConformance).toContain("listStableGithubTools");
+    expect(githubCatalogConformance).toContain("parseGithubMcpToolsets");
+    expect(githubCatalogConformance).toContain("pinned GitHub MCP tool schema drift");
     expect(githubCatalogConformance).toContain("pinnedGithubToolAnnotationsMatch");
     expect(smoke).toContain("github-mcp-catalog-conformance.ts");
     expect(smoke).toContain("assert_logs_do_not_contain_credentials");

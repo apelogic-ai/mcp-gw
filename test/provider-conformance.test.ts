@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../shared/identity/hop1";
 import { InMemoryOAuthTokenStore } from "../shared/oauth/memory-store";
 import type { OAuthProvider, OAuthTokenStore } from "../shared/oauth/store";
+import { listStableGithubTools } from "../servers/github-mcp/wrapper/src/catalog/github-mcp";
 import { createGithubMcpProxyHandler } from "../servers/github-mcp/wrapper/src/proxy";
 import { createGoogleWorkspaceRegistry } from "../servers/google-workspace/wrapper/src/google-workspace/registry";
 
@@ -20,28 +21,33 @@ const brokerIdentity: Hop1Identity = {
 };
 
 describe("provider lifecycle conformance", () => {
-  test("gates each provider catalog independently for the same issuer and subject", async () => {
+  test("keeps both provider catalogs stable while grants change independently", async () => {
     const store = new InMemoryOAuthTokenStore();
 
-    expect(await googleToolNames(store, brokerIdentity)).toEqual(GOOGLE_HELPERS);
-    expect(await githubToolNames(store, brokerIdentity)).toEqual(GITHUB_HELPERS);
+    const googleBefore = await googleToolNames(store, brokerIdentity);
+    const githubBefore = await githubToolNames(store, brokerIdentity);
+    expect(googleBefore.slice(0, 2)).toEqual(GOOGLE_HELPERS);
+    expect(googleBefore).toContain("google_drive_files_list");
+    expect(githubBefore).toEqual([
+      ...GITHUB_HELPERS,
+      ...listStableGithubTools(["repos"], undefined).map((tool) => tool.name),
+    ]);
 
     await saveGrant(store, "google", brokerIdentity, GOOGLE_SCOPES);
 
     const googleAfterGoogleConsent = await googleToolNames(store, brokerIdentity);
     expect(googleAfterGoogleConsent.slice(0, 2)).toEqual(GOOGLE_HELPERS);
     expect(googleAfterGoogleConsent).toContain("google_drive_files_list");
-    expect(await githubToolNames(store, brokerIdentity)).toEqual(GITHUB_HELPERS);
+    expect(await googleToolNames(store, brokerIdentity)).toEqual(googleBefore);
+    expect(await githubToolNames(store, brokerIdentity)).toEqual(githubBefore);
 
     await saveGrant(store, "github", brokerIdentity, GITHUB_SCOPES);
 
     const googleAfterBothConsents = await googleToolNames(store, brokerIdentity);
     expect(googleAfterBothConsents.slice(0, 2)).toEqual(GOOGLE_HELPERS);
     expect(googleAfterBothConsents).toContain("google_drive_files_list");
-    expect(await githubToolNames(store, brokerIdentity)).toEqual([
-      ...GITHUB_HELPERS,
-      "get_file_contents",
-    ]);
+    expect(googleAfterBothConsents).toEqual(googleBefore);
+    expect(await githubToolNames(store, brokerIdentity)).toEqual(githubBefore);
   });
 
   test("does not link broker and alternate trusted-issuer principals by matching email", async () => {
@@ -60,8 +66,12 @@ describe("provider lifecycle conformance", () => {
     expect(await googleToolNames(store, brokerIdentity)).toContain("google_drive_files_list");
     expect(await githubToolNames(store, brokerIdentity)).toContain("get_file_contents");
 
-    expect(await googleToolNames(store, alternateIdentity)).toEqual(GOOGLE_HELPERS);
-    expect(await githubToolNames(store, alternateIdentity)).toEqual(GITHUB_HELPERS);
+    expect(await googleToolNames(store, alternateIdentity)).toEqual(
+      await googleToolNames(store, brokerIdentity),
+    );
+    expect(await githubToolNames(store, alternateIdentity)).toEqual(
+      await githubToolNames(store, brokerIdentity),
+    );
     expect(
       await store.getAccount(alternateIdentity.issuer, alternateIdentity.subject, "google"),
     ).toBeNull();
@@ -118,7 +128,23 @@ async function googleToolNames(store: OAuthTokenStore, identity: Hop1Identity): 
 async function githubToolNames(store: OAuthTokenStore, identity: Hop1Identity): Promise<string[]> {
   const handler = createGithubMcpProxyHandler({
     upstreamUrl: "http://github-mcp.fixture/mcp",
+    githubToolsets: ["repos"],
     authenticate: () => Promise.resolve(identity),
+    getOAuthStatus: async (requestIdentity) => {
+      const account = await store.getAccount(
+        requestIdentity.issuer,
+        requestIdentity.subject,
+        "github",
+      );
+      const missingScopes = missingRequiredScopes(GITHUB_SCOPES, account?.scopesGranted ?? []);
+      return {
+        connected: Boolean(account && !account.revokedAt && missingScopes.length === 0),
+        email: account?.email,
+        scopesRequired: GITHUB_SCOPES,
+        scopesGranted: account?.scopesGranted ?? [],
+        missingScopes,
+      };
+    },
     resolveGithubToken: async (requestIdentity) => {
       const account = await store.getAccount(
         requestIdentity.issuer,
@@ -131,22 +157,7 @@ async function githubToolNames(store: OAuthTokenStore, identity: Hop1Identity): 
         : undefined;
     },
     fetch: () =>
-      Promise.resolve(
-        Response.json({
-          jsonrpc: "2.0",
-          id: "tools",
-          result: {
-            tools: [
-              {
-                name: "get_file_contents",
-                description: "Fixture-approved GitHub read tool.",
-                inputSchema: { type: "object" },
-                annotations: { readOnlyHint: true, idempotentHint: false },
-              },
-            ],
-          },
-        }),
-      ),
+      Promise.reject(new Error("OAuth-backed tools/list must not reach GitHub MCP upstream")),
   });
   const response = await handler(
     new Request("https://mcp.example.com/mcp", {

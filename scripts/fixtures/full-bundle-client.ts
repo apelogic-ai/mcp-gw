@@ -19,7 +19,21 @@ const initial = await createSession();
 const initialTools = await listTools(initial.sessionId);
 assertHasTools(initialTools, ["google_oauth_status", "google_oauth_start"]);
 assertHasTools(initialTools, ["github_oauth_status", "github_oauth_start"]);
-assertLacksTools(initialTools, ["google_drive_files_list", "get_file_contents"]);
+assertHasTools(initialTools, ["google_drive_files_list", "get_file_contents"]);
+await assertOAuthRequired(
+  await callTool(initial.sessionId, "google_drive_files_list", {}),
+  "google_workspace",
+  "google_oauth_start",
+);
+await assertOAuthRequired(
+  await callTool(initial.sessionId, "get_file_contents", {
+    owner: "apelogic-ai",
+    repo: "fixture",
+    path: "README.md",
+  }),
+  "github",
+  "github_oauth_start",
+);
 await assertGithubGrantStatus(initial.sessionId, false);
 await assertEmptyResourceDiscovery(initial.sessionId);
 
@@ -28,14 +42,13 @@ const githubAuthorizationUrl = await startOAuth(initial.sessionId, "github_oauth
 await completeOAuth(args.googleCallbackUrl, googleAuthorizationUrl);
 await completeOAuth(args.githubCallbackUrl, githubAuthorizationUrl);
 
-const connected = await createSession();
-const connectedTools = await listTools(connected.sessionId);
-assertHasTools(connectedTools, ["google_drive_files_list", "get_file_contents"]);
-await assertGithubGrantStatus(connected.sessionId, true);
-await assertEmptyResourceDiscovery(connected.sessionId);
+// A client that caches the initial tools/list keeps using the same session and
+// tool handles. No second tools/list, reconnect, or new MCP session is needed.
+await assertGithubGrantStatus(initial.sessionId, true);
+await assertEmptyResourceDiscovery(initial.sessionId);
 
-const googleResult = await callTool(connected.sessionId, "google_drive_files_list", {});
-const githubResult = await callTool(connected.sessionId, "get_file_contents", {
+const googleResult = await callTool(initial.sessionId, "google_drive_files_list", {});
+const githubResult = await callTool(initial.sessionId, "get_file_contents", {
   owner: "apelogic-ai",
   repo: "fixture",
   path: "README.md",
@@ -43,6 +56,23 @@ const githubResult = await callTool(connected.sessionId, "get_file_contents", {
 assertResultContains(googleResult, "Fixture document");
 assertResultContains(githubResult, "Fixture repository contents");
 assertNoProviderCredentials([googleResult, githubResult]);
+
+await disconnectProvider(args.googleCallbackUrl, token);
+await disconnectProvider(args.githubCallbackUrl, token);
+await assertOAuthRequired(
+  await callTool(initial.sessionId, "google_drive_files_list", {}),
+  "google_workspace",
+  "google_oauth_start",
+);
+await assertOAuthRequired(
+  await callTool(initial.sessionId, "get_file_contents", {
+    owner: "apelogic-ai",
+    repo: "fixture",
+    path: "README.md",
+  }),
+  "github",
+  "github_oauth_start",
+);
 
 console.log("Full provider bundle integration passed.");
 
@@ -166,6 +196,22 @@ async function completeOAuth(callbackBase: string, authorizationUrl: string): Pr
   }
 }
 
+async function disconnectProvider(callbackUrl: string, bearer: string): Promise<void> {
+  const callback = new URL(callbackUrl);
+  const response = await fetch(
+    `${callback.origin}${callback.pathname.replace(/\/callback$/u, "/disconnect")}`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${bearer}` },
+    },
+  );
+  if (response.status !== 204) {
+    throw new Error(
+      `Provider disconnect failed (${String(response.status)}): ${await response.text()}`,
+    );
+  }
+}
+
 async function callTool(
   sessionId: string,
   name: string,
@@ -232,11 +278,20 @@ function assertHasTools(actual: string[], expected: string[]): void {
   }
 }
 
-function assertLacksTools(actual: string[], unexpected: string[]): void {
-  for (const tool of unexpected) {
-    if (actual.includes(tool)) {
-      throw new Error(`Tool ${tool} was exposed before provider consent`);
-    }
+async function assertOAuthRequired(
+  payload: RpcEnvelope,
+  provider: string,
+  connectionHelper: string,
+): Promise<void> {
+  const structured = payload.result?.structuredContent;
+  if (
+    payload.result?.isError !== true ||
+    !isRecord(structured) ||
+    structured.error !== "provider_oauth_required" ||
+    structured.provider !== provider ||
+    structured.connectionHelper !== connectionHelper
+  ) {
+    throw new Error(`Expected structured provider OAuth requirement: ${JSON.stringify(payload)}`);
   }
 }
 

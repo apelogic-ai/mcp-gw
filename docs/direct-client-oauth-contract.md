@@ -124,10 +124,10 @@ token for its configured audience. When the public broker is enabled, however, t
 field as RFC `authorization_servers`. It must never derive or expose an internal cluster-only issuer
 as the public discovery authority merely because that provider appears first.
 
-Before consent, each provider wrapper advertises only its status/start helpers. After a provider
-grant is stored for that exact principal, the wrapper advertises its helpers plus the approved
-provider catalog. A Google grant does not unlock GitHub tools and a GitHub grant does not unlock
-Google tools.
+Each provider wrapper advertises the same enabled tool catalog before and after consent. Before a
+grant is stored for the exact principal, data-tool calls fail closed with structured
+`provider_oauth_required`; after consent, the same cached handles execute without another
+`tools/list` or MCP reconnect. Google and GitHub grants remain independently keyed and gated.
 
 ## Versioned GitOps handoff
 

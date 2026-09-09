@@ -6,6 +6,8 @@ import {
   GITHUB_MCP_TOOL_GRANTS,
   GITHUB_MCP_TOOL_NAMES,
   classifyGithubToolAction,
+  listStableGithubTools,
+  parseGithubMcpToolsets,
 } from "./github-mcp";
 
 const EXPECTED_TOOL_NAMES = [
@@ -239,6 +241,62 @@ describe("pinned GitHub MCP tool catalog", () => {
     expect(GITHUB_MCP_TOOL_NAMES).toEqual(EXPECTED_TOOL_NAMES);
     expect(new Set(GITHUB_MCP_TOOL_NAMES).size).toBe(84);
     expect(GITHUB_MCP_READ_ONLY_TOOL_NAMES).toEqual(EXPECTED_READ_ONLY_TOOLS);
+  });
+
+  test("derives exact stable catalogs from the configured pinned toolsets", () => {
+    expect(listStableGithubTools(parseGithubMcpToolsets("default"), undefined)).toHaveLength(44);
+    expect(
+      listStableGithubTools(
+        parseGithubMcpToolsets(
+          "default,actions,code_security,discussions,notifications,orgs,projects",
+        ),
+        GITHUB_MCP_CATALOG_ID,
+      ),
+    ).toHaveLength(65);
+    expect(listStableGithubTools(parseGithubMcpToolsets("all"), undefined)).toHaveLength(84);
+    expect(
+      listStableGithubTools(parseGithubMcpToolsets("actions,gists"), undefined).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual([
+      "actions_get",
+      "actions_list",
+      "actions_run_trigger",
+      "create_gist",
+      "get_gist",
+      "get_job_logs",
+      "list_gists",
+      "update_gist",
+    ]);
+  });
+
+  test("uses the shipped bundle selection, expands default, and fails closed for drift", () => {
+    expect(parseGithubMcpToolsets(undefined)).toEqual([
+      "context",
+      "copilot",
+      "issues",
+      "pull_requests",
+      "repos",
+      "users",
+      "actions",
+      "code_security",
+      "discussions",
+      "notifications",
+      "orgs",
+      "projects",
+    ]);
+    expect(parseGithubMcpToolsets("repos,default,repos")).toEqual([
+      "repos",
+      "context",
+      "copilot",
+      "issues",
+      "pull_requests",
+      "users",
+    ]);
+    expect(() => parseGithubMcpToolsets("default,future_toolset")).toThrow(
+      "unsupported toolset future_toolset",
+    );
+    expect(() => parseGithubMcpToolsets(",,")).toThrow("must enable at least one");
   });
 
   test("publishes every canonical grant, including both actions for mixed tools", () => {

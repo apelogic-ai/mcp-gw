@@ -1,8 +1,71 @@
 import type { PolicyActionClass } from "../../../../../shared/policy/policy";
+import { GITHUB_MCP_STABLE_TOOLS } from "./github-mcp-tools.generated";
+import {
+  GITHUB_MCP_DEFAULT_TOOLSETS,
+  GITHUB_MCP_TOOLSET_NAMES,
+  GITHUB_MCP_TOOLSET_TOOL_NAMES,
+  type GithubMcpToolsetName,
+} from "./github-mcp-toolsets.generated";
+
+export { GITHUB_MCP_DEFAULT_TOOLSETS, GITHUB_MCP_STABLE_TOOLS };
+export type { GithubMcpToolsetName } from "./github-mcp-toolsets.generated";
+
+/** The toolsets enabled by the shipped Compose and Helm bundle defaults. */
+export const GITHUB_MCP_SHIPPED_TOOLSETS = [
+  ...GITHUB_MCP_DEFAULT_TOOLSETS,
+  "actions",
+  "code_security",
+  "discussions",
+  "notifications",
+  "orgs",
+  "projects",
+] as const satisfies readonly GithubMcpToolsetName[];
 
 /** Exact tools/list contract from github-mcp-server v1.6.0 with GITHUB_TOOLSETS=all. */
 export const GITHUB_MCP_CATALOG_ID = "github-mcp-server@1.6.0/all" as const;
 export type GithubMcpCatalogId = typeof GITHUB_MCP_CATALOG_ID;
+
+const TOOLSET_NAMES = new Set<string>(GITHUB_MCP_TOOLSET_NAMES);
+
+export function parseGithubMcpToolsets(value: string | undefined): GithubMcpToolsetName[] {
+  if (value === undefined) return [...GITHUB_MCP_SHIPPED_TOOLSETS];
+  const configured = value.trim() ? value.split(",").map((entry) => entry.trim()) : [];
+  const expanded = new Set<GithubMcpToolsetName>();
+
+  for (const entry of configured) {
+    if (!entry) continue;
+    if (entry === "all") return [...GITHUB_MCP_TOOLSET_NAMES];
+    if (entry === "default") {
+      for (const toolset of GITHUB_MCP_DEFAULT_TOOLSETS) expanded.add(toolset);
+      continue;
+    }
+    if (!TOOLSET_NAMES.has(entry)) {
+      throw new Error(
+        `GITHUB_MCP_TOOLSETS contains unsupported toolset ${entry}; expected default, all, or a pinned v1.6.0 toolset`,
+      );
+    }
+    expanded.add(entry as GithubMcpToolsetName);
+  }
+  if (expanded.size === 0) {
+    throw new Error("GITHUB_MCP_TOOLSETS must enable at least one pinned v1.6.0 toolset");
+  }
+  return [...expanded];
+}
+
+export function listStableGithubTools(
+  toolsets: readonly GithubMcpToolsetName[],
+  catalogId: GithubMcpCatalogId | undefined,
+): readonly (typeof GITHUB_MCP_STABLE_TOOLS)[number][] {
+  const enabledNames = new Set<string>();
+  for (const toolset of toolsets) {
+    for (const toolName of GITHUB_MCP_TOOLSET_TOOL_NAMES[toolset]) enabledNames.add(toolName);
+  }
+  return GITHUB_MCP_STABLE_TOOLS.filter(
+    (tool) =>
+      enabledNames.has(tool.name) &&
+      (catalogId !== GITHUB_MCP_CATALOG_ID || isPinnedGithubTool(tool.name)),
+  );
+}
 
 export const GITHUB_MCP_TOOL_NAMES = [
   "actions_get",

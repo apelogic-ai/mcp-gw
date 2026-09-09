@@ -1,5 +1,11 @@
 #!/usr/bin/env bun
 
+import {
+  GITHUB_MCP_SHIPPED_TOOLSETS,
+  listStableGithubTools,
+} from "../../servers/github-mcp/wrapper/src/catalog/github-mcp";
+import { listGoogleWorkspaceTools } from "../../servers/google-workspace/wrapper/src/catalog/google-workspace";
+
 interface Args {
   gatewayUrl: string;
   githubWrapperUrl: string;
@@ -14,20 +20,23 @@ interface RpcEnvelope {
 
 const args = parseArgs(process.argv.slice(2));
 const token = await Bun.file(args.tokenFile).text();
-const googleTools = ["google_oauth_status", "google_oauth_start"];
-const githubTools = ["github_oauth_status", "github_oauth_start"];
+const googleTools = [
+  "google_oauth_status",
+  "google_oauth_start",
+  ...listGoogleWorkspaceTools().map((tool) => tool.name),
+];
+const githubTools = [
+  "github_oauth_status",
+  "github_oauth_start",
+  ...listStableGithubTools(GITHUB_MCP_SHIPPED_TOOLSETS, undefined).map((tool) => tool.name),
+];
 
 await expectSurface(args.googleWrapperUrl, token, googleTools, "Google wrapper");
 await expectSurface(args.githubWrapperUrl, token, githubTools, "GitHub wrapper");
 await expectSurface(
   args.gatewayUrl,
   token,
-  [
-    "google_google_oauth_start",
-    "google_google_oauth_status",
-    "github_github_oauth_start",
-    "github_github_oauth_status",
-  ],
+  [...googleTools.map((name) => `google_${name}`), ...githubTools.map((name) => `github_${name}`)],
   "AgentGateway aggregate",
   true,
 );

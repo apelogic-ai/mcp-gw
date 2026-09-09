@@ -29,7 +29,12 @@ import {
   createRemoteJwksProvider,
 } from "../../../google-workspace/wrapper/src/runtime";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
-import { GITHUB_MCP_CATALOG_ID, type GithubMcpCatalogId } from "./catalog/github-mcp";
+import {
+  GITHUB_MCP_CATALOG_ID,
+  parseGithubMcpToolsets,
+  type GithubMcpCatalogId,
+  type GithubMcpToolsetName,
+} from "./catalog/github-mcp";
 import { createGithubMcpProxyHandler } from "./proxy";
 
 export interface MainConfig {
@@ -38,6 +43,7 @@ export interface MainConfig {
   postgresCaBundlePath?: string;
   upstreamUrl: string;
   githubGovernanceCatalogId?: GithubMcpCatalogId;
+  githubToolsets: GithubMcpToolsetName[];
   githubOAuth: GitHubOAuthConfig;
   githubScopes: string[];
   githubRedirectAfterAllowedOrigins: string[];
@@ -66,6 +72,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
     postgresCaBundlePath: optionalEnv(env, "POSTGRES_CA_BUNDLE_PATH"),
     upstreamUrl: env.GITHUB_MCP_UPSTREAM_URL ?? DEFAULT_UPSTREAM_URL,
     githubGovernanceCatalogId: parseGithubGovernanceCatalogId(env.GITHUB_MCP_GOVERNANCE_CATALOG),
+    githubToolsets: parseGithubMcpToolsets(env.GITHUB_MCP_TOOLSETS),
     githubOAuth: {
       clientId: requiredEnv(env, "GITHUB_OAUTH_CLIENT_ID"),
       clientSecret: requiredEnv(env, "GITHUB_OAUTH_CLIENT_SECRET"),
@@ -137,6 +144,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
   const mcpHandler = createGithubMcpProxyHandler({
     upstreamUrl: config.upstreamUrl,
     governanceCatalogId: config.githubGovernanceCatalogId,
+    githubToolsets: config.githubToolsets,
     authenticate,
     resolveGithubToken: (identity) => tokenBroker.getAccessToken(identity, config.githubScopes),
     getOAuthStatus: async (identity) => {

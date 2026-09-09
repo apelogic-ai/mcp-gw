@@ -196,16 +196,18 @@ portal. See [provider-connection-flows.md](provider-connection-flows.md).
 4. Do not configure a client secret; the supported direct clients are public clients using PKCE
    S256.
 5. Connect the connector and complete the identity-only gateway sign-in.
-6. Confirm the provider helpers `google_oauth_status`, `google_oauth_start`, and the equivalent
-   helpers for other enabled providers appear under the connector.
+6. Confirm the provider helpers and data-tool catalogs for all enabled providers appear under the
+   connector. Before provider consent, a data-tool call must return structured
+   `provider_oauth_required` rather than contacting the provider.
 7. Ask the agent to connect Google Workspace. It should call `google_oauth_start` and return an
    authorization URL.
-8. Open the URL, approve Google Workspace access, and ask the client to refresh its tools.
-9. Confirm the full Google Workspace tool catalog appears. Repeat with `github_oauth_start` or other
-   provider helpers as needed.
+8. Open the URL and approve Google Workspace access.
+9. Without refreshing tools or reconnecting, call a Google Workspace tool that the client cached
+   before consent and confirm it succeeds. Repeat with `github_oauth_start` or other provider helpers.
 
-Clients may cache connector state. Disconnect/reconnect after changes to OAuth behavior, Google
-scopes, or the visible tool catalog.
+Clients may cache connector state. Provider connection and disconnection do not change the catalog;
+authorization is checked when a tool is called. Reconnect only after deployment-level changes to
+enabled backends, scopes, or tool definitions.
 
 When a refresh-enabled broker access token approaches expiry, the client renews it through `/token`
 without another Google login. Reauthorization is required after refresh expiry, revocation, replay,
@@ -231,13 +233,17 @@ and disconnect examples.
 
 ## Tool Surface
 
-Before Google consent, the connector exposes `google_oauth_status` and `google_oauth_start`. After
-consent, it also exposes:
+The connector always exposes `google_oauth_status`, `google_oauth_start`, and the configured Google
+Workspace catalog:
 
 - curated tools such as `google_drive_files_list`, `google_docs_get`, and
   `google_calendar_events_insert`;
 - generated `gws_*` tools for the filtered Google Workspace service families;
 - `google_workspace_gws`, a guarded CLI passthrough for advanced `gws` commands.
+
+Before Google consent, calls to those data tools return `isError: true` with structured error
+`provider_oauth_required` and `connectionHelper: google_oauth_start`. After consent, the same cached
+tool handles execute normally. GitHub follows the equivalent contract with `github_oauth_start`.
 
 Example generic call payload:
 
@@ -273,7 +279,12 @@ Authorization callback URL: https://mcp.example.com/oauth/github/callback
 ```
 
 Then configure the gateway environment with the GitHub client ID, secret, callback URL, scopes, and
-token encryption key. See [servers/github-mcp/README.md](../servers/github-mcp/README.md).
+token encryption key. The wrapper's default stable catalog matches the toolsets shipped by the
+bundled Compose and Helm configurations. If you override the upstream `GITHUB_TOOLSETS`, set the
+wrapper's existing generic environment value `GITHUB_MCP_TOOLSETS` to the same selection. The
+wrapper derives the pre-consent catalog locally from the pinned v1.6.0 catalog and makes no upstream
+or GitHub API request while listing it. See
+[servers/github-mcp/README.md](../servers/github-mcp/README.md).
 
 ## Multi-Backend Routing
 
@@ -304,7 +315,8 @@ Before making MCP-GW available to users:
 - Apply Google Workspace policy YAML or external OPA policy if required.
 - Keep agentgateway Admin UI internal; do not expose it on the public MCP ingress.
 - Validate the visible tool catalog in every target client.
-- Document reconnect expectations after OAuth scope or tool catalog changes.
+- Document reconnect expectations for deployment-time tool-catalog changes; provider consent alone
+  must not require another `tools/list`, new MCP session, or reconnect.
 - Do not commit real `.env` files, OAuth secrets, token encryption keys, refresh tokens,
   infrastructure state, cloud account IDs, or production hostnames to a public repository.
 
@@ -329,7 +341,7 @@ Client connects but shows no tools:
   `invalid_audience`, or `expired_token`. The diagnostic never includes tokens, claims, client IDs,
   or email addresses.
 - Confirm all visible tool names are at most 64 characters for clients with that limit.
-- Disconnect/reconnect if the client cached an older catalog.
+- Disconnect/reconnect only if the client cached a catalog from an older deployment version.
 
 Tool call fails with `Google account must be reconnected`:
 

@@ -14,7 +14,7 @@ The project currently packages:
 - a Bun/TypeScript Google Workspace MCP wrapper;
 - an optional official GitHub MCP server backend for federated deployments;
 - per-user Google OAuth token storage with encrypted refresh tokens;
-- provider-owned OAuth helpers that expose each downstream tool catalog only after per-user consent;
+- provider-owned OAuth helpers and stable catalogs with per-call provider authorization;
 - a `gws` subprocess executor using `GOOGLE_WORKSPACE_CLI_TOKEN` per call;
 - local Docker Compose and an environment-neutral Kubernetes release contract;
 - tests, linting, formatting, and CI wiring.
@@ -31,10 +31,11 @@ There are two credential hops:
 The HOP-1 bearer token identifies the caller. It is never forwarded to Google. The wrapper injects
 only the HOP-2 Google access token into `gws`.
 
-Initial MCP authentication is identity-only. Before a downstream provider is connected, its wrapper
-advertises only provider-prefixed status and authorization helpers, such as `google_oauth_status`
-and `google_oauth_start`. Completing that provider's consent flow unlocks its full tool catalog for
-the same HOP-1 principal.
+Initial MCP authentication is identity-only. Each enabled wrapper advertises a stable catalog plus
+provider-prefixed status and authorization helpers such as `google_oauth_status` and
+`google_oauth_start`. Before provider consent, data-tool calls fail closed with structured
+`provider_oauth_required`; after consent, the same cached tool handles execute for the same HOP-1
+principal without requiring another catalog refresh.
 
 ```text
 MCP client

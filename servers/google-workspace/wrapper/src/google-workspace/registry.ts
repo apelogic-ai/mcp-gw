@@ -60,12 +60,10 @@ export function createGoogleWorkspaceRegistry(
         return listGoogleWorkspaceTools(options.governanceCatalogId);
       }
 
-      return options.oauth.status.connected
-        ? [
-            ...GOOGLE_OAUTH_TOOL_DEFINITIONS,
-            ...listGoogleWorkspaceTools(options.governanceCatalogId),
-          ]
-        : [...GOOGLE_OAUTH_TOOL_DEFINITIONS];
+      return [
+        ...GOOGLE_OAUTH_TOOL_DEFINITIONS,
+        ...listGoogleWorkspaceTools(options.governanceCatalogId),
+      ];
     },
     callTool: async (name, args) => {
       if (name === "google_oauth_start" && options.oauth) {
@@ -87,12 +85,11 @@ export function createGoogleWorkspaceRegistry(
         return oauthResult;
       }
 
-      if (options.oauth && !options.oauth.status.connected) {
-        throw new Error("Google Workspace account is not connected");
-      }
-
       const started = Date.now();
       const tool = getGoogleWorkspaceTool(name, options.governanceCatalogId);
+      if (options.oauth && !options.oauth.status.connected) {
+        return providerOAuthRequiredResult();
+      }
       validateRequiredArgs(tool, args);
 
       const decision = await policy.decide({
@@ -142,6 +139,23 @@ export function createGoogleWorkspaceRegistry(
         });
         return formatToolError(error);
       }
+    },
+  };
+}
+
+function providerOAuthRequiredResult(): ToolResult {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: "Google Workspace authorization is required. Call google_oauth_start to connect the provider.",
+      },
+    ],
+    structuredContent: {
+      error: "provider_oauth_required",
+      provider: "google_workspace",
+      connectionHelper: "google_oauth_start",
     },
   };
 }

@@ -170,9 +170,20 @@ describe("control-plane mediated provider connection journey", () => {
       email: AGENT_EMAIL,
     });
 
-    // 1. Before provider connection, the HOP-1 principal sees only the provider
-    //    OAuth helper tools on /mcp.
-    expect(await mcpToolNames(mcpHandler, agentToken)).toEqual(GOOGLE_HELPERS);
+    // 1. Cache the stable catalog once before provider connection.
+    const cachedTools = await mcpToolNames(mcpHandler, agentToken);
+    expect(cachedTools.slice(0, 2)).toEqual(GOOGLE_HELPERS);
+    expect(cachedTools).toContain("google_drive_files_list");
+    expect(await mcpCall(mcpHandler, agentToken, "google_drive_files_list")).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: {
+          error: "provider_oauth_required",
+          provider: "google_workspace",
+          connectionHelper: "google_oauth_start",
+        },
+      },
+    });
 
     // 2. The control plane drives provider connection on the agent's behalf.
     const startResponse = await providerRoutes(
@@ -205,11 +216,11 @@ describe("control-plane mediated provider connection journey", () => {
     expect(callbackResponse.status).toBe(302);
     expect(callbackResponse.headers.get("location")).toBe("https://portal.example.com/connected");
 
-    // 3a. After connection the full Google catalog is gated IN for that principal.
-    const toolsAfter = await mcpToolNames(mcpHandler, agentToken);
-    expect(toolsAfter.slice(0, 2)).toEqual(GOOGLE_HELPERS);
-    expect(toolsAfter).toContain("google_drive_files_list");
-    expect(toolsAfter.some((name) => name.startsWith("gws_"))).toBe(true);
+    // 3a. After connection the same cached Google catalog becomes executable for that principal.
+    expect(await mcpToolNames(mcpHandler, agentToken)).toEqual(cachedTools);
+    expect(await mcpCall(mcpHandler, agentToken, "google_drive_files_list")).toMatchObject({
+      result: { content: [{ type: "text" }] },
+    });
 
     // 3b. The stored provider credential is keyed by the HOP-1 subject, and the
     //     refresh token is held encrypted server-side, never handed to the client.
@@ -235,7 +246,10 @@ describe("control-plane mediated provider connection journey", () => {
       subject: "service-principal-agent-2",
       email: AGENT_EMAIL,
     });
-    expect(await mcpToolNames(mcpHandler, otherSubjectToken)).toEqual(GOOGLE_HELPERS);
+    expect(await mcpToolNames(mcpHandler, otherSubjectToken)).toEqual(cachedTools);
+    expect(await mcpCall(mcpHandler, otherSubjectToken, "google_drive_files_list")).toMatchObject({
+      result: { isError: true, structuredContent: { error: "provider_oauth_required" } },
+    });
     expect(
       await tokenStore.getAccount(CONTROL_PLANE_ISSUER, "service-principal-agent-2", "google"),
     ).toBeNull();
@@ -249,7 +263,7 @@ describe("control-plane mediated provider connection journey", () => {
       subject: AGENT_SUBJECT,
       email: AGENT_EMAIL,
     });
-    expect(await mcpToolNames(mcpHandler, enterpriseToken)).toEqual(GOOGLE_HELPERS);
+    expect(await mcpToolNames(mcpHandler, enterpriseToken)).toEqual(cachedTools);
     expect(await tokenStore.getAccount(ENTERPRISE_ISSUER, AGENT_SUBJECT, "google")).toBeNull();
   });
 });
@@ -270,4 +284,24 @@ async function mcpToolNames(
   );
   const body = (await response.json()) as { result: { tools: { name: string }[] } };
   return body.result.tools.map((tool) => tool.name);
+}
+
+async function mcpCall(
+  handler: (request: Request) => Promise<Response>,
+  token: string,
+  name: string,
+): Promise<Record<string, unknown>> {
+  const response = await handler(
+    new Request("https://mcp.example.com/mcp", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call",
+        method: "tools/call",
+        params: { name, arguments: {} },
+      }),
+    }),
+  );
+  return response.json() as Promise<Record<string, unknown>>;
 }

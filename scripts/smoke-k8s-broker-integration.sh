@@ -251,6 +251,8 @@ spec:
       args:
         - --broker-base-url
         - http://$RELEASE_NAME-authorization-broker:8080/oauth
+        - --expected-data-tools
+        - google_drive_files_list,get_file_contents
         - --expected-issuer
         - https://mcp.example.com/oauth
         - --expected-tools
