@@ -197,6 +197,7 @@ describe("GitHub OAuth routes", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     let authenticateCalls = 0;
     let providerCalls = 0;
@@ -263,18 +264,20 @@ describe("GitHub OAuth routes", () => {
 
   test("consumes a denied provider callback state and returns a sanitized response", async () => {
     const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
     const started = await startGithubOAuth({
       identity,
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     const handler = createGitHubOAuthRouteHandler({
       authenticate: () => Promise.reject(new Error("callback must not authenticate a bearer")),
       config,
       scopes: ["repo"],
       stateStore,
-      tokenStore: new InMemoryOAuthTokenStore(),
+      tokenStore,
     });
     const callbackUrl =
       `https://mcp.example.com/oauth/github/callback?state=${started.state}` +
@@ -516,7 +519,7 @@ describe("GitHub OAuth routes", () => {
     expect(providerRevocationCalls).toBe(1);
     const responseBody = await response.json();
     expect(responseBody).toEqual({
-      error: "GitHub account disconnect could not be completed",
+      error: "persistence_failure",
     });
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]).toMatchObject({
@@ -543,6 +546,34 @@ describe("GitHub OAuth routes", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  test("maps datastore failures on compatibility connection routes", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    tokenStore.getConnection = () => Promise.reject(new Error("postgres unavailable"));
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+    });
+
+    for (const [path, method] of [
+      ["/oauth/github/start", "GET"],
+      ["/oauth/github/status", "GET"],
+      ["/oauth/github/refresh", "POST"],
+      ["/oauth/github/disconnect", "POST"],
+    ] as const) {
+      const response = await handler(
+        new Request(`https://mcp.example.com${path}`, {
+          method,
+          headers: { authorization: "Bearer hop1" },
+        }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "persistence_failure" });
+    }
   });
 });
 

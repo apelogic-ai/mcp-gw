@@ -1,5 +1,5 @@
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
-import type { AuditSink } from "../../../../shared/audit/audit";
+import type { AuditEvent, AuditSink } from "../../../../shared/audit/audit";
 import {
   cancelGithubOAuth,
   completeGithubOAuth,
@@ -12,7 +12,10 @@ import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import { ProviderLifecycleError } from "../../../../shared/oauth/connection-types";
-import { createConnectionRouteHandler } from "../../../../shared/oauth/connection-routes";
+import {
+  createConnectionRouteHandler,
+  withConnectionErrorMapping,
+} from "../../../../shared/oauth/connection-routes";
 import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 
 export interface CreateGitHubOAuthRouteHandlerOptions {
@@ -50,7 +53,7 @@ export function createGitHubOAuthRouteHandler(
     lifecycle,
     requiredScopes: options.scopes,
     cancelAuthorization: (identity) =>
-      options.stateStore.invalidatePrincipal(identity.issuer, identity.subject),
+      options.stateStore.invalidatePrincipal("github", identity.issuer, identity.subject),
     startAuthorization: (identity, redirectAfter) => {
       const validated = validateRedirectAfter(
         redirectAfter,
@@ -73,7 +76,7 @@ export function createGitHubOAuthRouteHandler(
     },
   });
 
-  return async (request) => {
+  const handler = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/connections/github/")) return connectionRoutes(request);
 
@@ -91,7 +94,7 @@ export function createGitHubOAuthRouteHandler(
             stateStore: options.stateStore,
             tokenStore: options.tokenStore,
           });
-          await options.audit?.emit({
+          await emitAuditSafely(options.audit, {
             ts: new Date().toISOString(),
             category: "oauth",
             principal: identity.email,
@@ -135,7 +138,7 @@ export function createGitHubOAuthRouteHandler(
         }
         throw error;
       }
-      await options.audit?.emit({
+      await emitAuditSafely(options.audit, {
         ts: new Date().toISOString(),
         category: "oauth",
         principal: completed.identity.email,
@@ -214,22 +217,16 @@ export function createGitHubOAuthRouteHandler(
 
     if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {
       try {
-        try {
-          await lifecycle.disconnect(identity, options.scopes);
-        } finally {
-          await invalidateAuthorizationSafely(options.stateStore, identity);
-        }
-      } catch (error) {
-        if (error instanceof ProviderLifecycleError) {
-          return json({ error: "GitHub account disconnect could not be completed" }, 503);
-        }
-        throw error;
+        await lifecycle.disconnect(identity, options.scopes);
+      } finally {
+        await invalidateAuthorizationSafely(options.stateStore, identity);
       }
       return new Response(null, { status: 204 });
     }
 
     return json({ error: "Not found" }, 404);
   };
+  return withConnectionErrorMapping(handler);
 }
 
 async function invalidateAuthorizationSafely(
@@ -237,9 +234,17 @@ async function invalidateAuthorizationSafely(
   identity: Hop1Identity,
 ): Promise<void> {
   try {
-    await stateStore.invalidatePrincipal(identity.issuer, identity.subject);
+    await stateStore.invalidatePrincipal("github", identity.issuer, identity.subject);
   } catch {
     // The lifecycle activation guard also rejects callbacks older than Disconnect.
+  }
+}
+
+async function emitAuditSafely(audit: AuditSink | undefined, event: AuditEvent): Promise<void> {
+  try {
+    await audit?.emit(event);
+  } catch {
+    // Auditing must not change an already completed OAuth state transition.
   }
 }
 

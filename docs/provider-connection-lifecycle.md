@@ -24,18 +24,23 @@ contains provider credential material.
 The `/oauth/google/*` and `/oauth/github/*` routes remain compatibility aliases during the migration
 window. `/oauth/{provider}/refresh` is also available to older control-plane integrations.
 
-Authorization state records capture the observed generation, local-disable flag, and update time.
-Activation compares that snapshot under the connection lock. Disconnect also invalidates unconsumed
-states, so a callback started before a later Disconnect cannot reactivate the connection even when it
-was already in flight.
+Authorization state records are bound to one provider and capture the observed generation,
+local-disable flag, and durable connection update time. Activation requires the complete snapshot and
+compares it under the connection lock. States written by a pre-lifecycle replica without the guard are
+rejected and the user must restart authorization. Disconnect invalidates only that provider's
+unconsumed states, so it neither cancels another provider's flow nor permits an older callback to
+reactivate the connection.
 
 ## Durable generations and concurrency
 
 `oauth_accounts.connection_generation` identifies immutable credential material. New authorization
 and renewal write an encrypted JSON envelope and normalized, non-secret metadata. Brokerage renews
 inside a PostgreSQL transaction-scoped advisory lock keyed by provider plus HOP-1 issuer and subject,
-then performs a generation compare-and-swap. Multiple replicas therefore cannot consume the same
-rotating renewal credential. An undurable replacement is never returned.
+then performs a compare-and-swap over the generation and the legacy `updated_at`/`revoked_at`
+snapshot. The legacy fields are part of the guard because an older replica does not increment the new
+generation column. Multiple replicas therefore cannot consume the same rotating renewal credential,
+and a concurrent old-replica disconnect remains authoritative. An undurable replacement is never
+returned.
 
 The configurable default renewal safety window is five minutes. Unknown expiry remains `null`; it is
 never invented.
@@ -52,11 +57,22 @@ pending rows through the immutable generation guard. Successful or effectively c
 destroys both the normalized envelope and usable legacy credential. Cleanup of an old generation
 cannot mutate a newer reauthorization.
 
+A credential freshly issued by a provider can also lose its activation or renewal compare-and-swap.
+MCP-GW immediately attempts to revoke that orphan. A retryable provider failure stores only an
+encrypted envelope in `oauth_pending_credential_cleanup`; the same cleanup worker retries it until the
+provider reports a terminal result. This keeps failed stale-callback cleanup durable across process
+and replica restarts.
+
 ## Rolling migration and retirement
 
-Migration `005_provider_connection_lifecycle.sql` is forward-only and must run before the new binaries.
-It adds nullable/defaulted columns, so old binaries continue operating during a rolling deployment.
-New binaries dual-write `encrypted_refresh_token` for one compatibility window:
+Migrations `005_provider_connection_lifecycle.sql` and
+`006_provider_state_and_cleanup.sql` are forward-only and must run before the new binaries. Migration
+`006` provider-binds new state rows and adds the durable orphan-cleanup queue without rewriting
+already-applied migration `005`. The base Docker Compose stack runs the migration service after
+PostgreSQL becomes healthy and starts the wrapper only after migration success, including when the
+named database volume already exists. The nullable/defaulted lifecycle columns allow old binaries to
+continue operating during a rolling deployment. New binaries dual-write `encrypted_refresh_token`
+for one compatibility window:
 
 - Google legacy rows are interpreted only as renewal credentials.
 - GitHub legacy rows are interpreted only as non-expiring active credentials.
@@ -66,8 +82,8 @@ New binaries dual-write `encrypted_refresh_token` for one compatibility window:
 
 Retire the legacy column only in a later release after all replicas run the normalized model, pending
 cleanup is empty, and telemetry confirms no legacy-only reads. That later release must first stop
-dual-writing, then use a new migration to drop `encrypted_refresh_token`; migration `001` and migration
-`005` must never be edited after application.
+dual-writing, then use a new migration to drop `encrypted_refresh_token`; applied migrations,
+including `001`, `005`, and `006`, must never be edited after application.
 
 ## Adding a provider
 

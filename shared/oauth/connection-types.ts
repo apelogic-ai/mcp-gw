@@ -160,6 +160,23 @@ export interface ConnectionRecord {
   encryptedLegacyCredential: string;
 }
 
+/** Encrypted provider credentials that are no longer attached to a connection generation. */
+export interface PendingCredentialCleanupRecord {
+  id: string;
+  provider: OAuthProvider;
+  hop1Issuer: string;
+  hop1Subject: string;
+  displayAccountIdentity: string;
+  encryptedCredentialEnvelope: string;
+  credentialSchemaVersion: number;
+  generation: number;
+  grantedScopes: string[];
+  activeCredentialExpiresAt?: Date;
+  renewalCredentialExpiresAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ConnectionStatusV1 {
   version: "1";
   provider: OAuthProvider;

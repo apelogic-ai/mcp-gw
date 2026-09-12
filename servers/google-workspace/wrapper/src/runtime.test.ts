@@ -347,7 +347,13 @@ describe("runtime wrapper wiring", () => {
       tokenEncryptionKey,
     };
     const scopes = ["https://www.googleapis.com/auth/drive"];
-    const started = await startGoogleOAuth({ identity, scopes, config: oauth, stateStore });
+    const started = await startGoogleOAuth({
+      identity,
+      scopes,
+      config: oauth,
+      stateStore,
+      tokenStore,
+    });
     await completeGoogleOAuth({
       identity,
       code: "auth-code",

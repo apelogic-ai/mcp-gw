@@ -119,7 +119,7 @@ describe("OAuth route handler", () => {
 
     expect(denied.status).toBe(400);
     expect(await denied.json()).toEqual({ error: "Google authorization was not completed" });
-    expect(await stateStore.consume(state ?? "")).toBeNull();
+    expect(await stateStore.consume("google", state ?? "")).toBeNull();
     expect(await tokenStore.getConnection("google", identity.issuer, identity.subject)).toBeNull();
     expect(audit.events[0]).toMatchObject({
       event: "google.connect",
@@ -313,6 +313,34 @@ describe("OAuth route handler", () => {
       scopesGranted: ["openid"],
       missingScopes: ["https://www.googleapis.com/auth/userinfo.email"],
     });
+  });
+
+  test("maps datastore failures on compatibility connection routes", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    tokenStore.getConnection = () => Promise.reject(new Error("postgres unavailable"));
+    const handler = createOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes,
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+    });
+
+    for (const [path, method] of [
+      ["/oauth/google/start", "GET"],
+      ["/oauth/google/status", "GET"],
+      ["/oauth/google/refresh", "POST"],
+      ["/oauth/google/disconnect", "POST"],
+    ] as const) {
+      const response = await handler(
+        new Request(`https://dev.example.com${path}`, {
+          method,
+          headers: { authorization: "Bearer hop1" },
+        }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "persistence_failure" });
+    }
   });
 });
 

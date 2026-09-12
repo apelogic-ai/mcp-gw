@@ -10,6 +10,8 @@ import {
   startGithubOAuth,
 } from "./github";
 import { encryptSecret } from "./crypto";
+import { connectionWriteGuard } from "./store";
+import { hashState } from "./state";
 
 const identity: Hop1Identity = {
   profile: "test",
@@ -33,12 +35,14 @@ const config = {
 describe("GitHub OAuth flow", () => {
   test("builds a consent URL and stores HOP-1 OAuth state", async () => {
     const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
 
     const started = await startGithubOAuth({
       identity,
       scopes: ["repo", "read:org"],
       config,
       stateStore,
+      tokenStore,
       redirectAfter: "/done",
     });
 
@@ -49,7 +53,7 @@ describe("GitHub OAuth flow", () => {
     expect(url.searchParams.get("scope")).toBe("repo read:org");
     expect(url.searchParams.get("state")).toBe(started.state);
 
-    const consumed = await stateStore.consume(started.state);
+    const consumed = await stateStore.consume("github", started.state);
     expect(consumed?.hop1Issuer).toBe(identity.issuer);
     expect(consumed?.hop1Subject).toBe(identity.subject);
     expect(consumed?.email).toBe(identity.email);
@@ -88,6 +92,45 @@ describe("GitHub OAuth flow", () => {
     ).toMatchObject({ generation: 1, phase: "connected" });
   });
 
+  test("rejects guardless states from an older replica before exchanging credentials", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const state = "legacy-github-state";
+    await stateStore.save({
+      stateHash: hashState(state),
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      requestedScopes: ["repo"],
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await tokenStore.markAuthorizing(
+      "github",
+      identity.issuer,
+      identity.subject,
+      ["repo"],
+      new Date(Date.now() + 60_000),
+    );
+    let providerCalls = 0;
+
+    expect(
+      completeGithubOAuth({
+        identity,
+        code: "legacy-code",
+        state,
+        config,
+        stateStore,
+        tokenStore,
+        fetch: () => {
+          providerCalls += 1;
+          return Promise.reject(new Error("provider must not be called"));
+        },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_state" });
+    expect(providerCalls).toBe(0);
+    expect(await tokenStore.getConnection("github", identity.issuer, identity.subject)).toBeNull();
+  });
+
   test("exchanges code, verifies GitHub email, and stores encrypted bearer token", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
@@ -96,6 +139,7 @@ describe("GitHub OAuth flow", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     const seenRequests: { url: string; init?: RequestInit }[] = [];
 
@@ -154,6 +198,7 @@ describe("GitHub OAuth flow", () => {
       scopes: ["repo", "user:email"],
       config,
       stateStore,
+      tokenStore,
     });
 
     await completeGithubOAuth({
@@ -187,6 +232,7 @@ describe("GitHub OAuth flow", () => {
       scopes: ["repo", "user:email"],
       config,
       stateStore,
+      tokenStore,
     });
     const seenRequests: string[] = [];
 
@@ -226,6 +272,7 @@ describe("GitHub OAuth flow", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     const seenRequests: { url: string; init?: RequestInit }[] = [];
 
@@ -286,6 +333,7 @@ describe("GitHub OAuth flow", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
 
     await completeGithubOAuth({
@@ -326,6 +374,7 @@ describe("GitHub OAuth flow", () => {
         scopes: ["repo", "user:email"],
         config,
         stateStore,
+        tokenStore,
       });
       let providerCalled = false;
       let error: unknown;
@@ -362,6 +411,7 @@ describe("GitHub OAuth flow", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     const complete = () =>
       completeGithubOAuth({
@@ -401,6 +451,7 @@ describe("GitHub token broker", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     await completeGithubOAuth({
       identity,
@@ -425,7 +476,13 @@ describe("GitHub token broker", () => {
   test("single-flights expiring token renewal and replaces GitHub's rotating credential", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const stateStore = new InMemoryOAuthStateStore();
-    const started = await startGithubOAuth({ identity, scopes: ["repo"], config, stateStore });
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+      tokenStore,
+    });
     await completeGithubOAuth({
       identity,
       code: "auth-code",
@@ -450,7 +507,7 @@ describe("GitHub token broker", () => {
     if (!current) throw new Error("expected GitHub connection");
     await tokenStore.saveConnection(
       { ...current, activeCredentialExpiresAt: new Date(Date.now() - 1) },
-      current.generation,
+      connectionWriteGuard(current),
     );
     let renewals = 0;
     let refreshBody = "";
@@ -514,6 +571,7 @@ describe("GitHub token broker", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     await completeGithubOAuth({
       identity,
@@ -539,7 +597,7 @@ describe("GitHub token broker", () => {
     if (!expired) throw new Error("expected GitHub connection");
     await tokenStore.saveConnection(
       { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
-      expired.generation,
+      connectionWriteGuard(expired),
     );
 
     const broker = new GitHubTokenBroker({

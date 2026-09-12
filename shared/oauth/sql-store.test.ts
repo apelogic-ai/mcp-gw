@@ -8,8 +8,8 @@ import {
   SqlOAuthTokenStore,
   type SqlQueryClient,
 } from "./sql-store";
-import type { OAuthAccountRecord, OAuthStateRecord } from "./store";
-import type { ConnectionRecord } from "./connection-types";
+import { connectionWriteGuard, type OAuthAccountRecord, type OAuthStateRecord } from "./store";
+import type { ConnectionRecord, PendingCredentialCleanupRecord } from "./connection-types";
 
 const account: OAuthAccountRecord = {
   provider: "google",
@@ -24,6 +24,7 @@ const account: OAuthAccountRecord = {
 
 const stateRecord: OAuthStateRecord = {
   stateHash: hashState("state"),
+  provider: "google",
   hop1Issuer: "https://accounts.google.com",
   hop1Subject: "google-subject",
   email: "user@example.com",
@@ -56,6 +57,22 @@ const connection: ConnectionRecord = {
   encryptedLegacyCredential: "encrypted-legacy",
 };
 
+const pendingCleanup: PendingCredentialCleanupRecord = {
+  id: "cleanup-1",
+  provider: "github",
+  hop1Issuer: connection.hop1Issuer,
+  hop1Subject: connection.hop1Subject,
+  displayAccountIdentity: connection.displayAccountIdentity,
+  encryptedCredentialEnvelope: "encrypted-orphan-envelope",
+  credentialSchemaVersion: 1,
+  generation: 3,
+  grantedScopes: ["repo"],
+  activeCredentialExpiresAt: new Date("2026-09-13T00:00:00.000Z"),
+  renewalCredentialExpiresAt: new Date("2027-09-13T00:00:00.000Z"),
+  createdAt: new Date("2026-09-12T17:00:00.000Z"),
+  updatedAt: new Date("2026-09-12T17:00:00.000Z"),
+};
+
 describe("SQL OAuth token store", () => {
   test("ships a Postgres-compatible schema", () => {
     expect(OAUTH_SCHEMA_SQL).toContain("CREATE TABLE IF NOT EXISTS oauth_accounts");
@@ -72,6 +89,7 @@ describe("SQL OAuth token store", () => {
       refreshMigration,
       persistentDcrMigration,
       lifecycleMigration,
+      providerStateMigration,
     ] = await Promise.all([
       readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
       readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
@@ -79,6 +97,7 @@ describe("SQL OAuth token store", () => {
       readFile("shared/oauth/migrations/003_broker_refresh_tokens.sql", "utf8"),
       readFile("shared/oauth/migrations/004_persistent_dcr_clients.sql", "utf8"),
       readFile("shared/oauth/migrations/005_provider_connection_lifecycle.sql", "utf8"),
+      readFile("shared/oauth/migrations/006_provider_state_and_cleanup.sql", "utf8"),
     ]);
 
     expect(migration.replaceAll(/\s+/g, " ").trim()).toBe(
@@ -92,7 +111,7 @@ describe("SQL OAuth token store", () => {
       "ALTER TABLE oauth_dcr_clients\n  ALTER COLUMN expires_at DROP NOT NULL;",
     );
     expect(schema.replaceAll(/\s+/g, " ").trim()).toBe(
-      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}\n\n${lifecycleMigration.trim()}`
+      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}\n\n${lifecycleMigration.trim()}\n\n${providerStateMigration.trim()}`
         .replaceAll(/\s+/g, " ")
         .trim(),
     );
@@ -249,11 +268,66 @@ describe("SQL OAuth token store", () => {
     const client = new RecordingSqlClient([{ connection_generation: 2 }]);
     const store = new SqlOAuthTokenStore(client);
 
-    expect(await store.saveConnection(connection, 1)).toBe(true);
-    expect(client.calls[0]?.sql).toContain("oauth_accounts.connection_generation = $26");
+    expect(await store.saveConnection(connection, connectionWriteGuard(connection))).toBe(true);
+    expect(client.calls[0]?.sql).toContain("oauth_accounts.connection_generation = $27");
+    expect(client.calls[0]?.sql).toContain("oauth_accounts.updated_at = $28");
+    expect(client.calls[0]?.sql).toContain("oauth_accounts.revoked_at IS NOT DISTINCT FROM $29");
     expect(client.calls[0]?.sql).toContain("credential_envelope");
     expect(client.calls[0]?.params[8]).toBe(2);
-    expect(client.calls[0]?.params[25]).toBe(1);
+    expect(client.calls[0]?.params.slice(25)).toEqual([
+      true,
+      connection.generation,
+      connection.updatedAt,
+      null,
+    ]);
+  });
+
+  test("persists, selects, and deletes orphaned credential cleanup records", async () => {
+    const saveClient = new RecordingSqlClient();
+    await new SqlOAuthTokenStore(saveClient).savePendingCredentialCleanup(pendingCleanup);
+    expect(saveClient.calls[0]?.sql).toContain("oauth_pending_credential_cleanup");
+    expect(saveClient.calls[0]?.params).toEqual([
+      pendingCleanup.id,
+      pendingCleanup.provider,
+      pendingCleanup.hop1Issuer,
+      pendingCleanup.hop1Subject,
+      pendingCleanup.displayAccountIdentity,
+      pendingCleanup.encryptedCredentialEnvelope,
+      pendingCleanup.credentialSchemaVersion,
+      pendingCleanup.generation,
+      pendingCleanup.grantedScopes,
+      pendingCleanup.activeCredentialExpiresAt,
+      pendingCleanup.renewalCredentialExpiresAt,
+      pendingCleanup.createdAt,
+      pendingCleanup.updatedAt,
+    ]);
+
+    const listClient = new RecordingSqlClient([
+      {
+        id: pendingCleanup.id,
+        provider: pendingCleanup.provider,
+        hop1_issuer: pendingCleanup.hop1Issuer,
+        hop1_subject: pendingCleanup.hop1Subject,
+        email: pendingCleanup.displayAccountIdentity,
+        credential_envelope: pendingCleanup.encryptedCredentialEnvelope,
+        credential_schema_version: String(pendingCleanup.credentialSchemaVersion),
+        connection_generation: String(pendingCleanup.generation),
+        scopes_granted: pendingCleanup.grantedScopes,
+        active_credential_expires_at: pendingCleanup.activeCredentialExpiresAt,
+        renewal_credential_expires_at: pendingCleanup.renewalCredentialExpiresAt,
+        created_at: pendingCleanup.createdAt,
+        updated_at: pendingCleanup.updatedAt,
+      },
+    ]);
+    expect(
+      await new SqlOAuthTokenStore(listClient).listPendingCredentialCleanups("github", 5),
+    ).toEqual([pendingCleanup]);
+    expect(listClient.calls[0]?.params).toEqual(["github", 5]);
+
+    const deleteClient = new RecordingSqlClient();
+    await new SqlOAuthTokenStore(deleteClient).deletePendingCredentialCleanup(pendingCleanup.id);
+    expect(deleteClient.calls[0]?.sql).toContain("DELETE FROM oauth_pending_credential_cleanup");
+    expect(deleteClient.calls[0]?.params).toEqual([pendingCleanup.id]);
   });
 
   test("detects and prefers a newer legacy write over stale normalized metadata", async () => {
@@ -337,6 +411,7 @@ describe("SQL OAuth token store", () => {
     expect(client.calls[0]?.sql).toContain("INSERT INTO oauth_states");
     expect(client.calls[0]?.params).toEqual([
       stateRecord.stateHash,
+      stateRecord.provider,
       stateRecord.hop1Issuer,
       stateRecord.hop1Subject,
       stateRecord.email,
@@ -354,11 +429,16 @@ describe("SQL OAuth token store", () => {
     const client = new RecordingSqlClient();
     const store = new SqlOAuthStateStore(client);
 
-    await store.invalidatePrincipal(stateRecord.hop1Issuer, stateRecord.hop1Subject);
+    await store.invalidatePrincipal("google", stateRecord.hop1Issuer, stateRecord.hop1Subject);
 
     expect(client.calls[0]?.sql).toContain("UPDATE oauth_states");
     expect(client.calls[0]?.sql).toContain("consumed_at IS NULL");
-    expect(client.calls[0]?.params).toEqual([stateRecord.hop1Issuer, stateRecord.hop1Subject]);
+    expect(client.calls[0]?.sql).toContain("provider = $1");
+    expect(client.calls[0]?.params).toEqual([
+      "google",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    ]);
   });
 
   test("consumes unexpired OAuth state records", async () => {
@@ -366,6 +446,7 @@ describe("SQL OAuth token store", () => {
     const client = new RecordingSqlClient([
       {
         state_hash: stateRecord.stateHash,
+        provider: stateRecord.provider,
         hop1_issuer: stateRecord.hop1Issuer,
         hop1_subject: stateRecord.hop1Subject,
         email: stateRecord.email,
@@ -377,15 +458,17 @@ describe("SQL OAuth token store", () => {
     ]);
     const store = new SqlOAuthStateStore(client);
 
-    const consumed = await store.consume("state");
+    const consumed = await store.consume("google", "state");
 
     expect(consumed).toEqual({ ...stateRecord, consumedAt });
     expect(client.calls).toHaveLength(1);
     expect(client.calls[0]?.sql).toContain("UPDATE oauth_states");
     expect(client.calls[0]?.sql).toContain("consumed_at IS NULL");
     expect(client.calls[0]?.sql).toContain("expires_at > NOW()");
+    expect(client.calls[0]?.sql).toContain("provider = $3 OR provider IS NULL");
     expect(client.calls[0]?.sql).toContain("RETURNING");
     expect(client.calls[0]?.params[1]).toBe(stateRecord.stateHash);
+    expect(client.calls[0]?.params[2]).toBe("google");
   });
 });
 

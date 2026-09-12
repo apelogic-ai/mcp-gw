@@ -1,6 +1,10 @@
 import type { AuditSink } from "../audit/audit";
 import type { Hop1Identity } from "../identity/hop1";
-import { ConnectionLifecycle, snapshotAuthorizationGuard } from "./connection-lifecycle";
+import {
+  ConnectionLifecycle,
+  isCompleteAuthorizationActivationGuard,
+  snapshotAuthorizationGuard,
+} from "./connection-lifecycle";
 import { lifecycleErrorRequiresReauthorization, ProviderLifecycleError } from "./connection-types";
 import { GitHubConnectionAdapter } from "./provider-adapters";
 import { generateOAuthState, hashState } from "./state";
@@ -43,7 +47,7 @@ export interface StartGitHubOAuthOptions {
   scopes: string[];
   config: GitHubOAuthConfig;
   stateStore: OAuthStateStore;
-  tokenStore?: OAuthTokenStore;
+  tokenStore: OAuthTokenStore;
   redirectAfter?: string;
 }
 
@@ -96,15 +100,14 @@ export async function startGithubOAuth(
 ): Promise<StartedGitHubOAuth> {
   const state = generateOAuthState();
   const expiresAt = new Date(Date.now() + STATE_TTL_MS);
-  const observed = options.tokenStore
-    ? await options.tokenStore.getConnection(
-        "github",
-        options.identity.issuer,
-        options.identity.subject,
-      )
-    : null;
+  const observed = await options.tokenStore.getConnection(
+    "github",
+    options.identity.issuer,
+    options.identity.subject,
+  );
   const guard = snapshotAuthorizationGuard(observed);
   await options.stateStore.save({
+    provider: "github",
     stateHash: hashState(state),
     hop1Issuer: options.identity.issuer,
     hop1Subject: options.identity.subject,
@@ -112,18 +115,16 @@ export async function startGithubOAuth(
     requestedScopes: options.scopes,
     redirectAfter: options.redirectAfter,
     expiresAt,
-    connectionGeneration: options.tokenStore ? guard.generation : undefined,
-    connectionLocallyDisabled: options.tokenStore ? guard.locallyDisabled : undefined,
-    connectionUpdatedAt: options.tokenStore ? guard.updatedAt : undefined,
+    connectionGeneration: guard.generation,
+    connectionLocallyDisabled: guard.locallyDisabled,
+    connectionUpdatedAt: guard.updatedAt,
   });
 
-  if (options.tokenStore) {
-    await new ConnectionLifecycle({
-      adapter: new GitHubConnectionAdapter(options.config),
-      store: options.tokenStore,
-      credentialEncryptionKey: options.config.tokenEncryptionKey,
-    }).markAuthorizationStarted(options.identity, options.scopes, expiresAt);
-  }
+  await new ConnectionLifecycle({
+    adapter: new GitHubConnectionAdapter(options.config),
+    store: options.tokenStore,
+    credentialEncryptionKey: options.config.tokenEncryptionKey,
+  }).markAuthorizationStarted(options.identity, options.scopes, expiresAt);
 
   const continuation = await new GitHubConnectionAdapter(options.config).startAuthorization({
     identity: options.identity,
@@ -136,7 +137,7 @@ export async function startGithubOAuth(
 export async function completeGithubOAuth(
   options: CompleteGitHubOAuthOptions,
 ): Promise<CompleteGitHubOAuthResult> {
-  const stateRecord = await options.stateStore.consume(options.state);
+  const stateRecord = await options.stateStore.consume("github", options.state);
   if (!stateRecord) {
     throw new GitHubOAuthError("OAuth state is invalid or expired", "invalid_state");
   }
@@ -152,6 +153,21 @@ export async function completeGithubOAuth(
       stateRecord.hop1Subject,
     );
     throw new GitHubOAuthError("OAuth state does not match authenticated user", "email_mismatch");
+  }
+  if (
+    stateRecord.provider !== "github" ||
+    !isCompleteAuthorizationActivationGuard({
+      generation: stateRecord.connectionGeneration,
+      locallyDisabled: stateRecord.connectionLocallyDisabled,
+      updatedAt: stateRecord.connectionUpdatedAt,
+    })
+  ) {
+    await options.tokenStore.clearAuthorizing(
+      "github",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
+    throw new GitHubOAuthError("OAuth state is stale", "invalid_state");
   }
 
   const fetchImpl = options.fetch ?? fetch;
@@ -214,7 +230,7 @@ export async function completeGithubOAuth(
  * successful browser callback path.
  */
 export async function cancelGithubOAuth(options: CancelGitHubOAuthOptions): Promise<Hop1Identity> {
-  const stateRecord = await options.stateStore.consume(options.state);
+  const stateRecord = await options.stateStore.consume("github", options.state);
   if (!stateRecord) {
     throw new GitHubOAuthError("OAuth state is invalid or expired", "invalid_state");
   }

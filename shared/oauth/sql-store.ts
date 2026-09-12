@@ -3,9 +3,11 @@ import type {
   ConnectionPhase,
   ConnectionRecord,
   LifecycleErrorCategory,
+  PendingCredentialCleanupRecord,
   RevocationState,
 } from "./connection-types";
 import type {
+  ConnectionWriteGuard,
   OAuthAccountRecord,
   OAuthProvider,
   OAuthStateRecord,
@@ -265,7 +267,7 @@ LIMIT 1
     return row ? rowToConnection(row) : null;
   }
 
-  async saveConnection(record: ConnectionRecord, expectedGeneration?: number): Promise<boolean> {
+  async saveConnection(record: ConnectionRecord, guard: ConnectionWriteGuard): Promise<boolean> {
     const result = await this.client.query(
       `
 INSERT INTO oauth_accounts (
@@ -307,8 +309,10 @@ DO UPDATE SET
   lifecycle_updated_at = EXCLUDED.lifecycle_updated_at,
   updated_at = EXCLUDED.updated_at,
   revoked_at = EXCLUDED.revoked_at
-WHERE $26::BIGINT IS NULL
-   OR oauth_accounts.connection_generation = $26
+WHERE $26 = TRUE
+  AND oauth_accounts.connection_generation = $27
+  AND oauth_accounts.updated_at = $28
+  AND oauth_accounts.revoked_at IS NOT DISTINCT FROM $29
 RETURNING connection_generation
 `,
       [
@@ -337,7 +341,10 @@ RETURNING connection_generation
         record.lifecycleErrorCategory ?? null,
         record.createdAt,
         record.updatedAt,
-        expectedGeneration ?? null,
+        guard.exists,
+        guard.generation ?? null,
+        guard.updatedAt ?? null,
+        guard.revokedAt ?? null,
       ],
     );
     return result.rows.length === 1;
@@ -368,6 +375,58 @@ LIMIT $2
       [provider, limit],
     );
     return result.rows.map(rowToConnection);
+  }
+
+  async savePendingCredentialCleanup(record: PendingCredentialCleanupRecord): Promise<void> {
+    await this.client.query(
+      `
+INSERT INTO oauth_pending_credential_cleanup (
+  id, provider, hop1_issuer, hop1_subject, email, credential_envelope,
+  credential_schema_version, connection_generation, scopes_granted,
+  active_credential_expires_at, renewal_credential_expires_at, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+ON CONFLICT (id) DO NOTHING
+`,
+      [
+        record.id,
+        record.provider,
+        record.hop1Issuer,
+        record.hop1Subject,
+        record.displayAccountIdentity,
+        record.encryptedCredentialEnvelope,
+        record.credentialSchemaVersion,
+        record.generation,
+        record.grantedScopes,
+        record.activeCredentialExpiresAt ?? null,
+        record.renewalCredentialExpiresAt ?? null,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  async listPendingCredentialCleanups(
+    provider: OAuthProvider,
+    limit: number,
+  ): Promise<PendingCredentialCleanupRecord[]> {
+    const result = await this.client.query(
+      `
+SELECT
+  id, provider, hop1_issuer, hop1_subject, email, credential_envelope,
+  credential_schema_version, connection_generation, scopes_granted,
+  active_credential_expires_at, renewal_credential_expires_at, created_at, updated_at
+FROM oauth_pending_credential_cleanup
+WHERE provider = $1
+ORDER BY updated_at ASC
+LIMIT $2
+`,
+      [provider, limit],
+    );
+    return result.rows.map(rowToPendingCredentialCleanup);
+  }
+
+  async deletePendingCredentialCleanup(id: string): Promise<void> {
+    await this.client.query("DELETE FROM oauth_pending_credential_cleanup WHERE id = $1", [id]);
   }
 
   async markAuthorizing(
@@ -434,6 +493,7 @@ export class SqlOAuthStateStore implements OAuthStateStore {
       `
 INSERT INTO oauth_states (
   state_hash,
+  provider,
   hop1_issuer,
   hop1_subject,
   email,
@@ -444,9 +504,10 @@ INSERT INTO oauth_states (
   connection_generation,
   connection_locally_disabled,
   connection_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (state_hash)
 DO UPDATE SET
+  provider = EXCLUDED.provider,
   hop1_issuer = EXCLUDED.hop1_issuer,
   hop1_subject = EXCLUDED.hop1_subject,
   email = EXCLUDED.email,
@@ -460,6 +521,7 @@ DO UPDATE SET
 `,
       [
         record.stateHash,
+        record.provider ?? null,
         record.hop1Issuer,
         record.hop1Subject,
         record.email,
@@ -474,7 +536,7 @@ DO UPDATE SET
     );
   }
 
-  async consume(state: string): Promise<OAuthStateRecord | null> {
+  async consume(provider: OAuthProvider, state: string): Promise<OAuthStateRecord | null> {
     const stateHash = hashState(state);
     const consumedAt = new Date();
     const result = await this.client.query(
@@ -482,10 +544,12 @@ DO UPDATE SET
 UPDATE oauth_states
 SET consumed_at = $1
 WHERE state_hash = $2
+  AND (provider = $3 OR provider IS NULL)
   AND consumed_at IS NULL
   AND expires_at > NOW()
 RETURNING
   state_hash,
+  provider,
   hop1_issuer,
   hop1_subject,
   email,
@@ -497,23 +561,28 @@ RETURNING
   connection_locally_disabled,
   connection_updated_at
 `,
-      [consumedAt, stateHash],
+      [consumedAt, stateHash, provider],
     );
 
     const row = result.rows[0];
     return row ? rowToState(row) : null;
   }
 
-  async invalidatePrincipal(hop1Issuer: string, hop1Subject: string): Promise<void> {
+  async invalidatePrincipal(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<void> {
     await this.client.query(
       `
 UPDATE oauth_states
 SET consumed_at = NOW()
-WHERE hop1_issuer = $1
-  AND hop1_subject = $2
+WHERE provider = $1
+  AND hop1_issuer = $2
+  AND hop1_subject = $3
   AND consumed_at IS NULL
 `,
-      [hop1Issuer, hop1Subject],
+      [provider, hop1Issuer, hop1Subject],
     );
   }
 }
@@ -612,6 +681,7 @@ function providerField(row: Record<string, unknown>, name: string): OAuthProvide
 function rowToState(row: Record<string, unknown>): OAuthStateRecord {
   return {
     stateHash: stringField(row, "state_hash"),
+    provider: optionalProviderField(row, "provider"),
     hop1Issuer: stringField(row, "hop1_issuer"),
     hop1Subject: stringField(row, "hop1_subject"),
     email: stringField(row, "email"),
@@ -623,6 +693,38 @@ function rowToState(row: Record<string, unknown>): OAuthStateRecord {
     connectionLocallyDisabled: optionalBooleanField(row, "connection_locally_disabled"),
     connectionUpdatedAt: optionalDateField(row, "connection_updated_at"),
   };
+}
+
+function rowToPendingCredentialCleanup(
+  row: Record<string, unknown>,
+): PendingCredentialCleanupRecord {
+  return {
+    id: stringField(row, "id"),
+    provider: providerField(row, "provider"),
+    hop1Issuer: stringField(row, "hop1_issuer"),
+    hop1Subject: stringField(row, "hop1_subject"),
+    displayAccountIdentity: stringField(row, "email"),
+    encryptedCredentialEnvelope: stringField(row, "credential_envelope"),
+    credentialSchemaVersion: numberField(row, "credential_schema_version"),
+    generation: numberField(row, "connection_generation"),
+    grantedScopes: stringArrayField(row, "scopes_granted"),
+    activeCredentialExpiresAt: optionalDateField(row, "active_credential_expires_at"),
+    renewalCredentialExpiresAt: optionalDateField(row, "renewal_credential_expires_at"),
+    createdAt: dateField(row, "created_at"),
+    updatedAt: dateField(row, "updated_at"),
+  };
+}
+
+function optionalProviderField(
+  row: Record<string, unknown>,
+  name: string,
+): OAuthProvider | undefined {
+  const value = optionalStringField(row, name);
+  if (value === undefined) return undefined;
+  if (value !== "google" && value !== "github") {
+    throw new Error(`Expected SQL field ${name} to be a supported OAuth provider`);
+  }
+  return value;
 }
 
 function stringField(row: Record<string, unknown>, name: string): string {
@@ -657,6 +759,14 @@ function optionalNumberField(row: Record<string, unknown>, name: string): number
   if (typeof value === "number") return value;
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   throw new Error(`Expected SQL field ${name} to be a number`);
+}
+
+function numberField(row: Record<string, unknown>, name: string): number {
+  const value = optionalNumberField(row, name);
+  if (value === undefined) {
+    throw new Error(`Expected SQL field ${name} to be a number`);
+  }
+  return value;
 }
 
 function optionalBooleanField(row: Record<string, unknown>, name: string): boolean | undefined {

@@ -53,15 +53,31 @@ export function createConnectionRouteHandler(
       }
       return json({ error: "Not found" }, 404);
     } catch (error) {
-      if (error instanceof SyntaxError) {
-        return json({ error: "invalid_request" }, 400);
-      }
-      if (error instanceof ProviderLifecycleError) {
-        return json({ error: error.category }, lifecycleHttpStatus(error));
-      }
-      return json({ error: "persistence_failure" }, 503);
+      return connectionErrorResponse(error);
     }
   };
+}
+
+export function withConnectionErrorMapping(
+  handler: (request: Request) => Promise<Response>,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      return await handler(request);
+    } catch (error) {
+      return connectionErrorResponse(error);
+    }
+  };
+}
+
+export function connectionErrorResponse(error: unknown): Response {
+  if (error instanceof SyntaxError) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  if (error instanceof ProviderLifecycleError) {
+    return json({ error: error.category }, lifecycleHttpStatus(error));
+  }
+  return json({ error: "persistence_failure" }, 503);
 }
 
 async function cancelAuthorizationSafely(

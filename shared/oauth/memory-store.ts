@@ -1,12 +1,13 @@
 import type {
   OAuthConnectionStore,
   OAuthAccountRecord,
+  ConnectionWriteGuard,
   OAuthProvider,
   OAuthStateRecord,
   OAuthStateStore,
   OAuthTokenStore,
 } from "./store";
-import type { ConnectionRecord } from "./connection-types";
+import type { ConnectionRecord, PendingCredentialCleanupRecord } from "./connection-types";
 import { hashState } from "./state";
 
 export class InMemoryOAuthStateStore implements OAuthStateStore {
@@ -17,10 +18,15 @@ export class InMemoryOAuthStateStore implements OAuthStateStore {
     return Promise.resolve();
   }
 
-  consume(state: string): Promise<OAuthStateRecord | null> {
+  consume(provider: OAuthProvider, state: string): Promise<OAuthStateRecord | null> {
     const stateHash = hashState(state);
     const record = this.records.get(stateHash);
-    if (!record || record.consumedAt || record.expiresAt.getTime() <= Date.now()) {
+    if (!record) return Promise.resolve(null);
+    if (
+      (record.provider !== undefined && record.provider !== provider) ||
+      record.consumedAt ||
+      record.expiresAt.getTime() <= Date.now()
+    ) {
       return Promise.resolve(null);
     }
 
@@ -32,11 +38,16 @@ export class InMemoryOAuthStateStore implements OAuthStateStore {
     return Promise.resolve(consumed);
   }
 
-  invalidatePrincipal(hop1Issuer: string, hop1Subject: string): Promise<void> {
+  invalidatePrincipal(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<void> {
     const consumedAt = new Date();
     for (const [key, record] of this.records) {
       if (
         !record.consumedAt &&
+        record.provider === provider &&
         record.hop1Issuer === hop1Issuer &&
         record.hop1Subject === hop1Subject
       ) {
@@ -50,6 +61,7 @@ export class InMemoryOAuthStateStore implements OAuthStateStore {
 export class InMemoryOAuthTokenStore implements OAuthTokenStore {
   private readonly accounts = new Map<string, OAuthAccountRecord>();
   private readonly connections = new Map<string, ConnectionRecord>();
+  private readonly pendingCredentialCleanups = new Map<string, PendingCredentialCleanupRecord>();
   private readonly authorizations = new Map<
     string,
     { requiredScopes: string[]; expiresAt: Date; updatedAt: Date }
@@ -172,11 +184,19 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
     return Promise.resolve(legacy ? connectionFromLegacy(legacy) : null);
   }
 
-  saveConnection(record: ConnectionRecord, expectedGeneration?: number): Promise<boolean> {
+  saveConnection(record: ConnectionRecord, guard: ConnectionWriteGuard): Promise<boolean> {
     const key = accountKey(record.provider, record.hop1Issuer, record.hop1Subject);
     const current = this.connections.get(key);
-    const currentGeneration = current?.generation ?? (this.accounts.has(key) ? 1 : 0);
-    if (expectedGeneration !== undefined && currentGeneration !== expectedGeneration) {
+    const legacy = this.accounts.get(key);
+    const exists = legacy !== undefined;
+    const currentGeneration = current?.generation ?? (exists ? 1 : undefined);
+    if (
+      guard.exists !== exists ||
+      (guard.exists &&
+        (currentGeneration !== guard.generation ||
+          legacy?.updatedAt.getTime() !== guard.updatedAt?.getTime() ||
+          legacy?.revokedAt?.getTime() !== guard.revokedAt?.getTime()))
+    ) {
       return Promise.resolve(false);
     }
     this.connections.set(key, cloneConnection(record));
@@ -205,6 +225,29 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
         .slice(0, limit)
         .map(cloneConnection),
     );
+  }
+
+  savePendingCredentialCleanup(record: PendingCredentialCleanupRecord): Promise<void> {
+    this.pendingCredentialCleanups.set(record.id, clonePendingCredentialCleanup(record));
+    return Promise.resolve();
+  }
+
+  listPendingCredentialCleanups(
+    provider: OAuthProvider,
+    limit: number,
+  ): Promise<PendingCredentialCleanupRecord[]> {
+    return Promise.resolve(
+      [...this.pendingCredentialCleanups.values()]
+        .filter((record) => record.provider === provider)
+        .sort((left, right) => left.updatedAt.getTime() - right.updatedAt.getTime())
+        .slice(0, limit)
+        .map(clonePendingCredentialCleanup),
+    );
+  }
+
+  deletePendingCredentialCleanup(id: string): Promise<void> {
+    this.pendingCredentialCleanups.delete(id);
+    return Promise.resolve();
   }
 
   markAuthorizing(
@@ -267,6 +310,12 @@ function cloneConnection(record: ConnectionRecord): ConnectionRecord {
     requiredScopes: [...record.requiredScopes],
     grantedScopes: [...record.grantedScopes],
   };
+}
+
+function clonePendingCredentialCleanup(
+  record: PendingCredentialCleanupRecord,
+): PendingCredentialCleanupRecord {
+  return { ...record, grantedScopes: [...record.grantedScopes] };
 }
 
 function connectionFromLegacy(legacy: OAuthAccountRecord): ConnectionRecord {
