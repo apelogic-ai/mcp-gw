@@ -366,6 +366,31 @@ describe("SQL OAuth token store", () => {
     expect(updateClient.calls[0]?.params[15]).toBe(credentialGeneration.cleanupAttempts);
   });
 
+  test("commits issued credential custody through a dedicated SQL transaction", async () => {
+    const calls: { sql: string; params: unknown[] }[] = [];
+    let transactions = 0;
+    const transactionClient: SqlQueryClient = {
+      query: (sql, params) => {
+        calls.push({ sql, params });
+        return Promise.resolve({ rows: [] });
+      },
+    };
+    const client: SqlQueryClient = {
+      query: (sql, params) => transactionClient.query(sql, params),
+      transaction: async (operation) => {
+        transactions += 1;
+        return operation(transactionClient);
+      },
+    };
+
+    await new SqlOAuthTokenStore(client).saveCredentialGenerationDurably(credentialGeneration);
+
+    expect(transactions).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain("INSERT INTO oauth_credential_generations");
+    expect(calls[0]?.params[0]).toBe(credentialGeneration.id);
+  });
+
   test("uses the connection cleanup scan only for legacy rows without ledger custody", async () => {
     const client = new RecordingSqlClient();
 

@@ -98,6 +98,8 @@ export interface OAuthConnectionStore {
   ): Promise<PendingCredentialCleanupRecord[]>;
   deletePendingCredentialCleanup(id: string): Promise<void>;
   saveCredentialGeneration(record: CredentialGenerationRecord): Promise<void>;
+  /** Commit provider-issued material independently of any surrounding lifecycle transaction. */
+  saveCredentialGenerationDurably(record: CredentialGenerationRecord): Promise<void>;
   updateCredentialGeneration(
     record: CredentialGenerationRecord,
     expectedState: CredentialGenerationState,

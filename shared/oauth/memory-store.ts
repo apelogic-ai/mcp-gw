@@ -268,6 +268,10 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
     return Promise.resolve();
   }
 
+  saveCredentialGenerationDurably(record: CredentialGenerationRecord): Promise<void> {
+    return this.saveCredentialGeneration(record);
+  }
+
   updateCredentialGeneration(
     record: CredentialGenerationRecord,
     expectedState: CredentialGenerationState,

@@ -88,6 +88,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("tools/list");
     expect(smoke).toContain('EXPECTED_TOOLS=("google_oauth_start" "google_oauth_status")');
     expect(smoke).toContain('bun "$ROOT_DIR/shared/oauth/migrate.ts"');
+    expect(smoke).toContain('bun "$ROOT_DIR/scripts/fixtures/oauth-custody-postgres.ts"');
     expect(smoke).toContain("OAuth migrations did not complete.");
     expect(smoke.indexOf('bun "$ROOT_DIR/shared/oauth/migrate.ts"')).toBeLessThan(
       smoke.indexOf('bun "$ROOT_DIR/scripts/fixtures/refresh-token-race.ts"'),

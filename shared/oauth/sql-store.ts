@@ -453,6 +453,15 @@ ON CONFLICT (id) DO NOTHING
     );
   }
 
+  async saveCredentialGenerationDurably(record: CredentialGenerationRecord): Promise<void> {
+    if (!this.client.transaction) {
+      throw new Error("Durable credential custody requires transactional SQL support");
+    }
+    await this.client.transaction((client) =>
+      new SqlOAuthTokenStore(client).saveCredentialGeneration(record),
+    );
+  }
+
   async updateCredentialGeneration(
     record: CredentialGenerationRecord,
     expectedState: CredentialGenerationState,
