@@ -107,56 +107,70 @@ export class ConnectionLifecycle {
       );
     }
     const provider = this.providerId;
-    await this.options.store.withConnectionLock(
-      provider,
-      identity.issuer,
-      identity.subject,
-      async (store) => {
-        const current = await store.getConnection(provider, identity.issuer, identity.subject);
-        if (
-          guard?.generation !== undefined &&
-          ((current?.generation ?? 0) !== guard.generation ||
-            Boolean(current?.localDisabledAt) !== guard.locallyDisabled ||
-            (guard.updatedAt !== undefined && !sameInstant(current?.updatedAt, guard.updatedAt)))
-        ) {
-          throw generationConflict();
-        }
-        const now = this.now();
-        const generation = (current?.generation ?? 0) + 1;
-        const record: ConnectionRecord = {
+    try {
+      await this.options.store.withConnectionLock(
+        provider,
+        identity.issuer,
+        identity.subject,
+        async (store) => {
+          const current = await store.getConnection(provider, identity.issuer, identity.subject);
+          if (
+            guard?.generation !== undefined &&
+            ((current?.generation ?? 0) !== guard.generation ||
+              Boolean(current?.localDisabledAt) !== guard.locallyDisabled ||
+              (guard.updatedAt !== undefined && !sameInstant(current?.updatedAt, guard.updatedAt)))
+          ) {
+            throw generationConflict();
+          }
+          const now = this.now();
+          const generation = (current?.generation ?? 0) + 1;
+          const record: ConnectionRecord = {
+            provider,
+            hop1Issuer: identity.issuer,
+            hop1Subject: identity.subject,
+            displayAccountIdentity: issued.displayAccountIdentity,
+            encryptedCredentialEnvelope: encryptEnvelope(
+              issued.credential,
+              this.options.credentialEncryptionKey,
+            ),
+            credentialSchemaVersion: CREDENTIAL_SCHEMA_VERSION,
+            generation,
+            requiredScopes: [...requiredScopes],
+            grantedScopes: [...issued.grantedScopes],
+            activeCredentialPresent: Boolean(issued.credential.activeCredential),
+            renewalCredentialPresent: Boolean(issued.credential.renewalCredential),
+            activeCredentialExpiresAt: issued.activeCredentialExpiresAt,
+            renewalCredentialExpiresAt: issued.renewalCredentialExpiresAt,
+            lastAuthorizedAt: now,
+            lastValidatedAt: issued.validatedAt,
+            phase: "connected",
+            revocationState: "none",
+            createdAt: current?.createdAt ?? now,
+            updatedAt: now,
+            encryptedLegacyCredential: legacyCredential(
+              provider,
+              issued.credential,
+              this.options.credentialEncryptionKey,
+            ),
+          };
+          const saved = await store.saveConnection(record, current?.generation);
+          if (!saved) throw generationConflict();
+          await store.clearAuthorizing(provider, identity.issuer, identity.subject);
+        },
+      );
+    } catch (error) {
+      if (lifecycleCategory(error) === "generation_conflict") {
+        await this.revoke({
           provider,
-          hop1Issuer: identity.issuer,
-          hop1Subject: identity.subject,
-          displayAccountIdentity: issued.displayAccountIdentity,
-          encryptedCredentialEnvelope: encryptEnvelope(
-            issued.credential,
-            this.options.credentialEncryptionKey,
-          ),
-          credentialSchemaVersion: CREDENTIAL_SCHEMA_VERSION,
-          generation,
-          requiredScopes: [...requiredScopes],
-          grantedScopes: [...issued.grantedScopes],
-          activeCredentialPresent: Boolean(issued.credential.activeCredential),
-          renewalCredentialPresent: Boolean(issued.credential.renewalCredential),
+          generation: guard?.generation ?? 0,
+          credential: issued.credential,
           activeCredentialExpiresAt: issued.activeCredentialExpiresAt,
           renewalCredentialExpiresAt: issued.renewalCredentialExpiresAt,
-          lastAuthorizedAt: now,
-          lastValidatedAt: issued.validatedAt,
-          phase: "connected",
-          revocationState: "none",
-          createdAt: current?.createdAt ?? now,
-          updatedAt: now,
-          encryptedLegacyCredential: legacyCredential(
-            provider,
-            issued.credential,
-            this.options.credentialEncryptionKey,
-          ),
-        };
-        const saved = await store.saveConnection(record, current?.generation);
-        if (!saved) throw generationConflict();
-        await store.clearAuthorizing(provider, identity.issuer, identity.subject);
-      },
-    );
+          grantedScopes: issued.grantedScopes,
+        });
+      }
+      throw error;
+    }
     await this.emit(identity, "authorize", "allow");
     return this.status(identity, requiredScopes);
   }
@@ -472,6 +486,9 @@ export class ConnectionLifecycle {
             (expiresAt === undefined ||
               expiresAt > this.now().getTime() + this.renewalSafetyWindowMs);
           if (!manual && fresh) return "already_fresh";
+          if (manual && fresh && !decrypted.credential.renewalCredential) {
+            return "refresh_not_supported";
+          }
           const renewalSupported = manual
             ? this.options.adapter.capabilities.manualRenewal
             : this.options.adapter.capabilities.automaticRenewal;
@@ -663,7 +680,13 @@ export class ConnectionLifecycle {
           identity.issuer,
           identity.subject,
         );
-        if (current?.generation !== generation || !current.localDisabledAt) return;
+        if (
+          current?.generation !== generation ||
+          !current.localDisabledAt ||
+          current.revocationState !== "pending"
+        ) {
+          return;
+        }
         const now = this.now();
         const complete =
           result === "revoked" || result === "already_absent" || result === "not_supported";

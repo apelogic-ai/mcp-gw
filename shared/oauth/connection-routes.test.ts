@@ -28,8 +28,10 @@ class RouteAdapter implements DownstreamConnectionAdapter {
     scopeReporting: true,
     identityVerification: true,
   };
+  renewCalls = 0;
 
   renew(): Promise<RenewedCredentialGeneration> {
+    this.renewCalls += 1;
     return Promise.resolve({
       credential: { activeCredential: "active-2", renewalCredential: "renewal-2" },
       grantedScopes: ["repo"],
@@ -161,5 +163,81 @@ describe("generic connection routes", () => {
       connected: false,
     });
     expect(body.account).toBeUndefined();
+  });
+
+  test("preserves a valid static credential when manual refresh is unsupported", async () => {
+    const adapter = new RouteAdapter();
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store: new InMemoryOAuthTokenStore(),
+      credentialEncryptionKey: key,
+    });
+    await lifecycle.activateAuthorizedGeneration(identity, ["repo"], {
+      credential: { activeCredential: "static-active" },
+      displayAccountIdentity: identity.email,
+      grantedScopes: ["repo"],
+      validatedAt: new Date(),
+    });
+    const handler = createConnectionRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      lifecycle,
+      requiredScopes: ["repo"],
+      startAuthorization: () => Promise.resolve({ authorizationUrl: "unused" }),
+    });
+
+    const response = await handler(
+      new Request("https://mcp.example/connections/github/refresh", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      result: "refresh_not_supported",
+      status: { phase: "connected", connected: true },
+    });
+    expect(adapter.renewCalls).toBe(0);
+    expect(await lifecycle.getActiveCredential(identity, ["repo"])).toBe("static-active");
+  });
+
+  test("sanitizes unexpected connection-store failures", async () => {
+    const cases = [
+      { method: "GET", action: "status" },
+      { method: "POST", action: "refresh" },
+      { method: "POST", action: "disconnect" },
+      { method: "POST", action: "authorize" },
+    ];
+
+    for (const route of cases) {
+      const store = new InMemoryOAuthTokenStore();
+      if (route.action === "authorize") {
+        store.markAuthorizing = () => Promise.reject(new Error("database unavailable"));
+      } else {
+        store.getConnection = () => Promise.reject(new Error("database unavailable"));
+      }
+      const lifecycle = new ConnectionLifecycle({
+        adapter: new RouteAdapter(),
+        store,
+        credentialEncryptionKey: key,
+      });
+      const handler = createConnectionRouteHandler({
+        authenticate: () => Promise.resolve(identity),
+        lifecycle,
+        requiredScopes: ["repo"],
+        startAuthorization: () =>
+          Promise.resolve({ authorizationUrl: "https://provider.example/authorize" }),
+      });
+
+      const response = await handler(
+        new Request(`https://mcp.example/connections/github/${route.action}`, {
+          method: route.method,
+          headers: { authorization: "Bearer hop1" },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "persistence_failure" });
+    }
   });
 });

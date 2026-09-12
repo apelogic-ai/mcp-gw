@@ -248,6 +248,33 @@ describe("provider-neutral connection lifecycle", () => {
     ).toBe(2);
   });
 
+  test("completed cleanup cannot be regressed by a concurrent failed attempt", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    adapter.revocation = () => Promise.resolve("retryable_failure");
+    const lifecycle = fixtureLifecycle(store, adapter);
+    await authorize(lifecycle, "active-1", "renewal-1");
+    await lifecycle.disconnect(identity, scopes);
+
+    const finishAttempts: ((result: ProviderRevocationResult) => void)[] = [];
+    adapter.revocation = () =>
+      new Promise<ProviderRevocationResult>((resolve) => {
+        finishAttempts.push(resolve);
+      });
+    const successfulAttempt = lifecycle.retryPendingRevocation(identity);
+    const failedAttempt = lifecycle.retryPendingRevocation(identity);
+    while (finishAttempts.length < 2) await Bun.sleep(1);
+
+    finishAttempts[0]?.("revoked");
+    await successfulAttempt;
+    finishAttempts[1]?.("retryable_failure");
+    await failedAttempt;
+
+    const record = await store.getConnection("github", identity.issuer, identity.subject);
+    expect(record).toMatchObject({ phase: "disconnected", revocationState: "complete" });
+    expect(record?.encryptedCredentialEnvelope).toBeUndefined();
+  });
+
   test("background cleanup retries pending provider revocation idempotently", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
@@ -418,14 +445,21 @@ describe("provider-neutral connection lifecycle", () => {
 
   test("rejects an authorization completion whose observed generation was disconnected", async () => {
     const store = new InMemoryOAuthTokenStore();
-    const lifecycle = fixtureLifecycle(store, new FixtureAdapter());
+    const adapter = new FixtureAdapter();
+    const revokedActiveCredentials: (string | undefined)[] = [];
+    adapter.revocation = (generation) => {
+      revokedActiveCredentials.push(generation.credential.activeCredential);
+      return Promise.resolve("revoked");
+    };
+    const lifecycle = fixtureLifecycle(store, adapter);
     await authorize(lifecycle, "old-active", "old-renewal");
     const observed = await store.getConnection("github", identity.issuer, identity.subject);
     if (!observed) throw new Error("expected connected generation");
     await lifecycle.disconnect(identity, scopes);
 
-    expect(
-      lifecycle.activateAuthorizedGeneration(
+    let activationError: unknown;
+    try {
+      await lifecycle.activateAuthorizedGeneration(
         identity,
         scopes,
         {
@@ -442,8 +476,12 @@ describe("provider-neutral connection lifecycle", () => {
           locallyDisabled: false,
           updatedAt: observed.updatedAt,
         },
-      ),
-    ).rejects.toMatchObject({ category: "generation_conflict" });
+      );
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toMatchObject({ category: "generation_conflict" });
+    expect(revokedActiveCredentials).toEqual(["old-active", "stale-callback-active"]);
     expect(await lifecycle.status(identity, scopes)).toMatchObject({
       phase: "disconnected",
       connected: false,

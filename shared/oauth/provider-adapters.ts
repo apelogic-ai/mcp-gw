@@ -250,7 +250,7 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
         },
       },
     );
-    const emailBody = await emailResponse.json().catch(() => undefined);
+    const emailBody = await responseJson(emailResponse);
     if (!emailResponse.ok || !Array.isArray(emailBody)) throw providerResponseError(emailResponse);
     const matching = emailBody.some(
       (entry) =>
@@ -346,7 +346,7 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
         },
       },
     );
-    const body = await response.json().catch(() => undefined);
+    const body = await responseJson(response);
     if (!response.ok || !Array.isArray(body)) throw providerResponseError(response);
     const matching = body.some(
       (entry) =>
@@ -405,12 +405,28 @@ async function providerFetch(
 }
 
 async function jsonObject(response: Response): Promise<Record<string, unknown>> {
-  const body = await response.json().catch(() => undefined);
+  const body = await responseJson(response);
   if (!isRecord(body)) {
     if (!response.ok) throw providerResponseError(response);
     throw malformedResponse();
   }
   return body;
+}
+
+async function responseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (error) {
+    if (isAbortOrTimeout(error)) {
+      throw new ProviderLifecycleError("Provider response timed out", "transient_provider_failure");
+    }
+    return undefined;
+  }
+}
+
+function isAbortOrTimeout(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  return error.name === "AbortError" || error.name === "TimeoutError";
 }
 
 function providerResponseError(response: Response): ProviderLifecycleError {

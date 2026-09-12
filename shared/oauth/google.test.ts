@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../identity/hop1";
 import { completeGoogleOAuth, GoogleOAuthError, startGoogleOAuth, type OAuthFetch } from "./google";
 import { InMemoryOAuthStateStore, InMemoryOAuthTokenStore } from "./memory-store";
+import { GoogleConnectionAdapter } from "./provider-adapters";
 import { GoogleTokenBroker } from "./token-broker";
 
 const identity: Hop1Identity = {
@@ -413,6 +414,28 @@ describe("Google token broker", () => {
     expect(broker.getAccessToken(identity, scopes)).rejects.toMatchObject({
       category: "persistence_failure",
     });
+  });
+
+  test("classifies a response-body timeout as a transient provider failure", async () => {
+    const response = new Response(null, { status: 200 });
+    Object.defineProperty(response, "json", {
+      value: () => Promise.reject(new DOMException("body timed out", "TimeoutError")),
+    });
+    const adapter = new GoogleConnectionAdapter(config, () => Promise.resolve(response));
+
+    let error: unknown;
+    try {
+      await adapter.renew({
+        provider: "google",
+        generation: 1,
+        credential: { activeCredential: "expired", renewalCredential: "renewal" },
+        grantedScopes: scopes,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({ category: "transient_provider_failure" });
   });
 });
 

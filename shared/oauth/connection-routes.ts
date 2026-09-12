@@ -59,7 +59,7 @@ export function createConnectionRouteHandler(
       if (error instanceof ProviderLifecycleError) {
         return json({ error: error.category }, lifecycleHttpStatus(error));
       }
-      throw error;
+      return json({ error: "persistence_failure" }, 503);
     }
   };
 }
