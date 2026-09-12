@@ -39,6 +39,8 @@ export interface ProviderConnectionCapabilities {
   providerRevocation: boolean;
   scopeReporting: boolean;
   identityVerification: boolean;
+  /** Omitted/false for providers whose authorization may legitimately issue a static token. */
+  authorizationRequiresRenewalCredential?: boolean;
 }
 
 /** Secret provider data. Instances must never be logged, audited, or returned by HTTP APIs. */
@@ -67,11 +69,43 @@ export interface IssuedCredentialGeneration {
 }
 
 export interface RenewedCredentialGeneration {
+  /** Only credential material issued by this renewal response; inherited material is merged later. */
   credential: ProviderCredentialEnvelope;
   grantedScopes?: string[];
   activeCredentialExpiresAt?: Date;
   renewalCredentialExpiresAt?: Date;
   validatedAt?: Date;
+}
+
+export type CredentialGenerationState =
+  | "candidate"
+  | "active"
+  | "cleanup_pending"
+  | "cleanup_complete"
+  | "cleanup_permanent_failure"
+  | "retired";
+
+/** Durable custody record for one provider-issued credential generation. */
+export interface CredentialGenerationRecord {
+  id: string;
+  provider: OAuthProvider;
+  hop1Issuer: string;
+  hop1Subject: string;
+  displayAccountIdentity: string;
+  encryptedCredentialEnvelope?: string;
+  /** One-release rolling compatibility for generations backfilled from legacy account rows. */
+  encryptedLegacyCredential?: string;
+  credentialSchemaVersion: number;
+  generation: number;
+  state: CredentialGenerationState;
+  grantedScopes: string[];
+  activeCredentialExpiresAt?: Date;
+  renewalCredentialExpiresAt?: Date;
+  cleanupAttempts: number;
+  nextCleanupAttemptAt?: Date;
+  lastCleanupErrorCategory?: LifecycleErrorCategory;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ValidatedProviderIdentity {
@@ -138,6 +172,7 @@ export interface ConnectionRecord {
   displayAccountIdentity: string;
   encryptedCredentialEnvelope?: string;
   credentialSchemaVersion?: number;
+  credentialGenerationId?: string;
   generation: number;
   requiredScopes: string[];
   grantedScopes: string[];

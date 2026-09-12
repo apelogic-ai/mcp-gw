@@ -10,6 +10,7 @@ import type {
 import type {
   ConnectionRecord,
   ConnectionStatusV1,
+  CredentialGenerationRecord,
   DecryptedCredentialGeneration,
   DownstreamConnectionAdapter,
   IssuedCredentialGeneration,
@@ -112,15 +113,52 @@ export class ConnectionLifecycle {
     issued: IssuedCredentialGeneration,
     guard?: AuthorizationActivationGuard,
   ): Promise<ConnectionStatusV1> {
-    requireScopes(this.options.adapter, issued.grantedScopes, requiredScopes);
-    if (this.options.adapter.capabilities.identityVerification && !issued.validatedAt) {
-      throw new ProviderLifecycleError(
-        "Provider identity validation attestation is missing",
-        "identity_mismatch",
-      );
-    }
     const provider = this.providerId;
+    const candidate = this.credentialCustodyRecord(identity, {
+      provider,
+      generation: (guard?.generation ?? 0) + 1,
+      credential: issued.credential,
+      activeCredentialExpiresAt: issued.activeCredentialExpiresAt,
+      renewalCredentialExpiresAt: issued.renewalCredentialExpiresAt,
+      grantedScopes: issued.grantedScopes,
+    });
+    await this.acquireCredentialCustody(identity, candidate);
+    let activationTransactionStarted = false;
     try {
+      if (!issued.credential.activeCredential) {
+        throw new ProviderLifecycleError(
+          "Authorization response did not contain an active credential",
+          "malformed_provider_response",
+        );
+      }
+      if (
+        this.options.adapter.capabilities.authorizationRequiresRenewalCredential &&
+        !issued.credential.renewalCredential
+      ) {
+        throw new ProviderLifecycleError(
+          "Authorization response did not contain a renewal credential",
+          "malformed_provider_response",
+        );
+      }
+      requireScopes(this.options.adapter, issued.grantedScopes, requiredScopes);
+      let displayAccountIdentity = issued.displayAccountIdentity;
+      let validatedAt = issued.validatedAt;
+      if (this.options.adapter.capabilities.identityVerification && !validatedAt) {
+        if (this.options.adapter.validateIdentity) {
+          const validated = await this.options.adapter.validateIdentity(
+            decryptCredentialCustody(candidate, this.options.credentialEncryptionKey),
+            identity,
+          );
+          displayAccountIdentity = validated.displayAccountIdentity;
+          validatedAt = this.now();
+        } else {
+          throw new ProviderLifecycleError(
+            "Provider identity validation attestation is missing",
+            "identity_mismatch",
+          );
+        }
+      }
+      activationTransactionStarted = true;
       await this.options.store.withConnectionLock(
         provider,
         identity.issuer,
@@ -136,18 +174,56 @@ export class ConnectionLifecycle {
           ) {
             throw generationConflict();
           }
+          if (
+            current?.revocationState === "pending" ||
+            current?.revocationState === "permanent_failure"
+          ) {
+            throw new ProviderLifecycleError(
+              "Previous credential cleanup is unresolved",
+              "generation_conflict",
+            );
+          }
+          const existingGenerations = await store.listPrincipalCredentialGenerations(
+            provider,
+            identity.issuer,
+            identity.subject,
+          );
+          if (
+            existingGenerations.some(
+              (record) =>
+                record.id !== candidate.id &&
+                (record.state === "cleanup_pending" ||
+                  record.state === "cleanup_permanent_failure"),
+            )
+          ) {
+            throw new ProviderLifecycleError(
+              "Previous credential cleanup is unresolved",
+              "generation_conflict",
+            );
+          }
           const now = this.now();
           const generation = (current?.generation ?? 0) + 1;
+          const activeCandidate: CredentialGenerationRecord = {
+            ...candidate,
+            generation,
+            state: "active",
+            displayAccountIdentity,
+            updatedAt: now,
+          };
+          if (!(await store.updateCredentialGeneration(activeCandidate, "candidate"))) {
+            throw generationConflict();
+          }
           const record: ConnectionRecord = {
             provider,
             hop1Issuer: identity.issuer,
             hop1Subject: identity.subject,
-            displayAccountIdentity: issued.displayAccountIdentity,
+            displayAccountIdentity,
             encryptedCredentialEnvelope: encryptEnvelope(
               issued.credential,
               this.options.credentialEncryptionKey,
             ),
             credentialSchemaVersion: CREDENTIAL_SCHEMA_VERSION,
+            credentialGenerationId: candidate.id,
             generation,
             requiredScopes: [...requiredScopes],
             grantedScopes: [...issued.grantedScopes],
@@ -156,7 +232,7 @@ export class ConnectionLifecycle {
             activeCredentialExpiresAt: issued.activeCredentialExpiresAt,
             renewalCredentialExpiresAt: issued.renewalCredentialExpiresAt,
             lastAuthorizedAt: now,
-            lastValidatedAt: issued.validatedAt,
+            lastValidatedAt: validatedAt,
             phase: "connected",
             revocationState: "none",
             createdAt: current?.createdAt ?? now,
@@ -169,21 +245,35 @@ export class ConnectionLifecycle {
           };
           const saved = await store.saveConnection(record, connectionWriteGuard(current));
           if (!saved) throw generationConflict();
-          await store.clearAuthorizing(provider, identity.issuer, identity.subject);
         },
       );
     } catch (error) {
-      if (lifecycleCategory(error) === "generation_conflict") {
-        await this.cleanupRejectedIssuedGeneration(identity, {
-          provider,
-          generation: (guard?.generation ?? 0) + 1,
-          credential: issued.credential,
-          activeCredentialExpiresAt: issued.activeCredentialExpiresAt,
-          renewalCredentialExpiresAt: issued.renewalCredentialExpiresAt,
-          grantedScopes: issued.grantedScopes,
-        });
+      if (!activationTransactionStarted) {
+        await this.cleanupCustodiedGeneration(identity, candidate);
+        throw error;
       }
-      throw error;
+      let current: ConnectionRecord | null;
+      try {
+        current = await this.options.store.getConnection(
+          provider,
+          identity.issuer,
+          identity.subject,
+        );
+      } catch {
+        // The candidate remains durable. A later worker reconciles a rolled-back
+        // candidate, while a committed active generation is never selected.
+        throw error;
+      }
+      if (current?.credentialGenerationId !== candidate.id) {
+        await this.cleanupCustodiedGeneration(identity, candidate);
+        throw error;
+      }
+      if (current.localDisabledAt) throw generationConflict();
+    }
+    try {
+      await this.options.store.clearAuthorizing(provider, identity.issuer, identity.subject);
+    } catch {
+      // Activation is already committed; an expired marker is harmless and must not revoke it.
     }
     await this.emit(identity, "authorize", "allow");
     return this.status(identity, requiredScopes);
@@ -292,6 +382,8 @@ export class ConnectionLifecycle {
   async disconnect(identity: Hop1Identity, requiredScopes: string[]): Promise<ConnectionStatusV1> {
     this.metric({ name: "disconnect_request", provider: this.providerId, value: 1 });
     let disabled: DecryptedCredentialGeneration | null;
+    let disabledCustodyId: string | undefined;
+    const detachedCleanup: CredentialGenerationRecord[] = [];
     try {
       disabled = await this.options.store.withConnectionLock(
         this.providerId,
@@ -329,6 +421,7 @@ export class ConnectionLifecycle {
             };
             const saved = await store.saveConnection(tombstone, connectionWriteGuard(null));
             if (!saved) throw generationConflict();
+            await this.handoffPrincipalCredentialGenerations(store, identity, detachedCleanup);
             return null;
           }
           if (current.localDisabledAt) {
@@ -346,6 +439,7 @@ export class ConnectionLifecycle {
               connectionWriteGuard(current),
             );
             if (!saved) throw generationConflict();
+            await this.handoffPrincipalCredentialGenerations(store, identity, detachedCleanup);
             return null;
           }
           const pending =
@@ -363,6 +457,8 @@ export class ConnectionLifecycle {
           if (!pending) destroyCredentials(next, this.options.credentialEncryptionKey);
           const saved = await store.saveConnection(next, connectionWriteGuard(current));
           if (!saved) throw generationConflict();
+          disabledCustodyId = current.credentialGenerationId;
+          await this.handoffPrincipalCredentialGenerations(store, identity, detachedCleanup);
           return pending ? decryptGeneration(current, this.options.credentialEncryptionKey) : null;
         },
       );
@@ -374,6 +470,10 @@ export class ConnectionLifecycle {
 
     if (disabled) {
       const result = await this.revoke(disabled);
+      const currentCustody = detachedCleanup.find((record) => record.id === disabledCustodyId);
+      if (currentCustody) {
+        await this.finalizeCredentialCleanup(currentCustody, result);
+      }
       try {
         await this.finalizeRevocation(identity, disabled.generation, result);
       } catch (error) {
@@ -394,6 +494,9 @@ export class ConnectionLifecycle {
             : "provider_configuration_error",
         );
       }
+    }
+    for (const record of detachedCleanup) {
+      if (record.id !== disabledCustodyId) await this.retryCredentialGenerationCleanup(record);
     }
     await this.emit(identity, "disconnect", "allow");
     return this.status(identity, requiredScopes);
@@ -456,7 +559,15 @@ export class ConnectionLifecycle {
     for (const record of queued) {
       await this.retryPendingCredentialCleanup(record);
     }
-    return pending.length + queued.length;
+    const generations = await this.options.store.listCredentialGenerationsForCleanup(
+      this.providerId,
+      limit,
+      this.now(),
+    );
+    for (const record of generations) {
+      await this.retryCredentialGenerationCleanup(record);
+    }
+    return pending.length + queued.length + generations.length;
   }
 
   private async renew(
@@ -468,7 +579,7 @@ export class ConnectionLifecycle {
   ): Promise<RefreshConnectionResult["result"]> {
     const operation = manual ? "manual" : "automatic";
     const lockStartedAt = performance.now();
-    let rejectedIssuedGeneration: DecryptedCredentialGeneration | undefined;
+    let rejectedIssuedGeneration: CredentialGenerationRecord | undefined;
     try {
       const result = await this.options.store.withConnectionLock(
         this.providerId,
@@ -533,21 +644,27 @@ export class ConnectionLifecycle {
           }
 
           try {
-            const renewed = await retryTransient(() => renew(decrypted), this.transientRetries);
+            const renewed = await retryTransient(
+              () => renew(decrypted),
+              this.options.adapter.capabilities.rotatingRenewalCredential
+                ? 0
+                : this.transientRetries,
+            );
             if (!renewed.credential.activeCredential) {
               throw new ProviderLifecycleError(
                 "Renewal response did not contain an active credential",
                 "malformed_provider_response",
               );
             }
-            rejectedIssuedGeneration = {
+            rejectedIssuedGeneration = this.credentialCustodyRecord(identity, {
               provider: this.providerId,
               generation: current.generation + 1,
               credential: renewed.credential,
               activeCredentialExpiresAt: renewed.activeCredentialExpiresAt,
               renewalCredentialExpiresAt: renewed.renewalCredentialExpiresAt,
               grantedScopes: renewed.grantedScopes ?? current.grantedScopes,
-            };
+            });
+            await this.acquireCredentialCustody(identity, rejectedIssuedGeneration);
             if (
               this.options.adapter.capabilities.rotatingRenewalCredential &&
               !renewed.credential.renewalCredential
@@ -564,6 +681,18 @@ export class ConnectionLifecycle {
             );
             const now = this.now();
             const nextCredential = mergeRotatedCredential(decrypted.credential, renewed.credential);
+            const activeCustody: CredentialGenerationRecord = {
+              ...rejectedIssuedGeneration,
+              encryptedCredentialEnvelope: encryptEnvelope(
+                nextCredential,
+                this.options.credentialEncryptionKey,
+              ),
+              state: "active",
+              updatedAt: now,
+            };
+            if (!(await store.updateCredentialGeneration(activeCustody, "candidate"))) {
+              throw generationConflict();
+            }
             const next: ConnectionRecord = {
               ...current,
               encryptedCredentialEnvelope: encryptEnvelope(
@@ -571,6 +700,7 @@ export class ConnectionLifecycle {
                 this.options.credentialEncryptionKey,
               ),
               credentialSchemaVersion: CREDENTIAL_SCHEMA_VERSION,
+              credentialGenerationId: rejectedIssuedGeneration.id,
               generation: current.generation + 1,
               grantedScopes: renewed.grantedScopes ?? current.grantedScopes,
               activeCredentialPresent: Boolean(nextCredential.activeCredential),
@@ -599,7 +729,6 @@ export class ConnectionLifecycle {
               if (latest && latest.generation !== current.generation) return "already_fresh";
               throw generationConflict();
             }
-            rejectedIssuedGeneration = undefined;
             current = next;
             return "refreshed";
           } catch (error) {
@@ -625,9 +754,13 @@ export class ConnectionLifecycle {
         },
       );
       if (rejectedIssuedGeneration) {
-        const rejected = rejectedIssuedGeneration;
-        rejectedIssuedGeneration = undefined;
-        await this.cleanupRejectedIssuedGeneration(identity, rejected);
+        if (result === "refreshed") {
+          rejectedIssuedGeneration = undefined;
+        } else {
+          const rejected = rejectedIssuedGeneration;
+          rejectedIssuedGeneration = undefined;
+          await this.cleanupCustodiedGeneration(identity, rejected);
+        }
       }
       this.metric({
         name: "renewal_outcome",
@@ -654,7 +787,21 @@ export class ConnectionLifecycle {
       if (rejectedIssuedGeneration) {
         const rejected = rejectedIssuedGeneration;
         rejectedIssuedGeneration = undefined;
-        await this.cleanupRejectedIssuedGeneration(identity, rejected);
+        let current: ConnectionRecord | null;
+        try {
+          current = await this.options.store.getConnection(
+            this.providerId,
+            identity.issuer,
+            identity.subject,
+          );
+        } catch {
+          // Preserve the candidate for durable reconciliation when COMMIT outcome
+          // cannot be observed safely.
+          throw error;
+        }
+        if (current?.credentialGenerationId !== rejected.id) {
+          await this.cleanupCustodiedGeneration(identity, rejected);
+        }
       }
       this.metric({
         name: "renewal_outcome",
@@ -700,6 +847,163 @@ export class ConnectionLifecycle {
       return lifecycleCategory(error) === "transient_provider_failure"
         ? "retryable_failure"
         : "permanent_failure";
+    }
+  }
+
+  private async handoffPrincipalCredentialGenerations(
+    store: OAuthConnectionStore,
+    identity: Hop1Identity,
+    output: CredentialGenerationRecord[],
+  ): Promise<void> {
+    const records = await store.listPrincipalCredentialGenerations(
+      this.providerId,
+      identity.issuer,
+      identity.subject,
+    );
+    for (const record of records) {
+      if (record.state !== "active" && record.state !== "candidate") continue;
+      const pending: CredentialGenerationRecord = {
+        ...record,
+        state: "cleanup_pending",
+        updatedAt: this.now(),
+      };
+      if (await store.updateCredentialGeneration(pending, record.state)) output.push(pending);
+    }
+  }
+
+  private async finalizeCredentialCleanup(
+    record: CredentialGenerationRecord,
+    result: ProviderRevocationResult,
+  ): Promise<void> {
+    const complete =
+      result === "revoked" || result === "already_absent" || result === "not_supported";
+    const attempts = record.cleanupAttempts + 1;
+    await this.options.store.updateCredentialGeneration(
+      {
+        ...record,
+        state: complete
+          ? "cleanup_complete"
+          : result === "permanent_failure"
+            ? "cleanup_permanent_failure"
+            : "cleanup_pending",
+        encryptedCredentialEnvelope: complete ? undefined : record.encryptedCredentialEnvelope,
+        encryptedLegacyCredential: complete ? undefined : record.encryptedLegacyCredential,
+        cleanupAttempts: attempts,
+        nextCleanupAttemptAt:
+          result === "retryable_failure"
+            ? new Date(this.now().getTime() + cleanupBackoffMs(attempts))
+            : undefined,
+        lastCleanupErrorCategory:
+          result === "retryable_failure"
+            ? "transient_provider_failure"
+            : result === "permanent_failure"
+              ? "provider_configuration_error"
+              : undefined,
+        updatedAt: this.now(),
+      },
+      "cleanup_pending",
+    );
+  }
+
+  private credentialCustodyRecord(
+    identity: Hop1Identity,
+    generation: DecryptedCredentialGeneration,
+  ): CredentialGenerationRecord {
+    const now = this.now();
+    return {
+      id: randomUUID(),
+      provider: generation.provider,
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      displayAccountIdentity: identity.email,
+      encryptedCredentialEnvelope: encryptEnvelope(
+        generation.credential,
+        this.options.credentialEncryptionKey,
+      ),
+      credentialSchemaVersion: CREDENTIAL_SCHEMA_VERSION,
+      generation: generation.generation,
+      state: "candidate",
+      grantedScopes: [...generation.grantedScopes],
+      activeCredentialExpiresAt: generation.activeCredentialExpiresAt,
+      renewalCredentialExpiresAt: generation.renewalCredentialExpiresAt,
+      cleanupAttempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private async acquireCredentialCustody(
+    identity: Hop1Identity,
+    candidate: CredentialGenerationRecord,
+  ): Promise<void> {
+    try {
+      await this.options.store.saveCredentialGeneration(candidate);
+    } catch {
+      const result = await this.revoke(
+        decryptCredentialCustody(candidate, this.options.credentialEncryptionKey),
+      );
+      await this.emit(
+        identity,
+        "credential_custody_failure",
+        "error",
+        result === "retryable_failure" ? "transient_provider_failure" : "persistence_failure",
+      );
+      throw new ProviderLifecycleError(
+        "Issued credential custody could not be persisted",
+        "persistence_failure",
+      );
+    }
+  }
+
+  private async cleanupCustodiedGeneration(
+    identity: Hop1Identity,
+    candidate: CredentialGenerationRecord,
+  ): Promise<void> {
+    const pending: CredentialGenerationRecord = {
+      ...candidate,
+      state: "cleanup_pending",
+      updatedAt: this.now(),
+    };
+    let queued = await this.options.store.updateCredentialGeneration(pending, "candidate");
+    if (!queued) queued = await this.options.store.updateCredentialGeneration(pending, "active");
+    if (!queued) return;
+
+    const result = await this.revoke(
+      decryptCredentialCustody(pending, this.options.credentialEncryptionKey),
+    );
+    const complete =
+      result === "revoked" || result === "already_absent" || result === "not_supported";
+    const attempts = pending.cleanupAttempts + 1;
+    const updated: CredentialGenerationRecord = {
+      ...pending,
+      state: complete
+        ? "cleanup_complete"
+        : result === "permanent_failure"
+          ? "cleanup_permanent_failure"
+          : "cleanup_pending",
+      encryptedCredentialEnvelope: complete ? undefined : pending.encryptedCredentialEnvelope,
+      encryptedLegacyCredential: complete ? undefined : pending.encryptedLegacyCredential,
+      cleanupAttempts: attempts,
+      nextCleanupAttemptAt:
+        result === "retryable_failure"
+          ? new Date(this.now().getTime() + cleanupBackoffMs(attempts))
+          : undefined,
+      lastCleanupErrorCategory:
+        result === "retryable_failure"
+          ? "transient_provider_failure"
+          : result === "permanent_failure"
+            ? "provider_configuration_error"
+            : undefined,
+      updatedAt: this.now(),
+    };
+    await this.options.store.updateCredentialGeneration(updated, "cleanup_pending");
+    if (!complete) {
+      await this.emit(
+        identity,
+        "issued_credential_cleanup",
+        "error",
+        updated.lastCleanupErrorCategory,
+      );
     }
   }
 
@@ -756,52 +1060,6 @@ export class ConnectionLifecycle {
     );
   }
 
-  private async cleanupRejectedIssuedGeneration(
-    identity: Hop1Identity,
-    generation: DecryptedCredentialGeneration,
-  ): Promise<void> {
-    const result = await this.revoke(generation);
-    if (result === "retryable_failure") {
-      const now = this.now();
-      const record: PendingCredentialCleanupRecord = {
-        id: randomUUID(),
-        provider: generation.provider,
-        hop1Issuer: identity.issuer,
-        hop1Subject: identity.subject,
-        displayAccountIdentity: identity.email,
-        encryptedCredentialEnvelope: encryptEnvelope(
-          generation.credential,
-          this.options.credentialEncryptionKey,
-        ),
-        credentialSchemaVersion: CREDENTIAL_SCHEMA_VERSION,
-        generation: generation.generation,
-        grantedScopes: [...generation.grantedScopes],
-        activeCredentialExpiresAt: generation.activeCredentialExpiresAt,
-        renewalCredentialExpiresAt: generation.renewalCredentialExpiresAt,
-        createdAt: now,
-        updatedAt: now,
-      };
-      try {
-        await this.options.store.savePendingCredentialCleanup(record);
-      } catch {
-        throw new ProviderLifecycleError(
-          "Rejected credential cleanup could not be queued",
-          "persistence_failure",
-        );
-      }
-    }
-    if (result === "retryable_failure" || result === "permanent_failure") {
-      await this.emit(
-        identity,
-        "issued_credential_cleanup",
-        "error",
-        result === "retryable_failure"
-          ? "transient_provider_failure"
-          : "provider_configuration_error",
-      );
-    }
-  }
-
   private async retryPendingCredentialCleanup(
     record: PendingCredentialCleanupRecord,
   ): Promise<void> {
@@ -818,28 +1076,14 @@ export class ConnectionLifecycle {
       value: Math.max(0, this.now().getTime() - record.updatedAt.getTime()),
     });
     try {
-      const result = await this.revoke(
-        decryptPendingCredentialCleanup(record, this.options.credentialEncryptionKey),
-      );
-      if (result !== "retryable_failure") {
-        await this.options.store.deletePendingCredentialCleanup(record.id);
-      }
-      this.metric({
-        name: "provider_cleanup_retry_outcome",
-        provider: this.providerId,
-        outcome: result,
-        value: 1,
-      });
-      if (result === "retryable_failure" || result === "permanent_failure") {
-        await this.emit(
-          identity,
-          "issued_credential_cleanup_retry",
-          "error",
-          result === "retryable_failure"
-            ? "transient_provider_failure"
-            : "provider_configuration_error",
-        );
-      }
+      const generation: CredentialGenerationRecord = {
+        ...record,
+        state: "cleanup_pending",
+        cleanupAttempts: 0,
+      };
+      await this.options.store.saveCredentialGeneration(generation);
+      await this.options.store.deletePendingCredentialCleanup(record.id);
+      await this.retryCredentialGenerationCleanup(generation);
     } catch (error) {
       this.metric({
         name: "provider_cleanup_retry_outcome",
@@ -852,6 +1096,92 @@ export class ConnectionLifecycle {
         "issued_credential_cleanup_retry",
         "error",
         lifecycleCategory(error) ?? "persistence_failure",
+      );
+    }
+  }
+
+  private async retryCredentialGenerationCleanup(
+    record: CredentialGenerationRecord,
+  ): Promise<void> {
+    const identity: Hop1Identity = {
+      profile: "provider-cleanup-worker",
+      issuer: record.hop1Issuer,
+      subject: record.hop1Subject,
+      email: record.displayAccountIdentity,
+      claims: {},
+    };
+    try {
+      if (record.state === "candidate") {
+        const pending: CredentialGenerationRecord = {
+          ...record,
+          state: "cleanup_pending",
+          updatedAt: this.now(),
+        };
+        if (!(await this.options.store.updateCredentialGeneration(pending, "candidate"))) return;
+        record = pending;
+      }
+      const result = await this.revoke(
+        decryptCredentialCustody(record, this.options.credentialEncryptionKey),
+      );
+      const complete =
+        result === "revoked" || result === "already_absent" || result === "not_supported";
+      const attempts = record.cleanupAttempts + 1;
+      const next: CredentialGenerationRecord = {
+        ...record,
+        state: complete
+          ? "cleanup_complete"
+          : result === "permanent_failure"
+            ? "cleanup_permanent_failure"
+            : "cleanup_pending",
+        encryptedCredentialEnvelope: complete ? undefined : record.encryptedCredentialEnvelope,
+        encryptedLegacyCredential: complete ? undefined : record.encryptedLegacyCredential,
+        cleanupAttempts: attempts,
+        nextCleanupAttemptAt:
+          result === "retryable_failure"
+            ? new Date(this.now().getTime() + cleanupBackoffMs(attempts))
+            : undefined,
+        lastCleanupErrorCategory:
+          result === "retryable_failure"
+            ? "transient_provider_failure"
+            : result === "permanent_failure"
+              ? "provider_configuration_error"
+              : undefined,
+        updatedAt: this.now(),
+      };
+      await this.options.store.updateCredentialGeneration(next, "cleanup_pending");
+      this.metric({
+        name: "provider_cleanup_retry_outcome",
+        provider: this.providerId,
+        outcome: result,
+        value: 1,
+      });
+      if (!complete) {
+        await this.emit(
+          identity,
+          "issued_credential_cleanup_retry",
+          "error",
+          next.lastCleanupErrorCategory,
+        );
+      }
+    } catch (error) {
+      const attempts = record.cleanupAttempts + 1;
+      await this.options.store
+        .updateCredentialGeneration(
+          {
+            ...record,
+            state: "cleanup_permanent_failure",
+            cleanupAttempts: attempts,
+            lastCleanupErrorCategory: lifecycleCategory(error) ?? "provider_configuration_error",
+            updatedAt: this.now(),
+          },
+          "cleanup_pending",
+        )
+        .catch(() => false);
+      await this.emit(
+        identity,
+        "issued_credential_cleanup_retry",
+        "error",
+        lifecycleCategory(error) ?? "provider_configuration_error",
       );
     }
   }
@@ -1001,8 +1331,8 @@ function decryptGeneration(record: ConnectionRecord, key: string): DecryptedCred
   };
 }
 
-function decryptPendingCredentialCleanup(
-  record: PendingCredentialCleanupRecord,
+function decryptCredentialCustody(
+  record: CredentialGenerationRecord,
   key: string,
 ): DecryptedCredentialGeneration {
   if (record.credentialSchemaVersion !== CREDENTIAL_SCHEMA_VERSION) {
@@ -1013,9 +1343,19 @@ function decryptPendingCredentialCleanup(
   }
   let credential: ProviderCredentialEnvelope;
   try {
-    credential = JSON.parse(
-      decryptSecret(record.encryptedCredentialEnvelope, key),
-    ) as ProviderCredentialEnvelope;
+    if (record.encryptedCredentialEnvelope) {
+      credential = JSON.parse(
+        decryptSecret(record.encryptedCredentialEnvelope, key),
+      ) as ProviderCredentialEnvelope;
+    } else if (record.encryptedLegacyCredential) {
+      const legacy = decryptSecret(record.encryptedLegacyCredential, key);
+      credential =
+        record.provider === "google"
+          ? { renewalCredential: legacy, legacyRepresentation: "google_refresh_token" }
+          : { activeCredential: legacy, legacyRepresentation: "github_access_token" };
+    } else {
+      throw new Error("credential material is absent");
+    }
   } catch {
     throw new ProviderLifecycleError(
       "Credential envelope could not be opened",
@@ -1030,6 +1370,10 @@ function decryptPendingCredentialCleanup(
     renewalCredentialExpiresAt: record.renewalCredentialExpiresAt,
     grantedScopes: [...record.grantedScopes],
   };
+}
+
+function cleanupBackoffMs(attempts: number): number {
+  return Math.min(60 * 60 * 1000, 5_000 * 2 ** Math.min(attempts - 1, 10));
 }
 
 function encryptEnvelope(credential: ProviderCredentialEnvelope, key: string): string {

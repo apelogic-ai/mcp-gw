@@ -145,10 +145,19 @@ describe("Google OAuth consent flow", () => {
       requestedScopes: ["repo"],
       expiresAt,
     });
+    await stateStore.save({
+      stateHash: hashState("legacy-state"),
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      requestedScopes: scopes,
+      expiresAt,
+    });
 
     await stateStore.invalidatePrincipal("google", identity.issuer, identity.subject);
 
     expect(await stateStore.consume("google", "google-state")).toBeNull();
+    expect(await stateStore.consume("google", "legacy-state")).toBeNull();
     expect(await stateStore.consume("google", "github-state")).toBeNull();
     expect(await stateStore.consume("github", "github-state")).toMatchObject({
       provider: "github",

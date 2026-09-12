@@ -214,6 +214,12 @@ export async function completeGithubOAuth(
     if (error instanceof ProviderLifecycleError && error.category === "generation_conflict") {
       throw new GitHubOAuthError("OAuth state is stale", "invalid_state");
     }
+    if (error instanceof ProviderLifecycleError && error.category === "identity_mismatch") {
+      throw new GitHubOAuthError(
+        "GitHub account identity does not match authenticated user",
+        "email_mismatch",
+      );
+    }
     throw error;
   }
 

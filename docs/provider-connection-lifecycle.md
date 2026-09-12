@@ -33,7 +33,10 @@ reactivate the connection.
 
 ## Durable generations and concurrency
 
-`oauth_accounts.connection_generation` identifies immutable credential material. New authorization
+`oauth_accounts.connection_generation` and `credential_generation_id` identify the current durable
+credential material. Every provider-issued result first enters the append-only
+`oauth_credential_generations` custody ledger as a `candidate`; validation and the connection-pointer
+update promote it to `active` in the same transaction. New authorization
 and renewal write an encrypted JSON envelope and normalized, non-secret metadata. Brokerage renews
 inside a PostgreSQL transaction-scoped advisory lock keyed by provider plus HOP-1 issuer and subject,
 then performs a compare-and-swap over the generation and the legacy `updated_at`/`revoked_at`
@@ -57,18 +60,20 @@ pending rows through the immutable generation guard. Successful or effectively c
 destroys both the normalized envelope and usable legacy credential. Cleanup of an old generation
 cannot mutate a newer reauthorization.
 
-A credential freshly issued by a provider can also lose its activation or renewal compare-and-swap.
-MCP-GW immediately attempts to revoke that orphan. A retryable provider failure stores only an
-encrypted envelope in `oauth_pending_credential_cleanup`; the same cleanup worker retries it until the
-provider reports a terminal result. This keeps failed stale-callback cleanup durable across process
-and replica restarts.
+A credential freshly issued by a provider can also lose validation, activation, transaction commit,
+or renewal compare-and-swap. It is moved to `cleanup_pending` before provider revocation is attempted.
+Retryable failures retain encrypted material, attempt count, and exponential backoff; permanent
+failures remain `cleanup_permanent_failure` for operator recovery. Terminal cleanup destroys the
+ledger envelope. The older `oauth_pending_credential_cleanup` table is consumed only as a rolling
+compatibility queue and is migrated into the custody ledger.
 
 ## Rolling migration and retirement
 
-Migrations `005_provider_connection_lifecycle.sql` and
-`006_provider_state_and_cleanup.sql` are forward-only and must run before the new binaries. Migration
-`006` provider-binds new state rows and adds the durable orphan-cleanup queue without rewriting
-already-applied migration `005`. The base Docker Compose stack runs the migration service after
+Migrations `005_provider_connection_lifecycle.sql`, `006_provider_state_and_cleanup.sql`, and
+`007_credential_generation_custody.sql` are forward-only and must run before the new binaries.
+Migration `007` adds the custody ledger, invalidates unbound legacy state, and installs a temporary
+database fence that prevents an old writer from clearing `revoked_at` without advancing the
+generation. The base Docker Compose stack runs the migration service after
 PostgreSQL becomes healthy and starts the wrapper only after migration success, including when the
 named database volume already exists. The nullable/defaulted lifecycle columns allow old binaries to
 continue operating during a rolling deployment. New binaries dual-write `encrypted_refresh_token`
@@ -83,7 +88,7 @@ for one compatibility window:
 Retire the legacy column only in a later release after all replicas run the normalized model, pending
 cleanup is empty, and telemetry confirms no legacy-only reads. That later release must first stop
 dual-writing, then use a new migration to drop `encrypted_refresh_token`; applied migrations,
-including `001`, `005`, and `006`, must never be edited after application.
+including `001`, `005`, `006`, and `007`, must never be edited after application.
 
 ## Adding a provider
 

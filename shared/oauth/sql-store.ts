@@ -2,6 +2,8 @@ import { hashState } from "./state";
 import type {
   ConnectionPhase,
   ConnectionRecord,
+  CredentialGenerationRecord,
+  CredentialGenerationState,
   LifecycleErrorCategory,
   PendingCredentialCleanupRecord,
   RevocationState,
@@ -175,7 +177,8 @@ SELECT
   lifecycle_updated_at,
   created_at,
   updated_at,
-  revoked_at
+  revoked_at,
+  credential_generation_id
 FROM (
   SELECT
     provider,
@@ -205,6 +208,7 @@ FROM (
     created_at,
     updated_at,
     revoked_at,
+    credential_generation_id,
     CASE
       WHEN local_disabled_at IS NULL
         AND revoked_at IS NULL
@@ -220,16 +224,16 @@ FROM (
   UNION ALL
 
   SELECT
-    authorization.provider,
-    authorization.hop1_issuer,
-    authorization.hop1_subject,
+    authz.provider,
+    authz.hop1_issuer,
+    authz.hop1_subject,
     COALESCE(account.email, '') AS email,
     COALESCE(account.scopes_granted, ARRAY[]::TEXT[]) AS scopes_granted,
     COALESCE(account.encrypted_refresh_token, '') AS encrypted_refresh_token,
     account.credential_envelope,
     account.credential_schema_version,
     COALESCE(account.connection_generation, 0::BIGINT) AS connection_generation,
-    authorization.required_scopes AS scopes_required,
+    authz.required_scopes AS scopes_required,
     COALESCE(account.active_credential_present, FALSE) AS active_credential_present,
     COALESCE(account.renewal_credential_present, FALSE) AS renewal_credential_present,
     account.active_credential_expires_at,
@@ -243,20 +247,21 @@ FROM (
     account.revocation_started_at,
     account.revocation_completed_at,
     account.lifecycle_error_category,
-    authorization.updated_at AS lifecycle_updated_at,
-    COALESCE(account.created_at, authorization.updated_at) AS created_at,
-    COALESCE(account.updated_at, authorization.updated_at) AS updated_at,
+    authz.updated_at AS lifecycle_updated_at,
+    COALESCE(account.created_at, authz.updated_at) AS created_at,
+    COALESCE(account.updated_at, authz.updated_at) AS updated_at,
     account.revoked_at,
+    account.credential_generation_id,
     1 AS authorization_priority
-  FROM oauth_connection_authorizations AS authorization
+  FROM oauth_connection_authorizations AS authz
   LEFT JOIN oauth_accounts AS account
-    ON account.provider = authorization.provider
-   AND account.hop1_issuer = authorization.hop1_issuer
-   AND account.hop1_subject = authorization.hop1_subject
-  WHERE authorization.provider = $1
-    AND authorization.hop1_issuer = $2
-    AND authorization.hop1_subject = $3
-    AND authorization.expires_at > NOW()
+    ON account.provider = authz.provider
+   AND account.hop1_issuer = authz.hop1_issuer
+   AND account.hop1_subject = authz.hop1_subject
+  WHERE authz.provider = $1
+    AND authz.hop1_issuer = $2
+    AND authz.hop1_subject = $3
+    AND authz.expires_at > NOW()
 ) AS candidates
 ORDER BY authorization_priority ASC
 LIMIT 1
@@ -278,11 +283,11 @@ INSERT INTO oauth_accounts (
   renewal_credential_expires_at, last_authorized_at, last_renewed_at,
   last_validated_at, local_disabled_at, lifecycle_phase, revocation_state,
   revocation_started_at, revocation_completed_at, lifecycle_error_category,
-  lifecycle_updated_at, created_at, updated_at, revoked_at
+  lifecycle_updated_at, created_at, updated_at, revoked_at, credential_generation_id
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $25,
-  $24, $25, $18
+  $24, $25, $18, $30
 )
 ON CONFLICT (provider, hop1_issuer, hop1_subject)
 DO UPDATE SET
@@ -308,7 +313,8 @@ DO UPDATE SET
   lifecycle_error_category = EXCLUDED.lifecycle_error_category,
   lifecycle_updated_at = EXCLUDED.lifecycle_updated_at,
   updated_at = EXCLUDED.updated_at,
-  revoked_at = EXCLUDED.revoked_at
+  revoked_at = EXCLUDED.revoked_at,
+  credential_generation_id = EXCLUDED.credential_generation_id
 WHERE $26 = TRUE
   AND oauth_accounts.connection_generation = $27
   AND oauth_accounts.updated_at = $28
@@ -345,6 +351,7 @@ RETURNING connection_generation
         guard.generation ?? null,
         guard.updatedAt ?? null,
         guard.revokedAt ?? null,
+        record.credentialGenerationId ?? null,
       ],
     );
     return result.rows.length === 1;
@@ -364,7 +371,7 @@ SELECT
   renewal_credential_expires_at, last_authorized_at, last_renewed_at,
   last_validated_at, local_disabled_at, lifecycle_phase, revocation_state,
   revocation_started_at, revocation_completed_at, lifecycle_error_category,
-  lifecycle_updated_at, created_at, updated_at, revoked_at
+  lifecycle_updated_at, created_at, updated_at, revoked_at, credential_generation_id
 FROM oauth_accounts
 WHERE provider = $1
   AND revocation_state = 'pending'
@@ -429,6 +436,100 @@ LIMIT $2
     await this.client.query("DELETE FROM oauth_pending_credential_cleanup WHERE id = $1", [id]);
   }
 
+  async saveCredentialGeneration(record: CredentialGenerationRecord): Promise<void> {
+    await this.client.query(
+      `
+INSERT INTO oauth_credential_generations (
+  id, provider, hop1_issuer, hop1_subject, email, credential_envelope,
+  credential_schema_version, connection_generation, custody_state, scopes_granted,
+  active_credential_expires_at, renewal_credential_expires_at, cleanup_attempts,
+  next_cleanup_attempt_at, last_cleanup_error_category, created_at, updated_at,
+  encrypted_legacy_credential
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+ON CONFLICT (id) DO NOTHING
+`,
+      credentialGenerationParams(record),
+    );
+  }
+
+  async updateCredentialGeneration(
+    record: CredentialGenerationRecord,
+    expectedState: CredentialGenerationState,
+  ): Promise<boolean> {
+    const result = await this.client.query(
+      `
+UPDATE oauth_credential_generations
+SET email = $2,
+    credential_envelope = $3,
+    credential_schema_version = $4,
+    connection_generation = $5,
+    custody_state = $6,
+    scopes_granted = $7,
+    active_credential_expires_at = $8,
+    renewal_credential_expires_at = $9,
+    cleanup_attempts = $10,
+    next_cleanup_attempt_at = $11,
+    last_cleanup_error_category = $12,
+    updated_at = $13,
+    encrypted_legacy_credential = $14
+WHERE id = $1 AND custody_state = $15
+RETURNING id
+`,
+      [
+        record.id,
+        record.displayAccountIdentity,
+        record.encryptedCredentialEnvelope ?? null,
+        record.credentialSchemaVersion,
+        record.generation,
+        record.state,
+        record.grantedScopes,
+        record.activeCredentialExpiresAt ?? null,
+        record.renewalCredentialExpiresAt ?? null,
+        record.cleanupAttempts,
+        record.nextCleanupAttemptAt ?? null,
+        record.lastCleanupErrorCategory ?? null,
+        record.updatedAt,
+        record.encryptedLegacyCredential ?? null,
+        expectedState,
+      ],
+    );
+    return result.rows.length === 1;
+  }
+
+  async listPrincipalCredentialGenerations(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<CredentialGenerationRecord[]> {
+    const result = await this.client.query(
+      `${credentialGenerationSelect}
+WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
+ORDER BY created_at ASC`,
+      [provider, hop1Issuer, hop1Subject],
+    );
+    return result.rows.map(rowToCredentialGeneration);
+  }
+
+  async listCredentialGenerationsForCleanup(
+    provider: OAuthProvider,
+    limit: number,
+    now: Date,
+  ): Promise<CredentialGenerationRecord[]> {
+    const result = await this.client.query(
+      `${credentialGenerationSelect}
+WHERE provider = $1
+  AND (
+    (custody_state = 'cleanup_pending'
+      AND (next_cleanup_attempt_at IS NULL OR next_cleanup_attempt_at <= $3))
+    OR (custody_state = 'candidate' AND updated_at <= $3 - INTERVAL '10 minutes')
+  )
+ORDER BY updated_at ASC
+LIMIT $2`,
+      [provider, limit, now],
+    );
+    return result.rows.map(rowToCredentialGeneration);
+  }
+
   async markAuthorizing(
     provider: OAuthProvider,
     hop1Issuer: string,
@@ -474,7 +575,7 @@ WHERE provider = $1
     operation: (store: OAuthConnectionStore) => Promise<T>,
   ): Promise<T> {
     if (!this.client.transaction) {
-      return operation(this);
+      throw new Error("OAuth connection lifecycle requires transactional SQL support");
     }
     return this.client.transaction(async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
@@ -577,7 +678,7 @@ RETURNING
       `
 UPDATE oauth_states
 SET consumed_at = NOW()
-WHERE provider = $1
+WHERE (provider = $1 OR provider IS NULL)
   AND hop1_issuer = $2
   AND hop1_subject = $3
   AND consumed_at IS NULL
@@ -619,6 +720,9 @@ function rowToConnection(row: Record<string, unknown>): ConnectionRecord {
       : undefined,
     credentialSchemaVersion: normalizedCurrent
       ? optionalNumberField(row, "credential_schema_version")
+      : undefined,
+    credentialGenerationId: normalizedCurrent
+      ? optionalStringField(row, "credential_generation_id")
       : undefined,
     generation: optionalNumberField(row, "connection_generation") ?? 1,
     requiredScopes: normalizedCurrent
@@ -713,6 +817,75 @@ function rowToPendingCredentialCleanup(
     createdAt: dateField(row, "created_at"),
     updatedAt: dateField(row, "updated_at"),
   };
+}
+
+const credentialGenerationSelect = `
+SELECT id, provider, hop1_issuer, hop1_subject, email, credential_envelope,
+  credential_schema_version, connection_generation, custody_state, scopes_granted,
+  active_credential_expires_at, renewal_credential_expires_at, cleanup_attempts,
+  next_cleanup_attempt_at, last_cleanup_error_category, created_at, updated_at,
+  encrypted_legacy_credential
+FROM oauth_credential_generations`;
+
+function credentialGenerationParams(record: CredentialGenerationRecord): unknown[] {
+  return [
+    record.id,
+    record.provider,
+    record.hop1Issuer,
+    record.hop1Subject,
+    record.displayAccountIdentity,
+    record.encryptedCredentialEnvelope ?? null,
+    record.credentialSchemaVersion,
+    record.generation,
+    record.state,
+    record.grantedScopes,
+    record.activeCredentialExpiresAt ?? null,
+    record.renewalCredentialExpiresAt ?? null,
+    record.cleanupAttempts,
+    record.nextCleanupAttemptAt ?? null,
+    record.lastCleanupErrorCategory ?? null,
+    record.createdAt,
+    record.updatedAt,
+    record.encryptedLegacyCredential ?? null,
+  ];
+}
+
+function rowToCredentialGeneration(row: Record<string, unknown>): CredentialGenerationRecord {
+  return {
+    id: stringField(row, "id"),
+    provider: providerField(row, "provider"),
+    hop1Issuer: stringField(row, "hop1_issuer"),
+    hop1Subject: stringField(row, "hop1_subject"),
+    displayAccountIdentity: stringField(row, "email"),
+    encryptedCredentialEnvelope: optionalStringField(row, "credential_envelope"),
+    encryptedLegacyCredential: optionalStringField(row, "encrypted_legacy_credential"),
+    credentialSchemaVersion: numberField(row, "credential_schema_version"),
+    generation: numberField(row, "connection_generation"),
+    state: credentialGenerationStateField(row),
+    grantedScopes: stringArrayField(row, "scopes_granted"),
+    activeCredentialExpiresAt: optionalDateField(row, "active_credential_expires_at"),
+    renewalCredentialExpiresAt: optionalDateField(row, "renewal_credential_expires_at"),
+    cleanupAttempts: numberField(row, "cleanup_attempts"),
+    nextCleanupAttemptAt: optionalDateField(row, "next_cleanup_attempt_at"),
+    lastCleanupErrorCategory: optionalStringField(row, "last_cleanup_error_category") as
+      LifecycleErrorCategory | undefined,
+    createdAt: dateField(row, "created_at"),
+    updatedAt: dateField(row, "updated_at"),
+  };
+}
+
+function credentialGenerationStateField(row: Record<string, unknown>): CredentialGenerationState {
+  const value = stringField(row, "custody_state");
+  if (
+    value !== "candidate" &&
+    value !== "active" &&
+    value !== "cleanup_pending" &&
+    value !== "cleanup_complete" &&
+    value !== "cleanup_permanent_failure" &&
+    value !== "retired"
+  )
+    throw new Error("Invalid credential generation custody state");
+  return value;
 }
 
 function optionalProviderField(

@@ -55,6 +55,7 @@ describe("OAuth schema migrations", () => {
       "004",
       "005",
       "006",
+      "007",
     ]);
     expect(migrations[0]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_accounts");
     expect(migrations[0]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_states");
@@ -66,6 +67,8 @@ describe("OAuth schema migrations", () => {
     expect(migrations[4]?.sql).toContain("connection_generation");
     expect(migrations[5]?.sql).toContain("oauth_pending_credential_cleanup");
     expect(migrations[5]?.sql).toContain("ADD COLUMN IF NOT EXISTS provider");
+    expect(migrations[6]?.sql).toContain("oauth_credential_generations");
+    expect(migrations[6]?.sql).toContain("oauth_legacy_disconnect_fence");
   });
 
   test("serializes concurrent runners and applies each version once", async () => {

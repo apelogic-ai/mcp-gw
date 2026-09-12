@@ -7,7 +7,12 @@ import type {
   OAuthStateStore,
   OAuthTokenStore,
 } from "./store";
-import type { ConnectionRecord, PendingCredentialCleanupRecord } from "./connection-types";
+import type {
+  ConnectionRecord,
+  CredentialGenerationRecord,
+  CredentialGenerationState,
+  PendingCredentialCleanupRecord,
+} from "./connection-types";
 import { hashState } from "./state";
 
 export class InMemoryOAuthStateStore implements OAuthStateStore {
@@ -47,7 +52,7 @@ export class InMemoryOAuthStateStore implements OAuthStateStore {
     for (const [key, record] of this.records) {
       if (
         !record.consumedAt &&
-        record.provider === provider &&
+        (record.provider === provider || record.provider === undefined) &&
         record.hop1Issuer === hop1Issuer &&
         record.hop1Subject === hop1Subject
       ) {
@@ -62,6 +67,7 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
   private readonly accounts = new Map<string, OAuthAccountRecord>();
   private readonly connections = new Map<string, ConnectionRecord>();
   private readonly pendingCredentialCleanups = new Map<string, PendingCredentialCleanupRecord>();
+  private readonly credentialGenerations = new Map<string, CredentialGenerationRecord>();
   private readonly authorizations = new Map<
     string,
     { requiredScopes: string[]; expiresAt: Date; updatedAt: Date }
@@ -250,6 +256,61 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
     return Promise.resolve();
   }
 
+  saveCredentialGeneration(record: CredentialGenerationRecord): Promise<void> {
+    if (!this.credentialGenerations.has(record.id)) {
+      this.credentialGenerations.set(record.id, cloneCredentialGeneration(record));
+    }
+    return Promise.resolve();
+  }
+
+  updateCredentialGeneration(
+    record: CredentialGenerationRecord,
+    expectedState: CredentialGenerationState,
+  ): Promise<boolean> {
+    const current = this.credentialGenerations.get(record.id);
+    if (current?.state !== expectedState) return Promise.resolve(false);
+    this.credentialGenerations.set(record.id, cloneCredentialGeneration(record));
+    return Promise.resolve(true);
+  }
+
+  listPrincipalCredentialGenerations(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<CredentialGenerationRecord[]> {
+    return Promise.resolve(
+      [...this.credentialGenerations.values()]
+        .filter(
+          (record) =>
+            record.provider === provider &&
+            record.hop1Issuer === hop1Issuer &&
+            record.hop1Subject === hop1Subject,
+        )
+        .map(cloneCredentialGeneration),
+    );
+  }
+
+  listCredentialGenerationsForCleanup(
+    provider: OAuthProvider,
+    limit: number,
+    now: Date,
+  ): Promise<CredentialGenerationRecord[]> {
+    return Promise.resolve(
+      [...this.credentialGenerations.values()]
+        .filter(
+          (record) =>
+            record.provider === provider &&
+            ((record.state === "cleanup_pending" &&
+              (!record.nextCleanupAttemptAt || record.nextCleanupAttemptAt <= now)) ||
+              (record.state === "candidate" &&
+                record.updatedAt.getTime() <= now.getTime() - 10 * 60 * 1000)),
+        )
+        .sort((left, right) => left.updatedAt.getTime() - right.updatedAt.getTime())
+        .slice(0, limit)
+        .map(cloneCredentialGeneration),
+    );
+  }
+
   markAuthorizing(
     provider: OAuthProvider,
     hop1Issuer: string,
@@ -315,6 +376,10 @@ function cloneConnection(record: ConnectionRecord): ConnectionRecord {
 function clonePendingCredentialCleanup(
   record: PendingCredentialCleanupRecord,
 ): PendingCredentialCleanupRecord {
+  return { ...record, grantedScopes: [...record.grantedScopes] };
+}
+
+function cloneCredentialGeneration(record: CredentialGenerationRecord): CredentialGenerationRecord {
   return { ...record, grantedScopes: [...record.grantedScopes] };
 }
 

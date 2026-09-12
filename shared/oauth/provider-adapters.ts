@@ -35,6 +35,7 @@ export const GOOGLE_CONNECTION_CAPABILITIES: ProviderConnectionCapabilities = {
   providerRevocation: true,
   scopeReporting: true,
   identityVerification: true,
+  authorizationRequiresRenewalCredential: true,
 };
 
 export const GITHUB_CONNECTION_CAPABILITIES: ProviderConnectionCapabilities = {
@@ -94,35 +95,19 @@ export class GoogleConnectionAdapter implements DownstreamConnectionAdapter {
       }),
     });
     const body = await jsonObject(response);
-    if (!response.ok || typeof body.access_token !== "string")
-      throw providerResponseError(response);
-    if (typeof body.refresh_token !== "string") {
-      throw new ProviderLifecycleError(
-        "Provider did not issue a renewal credential",
-        "malformed_provider_response",
-      );
-    }
-    const userInfo = await providerFetch(
-      this.fetchImpl,
-      this.config.userInfoUrl ?? GOOGLE_USERINFO_URL,
-      { headers: { authorization: `Bearer ${body.access_token}` } },
-    );
-    const profile = await jsonObject(userInfo);
-    if (!userInfo.ok || typeof profile.email !== "string") throw providerResponseError(userInfo);
-    if (profile.email !== request.expectedPrincipal.email) {
-      throw new ProviderLifecycleError("Provider identity does not match", "identity_mismatch");
-    }
+    if (!response.ok) throw providerResponseError(response);
+    if (typeof body.access_token !== "string" && typeof body.refresh_token !== "string")
+      throw malformedResponse();
     const now = Date.now();
     return {
       credential: {
-        activeCredential: body.access_token,
-        renewalCredential: body.refresh_token,
+        activeCredential: typeof body.access_token === "string" ? body.access_token : undefined,
+        renewalCredential: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
       },
-      displayAccountIdentity: profile.email,
+      displayAccountIdentity: request.expectedPrincipal.email,
       grantedScopes:
         typeof body.scope === "string" ? splitScopes(body.scope) : request.requestedScopes,
       activeCredentialExpiresAt: new Date(now + (positiveNumber(body.expires_in) ?? 3600) * 1000),
-      validatedAt: new Date(now),
     };
   }
 
@@ -149,8 +134,7 @@ export class GoogleConnectionAdapter implements DownstreamConnectionAdapter {
     return {
       credential: {
         activeCredential: body.access_token,
-        renewalCredential:
-          typeof body.refresh_token === "string" ? body.refresh_token : renewalCredential,
+        renewalCredential: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
       },
       grantedScopes:
         typeof body.scope === "string" ? splitScopes(body.scope) : credential.grantedScopes,
@@ -238,42 +222,15 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
       }),
     });
     const body = await jsonObject(response);
-    if (!response.ok || typeof body.access_token !== "string")
-      throw providerResponseError(response);
-    const emailResponse = await providerFetch(
-      this.fetchImpl,
-      this.config.userEmailsUrl ?? GITHUB_EMAILS_URL,
-      {
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${body.access_token}`,
-        },
-      },
-    );
-    const emailBody = await responseJson(emailResponse);
-    if (!emailResponse.ok || !Array.isArray(emailBody)) throw providerResponseError(emailResponse);
-    const matching = emailBody.some(
-      (entry) =>
-        isRecord(entry) &&
-        entry.verified === true &&
-        typeof entry.email === "string" &&
-        entry.email.toLowerCase() === request.expectedPrincipal.email.toLowerCase(),
-    );
-    if (!matching) {
-      await this.revoke({
-        provider: "github",
-        generation: 0,
-        credential: { activeCredential: body.access_token },
-        grantedScopes: [],
-      }).catch(() => undefined);
-      throw new ProviderLifecycleError("Provider identity does not match", "identity_mismatch");
-    }
+    if (!response.ok) throw providerResponseError(response);
+    if (typeof body.access_token !== "string" && typeof body.refresh_token !== "string")
+      throw malformedResponse();
     const now = Date.now();
     const expiresIn = positiveNumber(body.expires_in);
     const renewalExpiresIn = positiveNumber(body.refresh_token_expires_in);
     return {
       credential: {
-        activeCredential: body.access_token,
+        activeCredential: typeof body.access_token === "string" ? body.access_token : undefined,
         renewalCredential: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
       },
       displayAccountIdentity: request.expectedPrincipal.email,
@@ -283,7 +240,6 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
         expiresIn === undefined ? undefined : new Date(now + expiresIn * 1000),
       renewalCredentialExpiresAt:
         renewalExpiresIn === undefined ? undefined : new Date(now + renewalExpiresIn * 1000),
-      validatedAt: new Date(now),
     };
   }
 

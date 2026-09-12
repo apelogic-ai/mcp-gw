@@ -199,6 +199,12 @@ export async function completeGoogleOAuth(
     if (error instanceof ProviderLifecycleError && error.category === "generation_conflict") {
       throw new GoogleOAuthError("OAuth state is stale", "invalid_state");
     }
+    if (error instanceof ProviderLifecycleError && error.category === "identity_mismatch") {
+      throw new GoogleOAuthError(
+        "Connected Google account does not match authenticated user",
+        "email_mismatch",
+      );
+    }
     throw error;
   }
 

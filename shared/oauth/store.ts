@@ -1,4 +1,9 @@
-import type { ConnectionRecord, PendingCredentialCleanupRecord } from "./connection-types";
+import type {
+  ConnectionRecord,
+  CredentialGenerationRecord,
+  CredentialGenerationState,
+  PendingCredentialCleanupRecord,
+} from "./connection-types";
 
 export type OAuthProvider = "google" | "github";
 
@@ -92,6 +97,21 @@ export interface OAuthConnectionStore {
     limit: number,
   ): Promise<PendingCredentialCleanupRecord[]>;
   deletePendingCredentialCleanup(id: string): Promise<void>;
+  saveCredentialGeneration(record: CredentialGenerationRecord): Promise<void>;
+  updateCredentialGeneration(
+    record: CredentialGenerationRecord,
+    expectedState: CredentialGenerationState,
+  ): Promise<boolean>;
+  listPrincipalCredentialGenerations(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<CredentialGenerationRecord[]>;
+  listCredentialGenerationsForCleanup(
+    provider: OAuthProvider,
+    limit: number,
+    now: Date,
+  ): Promise<CredentialGenerationRecord[]>;
   markAuthorizing(
     provider: OAuthProvider,
     hop1Issuer: string,
