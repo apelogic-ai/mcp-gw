@@ -270,9 +270,16 @@ describe("provider-neutral connection lifecycle", () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
     adapter.revocation = () => Promise.resolve("retryable_failure");
-    const lifecycle = fixtureLifecycle(store, adapter);
+    let now = new Date("2026-09-12T18:00:00.000Z");
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      now: () => now,
+    });
     await authorize(lifecycle, "active-1", "renewal-1");
     await lifecycle.disconnect(identity, scopes);
+    now = new Date(now.getTime() + 5_001);
 
     const finishAttempts: ((result: ProviderRevocationResult) => void)[] = [];
     adapter.revocation = () =>
@@ -297,16 +304,84 @@ describe("provider-neutral connection lifecycle", () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
     adapter.revocation = () => Promise.resolve("retryable_failure");
-    const lifecycle = fixtureLifecycle(store, adapter);
+    let now = new Date("2026-09-12T18:00:00.000Z");
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      now: () => now,
+    });
     await authorize(lifecycle, "active-1", "renewal-1");
     await lifecycle.disconnect(identity, scopes);
-    adapter.revocation = () => Promise.resolve("already_absent");
 
+    expect(adapter.revokeCalls).toBe(1);
+    await lifecycle.retryPendingRevocation(identity);
+    expect(adapter.revokeCalls).toBe(1);
+    expect(await lifecycle.retryPendingRevocations()).toBe(0);
+    expect(adapter.revokeCalls).toBe(1);
+
+    now = new Date(now.getTime() + 5_001);
     expect(await lifecycle.retryPendingRevocations()).toBe(1);
+    expect(adapter.revokeCalls).toBe(2);
+    now = new Date(now.getTime() + 9_999);
+    expect(await lifecycle.retryPendingRevocations()).toBe(0);
+    expect(adapter.revokeCalls).toBe(2);
+
+    adapter.revocation = () => Promise.resolve("already_absent");
+    now = new Date(now.getTime() + 1);
+    expect(await lifecycle.retryPendingRevocations()).toBe(1);
+    expect(adapter.revokeCalls).toBe(3);
     expect(await lifecycle.retryPendingRevocations()).toBe(0);
     const record = await store.getConnection("github", identity.issuer, identity.subject);
     expect(record).toMatchObject({ phase: "disconnected", revocationState: "complete" });
     expect(record?.encryptedCredentialEnvelope).toBeUndefined();
+  });
+
+  test("adopts a legacy pending connection into the backoff ledger before retrying", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    adapter.revocation = () => Promise.resolve("retryable_failure");
+    let now = new Date("2026-09-12T18:00:00.000Z");
+    await store.saveAccount({
+      provider: "github",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: scopes,
+      encryptedRefreshToken: encryptSecret("legacy-active", key),
+      createdAt: now,
+      updatedAt: now,
+    });
+    const connected = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!connected) throw new Error("expected legacy connection");
+    now = new Date(now.getTime() + 1);
+    await store.saveConnection(
+      {
+        ...connected,
+        localDisabledAt: now,
+        phase: "disconnected_with_provider_cleanup_pending",
+        revocationState: "pending",
+        revocationStartedAt: now,
+        updatedAt: now,
+      },
+      connectionWriteGuard(connected),
+    );
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      now: () => now,
+    });
+
+    expect(await lifecycle.retryPendingRevocations()).toBe(1);
+    expect(adapter.revokeCalls).toBe(1);
+    expect(await lifecycle.retryPendingRevocations()).toBe(0);
+    expect(adapter.revokeCalls).toBe(1);
+    const adopted = await store.getConnection("github", identity.issuer, identity.subject);
+    expect(typeof adopted?.credentialGenerationId).toBe("string");
+    expect(
+      await store.listPrincipalCredentialGenerations("github", identity.issuer, identity.subject),
+    ).toMatchObject([{ state: "cleanup_pending", cleanupAttempts: 1 }]);
   });
 
   test("never returns an undurable renewed generation", async () => {
@@ -430,13 +505,20 @@ describe("provider-neutral connection lifecycle", () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
     const metrics = new InMemoryConnectionLifecycleMetricSink();
+    let now = new Date("2026-09-12T18:00:00.000Z");
     const lifecycle = new ConnectionLifecycle({
       adapter,
       store,
       credentialEncryptionKey: key,
       metrics,
+      now: () => now,
     });
-    await authorize(lifecycle, "sensitive-active", "sensitive-renewal", new Date(Date.now() - 1));
+    await authorize(
+      lifecycle,
+      "sensitive-active",
+      "sensitive-renewal",
+      new Date(now.getTime() - 1),
+    );
     metrics.metrics.length = 0;
 
     await lifecycle.getActiveCredential(identity, scopes);
@@ -444,6 +526,7 @@ describe("provider-neutral connection lifecycle", () => {
     adapter.revocation = () => Promise.resolve("retryable_failure");
     await lifecycle.disconnect(identity, scopes);
     adapter.revocation = () => Promise.resolve("revoked");
+    now = new Date(now.getTime() + 5_001);
     await lifecycle.retryPendingRevocations();
 
     expect(new Set(metrics.metrics.map((metric) => metric.name))).toEqual(
@@ -880,7 +963,13 @@ describe("provider-neutral connection lifecycle", () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
     adapter.revocation = () => Promise.resolve("retryable_failure");
-    const lifecycle = fixtureLifecycle(store, adapter);
+    let now = new Date("2026-09-12T18:00:00.000Z");
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      now: () => now,
+    });
     const secondIdentity = { ...identity, subject: "subject-2", email: "second@example.com" };
     await authorize(lifecycle, "first-active", "first-renewal");
     await lifecycle.activateAuthorizedGeneration(secondIdentity, scopes, {
@@ -891,20 +980,28 @@ describe("provider-neutral connection lifecycle", () => {
     });
     await lifecycle.disconnect(identity, scopes);
     await lifecycle.disconnect(secondIdentity, scopes);
-    const malformed = await store.getConnection("github", identity.issuer, identity.subject);
-    if (!malformed) throw new Error("expected first pending connection");
-    await store.saveConnection(
+    const generations = await store.listPrincipalCredentialGenerations(
+      "github",
+      identity.issuer,
+      identity.subject,
+    );
+    const malformed = generations.find((generation) => generation.state === "cleanup_pending");
+    if (!malformed) throw new Error("expected first pending credential generation");
+    await store.updateCredentialGeneration(
       { ...malformed, encryptedCredentialEnvelope: "not-an-envelope" },
-      connectionWriteGuard(malformed),
+      "cleanup_pending",
+      malformed.cleanupAttempts,
     );
     adapter.revocation = () => Promise.resolve("revoked");
+    now = new Date(now.getTime() + 5_001);
 
     expect(await lifecycle.retryPendingRevocations()).toBe(2);
     expect(
       await store.getConnection("github", secondIdentity.issuer, secondIdentity.subject),
     ).toMatchObject({ phase: "disconnected", revocationState: "complete" });
     expect(await store.getConnection("github", identity.issuer, identity.subject)).toMatchObject({
-      revocationState: "pending",
+      phase: "unavailable",
+      revocationState: "permanent_failure",
     });
   });
 

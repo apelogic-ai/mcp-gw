@@ -101,6 +101,7 @@ export interface OAuthConnectionStore {
   updateCredentialGeneration(
     record: CredentialGenerationRecord,
     expectedState: CredentialGenerationState,
+    expectedCleanupAttempts: number,
   ): Promise<boolean>;
   listPrincipalCredentialGenerations(
     provider: OAuthProvider,

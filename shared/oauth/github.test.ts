@@ -190,6 +190,39 @@ describe("GitHub OAuth flow", () => {
     expect(stored?.encryptedRefreshToken).not.toBe("github-user-token");
   });
 
+  test("retains a refresh-only authorization response for operator recovery", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+      tokenStore,
+    });
+
+    expect(
+      completeGithubOAuth({
+        identity,
+        code: "partial-code",
+        state: started.state,
+        config,
+        stateStore,
+        tokenStore,
+        fetch: () => Promise.resolve(Response.json({ refresh_token: "orphan-refresh" })),
+      }),
+    ).rejects.toMatchObject({ category: "malformed_provider_response" });
+
+    const generations = await tokenStore.listPrincipalCredentialGenerations(
+      "github",
+      identity.issuer,
+      identity.subject,
+    );
+    expect(generations).toMatchObject([{ state: "cleanup_permanent_failure", cleanupAttempts: 1 }]);
+    expect(typeof generations[0]?.encryptedCredentialEnvelope).toBe("string");
+    expect(await tokenStore.getConnection("github", identity.issuer, identity.subject)).toBeNull();
+  });
+
   test("accepts a matching verified secondary email when the primary differs", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
@@ -545,6 +578,73 @@ describe("GitHub token broker", () => {
     expect(
       (await tokenStore.getConnection("github", identity.issuer, identity.subject))?.generation,
     ).toBe(2);
+  });
+
+  test("takes durable custody of a rotating refresh token before rejecting a partial renewal", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+      tokenStore,
+    });
+    await completeGithubOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({
+                access_token: "expiring-active",
+                refresh_token: "rotating-renewal-1",
+                expires_in: 3600,
+                refresh_token_expires_in: 7200,
+                scope: "repo",
+              })
+            : Response.json([{ email: identity.email, verified: true }]),
+        ),
+    });
+    const current = await tokenStore.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("expected GitHub connection");
+    await tokenStore.saveConnection(
+      { ...current, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      connectionWriteGuard(current),
+    );
+    const broker = new GitHubTokenBroker({
+      config,
+      tokenStore,
+      fetch: () =>
+        Promise.resolve(
+          Response.json({
+            refresh_token: "rotating-renewal-2",
+            refresh_token_expires_in: 7200,
+            scope: "repo",
+          }),
+        ),
+    });
+
+    expect(broker.getAccessToken(identity, ["repo"])).rejects.toMatchObject({
+      category: "malformed_provider_response",
+    });
+    const generations = await tokenStore.listPrincipalCredentialGenerations(
+      "github",
+      identity.issuer,
+      identity.subject,
+    );
+    expect(generations).toHaveLength(2);
+    const partial = generations.find((generation) => generation.generation === 2);
+    expect(partial).toMatchObject({
+      generation: 2,
+      state: "cleanup_permanent_failure",
+      cleanupAttempts: 1,
+    });
+    expect(typeof partial?.encryptedCredentialEnvelope).toBe("string");
   });
 
   test("requires reauth when the stored token is missing requested scopes", async () => {

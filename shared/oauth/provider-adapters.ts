@@ -129,11 +129,13 @@ export class GoogleConnectionAdapter implements DownstreamConnectionAdapter {
       if (body.error === "invalid_grant") throw invalidRenewal();
       throw providerResponseError(response);
     }
-    if (typeof body.access_token !== "string") throw malformedResponse();
+    if (typeof body.access_token !== "string" && typeof body.refresh_token !== "string") {
+      throw malformedResponse();
+    }
     const expiresIn = positiveNumber(body.expires_in) ?? 3600;
     return {
       credential: {
-        activeCredential: body.access_token,
+        activeCredential: typeof body.access_token === "string" ? body.access_token : undefined,
         renewalCredential: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
       },
       grantedScopes:
@@ -266,12 +268,14 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
       }
       throw providerResponseError(response);
     }
-    if (typeof body.access_token !== "string") throw malformedResponse();
+    if (typeof body.access_token !== "string" && typeof body.refresh_token !== "string") {
+      throw malformedResponse();
+    }
     const expiresIn = positiveNumber(body.expires_in);
     const renewalExpiresIn = positiveNumber(body.refresh_token_expires_in);
     return {
       credential: {
-        activeCredential: body.access_token,
+        activeCredential: typeof body.access_token === "string" ? body.access_token : undefined,
         renewalCredential: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
       },
       grantedScopes:
@@ -319,7 +323,12 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
 
   async revoke(credential: DecryptedCredentialGeneration): Promise<ProviderRevocationResult> {
     const active = credential.credential.activeCredential;
-    if (!active) return "already_absent";
+    if (!active) {
+      // GitHub's application-token deletion endpoint requires an access token.
+      // A refresh-only response is still credential material: retain it for
+      // operator recovery instead of falsely declaring it absent and erasing it.
+      return credential.credential.renewalCredential ? "permanent_failure" : "already_absent";
+    }
     const url =
       this.config.tokenRevocationUrl ??
       `${GITHUB_APPLICATIONS_URL}/${encodeURIComponent(this.config.clientId)}/token`;

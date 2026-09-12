@@ -357,10 +357,22 @@ describe("SQL OAuth token store", () => {
       await new SqlOAuthTokenStore(updateClient).updateCredentialGeneration(
         { ...credentialGeneration, state: "cleanup_complete" },
         "cleanup_pending",
+        credentialGeneration.cleanupAttempts,
       ),
     ).toBe(true);
     expect(updateClient.calls[0]?.sql).toContain("custody_state = $15");
+    expect(updateClient.calls[0]?.sql).toContain("cleanup_attempts = $16");
     expect(updateClient.calls[0]?.params[14]).toBe("cleanup_pending");
+    expect(updateClient.calls[0]?.params[15]).toBe(credentialGeneration.cleanupAttempts);
+  });
+
+  test("uses the connection cleanup scan only for legacy rows without ledger custody", async () => {
+    const client = new RecordingSqlClient();
+
+    await new SqlOAuthTokenStore(client).listConnectionsPendingRevocation("github", 25);
+
+    expect(client.calls[0]?.sql).toContain("credential_generation_id IS NULL");
+    expect(client.calls[0]?.params).toEqual(["github", 25]);
   });
 
   test("detects and prefers a newer legacy write over stale normalized metadata", async () => {

@@ -226,7 +226,12 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
   ): Promise<ConnectionRecord[]> {
     return Promise.resolve(
       [...this.connections.values()]
-        .filter((record) => record.provider === provider && record.revocationState === "pending")
+        .filter(
+          (record) =>
+            record.provider === provider &&
+            record.revocationState === "pending" &&
+            !record.credentialGenerationId,
+        )
         .sort((left, right) => left.updatedAt.getTime() - right.updatedAt.getTime())
         .slice(0, limit)
         .map(cloneConnection),
@@ -266,9 +271,12 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
   updateCredentialGeneration(
     record: CredentialGenerationRecord,
     expectedState: CredentialGenerationState,
+    expectedCleanupAttempts: number,
   ): Promise<boolean> {
     const current = this.credentialGenerations.get(record.id);
-    if (current?.state !== expectedState) return Promise.resolve(false);
+    if (current?.state !== expectedState || current.cleanupAttempts !== expectedCleanupAttempts) {
+      return Promise.resolve(false);
+    }
     this.credentialGenerations.set(record.id, cloneCredentialGeneration(record));
     return Promise.resolve(true);
   }

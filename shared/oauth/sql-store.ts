@@ -376,6 +376,7 @@ FROM oauth_accounts
 WHERE provider = $1
   AND revocation_state = 'pending'
   AND local_disabled_at IS NOT NULL
+  AND credential_generation_id IS NULL
 ORDER BY updated_at ASC
 LIMIT $2
 `,
@@ -455,6 +456,7 @@ ON CONFLICT (id) DO NOTHING
   async updateCredentialGeneration(
     record: CredentialGenerationRecord,
     expectedState: CredentialGenerationState,
+    expectedCleanupAttempts: number,
   ): Promise<boolean> {
     const result = await this.client.query(
       `
@@ -472,7 +474,9 @@ SET email = $2,
     last_cleanup_error_category = $12,
     updated_at = $13,
     encrypted_legacy_credential = $14
-WHERE id = $1 AND custody_state = $15
+WHERE id = $1
+  AND custody_state = $15
+  AND cleanup_attempts = $16
 RETURNING id
 `,
       [
@@ -491,6 +495,7 @@ RETURNING id
         record.updatedAt,
         record.encryptedLegacyCredential ?? null,
         expectedState,
+        expectedCleanupAttempts,
       ],
     );
     return result.rows.length === 1;
