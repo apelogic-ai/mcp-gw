@@ -57,6 +57,37 @@ describe("GitHub OAuth flow", () => {
     expect(consumed?.redirectAfter).toBe("/done");
   });
 
+  test("does not snapshot a previous synthetic authorization marker", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    await startGithubOAuth({ identity, scopes: ["repo"], config, stateStore, tokenStore });
+    const second = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+      tokenStore,
+    });
+
+    await completeGithubOAuth({
+      identity,
+      code: "second-code",
+      state: second.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({ access_token: "active", scope: "repo" })
+            : Response.json([{ email: identity.email, primary: true, verified: true }]),
+        ),
+    });
+    expect(
+      await tokenStore.getConnection("github", identity.issuer, identity.subject),
+    ).toMatchObject({ generation: 1, phase: "connected" });
+  });
+
   test("exchanges code, verifies GitHub email, and stores encrypted bearer token", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
@@ -473,6 +504,68 @@ describe("GitHub token broker", () => {
     expect(error).toBeInstanceOf(GitHubOAuthError);
     expect((error as GitHubOAuthError).code).toBe("reauth_required");
     expect((error as GitHubOAuthError).message).toBe("GitHub account must be connected");
+  });
+
+  test("preserves a transient provider renewal classification", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+    });
+    await completeGithubOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({
+                access_token: "active",
+                refresh_token: "renewal",
+                expires_in: 3600,
+                refresh_token_expires_in: 7200,
+                scope: "repo",
+              })
+            : Response.json([{ email: identity.email, verified: true }]),
+        ),
+    });
+    const expired = await tokenStore.getConnection("github", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected GitHub connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      expired.generation,
+    );
+
+    const broker = new GitHubTokenBroker({
+      config,
+      tokenStore,
+      fetch: () => Promise.resolve(new Response(null, { status: 503 })),
+    });
+    expect(broker.getAccessToken(identity, ["repo"])).rejects.toMatchObject({
+      category: "transient_provider_failure",
+    });
+    expect(
+      await tokenStore.getConnection("github", identity.issuer, identity.subject),
+    ).toMatchObject({
+      phase: "unavailable",
+      lifecycleErrorCategory: "transient_provider_failure",
+    });
+  });
+
+  test("classifies an untyped token-store failure as persistence failure", () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    tokenStore.getConnection = () => Promise.reject(new Error("database unavailable"));
+    const broker = new GitHubTokenBroker({ config, tokenStore });
+
+    expect(broker.getAccessToken(identity, ["repo"])).rejects.toMatchObject({
+      category: "persistence_failure",
+    });
   });
 });
 

@@ -49,7 +49,7 @@ export type ConnectionLifecycleMetric =
   | {
       name: "provider_cleanup_retry_outcome";
       provider: OAuthProvider;
-      outcome: ProviderRevocationResult;
+      outcome: ProviderRevocationResult | "processing_failure";
       value: 1;
     };
 

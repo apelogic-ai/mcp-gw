@@ -1,5 +1,5 @@
 import type { Hop1Identity } from "../identity/hop1";
-import { ConnectionLifecycle } from "./connection-lifecycle";
+import { ConnectionLifecycle, snapshotAuthorizationGuard } from "./connection-lifecycle";
 import { ProviderLifecycleError } from "./connection-types";
 import { GoogleConnectionAdapter } from "./provider-adapters";
 import { generateOAuthState, hashState } from "./state";
@@ -66,6 +66,12 @@ export interface CompleteGoogleOAuthResult {
   redirectAfter?: string;
 }
 
+export interface CancelGoogleOAuthOptions {
+  state: string;
+  stateStore: OAuthStateStore;
+  tokenStore?: OAuthTokenStore;
+}
+
 export const DEFAULT_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const DEFAULT_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -82,6 +88,7 @@ export async function startGoogleOAuth(
         options.identity.subject,
       )
     : null;
+  const guard = snapshotAuthorizationGuard(observed);
   await options.stateStore.save({
     stateHash: hashState(state),
     hop1Issuer: options.identity.issuer,
@@ -90,9 +97,9 @@ export async function startGoogleOAuth(
     requestedScopes: options.scopes,
     redirectAfter: options.redirectAfter,
     expiresAt,
-    connectionGeneration: options.tokenStore ? (observed?.generation ?? 0) : undefined,
-    connectionLocallyDisabled: options.tokenStore ? Boolean(observed?.localDisabledAt) : undefined,
-    connectionUpdatedAt: observed?.updatedAt,
+    connectionGeneration: options.tokenStore ? guard.generation : undefined,
+    connectionLocallyDisabled: options.tokenStore ? guard.locallyDisabled : undefined,
+    connectionUpdatedAt: options.tokenStore ? guard.updatedAt : undefined,
   });
 
   if (options.tokenStore) {
@@ -183,6 +190,16 @@ export async function completeGoogleOAuth(
     identity,
     redirectAfter: stateRecord.redirectAfter,
   };
+}
+
+export async function cancelGoogleOAuth(options: CancelGoogleOAuthOptions): Promise<Hop1Identity> {
+  const stateRecord = await options.stateStore.consume(options.state);
+  if (!stateRecord) {
+    throw new GoogleOAuthError("OAuth state is invalid or expired", "invalid_state");
+  }
+  const identity = identityFromStateRecord(stateRecord);
+  await options.tokenStore?.clearAuthorizing("google", identity.issuer, identity.subject);
+  return identity;
 }
 
 function identityFromStateRecord(stateRecord: {

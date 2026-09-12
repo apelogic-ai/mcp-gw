@@ -92,6 +92,42 @@ describe("OAuth route handler", () => {
     expect(response.status).toBe(401);
   });
 
+  test("consumes a denied provider callback and clears authorizing", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const audit = new InMemoryAuditSink();
+    const handler = createOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes,
+      stateStore,
+      tokenStore,
+      audit,
+    });
+    const start = await handler(
+      new Request("https://dev.example.com/oauth/google/start", {
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state");
+
+    const denied = await handler(
+      new Request(
+        `https://dev.example.com/oauth/google/callback?error=access_denied&state=${state ?? ""}`,
+      ),
+    );
+
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toEqual({ error: "Google authorization was not completed" });
+    expect(await stateStore.consume(state ?? "")).toBeNull();
+    expect(await tokenStore.getConnection("google", identity.issuer, identity.subject)).toBeNull();
+    expect(audit.events[0]).toMatchObject({
+      event: "google.connect",
+      status: "deny",
+      error: "authorization_denied",
+    });
+  });
+
   test("completes callback and redirects to stored redirect target", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();

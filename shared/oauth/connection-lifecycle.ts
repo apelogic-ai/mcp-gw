@@ -23,10 +23,30 @@ const CREDENTIAL_SCHEMA_VERSION = 1;
 const DEFAULT_RENEWAL_SAFETY_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_TRANSIENT_RETRIES = 1;
 
-interface AuthorizationActivationGuard {
+export interface AuthorizationActivationGuard {
   generation?: number;
   locallyDisabled?: boolean;
   updatedAt?: Date;
+}
+
+export function snapshotAuthorizationGuard(
+  record: ConnectionRecord | null,
+): AuthorizationActivationGuard {
+  const syntheticAuthorization =
+    record?.phase === "authorizing" &&
+    record.generation === 0 &&
+    !record.activeCredentialPresent &&
+    !record.renewalCredentialPresent &&
+    !record.localDisabledAt &&
+    !record.displayAccountIdentity;
+  if (!record || syntheticAuthorization) {
+    return { generation: 0, locallyDisabled: false };
+  }
+  return {
+    generation: record.generation,
+    locallyDisabled: Boolean(record.localDisabledAt),
+    updatedAt: record.updatedAt,
+  };
 }
 
 export interface ConnectionLifecycleOptions {
@@ -256,8 +276,33 @@ export class ConnectionLifecycle {
             identity.subject,
           );
           await store.clearAuthorizing(this.providerId, identity.issuer, identity.subject);
-          if (!current) return null;
           const now = this.now();
+          if (!current) {
+            const tombstone: ConnectionRecord = {
+              provider: this.providerId,
+              hop1Issuer: identity.issuer,
+              hop1Subject: identity.subject,
+              displayAccountIdentity: identity.email,
+              generation: 0,
+              requiredScopes: [...requiredScopes],
+              grantedScopes: [],
+              activeCredentialPresent: false,
+              renewalCredentialPresent: false,
+              localDisabledAt: now,
+              phase: "disconnected",
+              revocationState: "complete",
+              revocationCompletedAt: now,
+              createdAt: now,
+              updatedAt: now,
+              encryptedLegacyCredential: encryptSecret(
+                "credential-destroyed",
+                this.options.credentialEncryptionKey,
+              ),
+            };
+            const saved = await store.saveConnection(tombstone, 0);
+            if (!saved) throw generationConflict();
+            return null;
+          }
           if (current.localDisabledAt) {
             const saved = await store.saveConnection(
               {
@@ -312,17 +357,14 @@ export class ConnectionLifecycle {
         );
       }
       if (result === "retryable_failure" || result === "permanent_failure") {
-        await this.options.audit?.emit({
-          ts: this.now().toISOString(),
-          category: "oauth",
-          principal: identity.email,
-          event: `${this.providerId}.disconnect_cleanup`,
-          status: "error",
-          error:
-            result === "retryable_failure"
-              ? "transient_provider_failure"
-              : "permanent_provider_failure",
-        });
+        await this.emit(
+          identity,
+          "disconnect_cleanup",
+          "error",
+          result === "retryable_failure"
+            ? "transient_provider_failure"
+            : "provider_configuration_error",
+        );
       }
     }
     await this.emit(identity, "disconnect", "allow");
@@ -358,13 +400,29 @@ export class ConnectionLifecycle {
         provider: this.providerId,
         value: Math.max(0, this.now().getTime() - record.updatedAt.getTime()),
       });
-      await this.retryPendingRevocation({
+      const identity: Hop1Identity = {
         profile: "provider-cleanup-worker",
         issuer: record.hop1Issuer,
         subject: record.hop1Subject,
         email: record.displayAccountIdentity,
         claims: {},
-      });
+      };
+      try {
+        await this.retryPendingRevocation(identity);
+      } catch (error) {
+        this.metric({
+          name: "provider_cleanup_retry_outcome",
+          provider: this.providerId,
+          outcome: "processing_failure",
+          value: 1,
+        });
+        await this.emit(
+          identity,
+          "disconnect_cleanup_retry",
+          "error",
+          lifecycleCategory(error) ?? "persistence_failure",
+        );
+      }
     }
     return pending.length;
   }

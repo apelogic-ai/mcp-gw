@@ -1,7 +1,7 @@
 import type { AuditSink } from "../audit/audit";
 import type { Hop1Identity } from "../identity/hop1";
-import { ConnectionLifecycle } from "./connection-lifecycle";
-import { ProviderLifecycleError } from "./connection-types";
+import { ConnectionLifecycle, snapshotAuthorizationGuard } from "./connection-lifecycle";
+import { lifecycleErrorRequiresReauthorization, ProviderLifecycleError } from "./connection-types";
 import { GitHubConnectionAdapter } from "./provider-adapters";
 import { generateOAuthState, hashState } from "./state";
 import type { OAuthFetch } from "./google";
@@ -103,6 +103,7 @@ export async function startGithubOAuth(
         options.identity.subject,
       )
     : null;
+  const guard = snapshotAuthorizationGuard(observed);
   await options.stateStore.save({
     stateHash: hashState(state),
     hop1Issuer: options.identity.issuer,
@@ -111,9 +112,9 @@ export async function startGithubOAuth(
     requestedScopes: options.scopes,
     redirectAfter: options.redirectAfter,
     expiresAt,
-    connectionGeneration: options.tokenStore ? (observed?.generation ?? 0) : undefined,
-    connectionLocallyDisabled: options.tokenStore ? Boolean(observed?.localDisabledAt) : undefined,
-    connectionUpdatedAt: observed?.updatedAt,
+    connectionGeneration: options.tokenStore ? guard.generation : undefined,
+    connectionLocallyDisabled: options.tokenStore ? guard.locallyDisabled : undefined,
+    connectionUpdatedAt: options.tokenStore ? guard.updatedAt : undefined,
   });
 
   if (options.tokenStore) {
@@ -234,8 +235,12 @@ export class GitHubTokenBroker {
         credentialEncryptionKey: this.options.config.tokenEncryptionKey,
         audit: this.options.audit,
       }).getActiveCredential(identity, requiredScopes);
-    } catch {
-      throw new GitHubOAuthError("GitHub account must be connected", "reauth_required");
+    } catch (error) {
+      if (lifecycleErrorRequiresReauthorization(error)) {
+        throw new GitHubOAuthError("GitHub account must be connected", "reauth_required");
+      }
+      if (error instanceof ProviderLifecycleError) throw error;
+      throw new ProviderLifecycleError("GitHub credential brokerage failed", "persistence_failure");
     }
   }
 }

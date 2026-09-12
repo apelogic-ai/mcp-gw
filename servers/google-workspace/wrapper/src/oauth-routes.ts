@@ -1,6 +1,7 @@
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
-import type { AuditSink } from "../../../../shared/audit/audit";
+import type { AuditEvent, AuditSink } from "../../../../shared/audit/audit";
 import {
+  cancelGoogleOAuth,
   completeGoogleOAuth,
   GoogleOAuthError,
   startGoogleOAuth,
@@ -61,7 +62,35 @@ export function createOAuthRouteHandler(
     if (request.method === "GET" && url.pathname === "/oauth/google/callback") {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
-      if (!code || !state) {
+      if (!state) {
+        return json({ error: "Missing OAuth code or state" }, 400);
+      }
+
+      if (url.searchParams.has("error")) {
+        try {
+          const identity = await cancelGoogleOAuth({
+            state,
+            stateStore: options.stateStore,
+            tokenStore: options.tokenStore,
+          });
+          await emitAuditSafely(options.audit, {
+            ts: new Date().toISOString(),
+            category: "oauth",
+            principal: identity.email,
+            event: "google.connect",
+            status: "deny",
+            error: "authorization_denied",
+          });
+        } catch (error) {
+          if (error instanceof GoogleOAuthError && error.code === "invalid_state") {
+            return json({ error: "OAuth state is invalid, stale, or expired" }, 400);
+          }
+          throw error;
+        }
+        return json({ error: "Google authorization was not completed" }, 400);
+      }
+
+      if (!code) {
         return json({ error: "Missing OAuth code or state" }, 400);
       }
 
@@ -228,4 +257,12 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: JSON_HEADERS,
   });
+}
+
+async function emitAuditSafely(audit: AuditSink | undefined, event: AuditEvent): Promise<void> {
+  try {
+    await audit?.emit(event);
+  } catch {
+    // OAuth state consumption must not be undone by an observability failure.
+  }
 }

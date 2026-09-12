@@ -60,6 +60,26 @@ describe("Google OAuth consent flow", () => {
     });
   });
 
+  test("does not snapshot a previous synthetic authorization marker", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
+    const second = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
+
+    await completeGoogleOAuth({
+      identity,
+      code: "second-code",
+      state: second.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: successFetch(identity.email),
+    });
+    expect(
+      await tokenStore.getConnection("google", identity.issuer, identity.subject),
+    ).toMatchObject({ generation: 1, phase: "connected" });
+  });
+
   test("rejects an unknown OAuth state", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
@@ -347,6 +367,52 @@ describe("Google token broker", () => {
       expect(connection?.localDisabledAt).toBeUndefined();
       expect(connection?.phase).toBe("reauthorization_required");
     }
+  });
+
+  test("preserves a transient provider renewal classification", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
+    await completeGoogleOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: successFetch("user@example.com"),
+    });
+    const expired = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected Google connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      expired.generation,
+    );
+
+    const broker = new GoogleTokenBroker({
+      config,
+      tokenStore,
+      fetch: () => Promise.resolve(new Response(null, { status: 503 })),
+    });
+    expect(broker.getAccessToken(identity, scopes)).rejects.toMatchObject({
+      category: "transient_provider_failure",
+    });
+    expect(
+      await tokenStore.getConnection("google", identity.issuer, identity.subject),
+    ).toMatchObject({
+      phase: "unavailable",
+      lifecycleErrorCategory: "transient_provider_failure",
+    });
+  });
+
+  test("classifies an untyped token-store failure as persistence failure", () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    tokenStore.getConnection = () => Promise.reject(new Error("database unavailable"));
+    const broker = new GoogleTokenBroker({ config, tokenStore });
+
+    expect(broker.getAccessToken(identity, scopes)).rejects.toMatchObject({
+      category: "persistence_failure",
+    });
   });
 });
 

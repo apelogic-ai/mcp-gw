@@ -392,7 +392,10 @@ async function providerFetch(
   init: RequestInit,
 ): Promise<Response> {
   try {
-    return await fetchImpl(url, init);
+    return await fetchImpl(url, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    });
   } catch {
     throw new ProviderLifecycleError(
       "Provider is temporarily unavailable",
@@ -403,7 +406,10 @@ async function providerFetch(
 
 async function jsonObject(response: Response): Promise<Record<string, unknown>> {
   const body = await response.json().catch(() => undefined);
-  if (!isRecord(body)) throw malformedResponse();
+  if (!isRecord(body)) {
+    if (!response.ok) throw providerResponseError(response);
+    throw malformedResponse();
+  }
   return body;
 }
 

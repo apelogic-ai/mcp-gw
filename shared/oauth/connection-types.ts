@@ -120,6 +120,17 @@ export class ProviderLifecycleError extends Error {
   }
 }
 
+export function lifecycleErrorRequiresReauthorization(error: unknown): boolean {
+  if (!(error instanceof ProviderLifecycleError)) return false;
+  return (
+    error.category === "invalid_active_credential" ||
+    error.category === "invalid_renewal_credential" ||
+    error.category === "renewal_expired" ||
+    error.category === "identity_mismatch" ||
+    error.category === "insufficient_scope"
+  );
+}
+
 export interface ConnectionRecord {
   provider: OAuthProvider;
   hop1Issuer: string;

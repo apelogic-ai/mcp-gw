@@ -449,6 +449,89 @@ describe("provider-neutral connection lifecycle", () => {
       connected: false,
     });
   });
+
+  test("persists a disabled generation-zero tombstone when disconnect sees no record", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const lifecycle = fixtureLifecycle(store, new FixtureAdapter());
+
+    expect(await lifecycle.disconnect(identity, scopes)).toMatchObject({
+      phase: "disconnected",
+      connected: false,
+    });
+    const tombstone = await store.getConnection("github", identity.issuer, identity.subject);
+    expect(tombstone).toMatchObject({
+      generation: 0,
+      phase: "disconnected",
+      revocationState: "complete",
+    });
+    expect(tombstone?.localDisabledAt).toBeInstanceOf(Date);
+    expect(
+      lifecycle.activateAuthorizedGeneration(
+        identity,
+        scopes,
+        {
+          credential: {
+            activeCredential: "late-callback-active",
+            renewalCredential: "late-callback-renewal",
+          },
+          displayAccountIdentity: identity.email,
+          grantedScopes: scopes,
+          validatedAt: new Date(),
+        },
+        { generation: 0, locallyDisabled: false },
+      ),
+    ).rejects.toMatchObject({ category: "generation_conflict" });
+  });
+
+  test("continues pending cleanup after one row cannot be processed", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    adapter.revocation = () => Promise.resolve("retryable_failure");
+    const lifecycle = fixtureLifecycle(store, adapter);
+    const secondIdentity = { ...identity, subject: "subject-2", email: "second@example.com" };
+    await authorize(lifecycle, "first-active", "first-renewal");
+    await lifecycle.activateAuthorizedGeneration(secondIdentity, scopes, {
+      credential: { activeCredential: "second-active", renewalCredential: "second-renewal" },
+      displayAccountIdentity: secondIdentity.email,
+      grantedScopes: scopes,
+      validatedAt: new Date(),
+    });
+    await lifecycle.disconnect(identity, scopes);
+    await lifecycle.disconnect(secondIdentity, scopes);
+    const malformed = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!malformed) throw new Error("expected first pending connection");
+    await store.saveConnection(
+      { ...malformed, encryptedCredentialEnvelope: "not-an-envelope" },
+      malformed.generation,
+    );
+    adapter.revocation = () => Promise.resolve("revoked");
+
+    expect(await lifecycle.retryPendingRevocations()).toBe(2);
+    expect(
+      await store.getConnection("github", secondIdentity.issuer, secondIdentity.subject),
+    ).toMatchObject({ phase: "disconnected", revocationState: "complete" });
+    expect(await store.getConnection("github", identity.issuer, identity.subject)).toMatchObject({
+      revocationState: "pending",
+    });
+  });
+
+  test("does not fail disconnect when the cleanup audit sink rejects", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    adapter.revocation = () => Promise.resolve("retryable_failure");
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      audit: { emit: () => Promise.reject(new Error("audit disk full")) },
+    });
+    await authorize(lifecycle, "active", "renewal");
+
+    expect(await lifecycle.disconnect(identity, scopes)).toMatchObject({
+      phase: "disconnected_with_provider_cleanup_pending",
+      connected: false,
+    });
+  });
 });
 
 function fixtureLifecycle(
