@@ -347,6 +347,7 @@ export class ConnectionLifecycle {
       identity.subject,
     );
     if (!renewed || renewed.localDisabledAt) throw reauthorizationRequired();
+    requireScopes(this.options.adapter, renewed.grantedScopes, requiredScopes);
     const active = decryptGeneration(renewed, this.options.credentialEncryptionKey).credential
       .activeCredential;
     if (!active) throw reauthorizationRequired();
@@ -380,7 +381,13 @@ export class ConnectionLifecycle {
     if (rejectedActiveCredential) {
       const observedActive = decryptGeneration(observed, this.options.credentialEncryptionKey)
         .credential.activeCredential;
-      if (observedActive && observedActive !== rejectedActiveCredential) return observedActive;
+      if (
+        observedActive &&
+        observedActive !== rejectedActiveCredential &&
+        scopesSatisfied(this.options.adapter, observed.grantedScopes, requiredScopes)
+      ) {
+        return observedActive;
+      }
     }
     const result = await this.renew(identity, requiredScopes, false, true, observed.generation);
     if (result !== "refreshed" && result !== "already_fresh") return undefined;
@@ -390,6 +397,11 @@ export class ConnectionLifecycle {
       identity.subject,
     );
     if (!current || current.localDisabledAt) return undefined;
+    try {
+      requireScopes(this.options.adapter, current.grantedScopes, requiredScopes);
+    } catch {
+      return undefined;
+    }
     return decryptGeneration(current, this.options.credentialEncryptionKey).credential
       .activeCredential;
   }
@@ -634,14 +646,14 @@ export class ConnectionLifecycle {
           if (!current || current.localDisabledAt) {
             return { kind: "result", result: "reauthorization_required" };
           }
-          if (observedGeneration !== undefined && current.generation !== observedGeneration) {
-            return { kind: "result", result: "already_fresh" };
-          }
           try {
             requireScopes(this.options.adapter, current.grantedScopes, requiredScopes);
           } catch {
             await this.persistReauthorizationRequired(store, current, "insufficient_scope");
             return { kind: "result", result: "reauthorization_required" };
+          }
+          if (observedGeneration !== undefined && current.generation !== observedGeneration) {
+            return { kind: "result", result: "already_fresh" };
           }
 
           const decrypted = decryptGeneration(current, this.options.credentialEncryptionKey);
@@ -722,8 +734,18 @@ export class ConnectionLifecycle {
               renewalCredentialExpiresAt: renewed.renewalCredentialExpiresAt,
               grantedScopes: renewed.grantedScopes ?? current.grantedScopes,
             });
-            await this.acquireCredentialCustody(identity, candidate);
-            return { kind: "candidate", current, decrypted, renewed, candidate, fresh };
+            issuedPreparation = {
+              kind: "candidate",
+              current,
+              decrypted,
+              renewed,
+              candidate,
+              fresh,
+            };
+            // This is the only write in the issuance transaction. Returning from
+            // withConnectionLock commits custody before completeness validation.
+            await store.saveCredentialGeneration(candidate);
+            return issuedPreparation;
           } catch (error) {
             const category = lifecycleCategory(error);
             if (category && isPermanentRenewalFailure(category)) {
@@ -751,9 +773,8 @@ export class ConnectionLifecycle {
       if (preparation.kind === "result") {
         result = preparation.result;
       } else if (preparation.kind === "wait") {
-        result = await this.awaitConcurrentRenewal(identity, preparation);
+        result = await this.awaitConcurrentRenewal(identity, preparation, requiredScopes);
       } else {
-        issuedPreparation = preparation;
         this.validateRenewedGeneration(preparation, requiredScopes);
         result = await this.activateRenewedGeneration(identity, preparation);
         if (result === "refreshed") {
@@ -789,18 +810,27 @@ export class ConnectionLifecycle {
         const rejected = issuedPreparation;
         issuedPreparation = undefined;
         let current: ConnectionRecord | null;
+        let generations: CredentialGenerationRecord[];
         try {
-          current = await this.options.store.getConnection(
-            this.providerId,
-            identity.issuer,
-            identity.subject,
-          );
+          [current, generations] = await Promise.all([
+            this.options.store.getConnection(this.providerId, identity.issuer, identity.subject),
+            this.options.store.listPrincipalCredentialGenerations(
+              this.providerId,
+              identity.issuer,
+              identity.subject,
+            ),
+          ]);
         } catch {
           // Preserve the candidate for durable reconciliation when COMMIT outcome
           // cannot be observed safely.
           throw error;
         }
         if (current?.credentialGenerationId !== rejected.candidate.id) {
+          if (!generations.some((generation) => generation.id === rejected.candidate.id)) {
+            // The issuance transaction rolled back or its COMMIT outcome was
+            // unknown. Re-establish custody after that transaction has ended.
+            await this.acquireCredentialCustody(identity, rejected.candidate);
+          }
           await this.rejectRenewedGeneration(identity, rejected, error);
         }
       }
@@ -977,15 +1007,22 @@ export class ConnectionLifecycle {
   private async awaitConcurrentRenewal(
     identity: Hop1Identity,
     wait: Extract<RenewalPreparation, { kind: "wait" }>,
+    requiredScopes: string[],
   ): Promise<RenewalResult> {
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    const deadline = Date.now() + 20_000;
+    let delayMs = 100;
+    while (Date.now() < deadline) {
       const current = await this.options.store.getConnection(
         this.providerId,
         identity.issuer,
         identity.subject,
       );
       if (!current || current.localDisabledAt) return "reauthorization_required";
-      if (current.generation !== wait.generation) return "already_fresh";
+      if (current.generation !== wait.generation) {
+        return scopesSatisfied(this.options.adapter, current.grantedScopes, requiredScopes)
+          ? "already_fresh"
+          : "reauthorization_required";
+      }
       const generations = await this.options.store.listPrincipalCredentialGenerations(
         this.providerId,
         identity.issuer,
@@ -999,7 +1036,10 @@ export class ConnectionLifecycle {
         }
         throw generationConflict();
       }
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(delayMs, Math.max(0, deadline - Date.now()))),
+      );
+      delayMs = Math.min(delayMs * 2, 2_000);
     }
     throw new ProviderLifecycleError(
       "Concurrent renewal did not complete in time",

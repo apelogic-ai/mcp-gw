@@ -14,7 +14,9 @@ import { SqlOAuthTokenStore } from "../../shared/oauth/sql-store";
 const connectionString = process.env.TOKEN_STORE_DSN;
 if (!connectionString) throw new Error("TOKEN_STORE_DSN is required");
 
-const pool = new Pool({ connectionString });
+// A single-slot pool catches accidental nested checkouts from the locked
+// issuance transaction: those would otherwise wait forever in production.
+const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 1_500 });
 const suffix = randomUUID();
 const identity: Hop1Identity = {
   profile: "postgres-custody-regression",

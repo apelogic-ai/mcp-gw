@@ -144,6 +144,75 @@ describe("provider-neutral connection lifecycle", () => {
     ).toBe(2);
   });
 
+  test("waiters honor replacement scopes without polling storage aggressively", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    adapter.renewal = () =>
+      Promise.resolve({
+        credential: { activeCredential: "read-only-active", renewalCredential: "renewal-2" },
+        activeCredentialExpiresAt: new Date(Date.now() + 3_600_000),
+        grantedScopes: ["read"],
+      });
+    const lifecycle = fixtureLifecycle(store, adapter);
+    await authorize(lifecycle, "expired-active", "renewal-1", new Date(Date.now() - 1));
+
+    let ownerReachedCustody!: () => void;
+    const custodyCommitted = new Promise<void>((resolve) => {
+      ownerReachedCustody = resolve;
+    });
+    let releaseOwner!: () => void;
+    const ownerPaused = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    const lock = store.withConnectionLock.bind(store);
+    store.withConnectionLock = async (provider, issuer, subject, operation) => {
+      const result = await lock(provider, issuer, subject, operation);
+      if (typeof result === "object" && result !== null && "kind" in result) {
+        if (result.kind === "candidate") {
+          ownerReachedCustody();
+          await ownerPaused;
+        }
+      }
+      return result;
+    };
+
+    const owner = lifecycle.getActiveCredential(identity, ["read"]);
+    await custodyCommitted;
+    let reads = 0;
+    const getConnection = store.getConnection.bind(store);
+    const listGenerations = store.listPrincipalCredentialGenerations.bind(store);
+    store.getConnection = (...args) => {
+      reads += 1;
+      return getConnection(...args);
+    };
+    store.listPrincipalCredentialGenerations = (...args) => {
+      reads += 1;
+      return listGenerations(...args);
+    };
+    const waiter = lifecycle.getActiveCredential(identity, ["write"]);
+    await Bun.sleep(450);
+    const readsWhileWaiting = reads;
+    releaseOwner();
+
+    expect(await owner).toBe("read-only-active");
+    let waiterError: unknown;
+    try {
+      await waiter;
+    } catch (error) {
+      waiterError = error;
+    }
+    expect(waiterError).toMatchObject({ category: "invalid_active_credential" });
+    expect(
+      await lifecycle.recoverFromProviderAuthenticationFailure(
+        identity,
+        ["write"],
+        "expired-active",
+      ),
+    ).toBeUndefined();
+    expect(adapter.renewCalls).toBe(1);
+    expect(readsWhileWaiting).toBeLessThan(16);
+  });
+
   test("makes concurrent user refresh requests idempotent for one observed generation", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
