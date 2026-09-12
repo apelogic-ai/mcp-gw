@@ -30,6 +30,10 @@ export interface CreateGithubMcpProxyHandlerOptions {
   githubToolsets?: readonly GithubMcpToolsetName[];
   authenticate(token: string): Promise<Hop1Identity>;
   resolveGithubToken(identity: Hop1Identity): Promise<string | undefined>;
+  recoverGithubToken?(
+    identity: Hop1Identity,
+    rejectedActiveCredential: string,
+  ): Promise<string | undefined>;
   getOAuthStatus?(identity: Hop1Identity): Promise<GithubOAuthStatus>;
   startOAuth?(
     identity: Hop1Identity,
@@ -241,13 +245,25 @@ export function createGithubMcpProxyHandler(
 
     try {
       const upstreamBody = withUpstreamProtocolMeta(request, toolCall?.body ?? body);
-      const upstreamResponse = await fetchImpl(
-        new Request(options.upstreamUrl, {
-          method: request.method,
-          headers: upstreamHeaders(request, githubToken, upstreamBody),
-          body: upstreamBody,
-        }),
+      let upstreamResponse = await fetchUpstream(
+        fetchImpl,
+        options.upstreamUrl,
+        request,
+        githubToken,
+        upstreamBody,
       );
+      if (upstreamResponse.status === 401 && options.recoverGithubToken) {
+        const replacement = await options.recoverGithubToken(identity, githubToken);
+        if (replacement) {
+          upstreamResponse = await fetchUpstream(
+            fetchImpl,
+            options.upstreamUrl,
+            request,
+            replacement,
+            upstreamBody,
+          );
+        }
+      }
       const responseBody = await upstreamResponse.text();
 
       if (toolCall) {
@@ -286,6 +302,22 @@ export function createGithubMcpProxyHandler(
       return mcpError(toolCall?.id ?? null, -32000, "GitHub MCP upstream request failed");
     }
   };
+}
+
+function fetchUpstream(
+  fetchImpl: GithubMcpProxyFetch,
+  upstreamUrl: string,
+  request: Request,
+  githubToken: string,
+  body: string,
+): Promise<Response> {
+  return fetchImpl(
+    new Request(upstreamUrl, {
+      method: request.method,
+      headers: upstreamHeaders(request, githubToken, body),
+      body,
+    }),
+  );
 }
 
 function isLocalTool(toolName: string): boolean {

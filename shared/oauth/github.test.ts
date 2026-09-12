@@ -391,6 +391,74 @@ describe("GitHub token broker", () => {
     expect(await broker.getAccessToken(identity, ["repo"])).toBe("github-user-token");
   });
 
+  test("single-flights expiring token renewal and replaces GitHub's rotating credential", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGithubOAuth({ identity, scopes: ["repo"], config, stateStore });
+    await completeGithubOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: (url) =>
+        Promise.resolve(
+          url === config.tokenUrl
+            ? Response.json({
+                access_token: "expiring-active",
+                refresh_token: "rotating-renewal-1",
+                expires_in: 3600,
+                refresh_token_expires_in: 7200,
+                scope: "repo",
+              })
+            : Response.json([{ email: identity.email, verified: true }]),
+        ),
+    });
+    const current = await tokenStore.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("expected GitHub connection");
+    await tokenStore.saveConnection(
+      { ...current, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      current.generation,
+    );
+    let renewals = 0;
+    let refreshBody = "";
+    const broker = new GitHubTokenBroker({
+      config,
+      tokenStore,
+      fetch: (_url, init) => {
+        renewals += 1;
+        refreshBody =
+          init?.body instanceof URLSearchParams
+            ? init.body.toString()
+            : typeof init?.body === "string"
+              ? init.body
+              : "";
+        return Promise.resolve(
+          Response.json({
+            access_token: "rotated-active",
+            refresh_token: "rotating-renewal-2",
+            expires_in: 3600,
+            refresh_token_expires_in: 7200,
+            scope: "repo",
+          }),
+        );
+      },
+    });
+
+    expect(
+      await Promise.all([
+        broker.getAccessToken(identity, ["repo"]),
+        broker.getAccessToken(identity, ["repo"]),
+      ]),
+    ).toEqual(["rotated-active", "rotated-active"]);
+    expect(renewals).toBe(1);
+    expect(refreshBody).toContain("refresh_token=rotating-renewal-1");
+    expect(
+      (await tokenStore.getConnection("github", identity.issuer, identity.subject))?.generation,
+    ).toBe(2);
+  });
+
   test("requires reauth when the stored token is missing requested scopes", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const broker = new GitHubTokenBroker({ config, tokenStore });
@@ -409,7 +477,7 @@ describe("GitHub token broker", () => {
 });
 
 describe("GitHub OAuth disconnect", () => {
-  test("revokes the remote token with a bounded request before revoking the local grant", async () => {
+  test("disables locally before issuing a bounded provider revocation request", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const accessToken = "gho_disconnect_access_token";
     await tokenStore.saveAccount({
@@ -450,7 +518,7 @@ describe("GitHub OAuth disconnect", () => {
     ).toBeInstanceOf(Date);
   });
 
-  test("fails closed without revoking the local grant or exposing a token when GitHub refuses revocation", async () => {
+  test("disables locally and quarantines the credential when GitHub cleanup is retryable", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const accessToken = "gho_disconnect_access_token";
     await tokenStore.saveAccount({
@@ -464,27 +532,25 @@ describe("GitHub OAuth disconnect", () => {
       updatedAt: new Date("2026-08-22T00:00:00.000Z"),
     });
 
-    let error: unknown;
-    try {
-      await revokeGithubOAuth({
-        identity,
-        config,
-        tokenStore,
-        fetch: () => Promise.resolve(Response.json({ error: accessToken }, { status: 500 })),
-      });
-    } catch (caught) {
-      error = caught;
-    }
+    await revokeGithubOAuth({
+      identity,
+      config,
+      tokenStore,
+      fetch: () => Promise.resolve(Response.json({ error: accessToken }, { status: 500 })),
+    });
 
-    expect(error).toBeInstanceOf(GitHubOAuthError);
-    expect((error as GitHubOAuthError).code).toBe("token_revocation_failed");
-    expect((error as GitHubOAuthError).message).not.toContain(accessToken);
     expect(
       (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
-    ).toBeUndefined();
+    ).toBeInstanceOf(Date);
+    const connection = await tokenStore.getConnection("github", identity.issuer, identity.subject);
+    expect(connection).toMatchObject({
+      phase: "disconnected_with_provider_cleanup_pending",
+      revocationState: "pending",
+    });
+    expect(JSON.stringify(connection)).not.toContain(accessToken);
   });
 
-  test("requires GitHub's documented no-content acknowledgement before revoking locally", async () => {
+  test("keeps a permanent provider cleanup failure locally disabled", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     await tokenStore.saveAccount({
       provider: "github",
@@ -500,22 +566,18 @@ describe("GitHub OAuth disconnect", () => {
       updatedAt: new Date("2026-08-22T00:00:00.000Z"),
     });
 
-    let error: unknown;
-    try {
-      await revokeGithubOAuth({
-        identity,
-        config,
-        tokenStore,
-        fetch: () => Promise.resolve(Response.json({ status: "unexpected" })),
-      });
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(error).toMatchObject({ code: "token_revocation_failed" });
+    await revokeGithubOAuth({
+      identity,
+      config,
+      tokenStore,
+      fetch: () => Promise.resolve(Response.json({ status: "unexpected" })),
+    });
 
     expect(
       (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
-    ).toBeUndefined();
+    ).toBeInstanceOf(Date);
+    expect(
+      await tokenStore.getConnection("github", identity.issuer, identity.subject),
+    ).toMatchObject({ phase: "unavailable", revocationState: "permanent_failure" });
   });
 });

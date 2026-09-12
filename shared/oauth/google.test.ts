@@ -95,7 +95,6 @@ describe("Google OAuth consent flow", () => {
       tokenStore,
       fetch: successFetch("user@example.com"),
     });
-
     const account = await tokenStore.getAccount(identity.issuer, identity.subject);
 
     expect(account).not.toBeNull();
@@ -272,6 +271,12 @@ describe("Google token broker", () => {
       tokenStore,
       fetch: successFetch("user@example.com"),
     });
+    const expired = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected Google connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      expired.generation,
+    );
 
     let refreshCalls = 0;
     const broker = new GoogleTokenBroker({
@@ -302,7 +307,7 @@ describe("Google token broker", () => {
     expect(refreshCalls).toBe(1);
   });
 
-  test("marks an account revoked when Google returns invalid_grant", async () => {
+  test("requires reauthorization without treating invalid_grant as local disconnect", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const stateStore = new InMemoryOAuthStateStore();
     const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
@@ -315,6 +320,12 @@ describe("Google token broker", () => {
       tokenStore,
       fetch: successFetch("user@example.com"),
     });
+    const expired = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected Google connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      expired.generation,
+    );
 
     const broker = new GoogleTokenBroker({
       config,
@@ -322,15 +333,19 @@ describe("Google token broker", () => {
       fetch: () => Promise.resolve(jsonResponse({ error: "invalid_grant" }, 400)),
     });
 
-    expect.assertions(3);
+    expect.assertions(4);
     try {
       await broker.getAccessToken(identity, scopes);
     } catch (error) {
       expect(error).toBeInstanceOf(GoogleOAuthError);
       expect((error as GoogleOAuthError).code).toBe("reauth_required");
-      expect(
-        (await tokenStore.getAccount(identity.issuer, identity.subject))?.revokedAt,
-      ).toBeDate();
+      const connection = await tokenStore.getConnection(
+        "google",
+        identity.issuer,
+        identity.subject,
+      );
+      expect(connection?.localDisabledAt).toBeUndefined();
+      expect(connection?.phase).toBe("reauthorization_required");
     }
   });
 });

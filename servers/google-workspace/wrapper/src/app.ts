@@ -110,6 +110,7 @@ export function loadWrapperConfig(
     tokenUrl: optionalEnv(env, "GOOGLE_OAUTH_TOKEN_URL"),
     userInfoUrl: optionalEnv(env, "GOOGLE_OAUTH_USERINFO_URL"),
     googleJwksUrl: optionalEnv(env, "GOOGLE_OAUTH_JWKS_URL"),
+    revocationUrl: optionalEnv(env, "GOOGLE_OAUTH_REVOCATION_URL"),
   };
   const hop1Issuers = loadHop1Issuers(env, options.allowEmptyHop1Issuers ?? false);
   const defaultHop1Issuer = hop1Issuers[0];

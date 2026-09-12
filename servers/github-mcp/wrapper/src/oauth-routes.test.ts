@@ -416,7 +416,7 @@ describe("GitHub OAuth routes", () => {
     expect(await afterDisconnect.json()).toEqual({ connected: false });
   });
 
-  test("fails closed and reports a sanitized audit event when GitHub rejects disconnect", async () => {
+  test("disables locally and reports sanitized pending cleanup when GitHub rejects disconnect", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const accessToken = "gho_disconnect_access_token";
     const audit = new MemoryAuditSink();
@@ -447,21 +447,22 @@ describe("GitHub OAuth routes", () => {
       }),
     );
 
-    expect(response.status).toBe(503);
-    const responseBody = await response.json();
-    expect(responseBody).toEqual({
-      error: "GitHub account disconnect could not be completed",
-    });
+    expect(response.status).toBe(204);
+    const responseBody = await response.text();
+    expect(responseBody).toBe("");
     expect(
       (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
-    ).toBeUndefined();
-    expect(audit.events).toHaveLength(1);
+    ).toBeInstanceOf(Date);
+    expect(
+      await tokenStore.getConnection("github", identity.issuer, identity.subject),
+    ).toMatchObject({ phase: "disconnected_with_provider_cleanup_pending" });
+    expect(audit.events).toHaveLength(2);
     expect(audit.events[0]).toMatchObject({
       category: "oauth",
       principal: identity.email,
-      event: "github.disconnect",
+      event: "github.disconnect_cleanup",
       status: "error",
-      error: "github_token_revocation_failed",
+      error: "transient_provider_failure",
     });
     expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
       accessToken,
@@ -482,7 +483,14 @@ describe("GitHub OAuth routes", () => {
       createdAt: new Date("2026-08-22T00:00:00.000Z"),
       updatedAt: new Date("2026-08-22T00:00:00.000Z"),
     });
-    tokenStore.markRevoked = () => Promise.reject(new Error(`database failed for ${accessToken}`));
+    const saveConnection = tokenStore.saveConnection.bind(tokenStore);
+    let persistenceCalls = 0;
+    tokenStore.saveConnection = (record, expectedGeneration) => {
+      persistenceCalls += 1;
+      return persistenceCalls === 2
+        ? Promise.reject(new Error(`database failed for ${accessToken}`))
+        : saveConnection(record, expectedGeneration);
+    };
     let providerRevocationCalls = 0;
     const handler = createGitHubOAuthRouteHandler({
       authenticate: () => Promise.resolve(identity),
@@ -516,7 +524,6 @@ describe("GitHub OAuth routes", () => {
       principal: identity.email,
       event: "github.disconnect",
       status: "error",
-      error: "github_token_revocation_persist_failed",
     });
     expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
       accessToken,

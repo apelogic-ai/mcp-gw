@@ -1,5 +1,7 @@
 import type { Hop1Identity } from "../identity/hop1";
-import { encryptSecret } from "./crypto";
+import { ConnectionLifecycle } from "./connection-lifecycle";
+import { ProviderLifecycleError } from "./connection-types";
+import { GoogleConnectionAdapter } from "./provider-adapters";
 import { generateOAuthState, hashState } from "./state";
 import type { OAuthStateStore, OAuthTokenStore } from "./store";
 
@@ -30,6 +32,7 @@ export interface GoogleOAuthConfig {
   tokenUrl?: string;
   userInfoUrl?: string;
   googleJwksUrl?: string;
+  revocationUrl?: string;
 }
 
 export type OAuthFetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -39,6 +42,7 @@ export interface StartGoogleOAuthOptions {
   scopes: string[];
   config: GoogleOAuthConfig;
   stateStore: OAuthStateStore;
+  tokenStore?: OAuthTokenStore;
   redirectAfter?: string;
 }
 
@@ -62,27 +66,22 @@ export interface CompleteGoogleOAuthResult {
   redirectAfter?: string;
 }
 
-interface GoogleTokenResponse {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  scope?: string;
-  error?: string;
-}
-
-interface GoogleUserInfoResponse {
-  email?: string;
-}
-
 export const DEFAULT_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const DEFAULT_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const DEFAULT_USER_INFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 export async function startGoogleOAuth(
   options: StartGoogleOAuthOptions,
 ): Promise<StartedGoogleOAuth> {
   const state = generateOAuthState();
+  const expiresAt = new Date(Date.now() + STATE_TTL_MS);
+  const observed = options.tokenStore
+    ? await options.tokenStore.getConnection(
+        "google",
+        options.identity.issuer,
+        options.identity.subject,
+      )
+    : null;
   await options.stateStore.save({
     stateHash: hashState(state),
     hop1Issuer: options.identity.issuer,
@@ -90,23 +89,26 @@ export async function startGoogleOAuth(
     email: options.identity.email,
     requestedScopes: options.scopes,
     redirectAfter: options.redirectAfter,
-    expiresAt: new Date(Date.now() + STATE_TTL_MS),
+    expiresAt,
+    connectionGeneration: options.tokenStore ? (observed?.generation ?? 0) : undefined,
+    connectionLocallyDisabled: options.tokenStore ? Boolean(observed?.localDisabledAt) : undefined,
+    connectionUpdatedAt: observed?.updatedAt,
   });
 
-  const url = new URL(options.config.authorizationUrl ?? DEFAULT_AUTHORIZATION_URL);
-  url.searchParams.set("client_id", options.config.clientId);
-  url.searchParams.set("redirect_uri", options.config.redirectUri);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", options.scopes.join(" "));
-  url.searchParams.set("access_type", "offline");
-  url.searchParams.set("prompt", "consent");
-  url.searchParams.set("state", state);
-  url.searchParams.set("login_hint", options.identity.email);
+  if (options.tokenStore) {
+    await new ConnectionLifecycle({
+      adapter: new GoogleConnectionAdapter(options.config),
+      store: options.tokenStore,
+      credentialEncryptionKey: options.config.tokenEncryptionKey,
+    }).markAuthorizationStarted(options.identity, options.scopes, expiresAt);
+  }
 
-  return {
-    authorizationUrl: url.toString(),
+  const continuation = await new GoogleConnectionAdapter(options.config).startAuthorization({
+    identity: options.identity,
+    scopes: options.scopes,
     state,
-  };
+  });
+  return { ...continuation, state };
 }
 
 export async function completeGoogleOAuth(
@@ -122,31 +124,60 @@ export async function completeGoogleOAuth(
     identity.subject !== stateRecord.hop1Subject ||
     identity.email !== stateRecord.email
   ) {
+    await options.tokenStore.clearAuthorizing(
+      "google",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
     throw new GoogleOAuthError("OAuth state does not match authenticated user", "email_mismatch");
   }
 
   const fetchImpl = options.fetch ?? fetch;
-  const token = await exchangeCode(options, fetchImpl);
-  const email = await fetchGoogleEmail(options.config, token.accessToken, fetchImpl);
-
-  if (email !== identity.email || email !== stateRecord.email) {
+  let issued;
+  try {
+    issued = await new GoogleConnectionAdapter(options.config, fetchImpl).completeAuthorization({
+      code: options.code,
+      expectedPrincipal: identity,
+      requestedScopes: stateRecord.requestedScopes,
+    });
+  } catch (error) {
+    await options.tokenStore.clearAuthorizing(
+      "google",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
+    if (error instanceof ProviderLifecycleError && error.category === "identity_mismatch") {
+      throw new GoogleOAuthError(
+        "Connected Google account does not match authenticated user",
+        "email_mismatch",
+      );
+    }
     throw new GoogleOAuthError(
-      "Connected Google account does not match authenticated user",
-      "email_mismatch",
+      "Google OAuth callback could not be completed",
+      "token_exchange_failed",
     );
   }
-
-  const now = new Date();
-  await options.tokenStore.saveAccount({
-    provider: "google",
-    hop1Issuer: identity.issuer,
-    hop1Subject: identity.subject,
-    email,
-    scopesGranted: token.scopes,
-    encryptedRefreshToken: encryptSecret(token.refreshToken, options.config.tokenEncryptionKey),
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await new ConnectionLifecycle({
+      adapter: new GoogleConnectionAdapter(options.config, fetchImpl),
+      store: options.tokenStore,
+      credentialEncryptionKey: options.config.tokenEncryptionKey,
+    }).activateAuthorizedGeneration(identity, stateRecord.requestedScopes, issued, {
+      generation: stateRecord.connectionGeneration,
+      locallyDisabled: stateRecord.connectionLocallyDisabled,
+      updatedAt: stateRecord.connectionUpdatedAt,
+    });
+  } catch (error) {
+    await options.tokenStore.clearAuthorizing(
+      "google",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
+    if (error instanceof ProviderLifecycleError && error.category === "generation_conflict") {
+      throw new GoogleOAuthError("OAuth state is stale", "invalid_state");
+    }
+    throw error;
+  }
 
   return {
     identity,
@@ -166,62 +197,4 @@ function identityFromStateRecord(stateRecord: {
     email: stateRecord.email,
     claims: {},
   };
-}
-
-async function exchangeCode(
-  options: CompleteGoogleOAuthOptions,
-  fetchImpl: OAuthFetch,
-): Promise<{ accessToken: string; refreshToken: string; scopes: string[] }> {
-  const response = await fetchImpl(options.config.tokenUrl ?? DEFAULT_GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code: options.code,
-      client_id: options.config.clientId,
-      client_secret: options.config.clientSecret,
-      redirect_uri: options.config.redirectUri,
-      grant_type: "authorization_code",
-    }),
-  });
-
-  const body = (await response.json()) as GoogleTokenResponse;
-  if (!response.ok || !body.access_token) {
-    throw new GoogleOAuthError(
-      `Google token exchange failed: ${body.error ?? response.statusText}`,
-      "token_exchange_failed",
-    );
-  }
-
-  if (!body.refresh_token) {
-    throw new GoogleOAuthError("Google did not return a refresh token", "missing_refresh_token");
-  }
-
-  return {
-    accessToken: body.access_token,
-    refreshToken: body.refresh_token,
-    scopes: scopeStringToArray(body.scope),
-  };
-}
-
-async function fetchGoogleEmail(
-  config: GoogleOAuthConfig,
-  accessToken: string,
-  fetchImpl: OAuthFetch,
-): Promise<string> {
-  const response = await fetchImpl(config.userInfoUrl ?? DEFAULT_USER_INFO_URL, {
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  const body = (await response.json()) as GoogleUserInfoResponse;
-  if (!response.ok || !body.email) {
-    throw new GoogleOAuthError("Google userinfo lookup failed", "userinfo_failed");
-  }
-
-  return body.email;
-}
-
-export function scopeStringToArray(scope: string | undefined): string[] {
-  return scope ? scope.split(" ").filter(Boolean) : [];
 }

@@ -444,7 +444,7 @@ describe("runtime wrapper wiring", () => {
                   "--format",
                   "json",
                 ],
-                token: "runtime-access",
+                token: "initial-access",
               },
               null,
               2,

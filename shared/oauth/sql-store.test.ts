@@ -9,6 +9,7 @@ import {
   type SqlQueryClient,
 } from "./sql-store";
 import type { OAuthAccountRecord, OAuthStateRecord } from "./store";
+import type { ConnectionRecord } from "./connection-types";
 
 const account: OAuthAccountRecord = {
   provider: "google",
@@ -31,6 +32,30 @@ const stateRecord: OAuthStateRecord = {
   expiresAt: new Date("2026-07-03T00:05:00.000Z"),
 };
 
+const connection: ConnectionRecord = {
+  provider: "github",
+  hop1Issuer: "https://issuer.example.com",
+  hop1Subject: "subject",
+  displayAccountIdentity: "user@example.com",
+  encryptedCredentialEnvelope: "encrypted-envelope",
+  credentialSchemaVersion: 1,
+  generation: 2,
+  requiredScopes: ["repo"],
+  grantedScopes: ["repo", "read:org"],
+  activeCredentialPresent: true,
+  renewalCredentialPresent: true,
+  activeCredentialExpiresAt: new Date("2026-09-12T23:00:00.000Z"),
+  renewalCredentialExpiresAt: new Date("2027-03-12T15:00:00.000Z"),
+  lastAuthorizedAt: new Date("2026-09-12T15:00:00.000Z"),
+  lastRenewedAt: new Date("2026-09-12T16:00:00.000Z"),
+  lastValidatedAt: new Date("2026-09-12T16:00:00.000Z"),
+  phase: "connected",
+  revocationState: "none",
+  createdAt: new Date("2026-09-12T15:00:00.000Z"),
+  updatedAt: new Date("2026-09-12T16:00:00.000Z"),
+  encryptedLegacyCredential: "encrypted-legacy",
+};
+
 describe("SQL OAuth token store", () => {
   test("ships a Postgres-compatible schema", () => {
     expect(OAUTH_SCHEMA_SQL).toContain("CREATE TABLE IF NOT EXISTS oauth_accounts");
@@ -40,14 +65,21 @@ describe("SQL OAuth token store", () => {
   });
 
   test("keeps the checked-in schema artifact aligned", async () => {
-    const [schema, migration, brokerMigration, refreshMigration, persistentDcrMigration] =
-      await Promise.all([
-        readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
-        readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
-        readFile("shared/oauth/migrations/002_authorization_broker.sql", "utf8"),
-        readFile("shared/oauth/migrations/003_broker_refresh_tokens.sql", "utf8"),
-        readFile("shared/oauth/migrations/004_persistent_dcr_clients.sql", "utf8"),
-      ]);
+    const [
+      schema,
+      migration,
+      brokerMigration,
+      refreshMigration,
+      persistentDcrMigration,
+      lifecycleMigration,
+    ] = await Promise.all([
+      readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
+      readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
+      readFile("shared/oauth/migrations/002_authorization_broker.sql", "utf8"),
+      readFile("shared/oauth/migrations/003_broker_refresh_tokens.sql", "utf8"),
+      readFile("shared/oauth/migrations/004_persistent_dcr_clients.sql", "utf8"),
+      readFile("shared/oauth/migrations/005_provider_connection_lifecycle.sql", "utf8"),
+    ]);
 
     expect(migration.replaceAll(/\s+/g, " ").trim()).toBe(
       OAUTH_SCHEMA_SQL.replaceAll(/\s+/g, " ").trim(),
@@ -60,7 +92,7 @@ describe("SQL OAuth token store", () => {
       "ALTER TABLE oauth_dcr_clients\n  ALTER COLUMN expires_at DROP NOT NULL;",
     );
     expect(schema.replaceAll(/\s+/g, " ").trim()).toBe(
-      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}`
+      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}\n\n${lifecycleMigration.trim()}`
         .replaceAll(/\s+/g, " ")
         .trim(),
     );
@@ -148,6 +180,53 @@ describe("SQL OAuth token store", () => {
       updatedAt: new Date("2026-07-03T00:00:01.000Z"),
       revokedAt: undefined,
     });
+    expect(client.calls[0]?.sql).not.toContain("oauth_connection_authorizations");
+  });
+
+  test("reads an unexpired authorization marker through the one-query connection lookup", async () => {
+    const updatedAt = new Date("2026-09-12T16:00:00.000Z");
+    const client = new RecordingSqlClient([
+      {
+        provider: "github",
+        hop1_issuer: connection.hop1Issuer,
+        hop1_subject: connection.hop1Subject,
+        email: "",
+        scopes_granted: [],
+        encrypted_refresh_token: "",
+        credential_envelope: null,
+        credential_schema_version: null,
+        connection_generation: "0",
+        scopes_required: ["repo"],
+        active_credential_present: false,
+        renewal_credential_present: false,
+        active_credential_expires_at: null,
+        renewal_credential_expires_at: null,
+        last_authorized_at: null,
+        last_renewed_at: null,
+        last_validated_at: null,
+        local_disabled_at: null,
+        lifecycle_phase: "authorizing",
+        revocation_state: "none",
+        revocation_started_at: null,
+        revocation_completed_at: null,
+        lifecycle_error_category: null,
+        lifecycle_updated_at: updatedAt,
+        created_at: updatedAt,
+        updated_at: updatedAt,
+        revoked_at: null,
+      },
+    ]);
+
+    const selected = await new SqlOAuthTokenStore(client).getConnection(
+      "github",
+      connection.hop1Issuer,
+      connection.hop1Subject,
+    );
+
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]?.sql).toContain("oauth_connection_authorizations");
+    expect(client.calls[0]?.sql).toContain("LEFT JOIN oauth_accounts AS account");
+    expect(selected).toMatchObject({ phase: "authorizing", generation: 0 });
   });
 
   test("marks accounts revoked", async () => {
@@ -166,6 +245,89 @@ describe("SQL OAuth token store", () => {
     ]);
   });
 
+  test("persists normalized credential generations with a compare-and-swap guard", async () => {
+    const client = new RecordingSqlClient([{ connection_generation: 2 }]);
+    const store = new SqlOAuthTokenStore(client);
+
+    expect(await store.saveConnection(connection, 1)).toBe(true);
+    expect(client.calls[0]?.sql).toContain("oauth_accounts.connection_generation = $26");
+    expect(client.calls[0]?.sql).toContain("credential_envelope");
+    expect(client.calls[0]?.params[8]).toBe(2);
+    expect(client.calls[0]?.params[25]).toBe(1);
+  });
+
+  test("detects and prefers a newer legacy write over stale normalized metadata", async () => {
+    const old = new Date("2026-09-12T15:00:00.000Z");
+    const newer = new Date("2026-09-12T16:00:00.000Z");
+    const client = new RecordingSqlClient([
+      {
+        provider: "github",
+        hop1_issuer: connection.hop1Issuer,
+        hop1_subject: connection.hop1Subject,
+        email: connection.displayAccountIdentity,
+        scopes_granted: ["repo"],
+        encrypted_refresh_token: "new-legacy-active",
+        credential_envelope: "stale-envelope",
+        credential_schema_version: 1,
+        connection_generation: "2",
+        scopes_required: ["repo"],
+        active_credential_expires_at: old,
+        renewal_credential_expires_at: old,
+        last_authorized_at: old,
+        last_renewed_at: old,
+        last_validated_at: old,
+        local_disabled_at: old,
+        lifecycle_phase: "disconnected",
+        revocation_state: "complete",
+        revocation_started_at: old,
+        revocation_completed_at: old,
+        lifecycle_error_category: null,
+        lifecycle_updated_at: old,
+        created_at: old,
+        updated_at: newer,
+        revoked_at: null,
+      },
+    ]);
+    const selected = await new SqlOAuthTokenStore(client).getConnection(
+      "github",
+      connection.hop1Issuer,
+      connection.hop1Subject,
+    );
+
+    expect(selected).toMatchObject({
+      phase: "connected",
+      encryptedLegacyCredential: "new-legacy-active",
+      lastAuthorizedAt: newer,
+    });
+    expect(selected?.encryptedCredentialEnvelope).toBeUndefined();
+    expect(selected?.localDisabledAt).toBeUndefined();
+    expect(selected?.activeCredentialExpiresAt).toBeUndefined();
+  });
+
+  test("takes a transaction-scoped distributed lock per principal connection", async () => {
+    const calls: { sql: string; params: unknown[] }[] = [];
+    const transactionClient: SqlQueryClient = {
+      query: (sql, params) => {
+        calls.push({ sql, params });
+        return Promise.resolve({ rows: [] });
+      },
+    };
+    const client: SqlQueryClient = {
+      query: (sql, params) => transactionClient.query(sql, params),
+      transaction: (operation) => operation(transactionClient),
+    };
+    const store = new SqlOAuthTokenStore(client);
+
+    expect(
+      await store.withConnectionLock("github", "https://issuer.example.com", "subject", () =>
+        Promise.resolve("locked"),
+      ),
+    ).toBe("locked");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain("pg_advisory_xact_lock");
+    expect(calls[0]?.params).toEqual(["github\nhttps://issuer.example.com\nsubject"]);
+  });
+
   test("saves OAuth state records", async () => {
     const client = new RecordingSqlClient();
     const store = new SqlOAuthStateStore(client);
@@ -182,7 +344,21 @@ describe("SQL OAuth token store", () => {
       stateRecord.redirectAfter,
       stateRecord.expiresAt,
       null,
+      null,
+      null,
+      null,
     ]);
+  });
+
+  test("invalidates all unconsumed OAuth states for one immutable principal", async () => {
+    const client = new RecordingSqlClient();
+    const store = new SqlOAuthStateStore(client);
+
+    await store.invalidatePrincipal(stateRecord.hop1Issuer, stateRecord.hop1Subject);
+
+    expect(client.calls[0]?.sql).toContain("UPDATE oauth_states");
+    expect(client.calls[0]?.sql).toContain("consumed_at IS NULL");
+    expect(client.calls[0]?.params).toEqual([stateRecord.hop1Issuer, stateRecord.hop1Subject]);
   });
 
   test("consumes unexpired OAuth state records", async () => {

@@ -18,6 +18,9 @@ import {
   createPostgresQueryClient,
 } from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
+import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
+import { createRevocationWorker } from "../../../../shared/oauth/revocation-worker";
 import {
   CompositePolicy,
   createOpaPolicyFromUrl,
@@ -126,12 +129,20 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
           }
         : undefined,
   }));
+  const audit = createAuditSink(config);
   const tokenBroker = new GitHubTokenBroker({
     config: config.githubOAuth,
     tokenStore,
+    audit,
   });
+  const connectionLifecycle = new ConnectionLifecycle({
+    adapter: new GitHubConnectionAdapter(config.githubOAuth),
+    store: tokenStore,
+    credentialEncryptionKey: config.githubOAuth.tokenEncryptionKey,
+    audit,
+  });
+  createRevocationWorker([connectionLifecycle]).start();
   const authenticate = createRuntimeAuthenticator({ issuers: hop1Issuers });
-  const audit = createAuditSink(config);
   const oauthRoutes = createGitHubOAuthRouteHandler({
     authenticate,
     config: config.githubOAuth,
@@ -147,24 +158,20 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     githubToolsets: config.githubToolsets,
     authenticate,
     resolveGithubToken: (identity) => tokenBroker.getAccessToken(identity, config.githubScopes),
+    recoverGithubToken: (identity, rejectedActiveCredential) =>
+      connectionLifecycle.recoverFromProviderAuthenticationFailure(
+        identity,
+        config.githubScopes,
+        rejectedActiveCredential,
+      ),
     getOAuthStatus: async (identity) => {
-      const account = await tokenStore.getAccount(identity.issuer, identity.subject, "github");
-      if (!account || account.revokedAt) {
-        return {
-          connected: false,
-          scopesRequired: config.githubScopes,
-          scopesGranted: [],
-          missingScopes: config.githubScopes,
-        };
-      }
-      const missingScopes = missingRequiredScopes(config.githubScopes, account.scopesGranted);
-
+      const status = await connectionLifecycle.status(identity, config.githubScopes);
       return {
-        connected: missingScopes.length === 0,
-        email: account.email,
-        scopesRequired: config.githubScopes,
-        scopesGranted: account.scopesGranted,
-        missingScopes,
+        connected: status.connected,
+        ...(status.account ? { email: status.account.displayName } : {}),
+        scopesRequired: status.requiredScopes,
+        scopesGranted: status.grantedScopes,
+        missingScopes: status.missingScopes,
       };
     },
     startOAuth: async (identity, redirectAfter) =>
@@ -173,6 +180,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
         scopes: config.githubScopes,
         config: config.githubOAuth,
         stateStore,
+        tokenStore,
         redirectAfter,
       }),
     githubScopes: config.githubScopes,
@@ -183,7 +191,9 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
 
   return (request) => {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/oauth/github/") ? oauthRoutes(request) : mcpHandler(request);
+    return path.startsWith("/oauth/github/") || path.startsWith("/connections/github/")
+      ? oauthRoutes(request)
+      : mcpHandler(request);
   };
 }
 
@@ -433,11 +443,6 @@ function parseAliases(value: string | undefined): Record<string, string> {
   }
 
   return aliases;
-}
-
-function missingRequiredScopes(required: string[], granted: string[]): string[] {
-  const grantedSet = new Set(granted);
-  return required.filter((scope) => !grantedSet.has(scope));
 }
 
 if (import.meta.main) {

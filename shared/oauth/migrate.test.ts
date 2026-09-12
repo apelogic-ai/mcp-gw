@@ -48,13 +48,15 @@ describe("OAuth schema migrations", () => {
   test("loads ordered, versioned migrations from checked-in SQL", async () => {
     const migrations = await loadOAuthMigrations();
 
-    expect(migrations.map(({ version }) => version)).toEqual(["001", "002", "003", "004"]);
+    expect(migrations.map(({ version }) => version)).toEqual(["001", "002", "003", "004", "005"]);
     expect(migrations[0]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_accounts");
     expect(migrations[0]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_states");
     expect(migrations[1]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_broker_transactions");
     expect(migrations[1]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_dcr_clients");
     expect(migrations[2]?.sql).toContain("CREATE TABLE IF NOT EXISTS oauth_broker_refresh_tokens");
     expect(migrations[3]?.sql).toContain("ALTER COLUMN expires_at DROP NOT NULL");
+    expect(migrations[4]?.sql).toContain("credential_envelope");
+    expect(migrations[4]?.sql).toContain("connection_generation");
   });
 
   test("serializes concurrent runners and applies each version once", async () => {

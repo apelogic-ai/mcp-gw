@@ -1,5 +1,8 @@
+import type { AuditSink } from "../audit/audit";
 import type { Hop1Identity } from "../identity/hop1";
-import { decryptSecret, encryptSecret } from "./crypto";
+import { ConnectionLifecycle } from "./connection-lifecycle";
+import { ProviderLifecycleError } from "./connection-types";
+import { GitHubConnectionAdapter } from "./provider-adapters";
 import { generateOAuthState, hashState } from "./state";
 import type { OAuthFetch } from "./google";
 import type { OAuthStateStore, OAuthTokenStore } from "./store";
@@ -40,6 +43,7 @@ export interface StartGitHubOAuthOptions {
   scopes: string[];
   config: GitHubOAuthConfig;
   stateStore: OAuthStateStore;
+  tokenStore?: OAuthTokenStore;
   redirectAfter?: string;
 }
 
@@ -66,11 +70,14 @@ export interface CompleteGitHubOAuthResult {
 export interface CancelGitHubOAuthOptions {
   state: string;
   stateStore: OAuthStateStore;
+  tokenStore?: OAuthTokenStore;
 }
 
 export interface GitHubTokenBrokerOptions {
   config: GitHubOAuthConfig;
   tokenStore: OAuthTokenStore;
+  fetch?: OAuthFetch;
+  audit?: AuditSink;
 }
 
 export interface RevokeGitHubOAuthOptions {
@@ -80,30 +87,22 @@ export interface RevokeGitHubOAuthOptions {
   fetch?: OAuthFetch;
 }
 
-interface GitHubTokenResponse {
-  access_token?: string;
-  scope?: string;
-  error?: string;
-  error_description?: string;
-}
-
-interface GitHubEmailResponse {
-  email?: string;
-  primary?: boolean;
-  verified?: boolean;
-}
-
 export const DEFAULT_GITHUB_AUTHORIZATION_URL = "https://github.com/login/oauth/authorize";
 export const DEFAULT_GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
-const DEFAULT_GITHUB_USER_EMAILS_URL = "https://api.github.com/user/emails";
-const DEFAULT_GITHUB_APPLICATIONS_URL = "https://api.github.com/applications";
 const STATE_TTL_MS = 10 * 60 * 1000;
-const TOKEN_REVOCATION_TIMEOUT_MS = 5_000;
 
 export async function startGithubOAuth(
   options: StartGitHubOAuthOptions,
 ): Promise<StartedGitHubOAuth> {
   const state = generateOAuthState();
+  const expiresAt = new Date(Date.now() + STATE_TTL_MS);
+  const observed = options.tokenStore
+    ? await options.tokenStore.getConnection(
+        "github",
+        options.identity.issuer,
+        options.identity.subject,
+      )
+    : null;
   await options.stateStore.save({
     stateHash: hashState(state),
     hop1Issuer: options.identity.issuer,
@@ -111,20 +110,26 @@ export async function startGithubOAuth(
     email: options.identity.email,
     requestedScopes: options.scopes,
     redirectAfter: options.redirectAfter,
-    expiresAt: new Date(Date.now() + STATE_TTL_MS),
+    expiresAt,
+    connectionGeneration: options.tokenStore ? (observed?.generation ?? 0) : undefined,
+    connectionLocallyDisabled: options.tokenStore ? Boolean(observed?.localDisabledAt) : undefined,
+    connectionUpdatedAt: observed?.updatedAt,
   });
 
-  const url = new URL(options.config.authorizationUrl ?? DEFAULT_GITHUB_AUTHORIZATION_URL);
-  url.searchParams.set("client_id", options.config.clientId);
-  url.searchParams.set("redirect_uri", options.config.redirectUri);
-  url.searchParams.set("scope", options.scopes.join(" "));
-  url.searchParams.set("state", state);
-  url.searchParams.set("login", options.identity.email);
+  if (options.tokenStore) {
+    await new ConnectionLifecycle({
+      adapter: new GitHubConnectionAdapter(options.config),
+      store: options.tokenStore,
+      credentialEncryptionKey: options.config.tokenEncryptionKey,
+    }).markAuthorizationStarted(options.identity, options.scopes, expiresAt);
+  }
 
-  return {
-    authorizationUrl: url.toString(),
+  const continuation = await new GitHubConnectionAdapter(options.config).startAuthorization({
+    identity: options.identity,
+    scopes: options.scopes,
     state,
-  };
+  });
+  return { ...continuation, state };
 }
 
 export async function completeGithubOAuth(
@@ -140,34 +145,60 @@ export async function completeGithubOAuth(
     identity.subject !== stateRecord.hop1Subject ||
     !emailsEqual(identity.email, stateRecord.email)
   ) {
+    await options.tokenStore.clearAuthorizing(
+      "github",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
     throw new GitHubOAuthError("OAuth state does not match authenticated user", "email_mismatch");
   }
 
   const fetchImpl = options.fetch ?? fetch;
-  const token = await exchangeCode(options, fetchImpl);
-  const verifiedEmails = await fetchVerifiedEmails(options.config, token.accessToken, fetchImpl);
-  const hasMatchingVerifiedEmail = verifiedEmails.some(
-    (email) => emailsEqual(email, identity.email) && emailsEqual(email, stateRecord.email),
-  );
-  if (!hasMatchingVerifiedEmail) {
-    await bestEffortRevokeAccessToken(options.config, token.accessToken, fetchImpl);
+  let issued;
+  try {
+    issued = await new GitHubConnectionAdapter(options.config, fetchImpl).completeAuthorization({
+      code: options.code,
+      expectedPrincipal: identity,
+      requestedScopes: stateRecord.requestedScopes,
+    });
+  } catch (error) {
+    await options.tokenStore.clearAuthorizing(
+      "github",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
+    if (error instanceof ProviderLifecycleError && error.category === "identity_mismatch") {
+      throw new GitHubOAuthError(
+        "GitHub account identity does not match authenticated user",
+        "email_mismatch",
+      );
+    }
     throw new GitHubOAuthError(
-      "GitHub account identity does not match authenticated user",
-      "email_mismatch",
+      "GitHub OAuth callback could not be completed",
+      "token_exchange_failed",
     );
   }
-
-  const now = new Date();
-  await options.tokenStore.saveAccount({
-    provider: "github",
-    hop1Issuer: identity.issuer,
-    hop1Subject: identity.subject,
-    email: stateRecord.email,
-    scopesGranted: token.scopes,
-    encryptedRefreshToken: encryptSecret(token.accessToken, options.config.tokenEncryptionKey),
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await new ConnectionLifecycle({
+      adapter: new GitHubConnectionAdapter(options.config, fetchImpl),
+      store: options.tokenStore,
+      credentialEncryptionKey: options.config.tokenEncryptionKey,
+    }).activateAuthorizedGeneration(identity, stateRecord.requestedScopes, issued, {
+      generation: stateRecord.connectionGeneration,
+      locallyDisabled: stateRecord.connectionLocallyDisabled,
+      updatedAt: stateRecord.connectionUpdatedAt,
+    });
+  } catch (error) {
+    await options.tokenStore.clearAuthorizing(
+      "github",
+      stateRecord.hop1Issuer,
+      stateRecord.hop1Subject,
+    );
+    if (error instanceof ProviderLifecycleError && error.category === "generation_conflict") {
+      throw new GitHubOAuthError("OAuth state is stale", "invalid_state");
+    }
+    throw error;
+  }
 
   return {
     identity,
@@ -187,78 +218,35 @@ export async function cancelGithubOAuth(options: CancelGitHubOAuthOptions): Prom
     throw new GitHubOAuthError("OAuth state is invalid or expired", "invalid_state");
   }
 
-  return identityFromStateRecord(stateRecord);
+  const identity = identityFromStateRecord(stateRecord);
+  await options.tokenStore?.clearAuthorizing("github", identity.issuer, identity.subject);
+  return identity;
 }
 
 export class GitHubTokenBroker {
   constructor(private readonly options: GitHubTokenBrokerOptions) {}
 
   async getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string> {
-    const account = await this.options.tokenStore.getAccount(
-      identity.issuer,
-      identity.subject,
-      "github",
-    );
-    if (!account || account.revokedAt) {
+    try {
+      return await new ConnectionLifecycle({
+        adapter: new GitHubConnectionAdapter(this.options.config, this.options.fetch),
+        store: this.options.tokenStore,
+        credentialEncryptionKey: this.options.config.tokenEncryptionKey,
+        audit: this.options.audit,
+      }).getActiveCredential(identity, requiredScopes);
+    } catch {
       throw new GitHubOAuthError("GitHub account must be connected", "reauth_required");
     }
-
-    if (!hasScopes(account.scopesGranted, requiredScopes)) {
-      throw new GitHubOAuthError(
-        "GitHub account must be reconnected for additional scopes",
-        "reauth_required",
-      );
-    }
-
-    return decryptSecret(account.encryptedRefreshToken, this.options.config.tokenEncryptionKey);
   }
 }
 
-/**
- * Revoke the provider-side credential before changing local state. A failed or
- * timed-out provider request deliberately leaves the local grant active so a
- * caller cannot receive a false confirmation that GitHub access is gone.
- */
+/** Compatibility entry point backed by immediate local disconnect and asynchronous cleanup. */
 export async function revokeGithubOAuth(options: RevokeGitHubOAuthOptions): Promise<void> {
-  const account = await options.tokenStore.getAccount(
-    options.identity.issuer,
-    options.identity.subject,
-    "github",
-  );
-  if (!account || account.revokedAt) {
-    return;
-  }
-
-  let accessToken: string;
-  try {
-    accessToken = decryptSecret(account.encryptedRefreshToken, options.config.tokenEncryptionKey);
-  } catch {
-    throw tokenRevocationFailed();
-  }
-
-  try {
-    const response = await revokeGithubAccessToken(
-      options.config,
-      accessToken,
-      options.fetch ?? fetch,
-    );
-    if (response.status !== 204) {
-      throw new Error("GitHub token revocation request was rejected");
-    }
-  } catch {
-    throw tokenRevocationFailed();
-  }
-
-  try {
-    await options.tokenStore.markRevoked(
-      options.identity.issuer,
-      options.identity.subject,
-      new Date(),
-      "github",
-    );
-  } catch {
-    throw tokenRevocationPersistFailed();
-  }
+  await new ConnectionLifecycle({
+    adapter: new GitHubConnectionAdapter(options.config, options.fetch),
+    store: options.tokenStore,
+    credentialEncryptionKey: options.config.tokenEncryptionKey,
+  }).disconnect(options.identity, []);
 }
 
 function identityFromStateRecord(stateRecord: {
@@ -275,128 +263,10 @@ function identityFromStateRecord(stateRecord: {
   };
 }
 
-async function exchangeCode(
-  options: CompleteGitHubOAuthOptions,
-  fetchImpl: OAuthFetch,
-): Promise<{ accessToken: string; scopes: string[] }> {
-  const response = await fetchImpl(options.config.tokenUrl ?? DEFAULT_GITHUB_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      code: options.code,
-      client_id: options.config.clientId,
-      client_secret: options.config.clientSecret,
-      redirect_uri: options.config.redirectUri,
-    }),
-  });
-
-  const body = (await response.json()) as GitHubTokenResponse;
-  if (!response.ok || !body.access_token) {
-    throw new GitHubOAuthError(
-      `GitHub token exchange failed: ${body.error_description ?? body.error ?? response.statusText}`,
-      "token_exchange_failed",
-    );
-  }
-
-  return {
-    accessToken: body.access_token,
-    scopes: scopeStringToArray(body.scope),
-  };
-}
-
-async function fetchVerifiedEmails(
-  config: GitHubOAuthConfig,
-  accessToken: string,
-  fetchImpl: OAuthFetch,
-): Promise<string[]> {
-  const response = await fetchImpl(config.userEmailsUrl ?? DEFAULT_GITHUB_USER_EMAILS_URL, {
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  const body = (await response.json()) as GitHubEmailResponse[];
-  if (!response.ok || !Array.isArray(body)) {
-    throw new GitHubOAuthError("GitHub email lookup failed", "userinfo_failed");
-  }
-
-  const verifiedEmails: string[] = [];
-  for (const entry of body) {
-    if (entry.verified === true && typeof entry.email === "string") {
-      verifiedEmails.push(entry.email);
-    }
-  }
-  return verifiedEmails;
-}
-
-async function bestEffortRevokeAccessToken(
-  config: GitHubOAuthConfig,
-  accessToken: string,
-  fetchImpl: OAuthFetch,
-): Promise<void> {
-  try {
-    await revokeGithubAccessToken(config, accessToken, fetchImpl);
-  } catch {
-    // The identity mismatch still fails closed when GitHub revocation is unavailable.
-  }
-}
-
-function revokeGithubAccessToken(
-  config: GitHubOAuthConfig,
-  accessToken: string,
-  fetchImpl: OAuthFetch,
-): Promise<Response> {
-  const url =
-    config.tokenRevocationUrl ??
-    `${DEFAULT_GITHUB_APPLICATIONS_URL}/${encodeURIComponent(config.clientId)}/token`;
-
-  return fetchImpl(url, {
-    method: "DELETE",
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
-      "content-type": "application/json",
-      "x-github-api-version": "2022-11-28",
-    },
-    body: JSON.stringify({ access_token: accessToken }),
-    signal: AbortSignal.timeout(TOKEN_REVOCATION_TIMEOUT_MS),
-  });
-}
-
-function tokenRevocationFailed(): GitHubOAuthError {
-  return new GitHubOAuthError(
-    "GitHub account disconnect could not be completed",
-    "token_revocation_failed",
-  );
-}
-
-function tokenRevocationPersistFailed(): GitHubOAuthError {
-  return new GitHubOAuthError(
-    "GitHub account disconnect could not be completed",
-    "token_revocation_persist_failed",
-  );
-}
-
-function scopeStringToArray(scope: string | undefined): string[] {
-  return (scope ?? "")
-    .split(/[,\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function emailsEqual(left: string, right: string): boolean {
   return asciiLowercase(left) === asciiLowercase(right);
 }
 
 function asciiLowercase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32));
-}
-
-function hasScopes(granted: string[], required: string[]): boolean {
-  const grantedSet = new Set(granted);
-  return required.every((scope) => grantedSet.has(scope));
 }
