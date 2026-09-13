@@ -38,8 +38,9 @@ credential material. Every provider-issued result first enters the append-only
 `oauth_credential_generations` custody ledger as a `candidate`; validation and the connection-pointer
 update promote it to `active` in the same transaction. New authorization
 and renewal write an encrypted JSON envelope and normalized, non-secret metadata. Brokerage renews
-inside a PostgreSQL transaction-scoped advisory lock keyed by provider plus HOP-1 issuer and subject,
-then performs a compare-and-swap over the generation and the legacy `updated_at`/`revoked_at`
+under a PostgreSQL session advisory lock keyed by provider plus HOP-1 issuer and subject, commits
+newly issued custody as an autocommitted statement, and then performs a compare-and-swap in a
+separate transaction over the generation and the legacy `updated_at`/`revoked_at`
 snapshot. The legacy fields are part of the guard because an older replica does not increment the new
 generation column. Multiple replicas therefore cannot consume the same rotating renewal credential,
 and a concurrent old-replica disconnect remains authoritative. An undurable replacement is never
