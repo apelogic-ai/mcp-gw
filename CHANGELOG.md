@@ -8,6 +8,36 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-13
+
+### Added
+
+- Add a shared, versioned Google and GitHub connection lifecycle with status, manual refresh,
+  authorization, and disconnect operations. Existing `/oauth/{provider}/*` routes remain available
+  as compatibility aliases.
+- Track encrypted provider credential generations in a durable custody ledger, with bounded
+  lifecycle metrics and adapter conformance tests.
+
+### Fixed
+
+- Make disconnect locally effective before provider cleanup and prevent stale callbacks or
+  renewals, including writes from older replicas, from reactivating a disconnected connection.
+- Commit provider-issued renewal credentials before validation or activation, retain rejected
+  credentials for revocation, and apply backoff to retryable cleanup without losing custody.
+- Preserve scope checks and transient error classifications across concurrent renewal and broker
+  paths.
+
+### Upgrade Notes
+
+- Run forward-only OAuth token-store migrations `005`, `006`, and `007` before starting the upgraded
+  wrappers. The base Compose stack runs them for new and existing database volumes. For Helm,
+  enable the `oauthMigrations` hook with its datastore Secret reference or run the migrations
+  separately before rollout; the hook is disabled by default.
+- In-flight OAuth authorizations created by an older replica without the new activation guard must
+  be restarted. Existing Google and GitHub credentials retain legacy compatibility during the
+  rolling deployment; do not remove `encrypted_refresh_token` yet. No new OAuth client or scopes
+  are required.
+
 ## [0.4.8] - 2026-09-08
 
 ### Fixed
@@ -442,7 +472,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.8...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.9...HEAD
+[0.4.9]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.5...v0.4.6
