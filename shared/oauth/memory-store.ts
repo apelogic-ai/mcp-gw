@@ -371,6 +371,15 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
       if (this.lockTails.get(key) === queued) this.lockTails.delete(key);
     }
   }
+
+  withConnectionIssuanceLock<T>(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+    operation: (store: OAuthConnectionStore) => Promise<T>,
+  ): Promise<T> {
+    return this.withConnectionLock(provider, hop1Issuer, hop1Subject, operation);
+  }
 }
 
 function accountKey(provider: OAuthProvider, hop1Issuer: string, hop1Subject: string): string {

@@ -21,6 +21,7 @@ import type {
 export interface SqlQueryClient {
   query(sql: string, params: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
   transaction?<T>(operation: (client: SqlQueryClient) => Promise<T>): Promise<T>;
+  sessionLock?<T>(key: string, operation: (client: SqlQueryClient) => Promise<T>): Promise<T>;
 }
 
 export const OAUTH_SCHEMA_SQL = `
@@ -597,6 +598,20 @@ WHERE provider = $1
       ]);
       return operation(new SqlOAuthTokenStore(client));
     });
+  }
+
+  async withConnectionIssuanceLock<T>(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+    operation: (store: OAuthConnectionStore) => Promise<T>,
+  ): Promise<T> {
+    if (!this.client.sessionLock) {
+      throw new Error("OAuth credential issuance requires a PostgreSQL session lock");
+    }
+    return this.client.sessionLock(`${provider}\n${hop1Issuer}\n${hop1Subject}`, (client) =>
+      operation(new SqlOAuthTokenStore(client)),
+    );
   }
 }
 

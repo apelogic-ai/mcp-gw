@@ -627,7 +627,7 @@ export class ConnectionLifecycle {
     const lockStartedAt = performance.now();
     let issuedPreparation: Extract<RenewalPreparation, { kind: "candidate" }> | undefined;
     try {
-      const preparation = await this.options.store.withConnectionLock(
+      const preparation = await this.options.store.withConnectionIssuanceLock(
         this.providerId,
         identity.issuer,
         identity.subject,
@@ -742,8 +742,8 @@ export class ConnectionLifecycle {
               candidate,
               fresh,
             };
-            // This is the only write in the issuance transaction. Returning from
-            // withConnectionLock commits custody before completeness validation.
+            // The issuance lock uses autocommitted SQL, so custody is durable
+            // before validation or activation can fail or roll back.
             await store.saveCredentialGeneration(candidate);
             return issuedPreparation;
           } catch (error) {

@@ -164,8 +164,8 @@ describe("provider-neutral connection lifecycle", () => {
     const ownerPaused = new Promise<void>((resolve) => {
       releaseOwner = resolve;
     });
-    const lock = store.withConnectionLock.bind(store);
-    store.withConnectionLock = async (provider, issuer, subject, operation) => {
+    const lock = store.withConnectionIssuanceLock.bind(store);
+    store.withConnectionIssuanceLock = async (provider, issuer, subject, operation) => {
       const result = await lock(provider, issuer, subject, operation);
       if (typeof result === "object" && result !== null && "kind" in result) {
         if (result.kind === "candidate") {

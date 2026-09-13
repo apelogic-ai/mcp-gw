@@ -54,6 +54,38 @@ describe("Postgres OAuth query client", () => {
     expect(pool.connection.released).toBe(true);
   });
 
+  test("autocommits issuance on one session-locked connection", async () => {
+    const pool = new RecordingPool([{ pg_advisory_unlock: true }]);
+    const client = createPostgresQueryClient(pool);
+
+    expect(
+      await client.sessionLock?.("github\nissuer\nsubject", (locked) =>
+        locked.query("INSERT INTO credential_ledger VALUES ($1)", ["issued"]),
+      ),
+    ).toEqual({ rows: [{ pg_advisory_unlock: true }] });
+    expect(pool.connection.calls.map(({ sql }) => sql)).toEqual([
+      "SELECT pg_advisory_lock(hashtextextended($1, 0))",
+      "INSERT INTO credential_ledger VALUES ($1)",
+      "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+    ]);
+    expect(pool.connection.released).toBe(true);
+  });
+
+  test("discards a connection when session-lock acquisition is ambiguous", async () => {
+    const pool = new RecordingPool([]);
+    pool.connection.query = () => Promise.reject(new Error("lock acknowledgement lost"));
+    const client = createPostgresQueryClient(pool);
+
+    let failure: unknown;
+    try {
+      await client.sessionLock?.("github\nissuer\nsubject", () => Promise.resolve("unreachable"));
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toEqual(new Error("lock acknowledgement lost"));
+    expect(pool.connection.destroyed).toBe(true);
+  });
+
   test("builds a verified TLS pool config from an operator-mounted CA bundle", () => {
     const config = createPostgresPoolConfig(
       "postgres://mcp:mcp@token-store:5432/mcp?sslmode=require",
@@ -142,6 +174,7 @@ class RecordingPool implements PgPoolLike {
 class RecordingConnection {
   readonly calls: { sql: string; params: unknown[] }[] = [];
   released = false;
+  destroyed = false;
 
   constructor(private readonly rows: Record<string, unknown>[]) {}
 
@@ -150,7 +183,8 @@ class RecordingConnection {
     return Promise.resolve({ rows: this.rows });
   }
 
-  release(): void {
+  release(destroy = false): void {
     this.released = true;
+    this.destroyed = destroy;
   }
 }

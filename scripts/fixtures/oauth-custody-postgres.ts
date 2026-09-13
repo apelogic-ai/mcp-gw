@@ -25,6 +25,11 @@ const identity: Hop1Identity = {
   email: `custody-${suffix}@example.com`,
   claims: {},
 };
+const rollbackIdentity: Hop1Identity = {
+  ...identity,
+  subject: `${suffix}-rollback`,
+  email: `custody-rollback-${suffix}@example.com`,
+};
 const scopes = ["repo"];
 const encryptionKey = Buffer.alloc(32, 29).toString("base64");
 const adapter: DownstreamConnectionAdapter = {
@@ -96,19 +101,75 @@ WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
   assert.equal(result.rows[0]?.custody_state, "cleanup_permanent_failure");
   assert.equal(typeof result.rows[0]?.credential_envelope, "string");
   assert.equal(result.rows[0]?.cleanup_attempts, 1);
+
+  const rollbackStore = new SqlOAuthTokenStore(createPostgresQueryClient(pool));
+  const locked = rollbackStore.withConnectionLock.bind(rollbackStore);
+  rollbackStore.withConnectionLock = (provider, issuer, subject, operation) =>
+    locked(provider, issuer, subject, async (transaction) => {
+      const result = await operation(transaction);
+      if (result === "refreshed") throw new Error("forced activation rollback");
+      return result;
+    });
+  const rollbackLifecycle = new ConnectionLifecycle({
+    adapter: {
+      ...adapter,
+      renew: () =>
+        Promise.resolve({
+          credential: {
+            activeCredential: "postgres-issued-active",
+            renewalCredential: "postgres-issued-renewal",
+          },
+          grantedScopes: scopes,
+          activeCredentialExpiresAt: new Date(Date.now() + 3_600_000),
+        }),
+      revoke: () => Promise.resolve("permanent_failure"),
+    },
+    store: rollbackStore,
+    credentialEncryptionKey: encryptionKey,
+  });
+  await rollbackLifecycle.activateAuthorizedGeneration(rollbackIdentity, scopes, {
+    credential: {
+      activeCredential: "postgres-rollback-expired-active",
+      renewalCredential: "postgres-rollback-original-renewal",
+    },
+    displayAccountIdentity: rollbackIdentity.email,
+    grantedScopes: scopes,
+    activeCredentialExpiresAt: new Date(Date.now() - 1),
+    renewalCredentialExpiresAt: new Date(Date.now() + 3_600_000),
+    validatedAt: new Date(),
+  });
+
+  await assert.rejects(
+    rollbackLifecycle.getActiveCredential(rollbackIdentity, scopes),
+    /forced activation rollback/,
+  );
+  const rolledBack = await pool.query(
+    `
+SELECT custody_state, credential_envelope
+FROM oauth_credential_generations
+WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
+  AND connection_generation = 2
+`,
+    ["github", rollbackIdentity.issuer, rollbackIdentity.subject],
+  );
+  assert.equal(rolledBack.rows.length, 1);
+  assert.equal(rolledBack.rows[0]?.custody_state, "cleanup_permanent_failure");
+  assert.equal(typeof rolledBack.rows[0]?.credential_envelope, "string");
   process.stdout.write("PostgreSQL credential custody regression passed.\n");
 } finally {
-  await pool.query(
-    "DELETE FROM oauth_accounts WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
-    ["github", identity.issuer, identity.subject],
-  );
-  await pool.query(
-    "DELETE FROM oauth_credential_generations WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
-    ["github", identity.issuer, identity.subject],
-  );
-  await pool.query(
-    "DELETE FROM oauth_connection_authorizations WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
-    ["github", identity.issuer, identity.subject],
-  );
+  for (const principal of [identity, rollbackIdentity]) {
+    await pool.query(
+      "DELETE FROM oauth_accounts WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
+      ["github", principal.issuer, principal.subject],
+    );
+    await pool.query(
+      "DELETE FROM oauth_credential_generations WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
+      ["github", principal.issuer, principal.subject],
+    );
+    await pool.query(
+      "DELETE FROM oauth_connection_authorizations WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
+      ["github", principal.issuer, principal.subject],
+    );
+  }
   await pool.end();
 }

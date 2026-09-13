@@ -129,6 +129,17 @@ export interface OAuthConnectionStore {
     hop1Subject: string,
     operation: (store: OAuthConnectionStore) => Promise<T>,
   ): Promise<T>;
+  /**
+   * Serialize issuance with other connection operations, but commit each SQL
+   * statement independently. In particular, provider-issued custody must not
+   * roll back with a later lifecycle step.
+   */
+  withConnectionIssuanceLock<T>(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+    operation: (store: OAuthConnectionStore) => Promise<T>,
+  ): Promise<T>;
 }
 
 export interface OAuthTokenStore extends OAuthConnectionStore {
