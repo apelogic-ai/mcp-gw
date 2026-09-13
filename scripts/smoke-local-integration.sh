@@ -290,6 +290,9 @@ if [[ "$MIGRATION_READY" != "1" ]]; then
   exit 1
 fi
 
+TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
+  bun "$ROOT_DIR/scripts/fixtures/oauth-custody-postgres.ts"
+
 assert_fixture_authorization_server
 TOKEN_RESPONSE="$(curl -sS -X POST "$FIXTURE_BASE_URL/token")"
 TOKEN="$(printf '%s' "$TOKEN_RESPONSE" | bun -e 'const body = JSON.parse(await Bun.stdin.text()); process.stdout.write(body.access_token)')"

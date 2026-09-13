@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../identity/hop1";
 import { completeGoogleOAuth, GoogleOAuthError, startGoogleOAuth, type OAuthFetch } from "./google";
 import { InMemoryOAuthStateStore, InMemoryOAuthTokenStore } from "./memory-store";
+import { GoogleConnectionAdapter } from "./provider-adapters";
 import { GoogleTokenBroker } from "./token-broker";
+import { connectionWriteGuard } from "./store";
+import { hashState } from "./state";
 
 const identity: Hop1Identity = {
   profile: "google",
@@ -29,12 +32,14 @@ const scopes = [
 describe("Google OAuth consent flow", () => {
   test("builds an offline consent URL and stores CSRF state", async () => {
     const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
 
     const started = await startGoogleOAuth({
       identity,
       scopes,
       config,
       stateStore,
+      tokenStore,
       redirectAfter: "/after-auth",
     });
 
@@ -51,12 +56,112 @@ describe("Google OAuth consent flow", () => {
 
     const state = url.searchParams.get("state");
     expect(state).toBeString();
-    expect(await stateStore.consume(String(state))).toMatchObject({
+    expect(await stateStore.consume("google", String(state))).toMatchObject({
       hop1Issuer: identity.issuer,
       hop1Subject: identity.subject,
       email: identity.email,
       requestedScopes: scopes,
       redirectAfter: "/after-auth",
+    });
+  });
+
+  test("does not snapshot a previous synthetic authorization marker", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
+    const second = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
+
+    await completeGoogleOAuth({
+      identity,
+      code: "second-code",
+      state: second.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: successFetch(identity.email),
+    });
+    expect(
+      await tokenStore.getConnection("google", identity.issuer, identity.subject),
+    ).toMatchObject({ generation: 1, phase: "connected" });
+  });
+
+  test("rejects guardless states from an older replica before exchanging credentials", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const state = "legacy-google-state";
+    await stateStore.save({
+      stateHash: hashState(state),
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      requestedScopes: scopes,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await tokenStore.markAuthorizing(
+      "google",
+      identity.issuer,
+      identity.subject,
+      scopes,
+      new Date(Date.now() + 60_000),
+    );
+    let providerCalls = 0;
+
+    expect(
+      completeGoogleOAuth({
+        identity,
+        code: "legacy-code",
+        state,
+        config,
+        stateStore,
+        tokenStore,
+        fetch: () => {
+          providerCalls += 1;
+          return Promise.reject(new Error("provider must not be called"));
+        },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_state" });
+    expect(providerCalls).toBe(0);
+    expect(await tokenStore.getConnection("google", identity.issuer, identity.subject)).toBeNull();
+  });
+
+  test("invalidates OAuth states for only the requested provider", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const expiresAt = new Date(Date.now() + 60_000);
+    await stateStore.save({
+      provider: "google",
+      stateHash: hashState("google-state"),
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      requestedScopes: scopes,
+      expiresAt,
+    });
+    await stateStore.save({
+      provider: "github",
+      stateHash: hashState("github-state"),
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      requestedScopes: ["repo"],
+      expiresAt,
+    });
+    await stateStore.save({
+      stateHash: hashState("legacy-state"),
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      requestedScopes: scopes,
+      expiresAt,
+    });
+
+    await stateStore.invalidatePrincipal("google", identity.issuer, identity.subject);
+
+    expect(await stateStore.consume("google", "google-state")).toBeNull();
+    expect(await stateStore.consume("google", "legacy-state")).toBeNull();
+    expect(await stateStore.consume("google", "github-state")).toBeNull();
+    expect(await stateStore.consume("github", "github-state")).toMatchObject({
+      provider: "github",
+      requestedScopes: ["repo"],
     });
   });
 
@@ -84,7 +189,7 @@ describe("Google OAuth consent flow", () => {
   test("stores only an encrypted refresh token when Google email matches HOP-1 identity", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
-    const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
 
     await completeGoogleOAuth({
       identity,
@@ -95,7 +200,6 @@ describe("Google OAuth consent flow", () => {
       tokenStore,
       fetch: successFetch("user@example.com"),
     });
-
     const account = await tokenStore.getAccount(identity.issuer, identity.subject);
 
     expect(account).not.toBeNull();
@@ -107,7 +211,7 @@ describe("Google OAuth consent flow", () => {
   test("recovers HOP-1 identity from OAuth state when callback has no bearer token", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
-    const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
 
     const completed = await completeGoogleOAuth({
       code: "auth-code",
@@ -131,7 +235,7 @@ describe("Google OAuth consent flow", () => {
   test("rejects Google accounts that do not match the HOP-1 email", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
-    const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
 
     expect.assertions(2);
     try {
@@ -172,6 +276,7 @@ describe("Google token broker", () => {
       scopes: compactScopes,
       config,
       stateStore,
+      tokenStore,
     });
     await completeGoogleOAuth({
       identity,
@@ -224,6 +329,7 @@ describe("Google token broker", () => {
       scopes: compactMeetScopes,
       config,
       stateStore,
+      tokenStore,
     });
     await completeGoogleOAuth({
       identity,
@@ -262,7 +368,7 @@ describe("Google token broker", () => {
   test("deduplicates concurrent refreshes and returns cached access tokens", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const stateStore = new InMemoryOAuthStateStore();
-    const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
     await completeGoogleOAuth({
       identity,
       code: "auth-code",
@@ -272,6 +378,12 @@ describe("Google token broker", () => {
       tokenStore,
       fetch: successFetch("user@example.com"),
     });
+    const expired = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected Google connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      connectionWriteGuard(expired),
+    );
 
     let refreshCalls = 0;
     const broker = new GoogleTokenBroker({
@@ -302,10 +414,10 @@ describe("Google token broker", () => {
     expect(refreshCalls).toBe(1);
   });
 
-  test("marks an account revoked when Google returns invalid_grant", async () => {
+  test("requires reauthorization without treating invalid_grant as local disconnect", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const stateStore = new InMemoryOAuthStateStore();
-    const started = await startGoogleOAuth({ identity, scopes, config, stateStore });
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
     await completeGoogleOAuth({
       identity,
       code: "auth-code",
@@ -315,6 +427,12 @@ describe("Google token broker", () => {
       tokenStore,
       fetch: successFetch("user@example.com"),
     });
+    const expired = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected Google connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      connectionWriteGuard(expired),
+    );
 
     const broker = new GoogleTokenBroker({
       config,
@@ -322,16 +440,88 @@ describe("Google token broker", () => {
       fetch: () => Promise.resolve(jsonResponse({ error: "invalid_grant" }, 400)),
     });
 
-    expect.assertions(3);
+    expect.assertions(4);
     try {
       await broker.getAccessToken(identity, scopes);
     } catch (error) {
       expect(error).toBeInstanceOf(GoogleOAuthError);
       expect((error as GoogleOAuthError).code).toBe("reauth_required");
-      expect(
-        (await tokenStore.getAccount(identity.issuer, identity.subject))?.revokedAt,
-      ).toBeDate();
+      const connection = await tokenStore.getConnection(
+        "google",
+        identity.issuer,
+        identity.subject,
+      );
+      expect(connection?.localDisabledAt).toBeUndefined();
+      expect(connection?.phase).toBe("reauthorization_required");
     }
+  });
+
+  test("preserves a transient provider renewal classification", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGoogleOAuth({ identity, scopes, config, stateStore, tokenStore });
+    await completeGoogleOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: successFetch("user@example.com"),
+    });
+    const expired = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!expired) throw new Error("expected Google connection");
+    await tokenStore.saveConnection(
+      { ...expired, activeCredentialExpiresAt: new Date(Date.now() - 1) },
+      connectionWriteGuard(expired),
+    );
+
+    const broker = new GoogleTokenBroker({
+      config,
+      tokenStore,
+      fetch: () => Promise.resolve(new Response(null, { status: 503 })),
+    });
+    expect(broker.getAccessToken(identity, scopes)).rejects.toMatchObject({
+      category: "transient_provider_failure",
+    });
+    expect(
+      await tokenStore.getConnection("google", identity.issuer, identity.subject),
+    ).toMatchObject({
+      phase: "unavailable",
+      lifecycleErrorCategory: "transient_provider_failure",
+    });
+  });
+
+  test("classifies an untyped token-store failure as persistence failure", () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    tokenStore.getConnection = () => Promise.reject(new Error("database unavailable"));
+    const broker = new GoogleTokenBroker({ config, tokenStore });
+
+    expect(broker.getAccessToken(identity, scopes)).rejects.toMatchObject({
+      category: "persistence_failure",
+    });
+  });
+
+  test("classifies a response-body timeout as a transient provider failure", async () => {
+    const response = new Response(null, { status: 200 });
+    Object.defineProperty(response, "json", {
+      value: () => Promise.reject(new DOMException("body timed out", "TimeoutError")),
+    });
+    const adapter = new GoogleConnectionAdapter(config, () => Promise.resolve(response));
+
+    let error: unknown;
+    try {
+      await adapter.renew({
+        provider: "google",
+        generation: 1,
+        credential: { activeCredential: "expired", renewalCredential: "renewal" },
+        grantedScopes: scopes,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({ category: "transient_provider_failure" });
   });
 });
 

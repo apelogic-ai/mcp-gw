@@ -1,6 +1,15 @@
+import type {
+  ConnectionRecord,
+  CredentialGenerationRecord,
+  CredentialGenerationState,
+  PendingCredentialCleanupRecord,
+} from "./connection-types";
+
 export type OAuthProvider = "google" | "github";
 
 export interface OAuthStateRecord {
+  /** Missing only on state rows written by replicas predating provider-scoped state. */
+  provider?: OAuthProvider;
   stateHash: string;
   hop1Issuer: string;
   hop1Subject: string;
@@ -9,11 +18,50 @@ export interface OAuthStateRecord {
   redirectAfter?: string;
   expiresAt: Date;
   consumedAt?: Date;
+  connectionGeneration?: number;
+  connectionLocallyDisabled?: boolean;
+  connectionUpdatedAt?: Date;
 }
 
 export interface OAuthStateStore {
   save(record: OAuthStateRecord): Promise<void>;
-  consume(state: string): Promise<OAuthStateRecord | null>;
+  /**
+   * Consume a state for this provider. A legacy unbound row may be returned so
+   * the callback can reject its incomplete guard and clear transient state.
+   */
+  consume(provider: OAuthProvider, state: string): Promise<OAuthStateRecord | null>;
+  invalidatePrincipal(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<void>;
+}
+
+export interface ConnectionWriteGuard {
+  exists: boolean;
+  generation?: number;
+  updatedAt?: Date;
+  revokedAt?: Date;
+}
+
+export function connectionWriteGuard(record: ConnectionRecord | null): ConnectionWriteGuard {
+  const syntheticAuthorization =
+    record?.phase === "authorizing" &&
+    record.generation === 0 &&
+    !record.activeCredentialPresent &&
+    !record.renewalCredentialPresent &&
+    !record.localDisabledAt &&
+    !record.displayAccountIdentity;
+  return record
+    ? syntheticAuthorization
+      ? { exists: false }
+      : {
+          exists: true,
+          generation: record.generation,
+          updatedAt: record.updatedAt,
+          revokedAt: record.localDisabledAt,
+        }
+    : { exists: false };
 }
 
 export interface OAuthAccountRecord {
@@ -28,7 +76,73 @@ export interface OAuthAccountRecord {
   revokedAt?: Date;
 }
 
-export interface OAuthTokenStore {
+export interface OAuthConnectionStore {
+  getConnection(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<ConnectionRecord | null>;
+  /**
+   * Save a whole immutable-generation snapshot. The guard covers both the
+   * normalized generation and legacy fields changed by an older replica.
+   */
+  saveConnection(record: ConnectionRecord, guard: ConnectionWriteGuard): Promise<boolean>;
+  listConnectionsPendingRevocation(
+    provider: OAuthProvider,
+    limit: number,
+  ): Promise<ConnectionRecord[]>;
+  savePendingCredentialCleanup(record: PendingCredentialCleanupRecord): Promise<void>;
+  listPendingCredentialCleanups(
+    provider: OAuthProvider,
+    limit: number,
+  ): Promise<PendingCredentialCleanupRecord[]>;
+  deletePendingCredentialCleanup(id: string): Promise<void>;
+  saveCredentialGeneration(record: CredentialGenerationRecord): Promise<void>;
+  /** Commit provider-issued material independently of any surrounding lifecycle transaction. */
+  saveCredentialGenerationDurably(record: CredentialGenerationRecord): Promise<void>;
+  updateCredentialGeneration(
+    record: CredentialGenerationRecord,
+    expectedState: CredentialGenerationState,
+    expectedCleanupAttempts: number,
+  ): Promise<boolean>;
+  listPrincipalCredentialGenerations(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+  ): Promise<CredentialGenerationRecord[]>;
+  listCredentialGenerationsForCleanup(
+    provider: OAuthProvider,
+    limit: number,
+    now: Date,
+  ): Promise<CredentialGenerationRecord[]>;
+  markAuthorizing(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+    requiredScopes: string[],
+    expiresAt: Date,
+  ): Promise<void>;
+  clearAuthorizing(provider: OAuthProvider, hop1Issuer: string, hop1Subject: string): Promise<void>;
+  withConnectionLock<T>(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+    operation: (store: OAuthConnectionStore) => Promise<T>,
+  ): Promise<T>;
+  /**
+   * Serialize issuance with other connection operations, but commit each SQL
+   * statement independently. In particular, provider-issued custody must not
+   * roll back with a later lifecycle step.
+   */
+  withConnectionIssuanceLock<T>(
+    provider: OAuthProvider,
+    hop1Issuer: string,
+    hop1Subject: string,
+    operation: (store: OAuthConnectionStore) => Promise<T>,
+  ): Promise<T>;
+}
+
+export interface OAuthTokenStore extends OAuthConnectionStore {
   saveAccount(record: OAuthAccountRecord): Promise<void>;
   getAccount(
     hop1Issuer: string,

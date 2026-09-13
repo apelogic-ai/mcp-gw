@@ -147,6 +147,7 @@ describe("control-plane mediated provider connection journey", () => {
           scopes: GOOGLE_SCOPES,
           config: oauthConfig,
           stateStore,
+          tokenStore,
           redirectAfter,
         }),
       tokenBroker: { getAccessToken: () => Promise.resolve("google-access-token") },

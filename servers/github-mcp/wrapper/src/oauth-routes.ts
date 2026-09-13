@@ -1,16 +1,22 @@
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
-import type { AuditSink } from "../../../../shared/audit/audit";
+import type { AuditEvent, AuditSink } from "../../../../shared/audit/audit";
 import {
   cancelGithubOAuth,
   completeGithubOAuth,
   GitHubOAuthError,
-  revokeGithubOAuth,
   startGithubOAuth,
   type GitHubOAuthConfig,
 } from "../../../../shared/oauth/github";
 import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
+import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { ProviderLifecycleError } from "../../../../shared/oauth/connection-types";
+import {
+  createConnectionRouteHandler,
+  withConnectionErrorMapping,
+} from "../../../../shared/oauth/connection-routes";
+import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 
 export interface CreateGitHubOAuthRouteHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
@@ -36,9 +42,43 @@ export function createGitHubOAuthRouteHandler(
   options: CreateGitHubOAuthRouteHandlerOptions,
 ): (request: Request) => Promise<Response> {
   const authenticate = (token: string): Promise<Hop1Identity> => options.authenticate(token);
+  const lifecycle = new ConnectionLifecycle({
+    adapter: new GitHubConnectionAdapter(options.config, options.fetch),
+    store: options.tokenStore,
+    credentialEncryptionKey: options.config.tokenEncryptionKey,
+    audit: options.audit,
+  });
+  const connectionRoutes = createConnectionRouteHandler({
+    authenticate,
+    lifecycle,
+    requiredScopes: options.scopes,
+    cancelAuthorization: (identity) =>
+      options.stateStore.invalidatePrincipal("github", identity.issuer, identity.subject),
+    startAuthorization: (identity, redirectAfter) => {
+      const validated = validateRedirectAfter(
+        redirectAfter,
+        options.redirectAfterAllowedOrigins ?? [],
+      );
+      if (validated instanceof OAuthRedirectTargetError) {
+        throw new ProviderLifecycleError(
+          "OAuth redirect target is not allowed",
+          "authorization_denied",
+        );
+      }
+      return startGithubOAuth({
+        identity,
+        scopes: options.scopes,
+        config: options.config,
+        stateStore: options.stateStore,
+        tokenStore: options.tokenStore,
+        redirectAfter: validated,
+      });
+    },
+  });
 
-  return async (request) => {
+  const handler = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/connections/github/")) return connectionRoutes(request);
 
     if (request.method === "GET" && url.pathname === "/oauth/github/callback") {
       const code = url.searchParams.get("code");
@@ -52,8 +92,9 @@ export function createGitHubOAuthRouteHandler(
           const identity = await cancelGithubOAuth({
             state,
             stateStore: options.stateStore,
+            tokenStore: options.tokenStore,
           });
-          await options.audit?.emit({
+          await emitAuditSafely(options.audit, {
             ts: new Date().toISOString(),
             category: "oauth",
             principal: identity.email,
@@ -97,7 +138,7 @@ export function createGitHubOAuthRouteHandler(
         }
         throw error;
       }
-      await options.audit?.emit({
+      await emitAuditSafely(options.audit, {
         ts: new Date().toISOString(),
         category: "oauth",
         principal: completed.identity.email,
@@ -128,6 +169,7 @@ export function createGitHubOAuthRouteHandler(
         scopes: options.scopes,
         config: options.config,
         stateStore: options.stateStore,
+        tokenStore: options.tokenStore,
         redirectAfter,
       });
 
@@ -150,6 +192,7 @@ export function createGitHubOAuthRouteHandler(
         scopes: options.scopes,
         config: options.config,
         stateStore: options.stateStore,
+        tokenStore: options.tokenStore,
         redirectAfter,
       });
 
@@ -157,66 +200,52 @@ export function createGitHubOAuthRouteHandler(
     }
 
     if (request.method === "GET" && url.pathname === "/oauth/github/status") {
-      const account = await options.tokenStore.getAccount(
-        identity.issuer,
-        identity.subject,
-        "github",
-      );
-      if (!account || account.revokedAt) {
-        return json({ connected: false });
-      }
-      const missingScopes = missingRequiredScopes(options.scopes, account.scopesGranted);
-
+      const status = await lifecycle.status(identity, options.scopes);
+      if (status.phase === "disconnected") return json({ connected: false });
       return json({
-        connected: missingScopes.length === 0,
-        email: account.email,
-        scopesRequired: options.scopes,
-        scopesGranted: account.scopesGranted,
-        missingScopes,
+        connected: status.connected,
+        ...(status.account ? { email: status.account.displayName } : {}),
+        scopesRequired: status.requiredScopes,
+        scopesGranted: status.grantedScopes,
+        missingScopes: status.missingScopes,
       });
+    }
+
+    if (request.method === "POST" && url.pathname === "/oauth/github/refresh") {
+      return json(await lifecycle.refresh(identity, options.scopes));
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {
       try {
-        await revokeGithubOAuth({
-          identity,
-          config: options.config,
-          tokenStore: options.tokenStore,
-          fetch: options.fetch,
-        });
-      } catch (error) {
-        if (
-          error instanceof GitHubOAuthError &&
-          (error.code === "token_revocation_failed" ||
-            error.code === "token_revocation_persist_failed")
-        ) {
-          await options.audit?.emit({
-            ts: new Date().toISOString(),
-            category: "oauth",
-            principal: identity.email,
-            event: "github.disconnect",
-            status: "error",
-            error:
-              error.code === "token_revocation_persist_failed"
-                ? "github_token_revocation_persist_failed"
-                : "github_token_revocation_failed",
-          });
-          return json({ error: "GitHub account disconnect could not be completed" }, 503);
-        }
-        throw error;
+        await lifecycle.disconnect(identity, options.scopes);
+      } finally {
+        await invalidateAuthorizationSafely(options.stateStore, identity);
       }
-      await options.audit?.emit({
-        ts: new Date().toISOString(),
-        category: "oauth",
-        principal: identity.email,
-        event: "github.disconnect",
-        status: "allow",
-      });
       return new Response(null, { status: 204 });
     }
 
     return json({ error: "Not found" }, 404);
   };
+  return withConnectionErrorMapping(handler);
+}
+
+async function invalidateAuthorizationSafely(
+  stateStore: OAuthStateStore,
+  identity: Hop1Identity,
+): Promise<void> {
+  try {
+    await stateStore.invalidatePrincipal("github", identity.issuer, identity.subject);
+  } catch {
+    // The lifecycle activation guard also rejects callbacks older than Disconnect.
+  }
+}
+
+async function emitAuditSafely(audit: AuditSink | undefined, event: AuditEvent): Promise<void> {
+  try {
+    await audit?.emit(event);
+  } catch {
+    // Auditing must not change an already completed OAuth state transition.
+  }
 }
 
 class OAuthRedirectTargetError extends Error {}
@@ -294,11 +323,6 @@ async function readJsonObject(request: Request): Promise<Record<string, unknown>
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : {};
-}
-
-function missingRequiredScopes(required: string[], granted: string[]): string[] {
-  const grantedSet = new Set(granted);
-  return required.filter((scope) => !grantedSet.has(scope));
 }
 
 function redirect(location: string): Response {

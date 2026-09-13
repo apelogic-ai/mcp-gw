@@ -5,6 +5,9 @@ import {
   createPostgresQueryClient,
 } from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
+import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
+import { createRevocationWorker } from "../../../../shared/oauth/revocation-worker";
 import { createOpaPolicyFromUrl } from "../../../../shared/policy/policy";
 import { loadWrapperConfig, type WrapperConfig } from "./app";
 import { createOAuthRouteHandler } from "./oauth-routes";
@@ -90,6 +93,14 @@ export async function createMainHandler(
   const audit = config.wrapper.audit?.jsonlPath
     ? new JsonlAuditSink(config.wrapper.audit.jsonlPath)
     : undefined;
+  createRevocationWorker([
+    new ConnectionLifecycle({
+      adapter: new GoogleConnectionAdapter(config.wrapper.oauth),
+      store: tokenStore,
+      credentialEncryptionKey: config.wrapper.oauth.tokenEncryptionKey,
+      audit,
+    }),
+  ]).start();
   const policy = config.wrapper.policy?.opaUrl
     ? createOpaPolicyFromUrl(config.wrapper.policy.opaUrl)
     : undefined;
@@ -129,7 +140,9 @@ export async function createMainHandler(
     if (authorizationBroker?.publicPaths.has(path)) {
       return authorizationBroker.handler(request, context);
     }
-    return path.startsWith("/oauth/google/") ? oauthRoutes(request) : mcpHandler(request);
+    return path.startsWith("/oauth/google/") || path.startsWith("/connections/google/")
+      ? oauthRoutes(request)
+      : mcpHandler(request);
   };
 }
 

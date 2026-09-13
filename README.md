@@ -124,6 +124,8 @@ gateway principal to a GitHub bearer token before forwarding to the upstream Git
 
 Downstream provider credentials can be connected by an external control plane, internal portal, or
 future built-in UI. See [docs/provider-connection-flows.md](docs/provider-connection-flows.md).
+The durable provider-neutral status, renewal, reauthorization, and disconnect contract is documented
+in [docs/provider-connection-lifecycle.md](docs/provider-connection-lifecycle.md).
 Enterprise MCP client integration guidance is in
 [docs/client-integration-runbook.md](docs/client-integration-runbook.md). The public OAuth route,
 registration, renewal, identity, and tested-client boundaries are defined in

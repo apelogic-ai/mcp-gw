@@ -24,6 +24,55 @@ describe("GitHub MCP proxy wrapper", () => {
     claims: {},
   };
 
+  test("renews and retries exactly once after a classified upstream credential rejection", async () => {
+    const authorizations: string[] = [];
+    let recoveryCalls = 0;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      githubToolsets: ["repos"],
+      authenticate: () => Promise.resolve(identity),
+      getOAuthStatus: () =>
+        Promise.resolve({
+          connected: true,
+          email: identity.email,
+          scopesRequired: ["repo"],
+          scopesGranted: ["repo"],
+          missingScopes: [],
+        }),
+      resolveGithubToken: () => Promise.resolve("stale-provider-credential"),
+      recoverGithubToken: () => {
+        recoveryCalls += 1;
+        return Promise.resolve("renewed-provider-credential");
+      },
+      fetch: async (request) => {
+        authorizations.push(request.headers.get("authorization") ?? "");
+        if (authorizations.length === 1) {
+          return Response.json({ message: "Bad credentials" }, { status: 401 });
+        }
+        const payload = (await request.json()) as { id: string };
+        return Response.json({ jsonrpc: "2.0", id: payload.id, result: { ok: true } });
+      },
+    });
+
+    const response = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "renew-and-retry",
+      method: "tools/call",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "apelogic-ai", repo: "fixture", path: "README.md" },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(recoveryCalls).toBe(1);
+    expect(authorizations).toEqual([
+      "Bearer stale-provider-credential",
+      "Bearer renewed-provider-credential",
+    ]);
+    expect(await response.json()).toMatchObject({ id: "renew-and-retry", result: { ok: true } });
+  });
+
   test("keeps an OAuth-backed catalog stable and gates cached tools without provider effects", async () => {
     let connected = false;
     let statusCalls = 0;

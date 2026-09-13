@@ -9,6 +9,8 @@ import {
   type IssuerProfile,
 } from "../../../../shared/identity/hop1";
 import { startGoogleOAuth, type OAuthFetch } from "../../../../shared/oauth/google";
+import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 import { GoogleTokenBroker } from "../../../../shared/oauth/token-broker";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import {
@@ -118,10 +120,18 @@ export function createRuntimeWrapperHandler(
   options: CreateRuntimeWrapperHandlerOptions,
 ): (request: Request) => Promise<Response> {
   const providerOAuth = options.providerOAuth;
+  const audit = options.audit ?? createAuditSink(options.config);
   const tokenBroker = new GoogleTokenBroker({
     config: options.config.oauth,
     tokenStore: options.tokenStore,
     fetch: options.fetch,
+    audit,
+  });
+  const connectionLifecycle = new ConnectionLifecycle({
+    adapter: new GoogleConnectionAdapter(options.config.oauth, options.fetch),
+    store: options.tokenStore,
+    credentialEncryptionKey: options.config.oauth.tokenEncryptionKey,
+    audit,
   });
 
   return createGoogleWorkspaceWrapperHandler({
@@ -144,31 +154,18 @@ export function createRuntimeWrapperHandler(
               : undefined,
         })),
     }),
-    audit: options.audit ?? createAuditSink(options.config),
+    audit,
     policy: options.policy ?? createPolicy(options.config, options.fetch),
     governanceCatalogId: options.config.governanceCatalogId,
     getOAuthStatus: providerOAuth
       ? async (identity) => {
-          const account = await options.tokenStore.getAccount(
-            identity.issuer,
-            identity.subject,
-            "google",
-          );
-          if (!account || account.revokedAt) {
-            return {
-              connected: false,
-              scopesRequired: providerOAuth.scopes,
-              scopesGranted: [],
-              missingScopes: providerOAuth.scopes,
-            };
-          }
-          const missingScopes = missingRequiredScopes(providerOAuth.scopes, account.scopesGranted);
+          const status = await connectionLifecycle.status(identity, providerOAuth.scopes);
           return {
-            connected: missingScopes.length === 0,
-            email: account.email,
-            scopesRequired: providerOAuth.scopes,
-            scopesGranted: account.scopesGranted,
-            missingScopes,
+            connected: status.connected,
+            ...(status.account ? { email: status.account.displayName } : {}),
+            scopesRequired: status.requiredScopes,
+            scopesGranted: status.grantedScopes,
+            missingScopes: status.missingScopes,
           };
         }
       : undefined,
@@ -179,6 +176,7 @@ export function createRuntimeWrapperHandler(
             scopes: providerOAuth.scopes,
             config: options.config.oauth,
             stateStore: providerOAuth.stateStore,
+            tokenStore: options.tokenStore,
             redirectAfter,
           })
       : undefined,
@@ -191,11 +189,6 @@ export function createRuntimeWrapperHandler(
         gwsBinary: options.config.gwsBinary,
       }),
   });
-}
-
-function missingRequiredScopes(required: string[], granted: string[]): string[] {
-  const grantedSet = new Set(granted);
-  return required.filter((scope) => !grantedSet.has(scope));
 }
 
 async function requireActiveIntrospection(

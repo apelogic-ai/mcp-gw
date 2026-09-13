@@ -197,6 +197,7 @@ describe("GitHub OAuth routes", () => {
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     let authenticateCalls = 0;
     let providerCalls = 0;
@@ -263,18 +264,20 @@ describe("GitHub OAuth routes", () => {
 
   test("consumes a denied provider callback state and returns a sanitized response", async () => {
     const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
     const started = await startGithubOAuth({
       identity,
       scopes: ["repo"],
       config,
       stateStore,
+      tokenStore,
     });
     const handler = createGitHubOAuthRouteHandler({
       authenticate: () => Promise.reject(new Error("callback must not authenticate a bearer")),
       config,
       scopes: ["repo"],
       stateStore,
-      tokenStore: new InMemoryOAuthTokenStore(),
+      tokenStore,
     });
     const callbackUrl =
       `https://mcp.example.com/oauth/github/callback?state=${started.state}` +
@@ -416,7 +419,7 @@ describe("GitHub OAuth routes", () => {
     expect(await afterDisconnect.json()).toEqual({ connected: false });
   });
 
-  test("fails closed and reports a sanitized audit event when GitHub rejects disconnect", async () => {
+  test("disables locally and reports sanitized pending cleanup when GitHub rejects disconnect", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const accessToken = "gho_disconnect_access_token";
     const audit = new MemoryAuditSink();
@@ -447,21 +450,22 @@ describe("GitHub OAuth routes", () => {
       }),
     );
 
-    expect(response.status).toBe(503);
-    const responseBody = await response.json();
-    expect(responseBody).toEqual({
-      error: "GitHub account disconnect could not be completed",
-    });
+    expect(response.status).toBe(204);
+    const responseBody = await response.text();
+    expect(responseBody).toBe("");
     expect(
       (await tokenStore.getAccount(identity.issuer, identity.subject, "github"))?.revokedAt,
-    ).toBeUndefined();
-    expect(audit.events).toHaveLength(1);
+    ).toBeInstanceOf(Date);
+    expect(
+      await tokenStore.getConnection("github", identity.issuer, identity.subject),
+    ).toMatchObject({ phase: "disconnected_with_provider_cleanup_pending" });
+    expect(audit.events).toHaveLength(2);
     expect(audit.events[0]).toMatchObject({
       category: "oauth",
       principal: identity.email,
-      event: "github.disconnect",
+      event: "github.disconnect_cleanup",
       status: "error",
-      error: "github_token_revocation_failed",
+      error: "transient_provider_failure",
     });
     expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
       accessToken,
@@ -482,7 +486,14 @@ describe("GitHub OAuth routes", () => {
       createdAt: new Date("2026-08-22T00:00:00.000Z"),
       updatedAt: new Date("2026-08-22T00:00:00.000Z"),
     });
-    tokenStore.markRevoked = () => Promise.reject(new Error(`database failed for ${accessToken}`));
+    const saveConnection = tokenStore.saveConnection.bind(tokenStore);
+    let persistenceCalls = 0;
+    tokenStore.saveConnection = (record, expectedGeneration) => {
+      persistenceCalls += 1;
+      return persistenceCalls === 2
+        ? Promise.reject(new Error(`database failed for ${accessToken}`))
+        : saveConnection(record, expectedGeneration);
+    };
     let providerRevocationCalls = 0;
     const handler = createGitHubOAuthRouteHandler({
       authenticate: () => Promise.resolve(identity),
@@ -508,7 +519,7 @@ describe("GitHub OAuth routes", () => {
     expect(providerRevocationCalls).toBe(1);
     const responseBody = await response.json();
     expect(responseBody).toEqual({
-      error: "GitHub account disconnect could not be completed",
+      error: "persistence_failure",
     });
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]).toMatchObject({
@@ -516,7 +527,6 @@ describe("GitHub OAuth routes", () => {
       principal: identity.email,
       event: "github.disconnect",
       status: "error",
-      error: "github_token_revocation_persist_failed",
     });
     expect(JSON.stringify({ response: responseBody, audit: audit.events })).not.toContain(
       accessToken,
@@ -536,6 +546,34 @@ describe("GitHub OAuth routes", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  test("maps datastore failures on compatibility connection routes", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    tokenStore.getConnection = () => Promise.reject(new Error("postgres unavailable"));
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+    });
+
+    for (const [path, method] of [
+      ["/oauth/github/start", "GET"],
+      ["/oauth/github/status", "GET"],
+      ["/oauth/github/refresh", "POST"],
+      ["/oauth/github/disconnect", "POST"],
+    ] as const) {
+      const response = await handler(
+        new Request(`https://mcp.example.com${path}`, {
+          method,
+          headers: { authorization: "Bearer hop1" },
+        }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "persistence_failure" });
+    }
   });
 });
 

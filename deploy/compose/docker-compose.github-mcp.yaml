@@ -30,8 +30,10 @@ services:
       HOP1_ISSUERS_JSON: ${HOP1_ISSUERS_JSON:-}
       TOKEN_STORE_DSN: ${TOKEN_STORE_DSN:-postgres://mcp:mcp@token-store:5432/mcp}
     depends_on:
-      - token-store
-      - github-mcp
+      oauth-migrations:
+        condition: service_completed_successfully
+      github-mcp:
+        condition: service_started
 
   github-mcp:
     profiles: ["github-mcp"]

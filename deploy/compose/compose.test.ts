@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 describe("Docker Compose deployment skeleton", () => {
   test("defines gateway, google wrapper, and token store services", async () => {
     const compose = await readFile("deploy/compose/docker-compose.yaml", "utf8");
+    const githubCompose = await readFile("deploy/compose/docker-compose.github-mcp.yaml", "utf8");
 
     expect(compose).toContain("agentgateway:");
     expect(compose).toContain(
@@ -11,6 +12,11 @@ describe("Docker Compose deployment skeleton", () => {
     );
     expect(compose).toContain("google-workspace:");
     expect(compose).toContain("token-store:");
+    expect(compose).toContain("oauth-migrations:");
+    expect(compose).toContain("command: [bun, shared/oauth/migrate.ts]");
+    expect(compose).toContain("condition: service_completed_successfully");
+    expect(githubCompose).toContain("oauth-migrations:");
+    expect(githubCompose).toContain("condition: service_completed_successfully");
     expect(compose).toContain("GWS_BINARY_PATH:");
     expect(compose).toContain("GOOGLE_OAUTH_CLIENT_ID:");
     expect(compose).toContain("GOOGLE_OAUTH_SCOPES:");
