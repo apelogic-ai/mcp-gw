@@ -8,12 +8,18 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
-### Added
+## [0.4.10] - 2026-09-14
 
-- Allow opt-in, broker-only Gateway API HTTPRoute rendering for deployments that
-  already own their `/mcp` and provider routes, without creating a second Ingress.
-  Add an overlay example and customer signing-JWKS generation guidance. DCR
-  remains disabled in chart defaults and is enabled explicitly in the example.
+### Fixed
+
+- Allow deployments that already own their `/mcp` and provider routes through Gateway API to
+  expose the broker using an opt-in, exact-path HTTPRoute without creating a second Ingress.
+  Existing Ingress deployments and chart defaults are unchanged.
+
+### Documentation
+
+- Add a Gateway API values overlay and a safe operator-side signing-JWKS generation example.
+  Constrained DCR is enabled in the overlay but remains disabled by default in the chart.
 
 ## [0.4.9] - 2026-09-13
 
@@ -479,7 +485,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.10...HEAD
+[0.4.10]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.6...v0.4.7
