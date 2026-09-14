@@ -46,12 +46,19 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.googleWorkspace.port }}
-          {{- with .Values.googleWorkspace.secretRef.name }}
+          {{- if and .Values.googleWorkspace.secretRef.name (eq (len .Values.googleWorkspace.secretRef.envKeys) 0) }}
           envFrom:
             - secretRef:
-                name: {{ . }}
+                name: {{ .Values.googleWorkspace.secretRef.name }}
           {{- end }}
           env:
+            {{- range .Values.googleWorkspace.secretRef.envKeys }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.googleWorkspace.secretRef.name }}
+                  key: {{ . }}
+            {{- end }}
             {{- if .Values.hop1.issuers }}
             - name: HOP1_ISSUERS_JSON
               value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}

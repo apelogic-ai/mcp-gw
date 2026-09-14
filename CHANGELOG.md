@@ -8,6 +8,24 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-09-14
+
+### Fixed
+
+- Clarify that the authorization-broker NetworkPolicy source must select the
+  actual data-plane proxy Pods or observed source CIDRs in Gateway API and
+  Ingress deployments. The fail-closed, exactly-one-source requirement remains.
+- Add opt-in runtime Secret-key allowlists for Google Workspace, GitHub, and
+  database wrappers so an aggregate Secret can hold the private signing JWKS
+  without importing it into workload environments. Existing whole-Secret
+  `envFrom` behavior remains when an allowlist is empty.
+
+### Upgrade Notes
+
+- No ingress, Secret, or database migration is required for existing installs.
+  Operators using one aggregate signing/runtime Secret should set non-empty
+  `secretRef.envKeys` lists for each importing wrapper and omit the signing key.
+
 ## [0.4.10] - 2026-09-14
 
 ### Fixed
@@ -485,7 +503,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.10...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.11...HEAD
+[0.4.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.7...v0.4.8

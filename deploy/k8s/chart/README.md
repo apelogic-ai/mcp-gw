@@ -17,7 +17,7 @@ the install fails schema validation.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.10 \
+  --version 0.4.11 \
   -f my-values.yaml
 ```
 
@@ -41,7 +41,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.4.10"
+    tag: "0.4.11"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -59,7 +59,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.4.10"
+    tag: "0.4.11"
   # Existing Secret supplying GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
   # GOOGLE_OAUTH_REDIRECT_URI, GOOGLE_TOKEN_ENCRYPTION_KEY, and TOKEN_STORE_DSN.
   secretRef:
@@ -70,11 +70,11 @@ Or override the same knobs inline:
 
 ```bash
 helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.10 \
+  --version 0.4.11 \
   --set agentgateway.enabled=true \
-  --set agentgateway.image.tag=0.4.10 \
+  --set agentgateway.image.tag=0.4.11 \
   --set googleWorkspace.enabled=true \
-  --set googleWorkspace.image.tag=0.4.10 \
+  --set googleWorkspace.image.tag=0.4.11 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \
   --set-json 'hop1.issuers=[{"name":"workforce","issuer":"https://identity.example.com","audiences":["https://mcp.example.com/mcp"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"],"emailClaim":"email","subjectClaim":"sub"}]'
 ```
@@ -82,6 +82,33 @@ helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
 Runtime secrets are referenced as **existing** Kubernetes Secrets. Create them
 from your own secret manager; the chart never generates credentials or embeds a
 DSN, OAuth secret, or token encryption key in rendered manifests.
+If one Secret also contains the broker's private `signing-jwks.json`, set
+`secretRef.envKeys` on each wrapper to import only its runtime environment
+keys. A non-empty allowlist replaces `envFrom` with individual Secret-key
+references; an omitted or empty allowlist preserves the legacy whole-Secret
+`envFrom` behavior and must not be used with a shared signing Secret. For
+example, with an existing aggregate Secret named `mcp-runtime`:
+
+```yaml
+googleWorkspace:
+  secretRef:
+    name: mcp-runtime
+    envKeys:
+      - TOKEN_STORE_DSN
+      - GOOGLE_OAUTH_CLIENT_ID
+      - GOOGLE_OAUTH_CLIENT_SECRET
+      - GOOGLE_OAUTH_REDIRECT_URI
+      - GOOGLE_TOKEN_ENCRYPTION_KEY
+  authorizationBroker:
+    signingKeyring:
+      secretKeyRef:
+        name: mcp-runtime
+        key: signing-jwks.json
+```
+
+The signing key is projected only as a file, never listed in `envKeys`. The
+same allowlist option applies to `githubWrapper.secretRef` and
+`dbMcp.secretRef`; list only the keys each workload needs.
 
 Direct-client authorization is separately opt-in under
 `googleWorkspace.authorizationBroker`. The typed values require a public HTTPS
@@ -111,6 +138,13 @@ namespace alone does not identify those Pods. For an ALB/IP-target data plane, u
 AgentGateway separately, without making the wrapper Service cluster-wide; a
 missing, partial, or mixed source fails rendering. Do not use `0.0.0.0/0` in
 place of the load balancer's actual source range.
+Before installing a Gateway API overlay, inspect the proxy Pods and their
+Namespace labels, for example with `kubectl get pods -A -o wide --show-labels`
+and `kubectl get namespaces --show-labels`. Set `ingressControllerPeer` to
+selectors matching those Pods and their Namespace, not the Gateway resource or
+controller Deployment by assumption. If traffic arrives from external source
+IPs instead, use the source CIDRs observed at the wrapper, not client CIDRs.
+The chart cannot infer a dataplane identity from an HTTPRoute `parentRef`.
 
 For an existing Gateway API `/mcp` HTTPRoute, set `agentgateway.ingress.enabled=false`
 and `agentgateway.gatewayApi.brokerHttpRoute.enabled=true`, with one or more
@@ -201,6 +235,7 @@ and are left in place.
 | `agentgateway.gatewayApi.brokerHttpRoute.parentRefs`              | `[]`                                                | Gateway listener references for the broker HTTPRoute when enabled.                                                      |
 | `googleWorkspace.enabled`                                         | `false`                                             | Deploy the Google Workspace MCP wrapper.                                                                                |
 | `googleWorkspace.secretRef.name`                                  | `""`                                                | Existing Secret with the wrapper's OAuth and token-store env.                                                           |
+| `googleWorkspace.secretRef.envKeys`                               | `[]`                                                | Opt-in runtime-key allowlist; empty retains whole-Secret `envFrom`. Never include the signing key.                      |
 | `googleWorkspace.authorizationBroker.enabled`                     | `false`                                             | Enable the public authorization broker and its typed fail-closed configuration.                                         |
 | `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef` | empty                                               | Existing Secret name/key projected as the private signing keyring file.                                                 |
 | `googleWorkspace.authorizationBroker.ingressControllerPeer`       | empty selectors                                     | Trusted in-cluster data-plane proxy Pods; choose this or `ingressSourceCidrs`, never both.                              |
@@ -208,8 +243,10 @@ and are left in place.
 | `googleWorkspace.authorizationBroker.dcr.enabled`                 | `false`                                             | Explicitly enable constrained dynamic client registration on the public broker route.                                   |
 | `googleWorkspace.policy.enabled`                                  | `false`                                             | Enforce a YAML Google Workspace tool policy.                                                                            |
 | `githubWrapper.enabled`                                           | `false`                                             | Deploy the GitHub MCP credential wrapper.                                                                               |
+| `githubWrapper.secretRef.envKeys`                                 | `[]`                                                | Optional runtime-key allowlist for the GitHub wrapper Secret.                                                           |
 | `githubMcp.enabled`                                               | `false`                                             | Deploy the bundled official GitHub MCP server backend.                                                                  |
 | `dbMcp.enabled`                                                   | `false`                                             | Deploy the database MCP backend.                                                                                        |
+| `dbMcp.secretRef.envKeys`                                         | `[]`                                                | Optional runtime-key allowlist for the database MCP Secret.                                                             |
 | `oauthMigrations.enabled`                                         | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                                                 |
 | `postgresql.caBundle.enabled`                                     | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.                                  |
 | `productionProfile.enabled`                                       | `false`                                             | Validate that the full provider bundle is enabled explicitly.                                                           |
