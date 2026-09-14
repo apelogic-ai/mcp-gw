@@ -157,8 +157,16 @@ describe("Kubernetes production chart", () => {
     ]);
     const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway-broker");
     const brokerService = renderedResource(rendered, "Service", "mcp-gateway-authorization-broker");
-    const networkPolicy = renderedResource(rendered, "NetworkPolicy", "mcp-gateway-google-workspace");
-    const gatewayConfig = renderedResource(rendered, "ConfigMap", "mcp-gateway-agentgateway-config");
+    const networkPolicy = renderedResource(
+      rendered,
+      "NetworkPolicy",
+      "mcp-gateway-google-workspace",
+    );
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
 
     expect(rendered).not.toContain("kind: Ingress");
     expect(route).toContain("name: shared");
