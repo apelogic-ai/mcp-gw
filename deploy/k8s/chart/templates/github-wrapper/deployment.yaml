@@ -42,12 +42,19 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.githubWrapper.port }}
-          {{- with .Values.githubWrapper.secretRef.name }}
+          {{- if and .Values.githubWrapper.secretRef.name (eq (len .Values.githubWrapper.secretRef.envKeys) 0) }}
           envFrom:
             - secretRef:
-                name: {{ . }}
+                name: {{ .Values.githubWrapper.secretRef.name }}
           {{- end }}
           env:
+            {{- range .Values.githubWrapper.secretRef.envKeys }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.githubWrapper.secretRef.name }}
+                  key: {{ . }}
+            {{- end }}
             {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
             - name: HOP1_ISSUERS_JSON
               value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}

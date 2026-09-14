@@ -246,6 +246,9 @@ googleWorkspace:
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
     name: ""
+    # Non-empty: import only these Secret keys as env vars. Empty: legacy envFrom.
+    # Never list the broker signing key here; it is projected as a file.
+    envKeys: []
 
 dbMcp:
   enabled: false
@@ -303,6 +306,7 @@ dbMcp:
     TOOL_PROFILE: query
   secretRef:
     name: ""
+    envKeys: []
 
 githubWrapper:
   enabled: false
@@ -360,6 +364,7 @@ githubWrapper:
     HOP1_SUBJECT_CLAIM: sub
   secretRef:
     name: ""
+    envKeys: []
 
 githubMcp:
   enabled: false
