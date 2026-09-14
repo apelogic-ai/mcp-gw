@@ -64,7 +64,7 @@ For an existing Gateway API `/mcp` HTTPRoute, layer
 The optional chart-managed broker HTTPRoute attaches to the named Gateway and
 exposes only exact broker paths; the existing `/mcp` and provider routes remain
 operator-owned. The overlay disables chart Ingress and enables constrained DCR.
-Replace the illustrative Gateway reference and **Envoy data-plane** Pod selectors
+Replace the illustrative Gateway reference and **data-plane proxy** Pod selectors
 with observed values; the Gateway controller namespace is not proof of the
 data-plane namespace or labels. Verify the route's `Accepted` and `ResolvedRefs`
 conditions and public metadata before client registration. Broker HTTPRoute and

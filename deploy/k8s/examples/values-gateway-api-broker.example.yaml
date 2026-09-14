@@ -2,7 +2,7 @@
 # callback paths already have an operator-owned Gateway API HTTPRoute. The chart
 # creates only the broker's exact public HTTPRoute, never another /mcp route.
 # Replace the Gateway reference and BOTH NetworkPolicy selectors with the
-# actual environment's Gateway and Envoy data-plane pod labels before use.
+# actual environment's Gateway and data-plane proxy Pod labels before use.
 agentgateway:
   ingress:
     enabled: false
@@ -10,8 +10,8 @@ agentgateway:
     brokerHttpRoute:
       enabled: true
       parentRefs:
-        - name: shared
-          namespace: envoy-gateway-system
+        - name: public-gateway
+          namespace: gateway-system
           sectionName: https
 
 googleWorkspace:
@@ -19,10 +19,10 @@ googleWorkspace:
     ingressControllerPeer:
       namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: envoy-gateway-system
+          kubernetes.io/metadata.name: gateway-system
       podSelector:
         matchLabels:
-          app.kubernetes.io/name: envoy # illustrative; inspect data-plane pods
+          app.kubernetes.io/name: gateway-proxy # illustrative; inspect data-plane Pods
     ingressSourceCidrs: []
     dcr:
       enabled: true

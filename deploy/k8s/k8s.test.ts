@@ -169,8 +169,8 @@ describe("Kubernetes production chart", () => {
     );
 
     expect(rendered).not.toContain("kind: Ingress");
-    expect(route).toContain("name: shared");
-    expect(route).toContain("namespace: envoy-gateway-system");
+    expect(route).toContain("name: public-gateway");
+    expect(route).toContain("namespace: gateway-system");
     expect(route).toContain("sectionName: https");
     expect(route).toContain('"mcp.example.com"');
     expect(route).toContain("name: mcp-gateway-authorization-broker");
@@ -189,8 +189,8 @@ describe("Kubernetes production chart", () => {
     expect(route).not.toContain('value: "/mcp"');
     expect(route).not.toContain('value: "/oauth/google"');
     expect(brokerService).toContain("app.kubernetes.io/component: authorization-broker");
-    expect(networkPolicy).toContain("kubernetes.io/metadata.name: envoy-gateway-system");
-    expect(networkPolicy).toContain("app.kubernetes.io/name: envoy");
+    expect(networkPolicy).toContain("kubernetes.io/metadata.name: gateway-system");
+    expect(networkPolicy).toContain("app.kubernetes.io/name: gateway-proxy");
     expect(gatewayConfig).toMatch(/authorizationServers:\n\s+- https:\/\/mcp\.example\.com\/oauth/);
   });
 

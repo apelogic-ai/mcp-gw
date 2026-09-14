@@ -175,7 +175,7 @@ metadata, authorization, token, registration (when DCR is enabled), JWKS, and
 broker callback paths. It does **not** create the `/mcp` route or provider
 control routes; those remain in the customer's existing HTTPRoute. Replace the
 example `parentRefs` and NetworkPolicy selectors with the actual Gateway and
-Envoy data-plane Pod identity, and ensure the Gateway listener permits routes
+data-plane proxy Pod identity, and ensure the Gateway listener permits routes
 from the MCP-GW namespace. Do not add a broad public `/oauth` prefix.
 
 ## Choose one ingress-source model
@@ -184,7 +184,7 @@ Broker routes are public, but the Google wrapper Service stays protected by a
 NetworkPolicy. Configure exactly one of these models. The chart fails rendering
 for zero, partial, or mixed sources.
 
-For an in-cluster reverse proxy, including an Envoy Gateway data plane, provide
+For an in-cluster reverse proxy, including a Gateway API data plane, provide
 both selector pairs using labels observed on the **proxy Pods**, not merely the
 Gateway controller or Gateway resource:
 
