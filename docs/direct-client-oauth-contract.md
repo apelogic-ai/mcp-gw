@@ -180,29 +180,32 @@ For Kubernetes, configure these fields through the typed
 `signingKeyring.secretKeyRef` contains only an existing Secret name and key;
 the selected key is mounted read-only at the fixed signing-file path. Disabled
 broker mode renders no broker environment, Secret projection, mount, public
-authorization paths, or broker trust entry. Enabled mode requires the
-chart-managed AgentGateway Ingress and Google backend: it routes only the
-metadata-advertised authorization surface to the wrapper, routes the exact MCP
-resource through AgentGateway, and automatically adds the broker issuer's
-public RS256 JWKS as an AgentGateway verifier. Issuer, resource, callback, and
-Ingress host are validated as one public HTTPS origin.
+authorization paths, or broker trust entry. Enabled mode requires AgentGateway,
+the Google backend, and either chart-managed Ingress or an opt-in broker-only
+Gateway API HTTPRoute. Both modes route only the metadata-advertised
+authorization surface to the broker-role Service, keep the exact MCP resource
+behind AgentGateway, and automatically add the broker issuer's public RS256
+JWKS as an AgentGateway verifier. Issuer, resource, callback, and public route
+host are validated as one HTTPS origin. In Gateway API mode the environment
+owns the `/mcp` and protected-resource HTTPRoute; the chart creates only the
+broker HTTPRoute with exact matches and a configured Gateway `parentRef`.
 Choose exactly one trusted ingress-source model for the wrapper NetworkPolicy:
 `ingressControllerPeer` with complete Namespace and Pod selectors for an
-in-cluster Ingress controller, or `ingressSourceCidrs` with the real source
+in-cluster data-plane proxy, or `ingressSourceCidrs` with the real source
 CIDRs for an ALB/IP-target data plane. The selected source is admitted alongside
 AgentGateway; missing, partial, or mixed models fail rendering. Generated broker
-authorization routes use exact-path Ingress matches.
+authorization routes use exact-path Ingress or HTTPRoute matches.
 
 Helm repeats the runtime's deployment-visible rejection rules so an invalid
 release fails during schema/render validation rather than after startup. Public
 broker URLs must be canonical, credential-free, route-safe HTTPS URLs on the
-Ingress origin and may not use localhost, private/reserved addresses, internal
+public route origin and may not use localhost, private/reserved addresses, internal
 or single-label names, IPv6 literals, queries, fragments, or custom ports.
 Numeric IPv4 aliases in hexadecimal, octal, shortened, or mixed WHATWG syntax
 are not DNS names and are rejected instead of being silently normalized;
 special-use IPv4 ranges are likewise never public broker or client endpoints.
 Generated public routes must remain unique and must not overlap the MCP route,
-resource metadata, operator-supplied Ingress paths, or authenticated
+resource metadata, operator-supplied chart Ingress paths when enabled, or authenticated
 `/oauth/google/*` and `/oauth/github/*` provider-control paths. Static client
 IDs, redirect counts and lengths, public client URLs, scope subsets, OAuth
 scope-token serialization, trusted-proxy IP literals, and safe-integer DCR

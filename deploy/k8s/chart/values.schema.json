@@ -24,8 +24,7 @@
         "properties": {
           "agentgateway": {
             "properties": {
-              "enabled": { "const": true },
-              "ingress": { "properties": { "enabled": { "const": true } } }
+              "enabled": { "const": true }
             }
           },
           "googleWorkspace": { "properties": { "enabled": { "const": true } } }
@@ -747,6 +746,54 @@
             },
             "backends": { "type": "array", "items": { "type": "object" } },
             "mcpAuthentication": { "type": "object" },
+            "gatewayApi": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["brokerHttpRoute"],
+              "properties": {
+                "brokerHttpRoute": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["enabled", "parentRefs"],
+                  "allOf": [
+                    {
+                      "if": { "properties": { "enabled": { "const": true } } },
+                      "then": { "properties": { "parentRefs": { "minItems": 1 } } },
+                      "else": { "properties": { "parentRefs": { "maxItems": 0 } } }
+                    }
+                  ],
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "parentRefs": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["name"],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "maxLength": 63
+                          },
+                          "namespace": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "maxLength": 63
+                          },
+                          "sectionName": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "maxLength": 63
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
             "ingress": {
               "type": "object",
               "additionalProperties": true,
