@@ -77,7 +77,7 @@ included in an MCP-GW release. One way to create a new key with the repository's
 ```bash
 umask 077
 BROKER_JWKS_OUT=/secure/path/signing-jwks.json \
-BROKER_ACTIVE_KID=customer-broker-2026-09 \
+BROKER_ACTIVE_KID=customer-key-2026-09 \
 bun -e '
 import { generateKeyPair, exportJWK } from "jose";
 import { writeFileSync } from "node:fs";
