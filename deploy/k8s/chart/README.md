@@ -90,7 +90,8 @@ either constrained DCR or at least one static public client. The signing JWKS is
 never a values or environment value: `signingKeyring.secretKeyRef` selects one
 key from an existing Secret, and the chart projects it read-only at
 `/var/run/secrets/mcp-gateway/broker/signing-jwks.json`. Broker mode also
-requires the AgentGateway public Ingress and Google backend. The chart creates a
+requires AgentGateway, the Google backend, and either its public Ingress or the
+opt-in broker-only Gateway API HTTPRoute. The chart creates a
 provider-neutral DNS-label-bounded Service derived from
 `<fullname>-authorization-broker` and selecting the existing Google wrapper
 pods. Long fullnames are truncated with a stable identity hash so distinct
@@ -99,16 +100,33 @@ metadata/authorize/token/register/JWKS/callback
 paths to that Service, keeps the MCP resource behind AgentGateway, and adds the
 broker issuer's RS256 profile to AgentGateway and every enabled first-party wrapper.
 Internal JWKS retrieval uses the broker-role Service; public OAuth metadata continues
-advertising the public HTTPS `jwks_uri`. The issuer, resource, callback, and Ingress
-host must describe one coherent public HTTPS origin. See
+advertising the public HTTPS `jwks_uri`. The issuer, resource, callback, and public
+host must describe one coherent HTTPS origin. See
 `deploy/k8s/examples/values-oauth-broker.example.yaml` in the source repository.
 Choose exactly one trusted ingress-source model. `ingressControllerPeer` must
-contain non-empty Namespace and Pod label selectors for an in-cluster Ingress
-controller. For an ALB/IP-target data plane, use non-empty
+contain non-empty Namespace and Pod label selectors for the actual in-cluster
+data-plane proxy Pods, including Envoy Gateway when used. The Gateway object's
+namespace alone does not identify those Pods. For an ALB/IP-target data plane, use non-empty
 `ingressSourceCidrs` instead. The NetworkPolicy admits that exact source and
 AgentGateway separately, without making the wrapper Service cluster-wide; a
 missing, partial, or mixed source fails rendering. Do not use `0.0.0.0/0` in
 place of the load balancer's actual source range.
+
+For an existing Gateway API `/mcp` HTTPRoute, set `agentgateway.ingress.enabled=false`
+and `agentgateway.gatewayApi.brokerHttpRoute.enabled=true`, with one or more
+`parentRefs` to the public HTTPS Gateway listener. The chart then creates only
+an exact-path broker HTTPRoute on the issuer's host, pointing to the broker-role
+Service; the environment retains ownership of `/mcp`, its protected-resource
+metadata route, and provider-control routes. Do not add a broad `/oauth` prefix.
+Ingress and broker HTTPRoute modes are mutually exclusive. The opt-in overlay
+`deploy/k8s/examples/values-gateway-api-broker.example.yaml` demonstrates this
+mode; replace its illustrative Gateway reference and data-plane selectors.
+Verify the HTTPRoute's `Accepted` and `ResolvedRefs` conditions and public OAuth
+discovery after reconciliation. The chart does not create the base `/mcp` route.
+
+DCR remains disabled in the chart defaults: it exposes an unauthenticated client
+registration endpoint and requires a deliberate policy and migration decision.
+The Gateway API broker example explicitly enables constrained DCR.
 
 The broker can be the only HOP-1 issuer for an external deployment: omit
 `hop1.issuers` and the chart automatically trusts the broker issuer in Google,
@@ -179,12 +197,15 @@ and are left in place.
 | `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                                               |
 | `agentgateway.backends`                                           | Google Workspace, db-mcp, github-mcp (all disabled) | Backend routing targets behind the shared endpoint.                                                                     |
 | `agentgateway.ingress.enabled`                                    | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                                                     |
+| `agentgateway.gatewayApi.brokerHttpRoute.enabled`                 | `false`                                             | Create only the broker's exact public HTTPRoute; requires an externally owned `/mcp` route and disables chart Ingress. |
+| `agentgateway.gatewayApi.brokerHttpRoute.parentRefs`              | `[]`                                                | Gateway listener references for the broker HTTPRoute when enabled.                                                       |
 | `googleWorkspace.enabled`                                         | `false`                                             | Deploy the Google Workspace MCP wrapper.                                                                                |
 | `googleWorkspace.secretRef.name`                                  | `""`                                                | Existing Secret with the wrapper's OAuth and token-store env.                                                           |
 | `googleWorkspace.authorizationBroker.enabled`                     | `false`                                             | Enable the public authorization broker and its typed fail-closed configuration.                                         |
 | `googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef` | empty                                               | Existing Secret name/key projected as the private signing keyring file.                                                 |
-| `googleWorkspace.authorizationBroker.ingressControllerPeer`       | empty selectors                                     | Trusted in-cluster ingress controller; choose this or `ingressSourceCidrs`, never both.                                 |
+| `googleWorkspace.authorizationBroker.ingressControllerPeer`       | empty selectors                                     | Trusted in-cluster data-plane proxy Pods; choose this or `ingressSourceCidrs`, never both.                              |
 | `googleWorkspace.authorizationBroker.ingressSourceCidrs`          | `[]`                                                | Trusted ALB/IP-target source CIDRs; choose this or `ingressControllerPeer`, never both.                                 |
+| `googleWorkspace.authorizationBroker.dcr.enabled`                 | `false`                                             | Explicitly enable constrained dynamic client registration on the public broker route.                                   |
 | `googleWorkspace.policy.enabled`                                  | `false`                                             | Enforce a YAML Google Workspace tool policy.                                                                            |
 | `githubWrapper.enabled`                                           | `false`                                             | Deploy the GitHub MCP credential wrapper.                                                                               |
 | `githubMcp.enabled`                                               | `false`                                             | Deploy the bundled official GitHub MCP server backend.                                                                  |

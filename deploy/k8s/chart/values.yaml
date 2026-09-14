@@ -139,6 +139,12 @@ agentgateway:
       - /mcp
       - /.well-known/oauth-protected-resource/mcp
     tls: []
+  gatewayApi:
+    # Opt-in broker-only HTTPRoute for an existing Gateway API /mcp route.
+    # The chart never creates a second /mcp route in this mode.
+    brokerHttpRoute:
+      enabled: false
+      parentRefs: []
   hpa:
     enabled: false
     minReplicas: 1

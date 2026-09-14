@@ -1,0 +1,32 @@
+{{- if and .Values.googleWorkspace.authorizationBroker.enabled .Values.agentgateway.gatewayApi.brokerHttpRoute.enabled }}
+{{- $broker := .Values.googleWorkspace.authorizationBroker }}
+{{- $issuerUrl := urlParse (include "mcp-gateway.authorizationBrokerIssuer" .) }}
+{{- $issuerPath := trimSuffix "/" ($issuerUrl.path | default "") }}
+{{- $callbackUrl := urlParse $broker.googleCallbackUri }}
+{{- $brokerPaths := list (printf "/.well-known/oauth-authorization-server%s" $issuerPath) (printf "%s/authorize" $issuerPath) (printf "%s/token" $issuerPath) (printf "%s/.well-known/jwks.json" $issuerPath) $callbackUrl.path }}
+{{- if $broker.dcr.enabled }}
+{{- $brokerPaths = append $brokerPaths (printf "%s/register" $issuerPath) }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway-broker") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: authorization-broker
+spec:
+  parentRefs:
+    {{- toYaml .Values.agentgateway.gatewayApi.brokerHttpRoute.parentRefs | nindent 4 }}
+  hostnames:
+    - {{ $issuerUrl.host | quote }}
+  rules:
+    - matches:
+        {{- range $brokerPaths }}
+        - path:
+            type: Exact
+            value: {{ . | quote }}
+        {{- end }}
+      backendRefs:
+        - name: {{ include "mcp-gateway.authorizationBrokerServiceName" . }}
+          port: {{ .Values.googleWorkspace.port }}
+{{- end }}

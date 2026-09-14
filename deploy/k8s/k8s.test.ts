@@ -52,6 +52,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
     expect(rendered).not.toContain("kind: Ingress");
+    expect(rendered).not.toContain("kind: HTTPRoute");
     expect(values).not.toMatch(/^\s+issuer:\s+https?:/m);
     expect(values).not.toMatch(/^\s+audiences:\s*$/m);
     expect(values).not.toMatch(/^\s+jwksUrl:\s+/m);
@@ -145,6 +146,81 @@ describe("Kubernetes production chart", () => {
     expect(networkPolicy).toContain("kubernetes.io/metadata.name: ingress-nginx");
     expect(networkPolicy).toContain("app.kubernetes.io/component: controller");
     expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
+  });
+
+  test("renders only exact broker paths on an opt-in Gateway API HTTPRoute", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--values",
+      "deploy/k8s/examples/values-gateway-api-broker.example.yaml",
+    ]);
+    const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway-broker");
+    const brokerService = renderedResource(rendered, "Service", "mcp-gateway-authorization-broker");
+    const networkPolicy = renderedResource(rendered, "NetworkPolicy", "mcp-gateway-google-workspace");
+    const gatewayConfig = renderedResource(rendered, "ConfigMap", "mcp-gateway-agentgateway-config");
+
+    expect(rendered).not.toContain("kind: Ingress");
+    expect(route).toContain("name: shared");
+    expect(route).toContain("namespace: envoy-gateway-system");
+    expect(route).toContain("sectionName: https");
+    expect(route).toContain('"mcp.example.com"');
+    expect(route).toContain("name: mcp-gateway-authorization-broker");
+    expect(route).toContain("port: 8080");
+    expect(countOccurrences(route, "type: Exact")).toBe(6);
+    for (const path of [
+      "/.well-known/oauth-authorization-server/oauth",
+      "/oauth/authorize",
+      "/oauth/token",
+      "/oauth/register",
+      "/oauth/.well-known/jwks.json",
+      "/oauth/google/broker/callback",
+    ]) {
+      expect(route).toContain(`value: "${path}"`);
+    }
+    expect(route).not.toContain('value: "/mcp"');
+    expect(route).not.toContain('value: "/oauth/google"');
+    expect(brokerService).toContain("app.kubernetes.io/component: authorization-broker");
+    expect(networkPolicy).toContain("kubernetes.io/metadata.name: envoy-gateway-system");
+    expect(networkPolicy).toContain("app.kubernetes.io/name: envoy");
+    expect(gatewayConfig).toMatch(/authorizationServers:\n\s+- https:\/\/mcp\.example\.com\/oauth/);
+  });
+
+  test("omits registration from a static-only broker HTTPRoute", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--values",
+      "deploy/k8s/examples/values-gateway-api-broker.example.yaml",
+      "--set",
+      "googleWorkspace.authorizationBroker.dcr.enabled=false",
+      "--set-json",
+      `googleWorkspace.authorizationBroker.staticClients=[${JSON.stringify(VALID_STATIC_CLIENT)}]`,
+    ]);
+    const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway-broker");
+
+    expect(route).not.toContain('value: "/oauth/register"');
+    expect(countOccurrences(route, "type: Exact")).toBe(5);
+  });
+
+  test("rejects incomplete or conflicting Gateway API broker routing", () => {
+    const base = ["--values", "deploy/k8s/examples/values-oauth-broker.example.yaml"];
+    const gateway = [
+      ...base,
+      "--values",
+      "deploy/k8s/examples/values-gateway-api-broker.example.yaml",
+    ];
+    for (const args of [
+      [...base, "--set", "agentgateway.ingress.enabled=false"],
+      [...gateway, "--set", "agentgateway.ingress.enabled=true"],
+      [...gateway, "--set-json", "agentgateway.gatewayApi.brokerHttpRoute.parentRefs=[]"],
+      [...gateway, "--set", "googleWorkspace.authorizationBroker.enabled=false"],
+      [...base, "--set", "agentgateway.gatewayApi.brokerHttpRoute.enabled=true"],
+    ]) {
+      const result = helmTemplateResult(args);
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toMatch(/broker|Ingress|HTTPRoute|values don't meet/i);
+    }
   });
 
   test("propagates one canonical broker profile to Google, GitHub, and AgentGateway", () => {

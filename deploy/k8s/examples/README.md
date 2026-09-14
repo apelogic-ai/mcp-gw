@@ -56,8 +56,19 @@ authorization routes terminate on the Google wrapper, while the exact MCP
 resource remains behind AgentGateway with broker JWKS trust generated from the
 typed issuer/resource values.
 Replace the example `ingressControllerPeer` namespace and pod labels with the
-exact labels of the environment's Ingress controller. Empty selectors are
+exact labels of the environment's ingress data-plane Pods. Empty selectors are
 rejected instead of widening wrapper access.
+
+For an existing Gateway API `/mcp` HTTPRoute, layer
+`values-gateway-api-broker.example.yaml` over `values-oauth-broker.example.yaml`.
+The optional chart-managed broker HTTPRoute attaches to the named Gateway and
+exposes only exact broker paths; the existing `/mcp` and provider routes remain
+operator-owned. The overlay disables chart Ingress and enables constrained DCR.
+Replace the illustrative Gateway reference and **Envoy data-plane** Pod selectors
+with observed values; the Gateway controller namespace is not proof of the
+data-plane namespace or labels. Verify the route's `Accepted` and `ResolvedRefs`
+conditions and public metadata before client registration. Broker HTTPRoute and
+chart Ingress modes cannot be enabled together.
 
 The chart enables no workload by default. Enabling agentgateway or an
 authenticated wrapper without at least one complete `hop1.issuers` profile is

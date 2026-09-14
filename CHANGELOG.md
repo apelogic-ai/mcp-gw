@@ -8,6 +8,13 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Added
+
+- Allow opt-in, broker-only Gateway API HTTPRoute rendering for deployments that
+  already own their `/mcp` and provider routes, without creating a second Ingress.
+  Add an overlay example and customer signing-JWKS generation guidance. DCR
+  remains disabled in chart defaults and is enabled explicitly in the example.
+
 ## [0.4.9] - 2026-09-13
 
 ### Added

@@ -70,6 +70,43 @@ rotation overlap. The chart projects only this one Secret key as a read-only
 `0440` file and sets `MCP_BROKER_SIGNING_JWKS_FILE`; no signing bytes appear in
 the workload environment.
 
+The customer generates this keyring; it is not Google's public JWKS and is not
+included in an MCP-GW release. One way to create a new key with the repository's
+`jose` dependency, on a secure administrator machine after `bun install`, is:
+
+```bash
+umask 077
+BROKER_JWKS_OUT=/secure/path/signing-jwks.json \
+BROKER_ACTIVE_KID=customer-broker-2026-09 \
+bun -e '
+import { generateKeyPair, exportJWK } from "jose";
+import { writeFileSync } from "node:fs";
+
+const { privateKey } = await generateKeyPair("RS256", { extractable: true });
+const jwk = {
+  ...(await exportJWK(privateKey)),
+  kid: process.env.BROKER_ACTIVE_KID,
+  alg: "RS256",
+  use: "sig",
+};
+writeFileSync(process.env.BROKER_JWKS_OUT, JSON.stringify({ keys: [jwk] }) + "\n", {
+  flag: "wx",
+  mode: 0o600,
+});
+'
+```
+
+Replace the output path with a protected location outside any repository and
+choose a unique, non-secret `kid`; the command refuses to overwrite a file and
+does not print the private key. Import the file into the approved secret manager
+as the `signing-jwks.json` key of the existing Kubernetes Secret, set
+`activeSigningKid` to the same `kid`, then remove the local copy after verifying
+the Secret key exists and the wrapper is Ready without reading the key. Never
+commit, paste into Helm values, or send the private JWKS to MCP-GW maintainers.
+For rotation, retain the previous **public** JWK in
+the keyring until issued tokens have expired; do not reuse a `kid` for new key
+material.
+
 ## Google Cloud configuration
 
 Create a customer-owned Google OAuth application and configure only MCP-GW
@@ -81,9 +118,10 @@ https://mcp.customer.example/oauth/google/callback
 ```
 
 The first callback is the external broker's Google identity return. The second
-is the Google Workspace provider-consent return. It is intentionally exposed by
-the separate exact-path provider callback manifest; do not publish the
-authenticated `/oauth/google/start`, `/status`, or `/disconnect` control paths.
+is the Google Workspace provider-consent return. Expose it through the separate
+exact-path provider callback Ingress in Ingress mode, or an operator-owned
+HTTPRoute in Gateway API mode; do not publish the authenticated
+`/oauth/google/start`, `/status`, or `/disconnect` control paths.
 Enable the required Google APIs and request only the Workspace scopes approved
 by the customer policy.
 
@@ -124,9 +162,21 @@ googleWorkspace:
 ```
 
 The chart enforces canonical public HTTPS URLs and requires the issuer,
-resource, callback, and Ingress host to share one origin. It also requires the
-Google Workspace backend, chart-managed AgentGateway Ingress, database migration
-hook, and a complete signing-key Secret reference.
+resource, callback, and public route host to share one origin. It also requires
+the Google Workspace backend, either chart-managed Ingress or the opt-in broker
+HTTPRoute, applied database migrations (through the chart hook or separately),
+and a complete signing-key Secret reference.
+
+For a deployment that already owns an `/mcp` Gateway API HTTPRoute, layer
+`deploy/k8s/examples/values-gateway-api-broker.example.yaml` over the broker
+example instead of enabling chart Ingress. The chart creates a separate
+broker-only HTTPRoute attached to the configured Gateway listener, with exact
+metadata, authorization, token, registration (when DCR is enabled), JWKS, and
+broker callback paths. It does **not** create the `/mcp` route or provider
+control routes; those remain in the customer's existing HTTPRoute. Replace the
+example `parentRefs` and NetworkPolicy selectors with the actual Gateway and
+Envoy data-plane Pod identity, and ensure the Gateway listener permits routes
+from the MCP-GW namespace. Do not add a broad public `/oauth` prefix.
 
 ## Choose one ingress-source model
 
@@ -134,7 +184,9 @@ Broker routes are public, but the Google wrapper Service stays protected by a
 NetworkPolicy. Configure exactly one of these models. The chart fails rendering
 for zero, partial, or mixed sources.
 
-For an in-cluster reverse proxy, provide both selector pairs:
+For an in-cluster reverse proxy, including an Envoy Gateway data plane, provide
+both selector pairs using labels observed on the **proxy Pods**, not merely the
+Gateway controller or Gateway resource:
 
 ```yaml
 googleWorkspace:
@@ -165,10 +217,12 @@ googleWorkspace:
       - 10.0.0.0/8 # replace with the customer's actual ALB/VPC source CIDR
 ```
 
-Apply the accompanying exact provider-callback Ingress/NetworkPolicy manifest
-from `deploy/k8s/examples/google-provider-callback.example.yaml`, using the
-same ingress-source model. It is an additive policy only for
-`/oauth/google/callback`.
+For chart Ingress mode, apply the accompanying exact provider-callback
+Ingress/NetworkPolicy manifest from
+`deploy/k8s/examples/google-provider-callback.example.yaml`, using the same
+ingress-source model. For Gateway API mode, keep the provider callback in the
+operator-owned HTTPRoute and do not create that Ingress. The broker callback is
+separately routed by the chart-managed exact-path HTTPRoute.
 
 ## DCR or static registration
 
@@ -195,9 +249,11 @@ curl -fsS https://mcp.customer.example/oauth/.well-known/jwks.json
 ```
 
 When DCR is enabled, authorization-server metadata must advertise a
-`registration_endpoint`; it must not be present in static-only mode. Verify a
-browser authorization-code + PKCE flow with a test public client, then call the
-MCP endpoint using the issued broker token. Finally, initiate Google Workspace
+`registration_endpoint`; it must not be present in static-only mode. In Gateway
+API mode, verify the broker HTTPRoute reports `Accepted=True` and
+`ResolvedRefs=True`. Exercise a browser authorization-code + PKCE flow with a
+test public client, then call the MCP endpoint using the issued broker token.
+Finally, initiate Google Workspace
 provider consent through the authenticated MCP tool `google_oauth_start`,
 complete the provider callback, and confirm a read-only Workspace tool call
 succeeds for the same issuer-qualified principal.

@@ -53,6 +53,20 @@
 
 {{- $broker := .Values.googleWorkspace.authorizationBroker }}
 {{- $brokerIssuer := include "mcp-gateway.authorizationBrokerIssuer" . }}
+{{- $brokerHttpRoute := .Values.agentgateway.gatewayApi.brokerHttpRoute }}
+{{- if $brokerHttpRoute.enabled }}
+{{- if not $broker.enabled }}
+{{- fail "agentgateway.gatewayApi.brokerHttpRoute requires googleWorkspace.authorizationBroker.enabled=true" }}
+{{- end }}
+{{- if .Values.agentgateway.ingress.enabled }}
+{{- fail "agentgateway.gatewayApi.brokerHttpRoute and agentgateway.ingress cannot both be enabled" }}
+{{- end }}
+{{- if eq (len $brokerHttpRoute.parentRefs) 0 }}
+{{- fail "agentgateway.gatewayApi.brokerHttpRoute requires at least one Gateway parentRef" }}
+{{- end }}
+{{- else if gt (len $brokerHttpRoute.parentRefs) 0 }}
+{{- fail "agentgateway.gatewayApi.brokerHttpRoute.parentRefs requires brokerHttpRoute.enabled=true" }}
+{{- end }}
 {{- range $name, $_ := .Values.googleWorkspace.env }}
 {{- if or (hasPrefix "MCP_BROKER_" $name) (hasPrefix "MCP_DCR_" $name) (eq $name "MCP_AUTHORIZATION_ISSUER") (eq $name "MCP_RESOURCE_URI") (eq $name "MCP_OAUTH_STATIC_CLIENTS_JSON") }}
 {{- fail (printf "googleWorkspace.env.%s is reserved; configure googleWorkspace.authorizationBroker instead" $name) }}
@@ -75,8 +89,8 @@
 {{- if not .Values.googleWorkspace.enabled }}
 {{- fail "googleWorkspace.authorizationBroker requires googleWorkspace.enabled=true" }}
 {{- end }}
-{{- if or (not .Values.agentgateway.enabled) (not .Values.agentgateway.ingress.enabled) }}
-{{- fail "googleWorkspace.authorizationBroker requires agentgateway and its public ingress to be enabled" }}
+{{- if or (not .Values.agentgateway.enabled) (not (or .Values.agentgateway.ingress.enabled $brokerHttpRoute.enabled)) }}
+{{- fail "googleWorkspace.authorizationBroker requires agentgateway and either public Ingress or broker HTTPRoute routing" }}
 {{- end }}
 {{- if or (not $broker.issuer) (not $broker.resource) (not $broker.googleCallbackUri) (not $broker.activeSigningKid) (eq (len $broker.scopes) 0) }}
 {{- fail "googleWorkspace.authorizationBroker requires issuer, resource, googleCallbackUri, activeSigningKid, and at least one scope" }}
@@ -91,10 +105,10 @@
 {{- fail "googleWorkspace.authorizationBroker.googleCallbackUri must use the issuer origin" }}
 {{- end }}
 {{- if ne (regexFind "^https://[^/]+" $broker.issuer) (regexFind "^https://[^/]+" $broker.resource) }}
-{{- fail "googleWorkspace.authorizationBroker.resource must use the issuer origin for chart-managed ingress" }}
+{{- fail "googleWorkspace.authorizationBroker.resource must use the issuer origin for chart-managed public routing" }}
 {{- end }}
 {{- $brokerOriginHost := (urlParse $broker.issuer).host }}
-{{- if ne $brokerOriginHost .Values.agentgateway.ingress.host }}
+{{- if and .Values.agentgateway.ingress.enabled (ne $brokerOriginHost .Values.agentgateway.ingress.host) }}
 {{- fail "googleWorkspace.authorizationBroker issuer/resource origin must match agentgateway.ingress.host" }}
 {{- end }}
 {{- $issuerUrl := urlParse $brokerIssuer }}
@@ -115,7 +129,7 @@
 {{- if ne (len $brokerRoutePaths) (len (uniq $brokerRoutePaths)) }}
 {{- fail "googleWorkspace.authorizationBroker public route paths must not overlap" }}
 {{- end }}
-{{- range .Values.agentgateway.ingress.paths }}
+{{- range (ternary .Values.agentgateway.ingress.paths (list) .Values.agentgateway.ingress.enabled) }}
 {{- if and (ne . $resourcePath) (ne . $resourceMetadataPath) }}
 {{- fail "agentgateway.ingress.paths may contain only the exact MCP resource and resource-metadata paths when the broker is enabled" }}
 {{- end }}
