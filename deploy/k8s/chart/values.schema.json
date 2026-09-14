@@ -413,7 +413,14 @@
             "secretRef": {
               "type": "object",
               "additionalProperties": false,
-              "properties": { "name": { "type": "string" } }
+              "properties": {
+                "name": { "type": "string" },
+                "envKeys": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+                }
+              }
             }
           }
         }

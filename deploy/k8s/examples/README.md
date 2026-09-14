@@ -58,6 +58,11 @@ typed issuer/resource values.
 Replace the example `ingressControllerPeer` namespace and pod labels with the
 exact labels of the environment's ingress data-plane Pods. Empty selectors are
 rejected instead of widening wrapper access.
+Inspect the actual proxy Pod and Namespace labels before installing (for
+example, `kubectl get pods -A -o wide --show-labels` and
+`kubectl get namespaces --show-labels`). An HTTPRoute `parentRef` identifies a
+Gateway listener, not the Pods that originate traffic at the wrapper. If the
+wrapper instead observes external source addresses, use `ingressSourceCidrs`.
 
 For an existing Gateway API `/mcp` HTTPRoute, layer
 `values-gateway-api-broker.example.yaml` over `values-oauth-broker.example.yaml`.
@@ -69,6 +74,13 @@ with observed values; the Gateway controller namespace is not proof of the
 data-plane namespace or labels. Verify the route's `Accepted` and `ResolvedRefs`
 conditions and public metadata before client registration. Broker HTTPRoute and
 chart Ingress modes cannot be enabled together.
+
+For platforms that synchronize one aggregate Kubernetes Secret, set a
+non-empty `secretRef.envKeys` allowlist for each wrapper that imports it. The
+broker `signingKeyring.secretKeyRef` may point to that same Secret, but its
+private key must not appear in an environment allowlist. See the chart README
+for a generic values snippet. Empty `envKeys` retains legacy whole-Secret
+`envFrom` behavior.
 
 The chart enables no workload by default. Enabling agentgateway or an
 authenticated wrapper without at least one complete `hop1.issuers` profile is

@@ -51,6 +51,29 @@
 {{- fail "postgresql.caBundle.enabled must be true when a CA reference is configured" }}
 {{- end }}
 
+{{- range $backendName := list "googleWorkspace" "githubWrapper" "dbMcp" }}
+{{- $backend := index $.Values $backendName }}
+{{- if gt (len $backend.secretRef.envKeys) 0 }}
+{{- if not $backend.secretRef.name }}
+{{- fail (printf "%s.secretRef.envKeys requires secretRef.name" $backendName) }}
+{{- end }}
+{{- range $key := $backend.secretRef.envKeys }}
+{{- if hasKey $backend.env $key }}
+{{- fail (printf "%s.secretRef.envKeys contains %s, which is also set in env" $backendName $key) }}
+{{- end }}
+{{- if and (eq $backendName "googleWorkspace") (or (hasPrefix "MCP_BROKER_" $key) (hasPrefix "MCP_DCR_" $key) (has $key (list "MCP_AUTHORIZATION_ISSUER" "MCP_RESOURCE_URI" "MCP_OAUTH_STATIC_CLIENTS_JSON" "HOP1_ISSUERS_JSON" "GOOGLE_WORKSPACE_POLICY_FILE" "POSTGRES_CA_BUNDLE_PATH"))) }}
+{{- fail (printf "googleWorkspace.secretRef.envKeys contains chart-managed variable %s" $key) }}
+{{- end }}
+{{- if and (eq $backendName "githubWrapper") (has $key (list "HOP1_ISSUERS_JSON" "POSTGRES_CA_BUNDLE_PATH")) }}
+{{- fail (printf "githubWrapper.secretRef.envKeys contains chart-managed variable %s" $key) }}
+{{- end }}
+{{- if and (ne $backendName "dbMcp") (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $key) }}
+{{- fail (printf "%s.secretRef.envKeys contains chart-managed variable %s" $backendName $key) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- $broker := .Values.googleWorkspace.authorizationBroker }}
 {{- $brokerIssuer := include "mcp-gateway.authorizationBrokerIssuer" . }}
 {{- $brokerHttpRoute := .Values.agentgateway.gatewayApi.brokerHttpRoute }}
@@ -137,14 +160,17 @@
 {{- if not (and $brokerKeyRef.name $brokerKeyRef.key) }}
 {{- fail "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef requires both name and key" }}
 {{- end }}
+{{- if and (eq .Values.googleWorkspace.secretRef.name $brokerKeyRef.name) (has $brokerKeyRef.key .Values.googleWorkspace.secretRef.envKeys) }}
+{{- fail "googleWorkspace.secretRef.envKeys must not include the broker signing key; project it only as a file" }}
+{{- end }}
 {{- if and $brokerIngressPeerAny (not $brokerIngressPeerComplete) }}
-{{- fail "googleWorkspace.authorizationBroker.ingressControllerPeer requires both non-empty namespace and pod selector labels" }}
+{{- fail "googleWorkspace.authorizationBroker.ingressControllerPeer requires non-empty namespace and pod labels for the traffic-source proxy Pods (not the Gateway controller object)" }}
 {{- end }}
 {{- if and (not $brokerIngressPeerComplete) (not $brokerIngressCidrsConfigured) }}
-{{- fail "googleWorkspace.authorizationBroker requires exactly one ingress source: ingressControllerPeer or ingressSourceCidrs" }}
+{{- fail "googleWorkspace.authorizationBroker Google wrapper NetworkPolicy requires exactly one trusted traffic source: ingressControllerPeer selectors for data-plane proxy Pods or ingressSourceCidrs for observed source IPs" }}
 {{- end }}
 {{- if and $brokerIngressPeerComplete $brokerIngressCidrsConfigured }}
-{{- fail "googleWorkspace.authorizationBroker requires exactly one ingress source: ingressControllerPeer or ingressSourceCidrs" }}
+{{- fail "googleWorkspace.authorizationBroker Google wrapper NetworkPolicy requires exactly one trusted traffic source: ingressControllerPeer selectors for data-plane proxy Pods or ingressSourceCidrs for observed source IPs" }}
 {{- end }}
 {{- range $index, $cidr := $brokerIngressCidrs }}
 {{- if not (regexMatch "^(?:(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(?:[0-9]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$" $cidr) }}

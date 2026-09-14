@@ -148,6 +148,111 @@ describe("Kubernetes production chart", () => {
     expect(networkPolicy).toMatch(/namespaceSelector:[\s\S]*podSelector:/);
   });
 
+  test("imports only selected runtime Secret keys while projecting a shared signing key as a file", () => {
+    const rendered = helmTemplate([
+      ...brokerWithGithubArgs(),
+      "--set-string",
+      "googleWorkspace.secretRef.name=mcp-runtime",
+      "--set-json",
+      'googleWorkspace.secretRef.envKeys=["GOOGLE_OAUTH_CLIENT_ID","GOOGLE_OAUTH_CLIENT_SECRET","TOKEN_STORE_DSN"]',
+      "--set-json",
+      'githubWrapper.secretRef.envKeys=["GITHUB_OAUTH_CLIENT_ID","GITHUB_OAUTH_CLIENT_SECRET","TOKEN_STORE_DSN"]',
+      "--set-string",
+      "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name=mcp-runtime",
+      "--set",
+      "dbMcp.enabled=true",
+      "--set-string",
+      "dbMcp.secretRef.name=mcp-runtime",
+      "--set-json",
+      'dbMcp.secretRef.envKeys=["DB_MCP_DSN"]',
+    ]);
+
+    for (const [deploymentName, keys] of [
+      [
+        "mcp-gateway-google-workspace",
+        ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "TOKEN_STORE_DSN"],
+      ],
+      [
+        "mcp-gateway-github-wrapper",
+        ["GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET", "TOKEN_STORE_DSN"],
+      ],
+      ["mcp-gateway-db-mcp", ["DB_MCP_DSN"]],
+    ] as const) {
+      const deployment = renderedResource(rendered, "Deployment", deploymentName);
+      expect(deployment).not.toContain("envFrom:");
+      for (const key of keys) {
+        expect(deployment).toMatch(
+          new RegExp(
+            `- name: ${key}\\n\\s+valueFrom:\\n\\s+secretKeyRef:\\n\\s+name: mcp-runtime\\n\\s+key: ${key}`,
+          ),
+        );
+      }
+      expect(deployment).not.toMatch(/- name: signing-jwks\.json\n\s+valueFrom:/);
+    }
+
+    const google = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    expect(google).toContain("secretName: mcp-runtime");
+    expect(google).toContain("key: signing-jwks.json");
+    expect(google).toContain("path: signing-jwks.json");
+  });
+
+  test("keeps legacy whole-Secret envFrom when no key allowlist is configured", () => {
+    const rendered = helmTemplate(brokerWithGithubArgs());
+    for (const name of ["mcp-gateway-google-workspace", "mcp-gateway-github-wrapper"]) {
+      const deployment = renderedResource(rendered, "Deployment", name);
+      expect(deployment).toContain("envFrom:");
+    }
+  });
+
+  test.each([
+    [
+      "missing Secret name",
+      [
+        "--set-json",
+        'googleWorkspace.secretRef.envKeys=["TOKEN_STORE_DSN"]',
+        "--set-string",
+        "googleWorkspace.secretRef.name=",
+      ],
+    ],
+    [
+      "duplicate key",
+      ["--set-json", 'googleWorkspace.secretRef.envKeys=["TOKEN_STORE_DSN","TOKEN_STORE_DSN"]'],
+    ],
+    [
+      "non-environment key",
+      ["--set-json", 'googleWorkspace.secretRef.envKeys=["signing-jwks.json"]'],
+    ],
+    [
+      "explicit environment collision",
+      ["--set-json", 'googleWorkspace.secretRef.envKeys=["PORT"]'],
+    ],
+    [
+      "chart-managed environment collision",
+      ["--set-json", 'googleWorkspace.secretRef.envKeys=["MCP_BROKER_ENABLED"]'],
+    ],
+    [
+      "mounted signing key",
+      [
+        "--set-string",
+        "googleWorkspace.secretRef.name=mcp-runtime",
+        "--set-string",
+        "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name=mcp-runtime",
+        "--set-string",
+        "googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.key=SIGNING_JWKS_JSON",
+        "--set-json",
+        'googleWorkspace.secretRef.envKeys=["SIGNING_JWKS_JSON"]',
+      ],
+    ],
+  ])("rejects unsafe selective Secret import: %s", (_name, args) => {
+    assertHelmRejected(
+      helmTemplateResult([
+        "--values",
+        "deploy/k8s/examples/values-oauth-broker.example.yaml",
+        ...args,
+      ]),
+    );
+  });
+
   test("renders only exact broker paths on an opt-in Gateway API HTTPRoute", () => {
     const rendered = helmTemplate([
       "--values",
@@ -693,7 +798,7 @@ describe("Kubernetes production chart", () => {
         "googleWorkspace.authorizationBroker.ingressSourceCidrs[0]=10.0.0.0/33",
       ],
     ],
-  ])("rejects %s", (_name, args) => {
+  ])("rejects %s", (name, args) => {
     const result = helmTemplateResult([
       "--values",
       "deploy/k8s/examples/values-oauth-broker.example.yaml",
@@ -701,6 +806,9 @@ describe("Kubernetes production chart", () => {
     ]);
 
     assertHelmRejected(result);
+    if (name === "missing broker ingress source") {
+      expect(result.stderr.toString()).toContain("data-plane proxy Pods");
+    }
   });
 
   test("merges base and broker Ingress annotations with broker keys winning", () => {
@@ -1417,7 +1525,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.10");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.11");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");

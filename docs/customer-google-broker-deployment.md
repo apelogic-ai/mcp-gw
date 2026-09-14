@@ -67,8 +67,33 @@ The names and keys below are examples, not product constants.
 `activeSigningKid` is a private RSA signing key with `kty=RSA`, `alg=RS256`,
 `use=sig`, and a unique `kid`. Keep a previous public verification key during
 rotation overlap. The chart projects only this one Secret key as a read-only
-`0440` file and sets `MCP_BROKER_SIGNING_JWKS_FILE`; no signing bytes appear in
-the workload environment.
+`0440` file and sets `MCP_BROKER_SIGNING_JWKS_FILE`. Keep the signing Secret
+separate from a wrapper's whole-Secret `envFrom`, or use a non-empty
+`googleWorkspace.secretRef.envKeys` allowlist when one aggregate Secret holds
+both runtime keys and the signing key; this keeps signing bytes out of the
+workload environment. For example:
+
+```yaml
+googleWorkspace:
+  secretRef:
+    name: mcp-runtime
+    envKeys:
+      - TOKEN_STORE_DSN
+      - GOOGLE_OAUTH_CLIENT_ID
+      - GOOGLE_OAUTH_CLIENT_SECRET
+      - GOOGLE_OAUTH_REDIRECT_URI
+      - GOOGLE_TOKEN_ENCRYPTION_KEY
+  authorizationBroker:
+    signingKeyring:
+      secretKeyRef:
+        name: mcp-runtime
+        key: signing-jwks.json
+```
+
+The chart rejects listing the projected signing key in `envKeys`. An empty
+allowlist keeps legacy `envFrom` behavior, so do not use it with an aggregate
+signing Secret. Apply the same allowlist pattern to any other wrapper sharing
+that Secret.
 
 The customer generates this keyring; it is not Google's public JWKS and is not
 included in an MCP-GW release. One way to create a new key with the repository's
@@ -187,6 +212,14 @@ for zero, partial, or mixed sources.
 For an in-cluster reverse proxy, including a Gateway API data plane, provide
 both selector pairs using labels observed on the **proxy Pods**, not merely the
 Gateway controller or Gateway resource:
+
+```bash
+kubectl get pods -A -o wide --show-labels
+kubectl get namespaces --show-labels
+```
+
+The HTTPRoute `parentRef` cannot reveal the data-plane Pod identity. Confirm
+the selected Namespace and Pod labels before rendering the release.
 
 ```yaml
 googleWorkspace:
