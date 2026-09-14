@@ -2,8 +2,8 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
-version: 0.4.9
-appVersion: "0.4.9"
+version: 0.4.10
+appVersion: "0.4.10"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -19,11 +19,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.9
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.10
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.9
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.10
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.9
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.10
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -34,6 +34,6 @@ annotations:
   # and is intentionally omitted.
   artifacthub.io/changes: |
     - kind: fixed
-      description: Prevent stale OAuth callbacks and renewals from reactivating disconnected Google and GitHub connections during rolling upgrades.
-    - kind: security
-      description: Keep rejected provider credentials in encrypted custody until revocation completes, with bounded retry scheduling.
+      description: Allow opt-in exact-path Gateway API HTTPRoute exposure for the authorization broker without changing existing Ingress deployments.
+    - kind: added
+      description: Document operator-generated signing JWKS and a Gateway API values overlay.
