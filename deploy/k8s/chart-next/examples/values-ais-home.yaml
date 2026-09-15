@@ -1,0 +1,44 @@
+# Mirantis ais-home platform. The namespace, the <app>-secrets Secret, the
+# rds-ca-bundle ConfigMap and the image tags are supplied by the platform; this
+# file is the part an owner writes into Vault at apps/mcp-gateway/values.
+secrets:
+  name: mcp-gateway-secrets
+
+routing:
+  host: mcp-gateway.dev.mirantis.app
+  gatewayApi:
+    enabled: true
+    parentRefs:
+      - name: shared
+        namespace: envoy-gateway-system
+        sectionName: https
+
+postgresql:
+  caBundle:
+    enabled: true
+    configMapKeyRef:
+      name: rds-ca-bundle
+      key: ca.pem
+
+agentgateway:
+  enabled: true
+
+googleWorkspace:
+  enabled: true
+  authorizationBroker:
+    enabled: true
+    activeSigningKid: mirantis-broker-2026-09
+    scopes:
+      - mcp
+    dcr:
+      enabled: true
+      allowLoopbackRedirects: false
+
+githubWrapper:
+  enabled: true
+
+githubMcp:
+  enabled: true
+
+oauthMigrations:
+  enabled: true

@@ -1,0 +1,12 @@
+{{- if and .Values.googleWorkspace.enabled .Values.googleWorkspace.policy.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace-policy") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: google-workspace
+data:
+  google-workspace-policy.yaml: |
+{{ .Values.googleWorkspace.policy.yaml | nindent 4 }}
+{{- end }}

@@ -1,0 +1,105 @@
+{{- if .Values.agentgateway.enabled }}
+{{- $root := . }}
+{{- $ag := .Values.agentgateway }}
+{{- $brokerOn := include "mcp-gateway.brokerEnabled" . }}
+{{- $mcpPath := include "mcp-gateway.mcpPath" . }}
+{{- $resourceMetadata := dict
+      "resource" (include "mcp-gateway.resourceUri" .)
+      "bearerMethodsSupported" $ag.mcpAuthentication.bearerMethodsSupported }}
+{{- if $brokerOn }}
+{{- $_ := set $resourceMetadata "scopesSupported" .Values.googleWorkspace.authorizationBroker.scopes }}
+{{- $_ := set $resourceMetadata "authorizationServers" (list (include "mcp-gateway.brokerIssuer" .)) }}
+{{- else }}
+{{- $_ := set $resourceMetadata "scopesSupported" $ag.mcpAuthentication.scopesSupported }}
+{{- end }}
+{{- $targets := list }}
+{{- $wiring := dict "googleWorkspace" "google-workspace" "githubWrapper" "github-mcp" "dbMcp" "db-mcp" }}
+{{- $services := dict "googleWorkspace" "google-workspace" "githubWrapper" "github-wrapper" "dbMcp" "db-mcp" }}
+{{- range $key := (keys $wiring | sortAlpha) }}
+{{- $values := index $root.Values $key }}
+{{- if $values.enabled }}
+{{- $target := index $wiring $key }}
+{{- $override := index ($ag.backendOverrides | default dict) $target | default dict }}
+{{- $service := include "mcp-gateway.componentName" (dict "root" $root "component" (index $services $key)) }}
+{{- $host := $override.host | default (printf "http://%s:%v%s" $service ($override.port | default $values.port) ($override.path | default "/mcp")) }}
+{{- $targets = append $targets (dict "name" $target "host" $host) }}
+{{- end }}
+{{- end }}
+{{- range $ag.extraBackends }}
+{{- $targets = append $targets (dict "name" .name "host" .host) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway-config") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+data:
+  config.yaml: |
+    binds:
+      - port: {{ $ag.port }}
+        listeners:
+          - routes:
+              - matches:
+                  - path:
+                      exact: {{ $mcpPath }}
+                  - path:
+                      exact: {{ include "mcp-gateway.resourceMetadataPath" . }}
+                policies:
+                  cors:
+{{ toYaml $ag.cors | indent 20 }}
+                  mcpAuthentication:
+                    mode: {{ $ag.mcpAuthentication.mode }}
+                    providers:
+{{- range $index, $issuer := .Values.hop1.issuers }}
+                      - issuer: {{ $issuer.issuer }}
+                        audiences:
+{{ toYaml $issuer.audiences | nindent 26 }}
+                        allowedAlgorithms:
+{{ toYaml $issuer.allowedAlgorithms | nindent 26 }}
+                        jwtValidationOptions:
+                          requiredClaims: [exp, iss, sub, aud]
+                        jwks:
+                          url: {{ $issuer.jwksUrl }}
+                        discoverable: {{ $issuer.discoverable | default false }}
+{{- with $issuer.clientId }}
+                        clientId: {{ . }}
+{{- end }}
+{{- with $issuer.introspection }}
+                        introspection:
+                          url: {{ .url }}
+                          credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-{{ $index }}
+{{- end }}
+{{- end }}
+{{- if $brokerOn }}
+                      - issuer: {{ include "mcp-gateway.brokerIssuer" . }}
+                        audiences:
+                          - {{ include "mcp-gateway.resourceUri" . }}
+                        allowedAlgorithms: [RS256]
+                        jwtValidationOptions:
+                          requiredClaims: [exp, iss, sub, aud]
+                        jwks:
+                          url: {{ include "mcp-gateway.brokerInternalJwksUrl" . }}
+                        discoverable: false
+{{- end }}
+                    resourceMetadata:
+{{ toYaml $resourceMetadata | indent 22 }}
+                backends:
+                  - mcp:
+                      failureMode: {{ $ag.failureMode }}
+                      prefixMode: never
+{{- if not $targets }}
+                      targets: []
+{{- else }}
+                      targets:
+{{- range $targets }}
+                        - name: {{ .name }}
+                          policies:
+                            backendAuth:
+                              passthrough: {}
+                          mcp:
+                            host: {{ .host }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,6 @@
+{{- include "mcp-gateway.assertBrokerTrust" . -}}
+{{- $root := . -}}
+{{- range $key := (include "mcp-gateway.enabledComponents" . | fromYamlArray) }}
+---
+{{ include "mcp-gateway.workload" (dict "root" $root "key" $key) }}
+{{- end }}

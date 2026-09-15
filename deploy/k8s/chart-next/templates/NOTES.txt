@@ -1,0 +1,24 @@
+{{ .Chart.Name }} {{ .Chart.Version }} released as {{ .Release.Name }}.
+
+{{- if .Values.agentgateway.enabled }}
+
+MCP endpoint:      {{ include "mcp-gateway.resourceUri" . }}
+Resource metadata: https://{{ .Values.routing.host }}{{ include "mcp-gateway.resourceMetadataPath" . }}
+{{- if include "mcp-gateway.brokerEnabled" . }}
+Authorization:     {{ include "mcp-gateway.brokerIssuer" . }}
+Google callback:   {{ include "mcp-gateway.brokerCallbackUri" . }}
+                   register this exact URI in the Google OAuth client
+{{- end }}
+
+{{- if not (or .Values.routing.gatewayApi.enabled .Values.routing.ingress.enabled) }}
+
+WARNING: neither routing.gatewayApi nor routing.ingress is enabled, so nothing
+publishes the paths above. The MCP endpoint is not reachable.
+{{- end }}
+{{- end }}
+
+{{- if and .Values.secrets.name (not .Values.postgresql.caBundle.enabled) }}
+
+Note: postgresql.caBundle is disabled. A managed PostgreSQL that requires TLS
+verification will refuse the connection.
+{{- end }}

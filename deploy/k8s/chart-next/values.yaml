@@ -1,0 +1,464 @@
+fullnameOverride: ""
+
+global:
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# Secret every component reads through envFrom, and the default source for the
+# migration DSN and the broker signing keyring. A component may name its own.
+secrets:
+  name: ""
+
+# The one public origin. Every OAuth URL the deployment advertises is derived
+# from it, so no two of them can disagree.
+routing:
+  host: ""
+  mcpPath: /mcp
+  oauthPath: /oauth
+  gatewayApi:
+    enabled: false
+    parentRefs: []
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    # Applied on top of annotations for the broker Ingress only, so a body-size
+    # cap or per-IP rate limit can guard the unauthenticated OAuth routes
+    # without touching /mcp tool payloads. Keys are controller-specific.
+    brokerAnnotations: {}
+    tls: []
+
+hop1:
+  issuers: []
+
+postgresql:
+  caBundle:
+    enabled: false
+    mountPath: /var/run/secrets/mcp-gateway/postgresql
+    configMapKeyRef:
+      name: ""
+      key: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+
+# Off by default: a NetworkPolicy that no CNI enforces is worse than none,
+# because it reads as a control that is not there.
+networkPolicy:
+  enabled: false
+  ingressSourceCidrs: []
+  ingressControllerPeer:
+    namespaceSelector:
+      matchLabels: {}
+    podSelector:
+      matchLabels: {}
+
+oauthMigrations:
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: ""
+    digest: ""
+  secretKeyRef:
+    name: ""
+    key: TOKEN_STORE_DSN
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+agentgateway:
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: ""
+    digest: ""
+  replicas: 1
+  port: 8080
+  revisionHistoryLimit: 2
+  failureMode: failOpen
+  cors:
+    allowOrigins: ["*"]
+    allowHeaders: [mcp-protocol-version, content-type, authorization]
+    exposeHeaders: [Mcp-Session-Id]
+  mcpAuthentication:
+    mode: strict
+    bearerMethodsSupported:
+      - header
+    # Ignored when the authorization broker is enabled: the broker's scopes are
+    # the resource's scopes by construction.
+    scopesSupported:
+      - openid
+      - email
+  # MCP targets are derived from the enabled provider components. This map
+  # overrides host/port/path for one derived target by name.
+  backendOverrides: {}
+  # Additional targets outside this release, as {name, host}.
+  extraBackends: []
+  service:
+    type: ClusterIP
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  automountServiceAccountToken: false
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    # The released agentgateway image runs as Chainguard's nonroot user. Keep
+    # the projected introspection credential group-readable only by that same
+    # runtime identity; Kubernetes applies fsGroup ownership to the volume.
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
+
+googleWorkspace:
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
+    tag: ""
+    digest: ""
+  replicas: 1
+  port: 8080
+  revisionHistoryLimit: 2
+  service:
+    type: ClusterIP
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  automountServiceAccountToken: false
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
+  policy:
+    enabled: false
+    mountPath: /etc/mcp-gw/google-workspace-policy.yaml
+    yaml: ""
+  authorizationBroker:
+    enabled: false
+    activeSigningKid: ""
+    scopes:
+      - mcp
+    staticClients: []
+    signingKeyring:
+      secretKeyRef:
+        name: ""
+        key: signing-jwks.json
+    dcr:
+      enabled: false
+      allowLoopbackRedirects: false
+      trustedProxy:
+        header: ""
+        addresses: []
+      clientTtlMs: 0
+      maxClients: 0
+      maxRateKeys: 0
+      rateLimit: 0
+      rateWindowMs: 0
+  env:
+    PORT: "8080"
+    GWS_BINARY_PATH: /app/node_modules/.bin/gws
+    HOP1_OAUTH_SCOPES: openid email
+    HOP1_EMAIL_CLAIM: email
+    HOP1_SUBJECT_CLAIM: sub
+  secretRef:
+    name: ""
+
+githubWrapper:
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-github-wrapper
+    tag: ""
+    digest: ""
+  replicas: 1
+  port: 8080
+  revisionHistoryLimit: 2
+  service:
+    type: ClusterIP
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  automountServiceAccountToken: false
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
+  # GITHUB_MCP_UPSTREAM_URL is derived from the githubMcp Service when that
+  # component is enabled; set it here only to point at an external server.
+  env:
+    PORT: "8080"
+    GITHUB_OAUTH_SCOPES: repo read:org workflow notifications user:email
+    GITHUB_TOOL_ALIASES_JSON: "{}"
+    HOP1_EMAIL_CLAIM: email
+    HOP1_SUBJECT_CLAIM: sub
+  secretRef:
+    name: ""
+
+githubMcp:
+  enabled: false
+  image:
+    repository: ghcr.io/github/github-mcp-server
+    tag: v1.6.0
+    digest: ""
+  replicas: 1
+  port: 8082
+  revisionHistoryLimit: 2
+  service:
+    type: ClusterIP
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  automountServiceAccountToken: false
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
+  env:
+    GITHUB_TOOLSETS: default,actions,code_security,discussions,notifications,orgs,projects
+    GITHUB_HOST: ""
+
+dbMcp:
+  enabled: false
+  image:
+    repository: registry.example.com/mcp/db-mcp
+    tag: ""
+    digest: ""
+  replicas: 1
+  port: 8080
+  revisionHistoryLimit: 2
+  service:
+    type: ClusterIP
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  automountServiceAccountToken: false
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: false
+    minAvailable: 1
+  env:
+    MCP_TRANSPORT: http
+    MCP_HOST: 0.0.0.0
+    MCP_PORT: "8080"
+    MCP_PATH: /mcp
+    TOOL_MODE: shell
+    TOOL_PROFILE: query
+  secretRef:
+    name: ""

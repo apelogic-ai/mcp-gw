@@ -1,0 +1,128 @@
+{{- if .Values.agentgateway.enabled }}
+{{- $root := . }}
+{{- $routing := .Values.routing }}
+{{- $brokerOn := include "mcp-gateway.brokerEnabled" . }}
+{{- $oauthPath := include "mcp-gateway.oauthPath" . }}
+{{- $brokerService := include "mcp-gateway.brokerServiceName" . }}
+
+{{/* One description of the public surface, rendered for either router. */}}
+{{- $groups := list (dict
+      "exact" (list (include "mcp-gateway.mcpPath" .) (include "mcp-gateway.resourceMetadataPath" .))
+      "prefix" (list)
+      "service" (include "mcp-gateway.componentName" (dict "root" $root "component" "agentgateway"))
+      "port" .Values.agentgateway.port
+      "broker" false) }}
+{{- if $brokerOn }}
+{{- $groups = append $groups (dict
+      "exact" (include "mcp-gateway.brokerRoutePaths" . | fromYamlArray)
+      "prefix" (list)
+      "service" $brokerService
+      "port" .Values.googleWorkspace.port
+      "broker" true) }}
+{{- end }}
+{{- if .Values.googleWorkspace.enabled }}
+{{- $groups = append $groups (dict
+      "exact" (list)
+      "prefix" (list (printf "%s/google" $oauthPath))
+      "service" (include "mcp-gateway.componentName" (dict "root" $root "component" "google-workspace"))
+      "port" .Values.googleWorkspace.port
+      "broker" false) }}
+{{- end }}
+{{- if .Values.githubWrapper.enabled }}
+{{- $groups = append $groups (dict
+      "exact" (list)
+      "prefix" (list (printf "%s/github" $oauthPath))
+      "service" (include "mcp-gateway.componentName" (dict "root" $root "component" "github-wrapper"))
+      "port" .Values.githubWrapper.port
+      "broker" false) }}
+{{- end }}
+
+{{- if $routing.gatewayApi.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "public") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- toYaml (required "routing.gatewayApi.parentRefs is required when routing.gatewayApi is enabled" $routing.gatewayApi.parentRefs) | nindent 4 }}
+  hostnames:
+    - {{ $routing.host | quote }}
+  rules:
+{{- range $group := $groups }}
+    - matches:
+    {{- range $group.exact }}
+        - path:
+            type: Exact
+            value: {{ . | quote }}
+    {{- end }}
+    {{- range $group.prefix }}
+        - path:
+            type: PathPrefix
+            value: {{ . | quote }}
+    {{- end }}
+      backendRefs:
+        - name: {{ $group.service }}
+          port: {{ $group.port }}
+{{- end }}
+{{- end }}
+
+{{- if $routing.ingress.enabled }}
+{{- $baseAnnotations := $routing.ingress.annotations | default dict }}
+{{- $ingresses := list (dict "suffix" "public" "annotations" $baseAnnotations "broker" false) }}
+{{- if $brokerOn }}
+{{- $ingresses = append $ingresses (dict
+      "suffix" "broker"
+      "annotations" (mergeOverwrite (deepCopy $baseAnnotations) ($routing.ingress.brokerAnnotations | default dict))
+      "broker" true) }}
+{{- end }}
+{{- range $ingress := $ingresses }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" $root "component" $ingress.suffix) }}
+  labels:
+    {{- include "mcp-gateway.labels" $root | nindent 4 }}
+  {{- with $ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $routing.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $routing.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $routing.host }}
+      http:
+        paths:
+{{- range $group := $groups }}
+{{- if eq $group.broker $ingress.broker }}
+{{- range $group.exact }}
+          - path: {{ . }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $group.service }}
+                port:
+                  name: http
+{{- end }}
+{{- range $group.prefix }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $group.service }}
+                port:
+                  name: http
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

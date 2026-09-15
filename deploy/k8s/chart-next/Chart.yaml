@@ -1,0 +1,37 @@
+apiVersion: v2
+name: mcp-gateway
+description: Agent-agnostic MCP gateway with independently enabled provider adapters
+type: application
+version: 0.5.0
+appVersion: "0.4.10"
+maintainers:
+  - name: Leonid Belyaev
+    email: lbeliaev@gmail.com
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/maintainers: |
+    - name: Leonid Belyaev
+      email: lbeliaev@gmail.com
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/apelogic-ai/mcp-gw
+    - name: support
+      url: https://github.com/apelogic-ai/mcp-gw/issues
+  artifacthub.io/images: |
+    - name: mcp-gw-agentgateway
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.10
+    - name: mcp-gw-google-workspace
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.10
+    - name: mcp-gw-github-wrapper
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.10
+    - name: github-mcp-server
+      image: ghcr.io/github/github-mcp-server:v1.6.0
+  artifacthub.io/changes: |
+    - kind: changed
+      description: Derive every public OAuth URL from routing.host instead of cross-validating four independently configured URLs.
+    - kind: changed
+      description: Render all workloads from one component loop; per-component template trees removed.
+    - kind: changed
+      description: Chart owns the full public route set; the operator no longer hand-writes the /mcp route alongside a chart-managed broker route.
+    - kind: changed
+      description: Move input validation from template-time fail into values.schema.json.

@@ -1,0 +1,80 @@
+{{- if .Values.oauthMigrations.enabled }}
+{{- $m := .Values.oauthMigrations }}
+{{- $secretName := default .Values.secrets.name $m.secretKeyRef.name }}
+{{- $name := include "mcp-gateway.componentName" (dict "root" . "component" "oauth-migrations") }}
+{{- if $m.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ default $name $m.serviceAccount.name }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: oauth-migrations
+  annotations:
+    helm.sh/hook: "pre-install,pre-upgrade"
+    helm.sh/hook-weight: "-20"
+  {{- with $m.serviceAccount.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: oauth-migrations
+  annotations:
+    helm.sh/hook: "pre-install,pre-upgrade"
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: {{ $m.backoffLimit }}
+  activeDeadlineSeconds: {{ $m.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "root" . "component" "oauth-migrations") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ default $name $m.serviceAccount.name }}
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $m.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" $m.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: [bun, run, shared/oauth/migrate.ts]
+          securityContext:
+            {{- toYaml $m.securityContext | nindent 12 }}
+          env:
+            - name: TOKEN_STORE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "oauthMigrations needs a Secret: set secrets.name or oauthMigrations.secretKeyRef.name" $secretName }}
+                  key: {{ $m.secretKeyRef.key }}
+            {{- if .Values.postgresql.caBundle.enabled }}
+            - name: POSTGRES_CA_BUNDLE_PATH
+              value: {{ include "mcp-gateway.postgresqlCaPath" . | quote }}
+            {{- end }}
+          {{- if .Values.postgresql.caBundle.enabled }}
+          volumeMounts:
+            - name: postgresql-ca
+              mountPath: {{ .Values.postgresql.caBundle.mountPath | quote }}
+              readOnly: true
+          {{- end }}
+          {{- with $m.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.postgresql.caBundle.enabled }}
+      volumes:
+        {{- toYaml (list (include "mcp-gateway.postgresqlCaVolume" . | fromYaml)) | nindent 8 }}
+      {{- end }}
+{{- end }}
