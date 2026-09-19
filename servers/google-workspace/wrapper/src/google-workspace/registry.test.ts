@@ -7,6 +7,7 @@ import { ProviderToolScopeError } from "../../../../../shared/oauth/connection-t
 import { ProviderLifecycleError } from "../../../../../shared/oauth/connection-types";
 import { InMemoryConnectionLifecycleMetricSink } from "../../../../../shared/oauth/connection-metrics";
 import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
+import { createYamlPolicyFromString } from "../../../../../shared/policy/policy";
 import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { GwsExecutionError } from "../executor/gws";
 import { createGoogleWorkspaceRegistry } from "./registry";
@@ -162,6 +163,7 @@ describe("Google Workspace request registry", () => {
           sub: "google-subject",
         },
         tool: "google_oauth_start",
+        operation: "google.oauth.start",
         service: "google",
         actionClass: "write",
         scopes: ["https://www.googleapis.com/auth/drive"],
@@ -313,7 +315,11 @@ describe("Google Workspace request registry", () => {
       name: "Roadmap",
     });
 
-    expect(requestedScopes).toEqual([getGoogleWorkspaceTool("google_drive_files_create").scopes]);
+    expect(requestedScopes).toEqual([
+      {
+        allOf: [{ anyOf: getGoogleWorkspaceTool("google_drive_files_create").scopes }],
+      },
+    ]);
     expect(executed).toEqual([
       {
         tool: getGoogleWorkspaceTool("google_drive_files_create"),
@@ -573,7 +579,7 @@ describe("Google Workspace request registry", () => {
     expect(observed).toEqual(["gmail:write", "gmail:destructive"]);
   });
 
-  test("uses caller-supplied scopes for the generic gws tool", async () => {
+  test("derives raw command authority from the pinned catalog, not caller-supplied scopes", async () => {
     const requestedScopes: ScopeRequirementInput[] = [];
     const registry = createGoogleWorkspaceRegistry({
       identity,
@@ -595,7 +601,12 @@ describe("Google Workspace request registry", () => {
       scopes: ["https://www.googleapis.com/auth/presentations.readonly"],
     });
 
-    expect(requestedScopes).toEqual([["https://www.googleapis.com/auth/presentations.readonly"]]);
+    const requirement = requestedScopes[0];
+    if (!requirement || Array.isArray(requirement)) throw new Error("missing derived requirement");
+    expect(requirement.allOf[0]?.anyOf).toContain(
+      "https://www.googleapis.com/auth/presentations.readonly",
+    );
+    expect(requirement.allOf[0]?.anyOf.length).toBeGreaterThan(1);
     expect(result.content[0]?.text).toBe(
       JSON.stringify(
         {
@@ -606,6 +617,121 @@ describe("Google Workspace request registry", () => {
         2,
       ),
     );
+  });
+
+  test("denies calendar deletion through named, generated, and raw routes while retaining raw reads", async () => {
+    const policy = createYamlPolicyFromString(`
+default: allow
+guardrails:
+  deniedOperations:
+    - calendar.events.delete
+    - calendar.calendars.clear
+    - calendar.calendars.delete
+`);
+    let brokerCalls = 0;
+    let lastRequirement: ScopeRequirementInput | undefined;
+    let executed = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy,
+      tokenBroker: {
+        getAccessToken: (_identity, requirement) => {
+          brokerCalls += 1;
+          lastRequirement = requirement;
+          return Promise.resolve("active");
+        },
+      },
+      executor: () => {
+        executed += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    for (const [name, args] of [
+      ["google_calendar_events_delete", { calendarId: "primary", eventId: "event-1" }],
+      ["gws_calendar_events_delete", { params: { calendarId: "primary", eventId: "event-1" } }],
+      [
+        "google_workspace_gws",
+        { argv: ["calendar", "events", "delete", "--params", "{}"], scopes: [] },
+      ],
+      [
+        "google_workspace_gws",
+        { argv: ["calendar", "calendars", "clear", "--params", "{}"], scopes: [] },
+      ],
+    ] as const) {
+      expect(registry.callTool(name, args)).rejects.toThrow("Operation disabled by global policy");
+    }
+    expect(brokerCalls).toBe(0);
+    expect(executed).toBe(0);
+
+    await registry.callTool("google_workspace_gws", {
+      argv: ["drive", "files", "list", "--params", "{}"],
+      scopes: [],
+    });
+    expect(brokerCalls).toBe(1);
+    expect(executed).toBe(1);
+    if (!lastRequirement || Array.isArray(lastRequirement))
+      throw new Error("missing derived requirement");
+    expect(lastRequirement.allOf[0]?.anyOf).toContain("https://www.googleapis.com/auth/drive");
+  });
+
+  test("hard guardrails fail closed on unclassified raw commands and extra arguments", () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(
+        "default: allow\nguardrails: { deniedOperations: [calendar.events.delete] }",
+      ),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+
+    expect(
+      registry.callTool("google_workspace_gws", {
+        argv: ["calendar", "events", "delete", "--unknown-bypass"],
+        scopes: [],
+      }),
+    ).rejects.toThrow();
+    expect(
+      registry.callTool("google_workspace_gws", {
+        argv: ["calendar", "unknown", "delete"],
+        scopes: [],
+      }),
+    ).rejects.toThrow();
+    expect(
+      registry.callTool("gws_calendar_events_delete", {
+        params: { calendarId: "primary", eventId: "event-1" },
+        extraArgs: ["--unknown-bypass"],
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("executes the same frozen raw request that policy inspected", async () => {
+    let executedArgv: unknown;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: (input) => {
+          expect(input.operation).toBe("drive.files.list");
+          try {
+            (input.args.argv as string[])[2] = "delete";
+          } catch {
+            // Frozen policy input is expected under strict-mode modules.
+          }
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: { getAccessToken: () => Promise.resolve("active") },
+      executor: (request) => {
+        executedArgv = request.args.argv;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    await registry.callTool("google_workspace_gws", {
+      argv: ["drive", "files", "list", "--params", "{}"],
+      scopes: [],
+    });
+    expect(executedArgv).toEqual(["drive", "files", "list", "--params", "{}"]);
   });
 
   test("rejects excluded scopes for the generic gws tool before token lookup", async () => {
@@ -629,7 +755,7 @@ describe("Google Workspace request registry", () => {
       });
     } catch (error) {
       expect((error as Error).message).toBe(
-        "scopes contains unsupported Google Workspace scopes: https://www.googleapis.com/auth/classroom.courses.readonly",
+        "scopes contains an unsupported Google Workspace scope",
       );
       expect(tokenCalls).toBe(0);
     }

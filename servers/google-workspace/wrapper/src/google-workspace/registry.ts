@@ -20,12 +20,12 @@ import {
 } from "../../../../../shared/policy/policy";
 import {
   getGoogleWorkspaceTool,
-  isExcludedGoogleWorkspaceScope,
   listGoogleWorkspaceTools,
   type GoogleWorkspaceCatalogId,
 } from "../catalog/google-workspace";
 import type { WorkspaceToolDefinition } from "../catalog/types";
 import type { ToolRegistry, ToolResult } from "../mcp/registry";
+import { resolveWorkspaceOperation } from "./operation-resolver";
 
 export interface GoogleOAuthStatus {
   connected: boolean;
@@ -72,7 +72,7 @@ export interface CreateGoogleWorkspaceRegistryOptions {
 export function createGoogleWorkspaceRegistry(
   options: CreateGoogleWorkspaceRegistryOptions,
 ): ToolRegistry {
-  const policy = options.policy ?? new AllowAllPolicy();
+  const policy: ToolPolicy = options.policy ?? new AllowAllPolicy();
 
   return {
     listTools: () => {
@@ -93,6 +93,7 @@ export function createGoogleWorkspaceRegistry(
           principal: options.identity.email,
           tokenClaims: normalizedHop1Claims(options.identity),
           tool: name,
+          operation: "google.oauth.start",
           service: "google",
           actionClass: "write",
           scopes: options.oauth.status.scopesRequired,
@@ -120,20 +121,21 @@ export function createGoogleWorkspaceRegistry(
         return providerOAuthRequiredResult();
       }
       validateRequiredArgs(tool, args);
-
-      const scopeRequirement = requiredScopes(tool, args);
+      const resolved = resolveWorkspaceOperation(tool, args, policy.hardGuardrails === true);
+      const scopeRequirement = resolved.scopeRequirement;
 
       const decision = await policy.decide({
         principal: options.identity.email,
         tokenClaims: normalizedHop1Claims(options.identity),
         tool: tool.name,
-        service: tool.service,
-        actionClass: tool.actionClass,
+        operation: resolved.operation,
+        service: resolved.service,
+        actionClass: resolved.actionClass,
         scopes: flattenedScopes(scopeRequirement),
-        ...(!Array.isArray(scopeRequirement) ? { scopeRequirement } : {}),
-        args,
+        scopeRequirement,
+        args: resolved.args,
       });
-      await enforcePolicyDecision(decision, tool, args, started, options, diagnosticId);
+      await enforcePolicyDecision(decision, tool, resolved.args, started, options, diagnosticId);
 
       try {
         const accessToken = await options.tokenBroker.getAccessToken(
@@ -143,7 +145,7 @@ export function createGoogleWorkspaceRegistry(
         );
         const result = await options.executor({
           tool,
-          args,
+          args: resolved.args,
           accessToken,
         });
 
@@ -153,7 +155,7 @@ export function createGoogleWorkspaceRegistry(
           principal: options.identity.email,
           status: "allow",
           tool: tool.name,
-          argDigest: digestArgs(args),
+          argDigest: digestArgs(resolved.args),
           latencyMs: Date.now() - started,
           resultSize: resultSize(result),
         });
@@ -175,7 +177,7 @@ export function createGoogleWorkspaceRegistry(
           principal: options.identity.email,
           status: "error",
           tool: tool.name,
-          argDigest: digestArgs(args),
+          argDigest: digestArgs(resolved.args),
           latencyMs: Date.now() - started,
           error: error instanceof Error ? error.message : "Unknown tool error",
         });
@@ -286,6 +288,7 @@ async function enforcePolicyDecision(
     name: "policy_denied",
     provider: "google",
     operation: tool.name,
+    ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
     diagnosticId,
     value: 1,
   });
@@ -318,37 +321,10 @@ function validateRequiredArgs(tool: WorkspaceToolDefinition, args: Record<string
   }
 }
 
-function requiredScopes(
-  tool: WorkspaceToolDefinition,
-  args: Record<string, unknown>,
-): ScopeRequirementInput {
-  if (!tool.dynamicScopesParam) {
-    return tool.scopeRequirement ?? tool.scopes;
-  }
-
-  const value = args[tool.dynamicScopesParam];
-  if (!isStringArray(value)) {
-    throw new Error(`${tool.dynamicScopesParam} must be an array of strings`);
-  }
-
-  const excludedScopes = value.filter(isExcludedGoogleWorkspaceScope);
-  if (excludedScopes.length > 0) {
-    throw new Error(
-      `${tool.dynamicScopesParam} contains unsupported Google Workspace scopes: ${excludedScopes.join(", ")}`,
-    );
-  }
-
-  return value;
-}
-
 function flattenedScopes(required: ScopeRequirementInput): string[] {
   return Array.isArray(required)
     ? required
     : [...new Set(required.allOf.flatMap((group) => group.anyOf))];
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 function formatToolResult(result: unknown): ToolResult {

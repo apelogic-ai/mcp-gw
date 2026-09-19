@@ -9,7 +9,6 @@ import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecyc
 import { JsonLineConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 import { createRevocationWorker } from "../../../../shared/oauth/revocation-worker";
-import { createOpaPolicyFromUrl } from "../../../../shared/policy/policy";
 import { loadWrapperConfig, type WrapperConfig } from "./app";
 import { createOAuthRouteHandler } from "./oauth-routes";
 import {
@@ -104,9 +103,6 @@ export async function createMainHandler(
       metrics,
     }),
   ]).start();
-  const policy = config.wrapper.policy?.opaUrl
-    ? createOpaPolicyFromUrl(config.wrapper.policy.opaUrl)
-    : undefined;
   const authorizationBroker = config.authorizationBroker
     ? await createAuthorizationBrokerRuntime({
         config: config.authorizationBroker,
@@ -133,7 +129,6 @@ export async function createMainHandler(
     issuers: hop1Issuers,
     audit,
     metrics,
-    policy,
     providerOAuth: {
       scopes: config.googleOAuthScopes,
       stateStore,

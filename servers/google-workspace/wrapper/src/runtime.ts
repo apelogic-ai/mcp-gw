@@ -23,6 +23,7 @@ import {
 } from "../../../../shared/policy/policy";
 import { createGoogleWorkspaceWrapperHandler, type WrapperConfig } from "./app";
 import { executeGwsTool } from "./executor/gws";
+import { PINNED_GWS_OPERATIONS } from "./google-workspace/operation-resolver";
 
 export type JwksProvider = () => Promise<JWK[]>;
 
@@ -276,7 +277,12 @@ function createPolicy(
   const policies: ToolPolicy[] = [];
 
   if (config.policy?.yamlFile) {
-    policies.push(createYamlPolicyFromString(readFileSync(config.policy.yamlFile, "utf8")));
+    policies.push(
+      createYamlPolicyFromString(
+        readFileSync(config.policy.yamlFile, "utf8"),
+        PINNED_GWS_OPERATIONS,
+      ),
+    );
   }
   if (config.policy?.opaUrl) {
     policies.push(createOpaPolicyFromUrl(config.policy.opaUrl, fetchImpl));

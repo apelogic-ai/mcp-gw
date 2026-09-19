@@ -32,6 +32,66 @@ describe("policy primitives", () => {
     expect(await new AllowAllPolicy().decide(input)).toEqual({ kind: "allow" });
   });
 
+  test("global denied operations override ordered allows and OPA allows", async () => {
+    const yaml = createYamlPolicyFromString(`
+default: allow
+guardrails:
+  deniedOperations:
+    - calendar.events.delete
+rules:
+  - effect: allow
+    match:
+      actionClass: destructive
+`);
+    const policy = new CompositePolicy([
+      yaml,
+      new OpaPolicyAdapter(() => Promise.resolve({ result: { allow: true } })),
+    ]);
+
+    expect(await policy.decide({ ...input, operation: "calendar.events.delete" })).toEqual({
+      kind: "deny",
+      reason: "Operation disabled by global policy",
+      ruleId: "guardrails.denied_operations",
+    });
+    expect(await policy.decide({ ...input, operation: "calendar.events.list" })).toEqual({
+      kind: "allow",
+    });
+  });
+
+  test("matches canonical operations in ordinary YAML rules", async () => {
+    const policy = createYamlPolicyFromString(`
+default: allow
+rules:
+  - id: mail-send-review
+    effect: deny
+    match:
+      operation: gmail.users.messages.send
+`);
+    expect(await policy.decide({ ...input, operation: "gmail.users.messages.send" })).toEqual({
+      kind: "deny",
+      reason: "YAML policy deny",
+      ruleId: "mail-send-review",
+    });
+    expect(await policy.decide({ ...input, operation: "gmail.users.messages.get" })).toEqual({
+      kind: "allow",
+    });
+  });
+
+  test("rejects malformed hard guardrails at policy startup", () => {
+    expect(() =>
+      createYamlPolicyFromString('guardrails: { deniedOperations: ["not a command"] }'),
+    ).toThrow();
+    expect(() =>
+      createYamlPolicyFromString("guardrails: { deniedOperations: [], unknown: true }"),
+    ).toThrow();
+    expect(() =>
+      createYamlPolicyFromString(
+        "guardrails: { deniedOperations: [calendar.events.deltee] }",
+        new Set(["calendar.events.delete"]),
+      ),
+    ).toThrow("Unknown guardrail operation");
+  });
+
   test("maps OPA allow responses to policy decisions without exposing raw args", async () => {
     const adapter = new OpaPolicyAdapter((request) => {
       expect(request.input.tool).toBe("google_drive_files_delete");

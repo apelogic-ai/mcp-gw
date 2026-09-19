@@ -268,7 +268,8 @@ describe("Google Workspace wrapper app", () => {
       },
       tokenBroker: {
         getAccessToken: (_identity, scopes) => {
-          expect(scopes).toContain("https://www.googleapis.com/auth/drive");
+          if (Array.isArray(scopes)) throw new Error("Expected a derived scope requirement");
+          expect(scopes.allOf[0]?.anyOf).toContain("https://www.googleapis.com/auth/drive");
           return Promise.resolve("google-access-token");
         },
       },

@@ -39,6 +39,30 @@ rules:
       actionClass: destructive
 ```
 
+Global, non-overridable operation guardrails can be added to the same YAML file:
+
+```yaml
+default: allow
+guardrails:
+  deniedOperations:
+    - calendar.events.delete
+    - calendar.calendars.clear
+    - calendar.calendars.delete
+```
+
+The three entries cover individual event deletion, clearing a calendar, and deleting a calendar.
+They apply before ordered `rules` and before any OPA allow result, to curated tools, generated
+tools, and `google_workspace_gws` calls alike. Operation names come from the pinned `gws` command
+catalog. Unknown names, misspellings, and unsupported guardrail fields fail wrapper startup.
+When guardrails are active, ambiguous command arguments fail closed.
+
+The low-level `google_workspace_gws` tool remains available for classified commands. Its `scopes`
+argument is retained for client compatibility but is **not** an authority assertion: MCP-GW now
+derives the method's complete accepted-scope alternatives from its pinned catalog. Commands not
+in that catalog are rejected until the catalog is updated. This includes free-form CLI
+introspection commands that are not represented in the pinned catalog; a future CLI command
+cannot silently bypass a hard guardrail.
+
 Rule effects:
 
 - `allow`: permit matching calls.
@@ -52,13 +76,14 @@ Match fields:
 - `service` or `services`
 - `actionClass` or `actionClasses`
 - `scope` or `scopes`
+- `operation` or `operations` (the server-resolved provider method, not a caller-supplied string)
 
 For ordinary Workspace catalog tools, `service` remains the exact provider authority key (`drive`,
 `gmail`, `calendar`, and so on). “Google Workspace” can be used as a display grouping, but it is not
 an authority value. OAuth connection controls are internal and are not selectable catalog grants.
-The corrected semantic catalog is enabled only by the exact
+The corrected semantic grant catalog is enabled only by the exact
 `GOOGLE_WORKSPACE_GOVERNANCE_CATALOG=google-workspace-cli@0.22.5/visible-v1/actions-v1` pin;
-without it, legacy action classifications and policy inputs remain unchanged.
+operation guardrails and raw command classification apply independently of that pin.
 
 An omitted `match` block matches every call.
 
@@ -78,6 +103,7 @@ The wrapper posts this shape:
   "input": {
     "principal": "user@example.com",
     "tool": "google_drive_files_delete",
+    "operation": "drive.files.delete",
     "service": "drive",
     "actionClass": "destructive",
     "scopes": ["https://www.googleapis.com/auth/drive"],
@@ -133,11 +159,12 @@ googleWorkspace:
     enabled: true
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml
     yaml: |
-      default: deny
-      rules:
-        - effect: allow
-          match:
-            actionClass: read
+      default: allow
+      guardrails:
+        deniedOperations:
+          - calendar.events.delete
+          - calendar.calendars.clear
+          - calendar.calendars.delete
 ```
 
 See `deploy/k8s/examples/values-google-policy.example.yaml`.
@@ -147,3 +174,14 @@ See `deploy/k8s/examples/values-google-policy.example.yaml`.
 Set `GOOGLE_WORKSPACE_POLICY_FILE` and mount the policy file with a private
 Compose override. Keep real org policy files in private deployment overlays when
 they reveal internal service names, user groups, or operational rules.
+
+```yaml
+services:
+  google-workspace:
+    environment:
+      GOOGLE_WORKSPACE_POLICY_FILE: /etc/mcp-gw/google-workspace-policy.yaml
+    volumes:
+      - ./google-workspace-policy.yaml:/etc/mcp-gw/google-workspace-policy.yaml:ro
+```
+
+The mounted file can contain the same neutral `guardrails` example shown above.

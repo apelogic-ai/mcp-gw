@@ -8,6 +8,8 @@ export interface ToolPolicyInput {
   principal: string;
   tokenClaims: Record<string, unknown>;
   tool: string;
+  /** Server-resolved provider operation, never asserted by the caller. */
+  operation?: string;
   service: string;
   actionClass: PolicyActionClass;
   scopes: string[];
@@ -17,10 +19,11 @@ export interface ToolPolicyInput {
 
 export type PolicyDecision =
   | { kind: "allow" }
-  | { kind: "deny"; reason: string }
-  | { kind: "approval_required"; reason: string };
+  | { kind: "deny"; reason: string; ruleId?: string }
+  | { kind: "approval_required"; reason: string; ruleId?: string };
 
 export interface ToolPolicy {
+  readonly hardGuardrails?: boolean;
   decide(input: ToolPolicyInput): Promise<PolicyDecision>;
 }
 
@@ -32,7 +35,11 @@ export class AllowAllPolicy implements ToolPolicy {
 }
 
 export class CompositePolicy implements ToolPolicy {
-  constructor(private readonly policies: ToolPolicy[]) {}
+  readonly hardGuardrails: boolean;
+
+  constructor(private readonly policies: ToolPolicy[]) {
+    this.hardGuardrails = policies.some((policy) => policy.hardGuardrails === true);
+  }
 
   async decide(input: ToolPolicyInput): Promise<PolicyDecision> {
     let approval: PolicyDecision | undefined;
@@ -54,11 +61,13 @@ export class CompositePolicy implements ToolPolicy {
 export interface YamlPolicyConfig {
   default?: YamlPolicyEffect;
   rules?: YamlPolicyRule[];
+  guardrails?: { deniedOperations?: string[] };
 }
 
 export type YamlPolicyEffect = "allow" | "deny" | "approval_required";
 
 export interface YamlPolicyRule {
+  id?: string;
   effect: YamlPolicyEffect;
   reason?: string;
   match?: YamlPolicyMatch;
@@ -71,6 +80,8 @@ export interface YamlPolicyMatch {
   tools?: string[];
   service?: string | string[];
   services?: string[];
+  operation?: string | string[];
+  operations?: string[];
   actionClass?: PolicyActionClass | PolicyActionClass[];
   actionClasses?: PolicyActionClass[];
   scope?: string | string[];
@@ -78,20 +89,38 @@ export interface YamlPolicyMatch {
 }
 
 export class YamlPolicy implements ToolPolicy {
+  readonly hardGuardrails: boolean;
   private readonly defaultEffect: YamlPolicyEffect;
   private readonly rules: YamlPolicyRule[];
+  private readonly deniedOperations: Set<string>;
 
   constructor(config: YamlPolicyConfig) {
     this.defaultEffect = config.default ?? "allow";
     this.rules = config.rules ?? [];
+    this.deniedOperations = new Set(config.guardrails?.deniedOperations ?? []);
+    this.hardGuardrails = this.deniedOperations.size > 0;
     validateYamlPolicyEffect(this.defaultEffect, "default");
     this.rules.forEach(validateYamlPolicyRule);
   }
 
   decide(input: ToolPolicyInput): Promise<PolicyDecision> {
+    if (this.hardGuardrails && !input.operation) {
+      return Promise.resolve({
+        kind: "deny",
+        reason: "Operation cannot be classified under global policy",
+        ruleId: "guardrails.unclassified_operation",
+      });
+    }
+    if (input.operation && this.deniedOperations.has(input.operation)) {
+      return Promise.resolve({
+        kind: "deny",
+        reason: "Operation disabled by global policy",
+        ruleId: "guardrails.denied_operations",
+      });
+    }
     for (const rule of this.rules) {
       if (matchesRule(rule, input)) {
-        return Promise.resolve(decisionForEffect(rule.effect, rule.reason));
+        return Promise.resolve(decisionForEffect(rule.effect, rule.reason, rule.id));
       }
     }
 
@@ -101,13 +130,22 @@ export class YamlPolicy implements ToolPolicy {
   }
 }
 
-export function createYamlPolicyFromString(content: string): ToolPolicy {
+export function createYamlPolicyFromString(
+  content: string,
+  knownOperations?: ReadonlySet<string>,
+): ToolPolicy {
   const parsed: unknown = parseYaml(content);
   if (!isRecord(parsed)) {
     throw new Error("YAML policy must be an object");
   }
 
-  return new YamlPolicy(parseYamlPolicyConfig(parsed));
+  const config = parseYamlPolicyConfig(parsed);
+  for (const operation of config.guardrails?.deniedOperations ?? []) {
+    if (knownOperations && !knownOperations.has(operation)) {
+      throw new Error(`Unknown guardrail operation: ${operation}`);
+    }
+  }
+  return new YamlPolicy(config);
 }
 
 export interface OpaPolicyRequest {
@@ -181,7 +219,26 @@ function parseYamlPolicyConfig(record: Record<string, unknown>): YamlPolicyConfi
   return {
     default: defaultEffect,
     rules: rulesValue?.map(parseYamlPolicyRule),
+    guardrails: parseYamlGuardrails(record.guardrails),
   };
+}
+
+function parseYamlGuardrails(value: unknown): YamlPolicyConfig["guardrails"] {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("guardrails must be an object");
+  for (const key of Object.keys(value)) {
+    if (key !== "deniedOperations") throw new Error(`Unsupported guardrails field: ${key}`);
+  }
+  const deniedOperations = optionalStringArray(
+    value.deniedOperations,
+    "guardrails.deniedOperations",
+  );
+  for (const operation of deniedOperations ?? []) {
+    if (!/^[a-z][a-z0-9]*(?:\.\+?[a-z][a-zA-Z0-9]*){1,5}$/.test(operation)) {
+      throw new Error("guardrails.deniedOperations contains an invalid operation");
+    }
+  }
+  return { deniedOperations };
 }
 
 function parseYamlPolicyRule(value: unknown, index: number): YamlPolicyRule {
@@ -193,6 +250,7 @@ function parseYamlPolicyRule(value: unknown, index: number): YamlPolicyRule {
   validateYamlPolicyEffect(effect, `rules[${String(index)}].effect`);
 
   return {
+    id: optionalString(value.id, `rules[${String(index)}].id`),
     effect,
     reason: optionalString(value.reason, `rules[${String(index)}].reason`),
     match: parseYamlPolicyMatch(value.match, index),
@@ -223,6 +281,14 @@ function parseYamlPolicyMatch(value: unknown, ruleIndex: number): YamlPolicyMatc
       `rules[${String(ruleIndex)}].match.service`,
     ),
     services: optionalStringArray(value.services, `rules[${String(ruleIndex)}].match.services`),
+    operation: optionalStringOrStringArray(
+      value.operation,
+      `rules[${String(ruleIndex)}].match.operation`,
+    ),
+    operations: optionalStringArray(
+      value.operations,
+      `rules[${String(ruleIndex)}].match.operations`,
+    ),
     actionClass: optionalActionClassOrArray(
       value.actionClass,
       `rules[${String(ruleIndex)}].match.actionClass`,
@@ -238,6 +304,9 @@ function parseYamlPolicyMatch(value: unknown, ruleIndex: number): YamlPolicyMatc
 
 function validateYamlPolicyRule(rule: YamlPolicyRule, index: number): void {
   validateYamlPolicyEffect(rule.effect, `rules[${String(index)}].effect`);
+  if (rule.id && !/^[a-z][a-z0-9_.-]{0,63}$/.test(rule.id)) {
+    throw new Error(`rules[${String(index)}].id must be a stable low-cardinality identifier`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -332,6 +401,7 @@ function matchesRule(rule: YamlPolicyRule, input: ToolPolicyInput): boolean {
     matchesAny(input.principal, [...values(match.principal), ...values(match.principals)]) &&
     matchesAny(input.tool, [...values(match.tool), ...values(match.tools)]) &&
     matchesAny(input.service, [...values(match.service), ...values(match.services)]) &&
+    matchesAny(input.operation ?? "", [...values(match.operation), ...values(match.operations)]) &&
     matchesAny(input.actionClass, [...values(match.actionClass), ...values(match.actionClasses)]) &&
     matchesScopes(input.scopes, [...values(match.scope), ...values(match.scopes)])
   );
@@ -356,7 +426,11 @@ function matchesScopes(actualScopes: string[], requiredScopes: string[]): boolea
   );
 }
 
-function decisionForEffect(effect: YamlPolicyEffect, reason?: string): PolicyDecision {
+function decisionForEffect(
+  effect: YamlPolicyEffect,
+  reason?: string,
+  ruleId?: string,
+): PolicyDecision {
   if (effect === "allow") {
     return { kind: "allow" };
   }
@@ -364,5 +438,6 @@ function decisionForEffect(effect: YamlPolicyEffect, reason?: string): PolicyDec
   return {
     kind: effect,
     reason: reason ?? `YAML policy ${effect}`,
+    ...(ruleId ? { ruleId } : {}),
   };
 }

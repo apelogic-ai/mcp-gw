@@ -13,6 +13,11 @@ googleWorkspace:
     mountPath: /etc/mcp-gw/google-workspace-policy.yaml
     yaml: |
       default: deny
+      guardrails:
+        deniedOperations:
+          - calendar.events.delete
+          - calendar.calendars.clear
+          - calendar.calendars.delete
       rules:
         - effect: allow
           match:
