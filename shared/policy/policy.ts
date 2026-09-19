@@ -1,6 +1,13 @@
 import { redactValue } from "../audit/audit";
 import { parse as parseYaml } from "yaml";
 import type { ScopeRequirement } from "../oauth/connection-types";
+import { canonicalPolicyDomain, domainIsAllowed } from "./outbound-email";
+
+export interface VerifiedOutboundEmail {
+  kind: "verified";
+  /** Domains only; full recipient addresses are never sent to policy or telemetry. */
+  recipientDomains: string[];
+}
 
 export type PolicyActionClass = "read" | "write" | "destructive";
 
@@ -14,6 +21,7 @@ export interface ToolPolicyInput {
   actionClass: PolicyActionClass;
   scopes: string[];
   scopeRequirement?: ScopeRequirement;
+  outboundEmail?: VerifiedOutboundEmail;
   args: Record<string, unknown>;
 }
 
@@ -61,7 +69,10 @@ export class CompositePolicy implements ToolPolicy {
 export interface YamlPolicyConfig {
   default?: YamlPolicyEffect;
   rules?: YamlPolicyRule[];
-  guardrails?: { deniedOperations?: string[] };
+  guardrails?: {
+    deniedOperations?: string[];
+    outboundEmail?: { allowedRecipientDomains: string[] };
+  };
 }
 
 export type YamlPolicyEffect = "allow" | "deny" | "approval_required";
@@ -93,12 +104,16 @@ export class YamlPolicy implements ToolPolicy {
   private readonly defaultEffect: YamlPolicyEffect;
   private readonly rules: YamlPolicyRule[];
   private readonly deniedOperations: Set<string>;
+  private readonly allowedRecipientDomains: Set<string>;
 
   constructor(config: YamlPolicyConfig) {
     this.defaultEffect = config.default ?? "allow";
     this.rules = config.rules ?? [];
     this.deniedOperations = new Set(config.guardrails?.deniedOperations ?? []);
-    this.hardGuardrails = this.deniedOperations.size > 0;
+    this.allowedRecipientDomains = new Set(
+      config.guardrails?.outboundEmail?.allowedRecipientDomains ?? [],
+    );
+    this.hardGuardrails = this.deniedOperations.size > 0 || this.allowedRecipientDomains.size > 0;
     validateYamlPolicyEffect(this.defaultEffect, "default");
     this.rules.forEach(validateYamlPolicyRule);
   }
@@ -117,6 +132,36 @@ export class YamlPolicy implements ToolPolicy {
         reason: "Operation disabled by global policy",
         ruleId: "guardrails.denied_operations",
       });
+    }
+    if (
+      this.allowedRecipientDomains.size > 0 &&
+      input.operation &&
+      SEND_OPERATIONS.has(input.operation)
+    ) {
+      if (
+        input.outboundEmail?.kind !== "verified" ||
+        input.outboundEmail.recipientDomains.length === 0
+      ) {
+        return Promise.resolve({
+          kind: "deny",
+          reason: "Outbound email recipients cannot be verified",
+          ruleId: "guardrails.outbound_email_opaque",
+        });
+      }
+      if (
+        input.outboundEmail.recipientDomains.some(
+          (recipient) =>
+            ![...this.allowedRecipientDomains].some((allowed) =>
+              domainIsAllowed(recipient, allowed),
+            ),
+        )
+      ) {
+        return Promise.resolve({
+          kind: "deny",
+          reason: "Outbound email recipient domain is not allowed",
+          ruleId: "guardrails.outbound_email_domain",
+        });
+      }
     }
     for (const rule of this.rules) {
       if (matchesRule(rule, input)) {
@@ -170,7 +215,10 @@ export class OpaPolicyAdapter implements ToolPolicy {
     const response = await this.evaluate({
       input: {
         ...input,
-        args: redactValue(input.args) as Record<string, unknown>,
+        args:
+          input.operation && SEND_OPERATIONS.has(input.operation)
+            ? {}
+            : (redactValue(input.args) as Record<string, unknown>),
       },
     });
     const result = response.result;
@@ -227,7 +275,9 @@ function parseYamlGuardrails(value: unknown): YamlPolicyConfig["guardrails"] {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error("guardrails must be an object");
   for (const key of Object.keys(value)) {
-    if (key !== "deniedOperations") throw new Error(`Unsupported guardrails field: ${key}`);
+    if (key !== "deniedOperations" && key !== "outboundEmail") {
+      throw new Error(`Unsupported guardrails field: ${key}`);
+    }
   }
   const deniedOperations = optionalStringArray(
     value.deniedOperations,
@@ -238,8 +288,42 @@ function parseYamlGuardrails(value: unknown): YamlPolicyConfig["guardrails"] {
       throw new Error("guardrails.deniedOperations contains an invalid operation");
     }
   }
-  return { deniedOperations };
+  let outboundEmail: { allowedRecipientDomains: string[] } | undefined;
+  if (value.outboundEmail !== undefined) {
+    if (!isRecord(value.outboundEmail))
+      throw new Error("guardrails.outboundEmail must be an object");
+    for (const key of Object.keys(value.outboundEmail)) {
+      if (key !== "allowedRecipientDomains") {
+        throw new Error(`Unsupported guardrails.outboundEmail field: ${key}`);
+      }
+    }
+    const domains = optionalStringArray(
+      value.outboundEmail.allowedRecipientDomains,
+      "guardrails.outboundEmail.allowedRecipientDomains",
+    );
+    if (
+      !domains ||
+      domains.length === 0 ||
+      domains.some((domain) => !canonicalPolicyDomain(domain))
+    ) {
+      throw new Error(
+        "guardrails.outboundEmail.allowedRecipientDomains must contain canonical domains",
+      );
+    }
+    outboundEmail = { allowedRecipientDomains: domains };
+  }
+  return { deniedOperations, outboundEmail };
 }
+
+/** Every pinned Gmail operation that can deliver mail or derive recipients by reference. */
+export const SEND_OPERATIONS: ReadonlySet<string> = new Set([
+  "gmail.users.messages.send",
+  "gmail.users.drafts.send",
+  "gmail.+send",
+  "gmail.+reply",
+  "gmail.+reply-all",
+  "gmail.+forward",
+]);
 
 function parseYamlPolicyRule(value: unknown, index: number): YamlPolicyRule {
   if (!isRecord(value)) {

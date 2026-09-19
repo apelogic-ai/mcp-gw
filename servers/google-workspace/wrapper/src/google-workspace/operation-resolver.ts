@@ -6,12 +6,18 @@ import {
 import { GWS_GENERATED_TOOLS } from "../catalog/gws-generated";
 import { classifyGovernedGwsToolAction } from "../catalog/gws-action-classification";
 import type { WorkspaceToolDefinition } from "../catalog/types";
+import { SEND_OPERATIONS, type VerifiedOutboundEmail } from "../../../../../shared/policy/policy";
+import {
+  recipientDomainsFromAddressList,
+  recipientDomainsFromRawMessage,
+} from "../../../../../shared/policy/outbound-email";
 
 export interface ResolvedWorkspaceOperation {
   operation: string;
   service: string;
   actionClass: WorkspaceToolDefinition["actionClass"];
   scopeRequirement: ScopeRequirement;
+  outboundEmail?: VerifiedOutboundEmail;
   args: Record<string, unknown>;
 }
 
@@ -58,6 +64,7 @@ export function resolveWorkspaceOperation(
       service: tool.service,
       actionClass: tool.actionClass,
       scopeRequirement: tool.scopeRequirement ?? singletonGroups(tool.scopes),
+      outboundEmail: assessOutboundEmail(tool.command.join("."), args),
       args,
     };
   }
@@ -103,8 +110,116 @@ export function resolveWorkspaceOperation(
       matched.actionClass,
     ),
     scopeRequirement: filtered,
+    outboundEmail: assessOutboundEmail(matched.command.join("."), args, tail),
     args,
   };
+}
+
+function assessOutboundEmail(
+  operation: string,
+  args: Record<string, unknown>,
+  rawTail?: string[],
+): VerifiedOutboundEmail | undefined {
+  if (!SEND_OPERATIONS.has(operation)) return undefined;
+  // By-reference sends may read a draft or source message after this check.
+  if (operation !== "gmail.users.messages.send" && operation !== "gmail.+send") {
+    return undefined;
+  }
+  const domains =
+    operation === "gmail.users.messages.send"
+      ? assessRawMessageSend(args, rawTail)
+      : assessSendHelper(args, rawTail);
+  return domains && domains.length > 0
+    ? { kind: "verified", recipientDomains: domains }
+    : undefined;
+}
+
+function assessRawMessageSend(
+  args: Record<string, unknown>,
+  rawTail?: string[],
+): string[] | undefined {
+  let body: unknown;
+  let params: unknown;
+  if (rawTail) {
+    const flags = parseFlagValues(
+      rawTail,
+      new Set(["--json", "--params", "--format"]),
+      new Set(["--dry-run"]),
+    );
+    if (!flags || typeof flags.get("--json") !== "string") return undefined;
+    try {
+      body = JSON.parse(flags.get("--json") as string) as unknown;
+      params = flags.has("--params")
+        ? (JSON.parse(flags.get("--params") as string) as unknown)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  } else {
+    if (
+      Object.keys(args).some(
+        (key) => !["json", "params", "format", "dryRun", "extraArgs"].includes(key),
+      )
+    )
+      return undefined;
+    if (Array.isArray(args.extraArgs) && args.extraArgs.length > 0) return undefined;
+    body = args.json;
+    params = args.params;
+  }
+  if (!isRecord(body) || Object.keys(body).some((key) => key !== "raw" && key !== "threadId")) {
+    return undefined;
+  }
+  if (
+    params !== undefined &&
+    (!isRecord(params) || Object.keys(params).some((key) => key !== "userId"))
+  ) {
+    return undefined;
+  }
+  return typeof body.raw === "string" ? recipientDomainsFromRawMessage(body.raw) : undefined;
+}
+
+function assessSendHelper(args: Record<string, unknown>, rawTail?: string[]): string[] | undefined {
+  if (!rawTail && Object.keys(args).some((key) => key !== "args")) return undefined;
+  const tail = rawTail ?? args.args;
+  if (!isStringArray(tail)) return undefined;
+  const flags = parseFlagValues(
+    tail,
+    new Set(["--to", "--cc", "--bcc", "--subject", "--body", "--from", "--attach", "-a"]),
+    new Set(["--html", "--dry-run", "--draft"]),
+    new Set(["--attach", "-a"]),
+  );
+  if (!flags || typeof flags.get("--to") !== "string") return undefined;
+  const domains: string[] = [];
+  for (const name of ["--to", "--cc", "--bcc"]) {
+    const value = flags.get(name);
+    if (value === undefined) continue;
+    if (typeof value !== "string") return undefined;
+    const parsed = recipientDomainsFromAddressList(value);
+    if (!parsed) return undefined;
+    domains.push(...parsed);
+  }
+  return domains.length > 0 ? [...new Set(domains)] : undefined;
+}
+
+function parseFlagValues(
+  tail: string[],
+  valueFlags: ReadonlySet<string>,
+  booleanFlags: ReadonlySet<string>,
+  repeatableFlags: ReadonlySet<string> = new Set(),
+): Map<string, string | true> | undefined {
+  const flags = new Map<string, string | true>();
+  for (let index = 0; index < tail.length; index += 1) {
+    const flag = tail[index];
+    if (!flag || (flags.has(flag) && !repeatableFlags.has(flag))) return undefined;
+    if (booleanFlags.has(flag)) {
+      flags.set(flag, true);
+      continue;
+    }
+    if (!valueFlags.has(flag) || tail[index + 1] === undefined) return undefined;
+    flags.set(flag, tail[index + 1] ?? "");
+    index += 1;
+  }
+  return flags;
 }
 
 function validateMethodTail(tail: string[]): void {
@@ -127,6 +242,10 @@ function singletonGroups(scopes: string[]): ScopeRequirement {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function frozenClone(args: Record<string, unknown>): Record<string, unknown> {

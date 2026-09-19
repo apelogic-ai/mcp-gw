@@ -7,8 +7,10 @@ import { ProviderToolScopeError } from "../../../../../shared/oauth/connection-t
 import { ProviderLifecycleError } from "../../../../../shared/oauth/connection-types";
 import { InMemoryConnectionLifecycleMetricSink } from "../../../../../shared/oauth/connection-metrics";
 import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
-import { createYamlPolicyFromString } from "../../../../../shared/policy/policy";
+import { createYamlPolicyFromString, OpaPolicyAdapter } from "../../../../../shared/policy/policy";
 import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
+import { GWS_GENERATED_TOOLS } from "../catalog/gws-generated";
+import { SEND_OPERATIONS } from "../../../../../shared/policy/policy";
 import { GwsExecutionError } from "../executor/gws";
 import { createGoogleWorkspaceRegistry } from "./registry";
 
@@ -20,7 +22,28 @@ const identity: Hop1Identity = {
   claims: {},
 };
 
+async function expectPolicyRejection(result: Promise<unknown>, message: string): Promise<void> {
+  let rejection: unknown;
+  try {
+    await result;
+  } catch (error) {
+    rejection = error;
+  }
+  expect(rejection).toBeInstanceOf(Error);
+  expect((rejection as Error).message).toContain(message);
+}
+
 describe("Google Workspace request registry", () => {
+  test("pins every send-capable Gmail catalog route to the recipient guard", () => {
+    const sendCapable = GWS_GENERATED_TOOLS.filter(
+      (tool) =>
+        tool.command[0] === "gmail" &&
+        (tool.command.at(-1) === "send" ||
+          (tool.command[1]?.startsWith("+") &&
+            tool.scopes.includes("https://www.googleapis.com/auth/gmail.send"))),
+    ).map((tool) => tool.command.join("."));
+    expect(new Set(sendCapable)).toEqual(new Set(SEND_OPERATIONS));
+  });
   test("advertises a stable Google catalog and fails data calls closed before consent", async () => {
     let policyCalls = 0;
     let tokenCalls = 0;
@@ -673,6 +696,223 @@ guardrails:
     if (!lastRequirement || Array.isArray(lastRequirement))
       throw new Error("missing derived requirement");
     expect(lastRequirement.allOf[0]?.anyOf).toContain("https://www.googleapis.com/auth/drive");
+  });
+
+  test("checks exact outgoing recipients across generated, helper and low-level sends", async () => {
+    const policy = createYamlPolicyFromString(`
+default: allow
+guardrails:
+  outboundEmail:
+    allowedRecipientDomains: [example.org]
+`);
+    let brokerCalls = 0;
+    let executeCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy,
+      tokenBroker: {
+        getAccessToken: () => {
+          brokerCalls += 1;
+          return Promise.resolve("active");
+        },
+      },
+      executor: () => {
+        executeCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    const mime = (to: string, cc = "", bcc = "") =>
+      Buffer.from(
+        `From: sender@example.org\r\nTo: ${to}\r\nCc: ${cc}\r\nBcc: ${bcc}\r\nSubject: Test\r\n\r\nBody`,
+      ).toString("base64url");
+
+    await registry.callTool("gws_gmail_users_messages_send", {
+      params: { userId: "me" },
+      json: { raw: mime("Alice <alice@team.example.org>") },
+    });
+    await registry.callTool("gws_gmail_send", {
+      args: [
+        "--to",
+        "a@example.org",
+        "--subject",
+        "Test",
+        "--body",
+        "Body",
+        "--attach",
+        "first.pdf",
+        "-a",
+        "second.csv",
+        "--attach",
+        "third.txt",
+      ],
+    });
+    await registry.callTool("google_workspace_gws", {
+      argv: [
+        "gmail",
+        "users",
+        "messages",
+        "send",
+        "--params",
+        '{"userId":"me"}',
+        "--json",
+        JSON.stringify({ raw: mime("a@example.org") }),
+      ],
+      scopes: [],
+    });
+    await registry.callTool("google_workspace_gws", {
+      argv: ["gmail", "+send", "--to", "a@example.org", "--subject", "Test", "--body", "Body"],
+      scopes: [],
+    });
+    expect(brokerCalls).toBe(4);
+    expect(executeCalls).toBe(4);
+
+    for (const [name, args] of [
+      [
+        "gws_gmail_users_messages_send",
+        { json: { raw: mime("a@example.org", "", "hidden@outside.org") } },
+      ],
+      [
+        "gws_gmail_send",
+        {
+          args: [
+            "--to",
+            "a@example.org",
+            "--cc",
+            "external@outside.org",
+            "--subject",
+            "Test",
+            "--body",
+            "Body",
+          ],
+        },
+      ],
+      [
+        "google_workspace_gws",
+        {
+          argv: [
+            "gmail",
+            "users",
+            "messages",
+            "send",
+            "--json",
+            JSON.stringify({ raw: mime("outside@outside.org") }),
+          ],
+          scopes: [],
+        },
+      ],
+      [
+        "google_workspace_gws",
+        {
+          argv: [
+            "gmail",
+            "+send",
+            "--to",
+            "outside@outside.org",
+            "--subject",
+            "Test",
+            "--body",
+            "Body",
+          ],
+          scopes: [],
+        },
+      ],
+    ] as const) {
+      await expectPolicyRejection(
+        registry.callTool(name, args),
+        "Outbound email recipient domain is not allowed",
+      );
+    }
+    expect(brokerCalls).toBe(4);
+    expect(executeCalls).toBe(4);
+    await registry.callTool("google_workspace_gws", {
+      argv: ["drive", "files", "list", "--params", "{}"],
+      scopes: [],
+    });
+    expect(executeCalls).toBe(5);
+  });
+
+  test("OPA-only policy receives normalized send domains without raw mail arguments", async () => {
+    const raw = Buffer.from("To: Jane <jane@team.example.org>\r\n\r\nPrivate body").toString(
+      "base64url",
+    );
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: new OpaPolicyAdapter((request) => {
+        expect(request.input.operation).toBe("gmail.users.messages.send");
+        expect(request.input.outboundEmail).toEqual({
+          kind: "verified",
+          recipientDomains: ["team.example.org"],
+        });
+        expect(request.input.args).toEqual({});
+        expect(JSON.stringify(request)).not.toContain(raw);
+        return Promise.resolve({ result: { allow: false } });
+      }),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+    await expectPolicyRejection(
+      registry.callTool("gws_gmail_users_messages_send", { json: { raw } }),
+      "policy denied",
+    );
+  });
+
+  test("old YAML policy files do not turn on the outbound recipient guard", async () => {
+    let executeCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString("default: allow"),
+      tokenBroker: { getAccessToken: () => Promise.resolve("active") },
+      executor: () => {
+        executeCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    await registry.callTool("gws_gmail_users_messages_send", { json: { raw: "opaque-to-policy" } });
+    expect(executeCalls).toBe(1);
+  });
+
+  test("fails closed on by-reference and opaque mail sends without disabling low-level reads", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(
+        "guardrails: { outboundEmail: { allowedRecipientDomains: [example.org] } }",
+      ),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+    const cases: [string, Record<string, unknown>][] = [
+      ["gws_gmail_users_drafts_send", { json: { id: "draft-1" } }],
+      ["gws_gmail_reply", { args: ["--message-id", "m1", "--body", "Reply"] }],
+      ["gws_gmail_reply_all", { args: ["--message-id", "m1", "--body", "Reply"] }],
+      ["gws_gmail_forward", { args: ["--message-id", "m1", "--to", "a@example.org"] }],
+      ["gws_gmail_users_messages_send", { json: { raw: "invalid!" } }],
+      [
+        "gws_gmail_users_messages_send",
+        {
+          json: { raw: Buffer.from("To: a@example.org\r\n\r\nBody").toString("base64url") },
+          upload: "/tmp/unverified.eml",
+        },
+      ],
+      ["gws_gmail_send", { args: ["--to", "a@example.org", "--unknown", "outside@outside.org"] }],
+      [
+        "google_workspace_gws",
+        { argv: ["gmail", "users", "drafts", "send", "--json", '{"id":"draft-1"}'], scopes: [] },
+      ],
+      ["google_workspace_gws", { argv: ["gmail", "+reply", "--message-id", "m1"], scopes: [] }],
+      [
+        "google_workspace_gws",
+        {
+          argv: ["gmail", "users", "messages", "send", "--upload", "/tmp/unverified.eml"],
+          scopes: [],
+        },
+      ],
+    ];
+    for (const [name, args] of cases) {
+      await expectPolicyRejection(
+        registry.callTool(name, args),
+        "Outbound email recipients cannot be verified",
+      );
+    }
   });
 
   test("hard guardrails fail closed on unclassified raw commands and extra arguments", () => {

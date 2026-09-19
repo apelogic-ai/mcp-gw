@@ -18,6 +18,9 @@ googleWorkspace:
           - calendar.events.delete
           - calendar.calendars.clear
           - calendar.calendars.delete
+        outboundEmail:
+          allowedRecipientDomains:
+            - example.org
       rules:
         - effect: allow
           match:

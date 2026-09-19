@@ -92,6 +92,72 @@ rules:
     ).toThrow("Unknown guardrail operation");
   });
 
+  test("global outbound mail domains override ordinary and OPA allows", async () => {
+    const policy = new CompositePolicy([
+      createYamlPolicyFromString(`
+default: allow
+guardrails:
+  outboundEmail:
+    allowedRecipientDomains: [example.org]
+rules:
+  - effect: allow
+`),
+      new OpaPolicyAdapter(() => Promise.resolve({ result: { allow: true } })),
+    ]);
+    const send = { ...input, operation: "gmail.users.messages.send" };
+    expect(
+      await policy.decide({
+        ...send,
+        outboundEmail: { kind: "verified", recipientDomains: ["example.org", "team.example.org"] },
+      }),
+    ).toEqual({ kind: "allow" });
+    expect(
+      await policy.decide({
+        ...send,
+        outboundEmail: { kind: "verified", recipientDomains: ["example.org", "evil-example.org"] },
+      }),
+    ).toEqual({
+      kind: "deny",
+      reason: "Outbound email recipient domain is not allowed",
+      ruleId: "guardrails.outbound_email_domain",
+    });
+    expect(await policy.decide(send)).toEqual({
+      kind: "deny",
+      reason: "Outbound email recipients cannot be verified",
+      ruleId: "guardrails.outbound_email_opaque",
+    });
+    expect(await policy.decide({ ...input, operation: "gmail.users.messages.get" })).toEqual({
+      kind: "allow",
+    });
+  });
+
+  test("validates outbound domain configuration at startup", () => {
+    for (const domain of [
+      "",
+      "https://example.org",
+      "*.example.org",
+      "example.org/path",
+      "-bad.org",
+      "a..org",
+      "com",
+    ]) {
+      expect(() =>
+        createYamlPolicyFromString(
+          `guardrails:\n  outboundEmail:\n    allowedRecipientDomains: ["${domain}"]`,
+        ),
+      ).toThrow();
+    }
+    expect(() => createYamlPolicyFromString("guardrails: { outboundEmail: {} }")).toThrow();
+    expect(() =>
+      createYamlPolicyFromString(
+        "guardrails: { outboundEmail: { allowedRecipientDomains: [example.org], unknown: true } }",
+      ),
+    ).toThrow();
+    expect(() =>
+      createYamlPolicyFromString("guardrails: { outboundEmail: { allowedRecipientDomains: [] } }"),
+    ).toThrow();
+  });
+
   test("maps OPA allow responses to policy decisions without exposing raw args", async () => {
     const adapter = new OpaPolicyAdapter((request) => {
       expect(request.input.tool).toBe("google_drive_files_delete");
@@ -110,6 +176,29 @@ rules:
       kind: "deny",
       reason: "delete disabled for this tenant",
     });
+  });
+
+  test("sends only normalized domains, not mail arguments, to OPA", async () => {
+    const secretAddress = "someone@private.example";
+    const raw = Buffer.from(`To: ${secretAddress}\r\n\r\nSecret body`).toString("base64url");
+    const adapter = new OpaPolicyAdapter((request) => {
+      expect(request.input.outboundEmail).toEqual({
+        kind: "verified",
+        recipientDomains: ["private.example"],
+      });
+      expect(request.input.args).toEqual({});
+      expect(JSON.stringify(request)).not.toContain(secretAddress);
+      expect(JSON.stringify(request)).not.toContain(raw);
+      return Promise.resolve({ result: { allow: true } });
+    });
+    expect(
+      await adapter.decide({
+        ...input,
+        operation: "gmail.users.messages.send",
+        outboundEmail: { kind: "verified", recipientDomains: ["private.example"] },
+        args: { json: { raw }, to: secretAddress },
+      }),
+    ).toEqual({ kind: "allow" });
   });
 
   test("maps OPA approval-required responses explicitly", async () => {

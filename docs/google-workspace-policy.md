@@ -48,6 +48,9 @@ guardrails:
     - calendar.events.delete
     - calendar.calendars.clear
     - calendar.calendars.delete
+  outboundEmail:
+    allowedRecipientDomains:
+      - example.org
 ```
 
 The three entries cover individual event deletion, clearing a calendar, and deleting a calendar.
@@ -55,6 +58,24 @@ They apply before ordered `rules` and before any OPA allow result, to curated to
 tools, and `google_workspace_gws` calls alike. Operation names come from the pinned `gws` command
 catalog. Unknown names, misspellings, and unsupported guardrail fields fail wrapper startup.
 When guardrails are active, ambiguous command arguments fail closed.
+
+`outboundEmail` restricts Gmail sends made through MCP-GW to the listed domains and their
+subdomains. Entries must be lowercase ASCII DNS names, such as `example.org` or an IDN's
+punycode form; no schemes, wildcards, or trailing dots. `example.org` matches
+`team.example.org`, but not `badexample.org`. The restriction checks the effective `To`,
+`Cc`, and `Bcc` recipients before token lookup or CLI execution. It applies equally to
+generated `users.messages.send`, the `gmail +send` helper, and classified raw CLI calls.
+The helper supports its documented `--to`, `--cc`, `--bcc`, `--subject`, `--body`, `--from`,
+`--html`, `--attach`/`-a`, `--dry-run`, and `--draft` flags under this guardrail. Raw
+`messages.send` requires a parseable base64url MIME `json.raw`; upload and alternate body
+forms are denied, as are raw messages over 10 MiB. Malformed or ambiguous address/header forms
+fail closed. Draft-ID sends and reply/reply-all/forward helpers are denied under this guardrail
+because their final recipients depend on mutable provider state. This does **not** disable
+unrelated low-level GWS commands.
+
+This policy governs only mail sent through MCP-GW. For a domain-wide restriction that also
+applies outside MCP-GW, consider Google Workspace Admin's [Restrict delivery](https://knowledge.workspace.google.com/admin/gmail/advanced/restrict-email-messages-to-authorized-addresses-or-domains-only),
+and review its broader effects on inbound mail and Google-service notifications.
 
 The low-level `google_workspace_gws` tool remains available for classified commands. Its `scopes`
 argument is retained for client compatibility but is **not** an authority assertion: MCP-GW now
@@ -123,6 +144,12 @@ OPA should return:
 }
 ```
 
+For Gmail send operations, OPA receives the additive `outboundEmail` fact containing
+normalized **domains only** and an empty `args` object. This deliberately removes raw MIME,
+message bodies, and recipient addresses from the OPA request. Existing OPA rules that inspect
+send arguments must migrate to the normalized fact. Global YAML guardrails are enforced
+before OPA, and an OPA allow cannot override them.
+
 It can also return:
 
 ```json
@@ -165,6 +192,9 @@ googleWorkspace:
           - calendar.events.delete
           - calendar.calendars.clear
           - calendar.calendars.delete
+        outboundEmail:
+          allowedRecipientDomains:
+            - example.org
 ```
 
 See `deploy/k8s/examples/values-google-policy.example.yaml`.

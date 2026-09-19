@@ -133,6 +133,7 @@ export function createGoogleWorkspaceRegistry(
         actionClass: resolved.actionClass,
         scopes: flattenedScopes(scopeRequirement),
         scopeRequirement,
+        ...(resolved.outboundEmail ? { outboundEmail: resolved.outboundEmail } : {}),
         args: resolved.args,
       });
       await enforcePolicyDecision(decision, tool, resolved.args, started, options, diagnosticId);
