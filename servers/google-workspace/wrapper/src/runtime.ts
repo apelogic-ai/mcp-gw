@@ -127,6 +127,7 @@ export function createRuntimeWrapperHandler(
     tokenStore: options.tokenStore,
     fetch: options.fetch,
     audit,
+    consentScopes: providerOAuth?.scopes,
   });
   const connectionLifecycle = new ConnectionLifecycle({
     adapter: new GoogleConnectionAdapter(options.config.oauth, options.fetch),

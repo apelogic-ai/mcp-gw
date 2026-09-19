@@ -1,6 +1,10 @@
 import { normalizedHop1Claims, type Hop1Identity } from "../../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../../shared/audit/audit";
-import type { ScopeRequirementInput } from "../../../../../shared/oauth/connection-types";
+import type {
+  ConnectionPhase,
+  LifecycleErrorCategory,
+  ScopeRequirementInput,
+} from "../../../../../shared/oauth/connection-types";
 import {
   AllowAllPolicy,
   type PolicyDecision,
@@ -21,6 +25,8 @@ export interface GoogleOAuthStatus {
   scopesRequired: string[];
   scopesGranted: string[];
   missingScopes: string[];
+  phase?: ConnectionPhase;
+  errorCategory?: LifecycleErrorCategory;
 }
 
 export interface GoogleOAuthTools {
@@ -88,7 +94,15 @@ export function createGoogleWorkspaceRegistry(
 
       const started = Date.now();
       const tool = getGoogleWorkspaceTool(name, options.governanceCatalogId);
-      if (options.oauth && !options.oauth.status.connected) {
+      if (
+        options.oauth &&
+        !options.oauth.status.connected &&
+        !(
+          options.oauth.status.phase === "reauthorization_required" &&
+          options.oauth.status.errorCategory === "insufficient_scope" &&
+          options.oauth.status.missingScopes.length === 0
+        )
+      ) {
         return providerOAuthRequiredResult();
       }
       validateRequiredArgs(tool, args);

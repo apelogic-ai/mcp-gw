@@ -69,6 +69,8 @@ export interface ConnectionLifecycleOptions {
   adapter: DownstreamConnectionAdapter;
   store: OAuthConnectionStore;
   credentialEncryptionKey: string;
+  /** Current deployment consent contract, required for guarded repair of legacy scope-poisoned rows. */
+  consentScopes?: string[];
   audit?: AuditSink;
   metrics?: ConnectionLifecycleMetricSink;
   now?: () => Date;
@@ -321,12 +323,24 @@ export class ConnectionLifecycle {
     identity: Hop1Identity,
     requiredScopes: ScopeRequirementInput,
   ): Promise<string> {
-    const record = await this.options.store.getConnection(
+    let record = await this.options.store.getConnection(
       this.providerId,
       identity.issuer,
       identity.subject,
     );
+    if (
+      record?.phase === "reauthorization_required" &&
+      record.lifecycleErrorCategory === "insufficient_scope"
+    ) {
+      record = await this.repairLegacyScopePoison(identity);
+    }
     if (!record || record.localDisabledAt) throw reauthorizationRequired();
+    if (record.phase === "reauthorization_required") {
+      throw new ProviderLifecycleError(
+        "Provider connection must be reauthorized",
+        record.lifecycleErrorCategory ?? "invalid_active_credential",
+      );
+    }
     requireToolScopes(this.options.adapter, record.grantedScopes, requiredScopes);
     const generation = decryptGeneration(record, this.options.credentialEncryptionKey);
     if (
@@ -351,6 +365,55 @@ export class ConnectionLifecycle {
       .activeCredential;
     if (!active) throw reauthorizationRequired();
     return active;
+  }
+
+  private async repairLegacyScopePoison(identity: Hop1Identity): Promise<ConnectionRecord | null> {
+    const consentScopes = this.options.consentScopes;
+    if (!consentScopes?.length) {
+      return this.options.store.getConnection(this.providerId, identity.issuer, identity.subject);
+    }
+    return this.options.store.withConnectionLock(
+      this.providerId,
+      identity.issuer,
+      identity.subject,
+      async (store) => {
+        const current = await store.getConnection(
+          this.providerId,
+          identity.issuer,
+          identity.subject,
+        );
+        if (
+          !current ||
+          current.localDisabledAt ||
+          current.phase !== "reauthorization_required" ||
+          current.lifecycleErrorCategory !== "insufficient_scope" ||
+          !scopesSatisfied(this.options.adapter, current.grantedScopes, consentScopes)
+        ) {
+          return current;
+        }
+        const generation = decryptGeneration(current, this.options.credentialEncryptionKey);
+        const activeUsable =
+          Boolean(generation.credential.activeCredential) &&
+          (!generation.activeCredentialExpiresAt ||
+            generation.activeCredentialExpiresAt.getTime() > this.now().getTime());
+        const renewalUsable =
+          this.options.adapter.capabilities.automaticRenewal &&
+          Boolean(generation.credential.renewalCredential) &&
+          (!generation.renewalCredentialExpiresAt ||
+            generation.renewalCredentialExpiresAt.getTime() > this.now().getTime());
+        if (!activeUsable && !renewalUsable) return current;
+        const repaired: ConnectionRecord = {
+          ...current,
+          phase: "connected",
+          lifecycleErrorCategory: undefined,
+          updatedAt: new Date(Math.max(this.now().getTime(), current.updatedAt.getTime() + 1)),
+        };
+        const saved = await store.saveConnection(repaired, connectionWriteGuard(current));
+        return saved
+          ? repaired
+          : store.getConnection(this.providerId, identity.issuer, identity.subject);
+      },
+    );
   }
 
   async refresh(

@@ -12,7 +12,9 @@ while the credential has expired or the lifecycle is marked `reauthorization_req
 `phase` and `errorCategory` before deciding on a reconnect. A tool-specific `insufficient_scope`
 error does not imply that other tools or the whole Google connection are unusable. If the status
 itself reports `insufficient_scope`, compare the deployment's configured consent set with the
-stored `grantedScopes`; a previously poisoned row may also need guarded recovery.
+stored `grantedScopes`. A row poisoned by the older per-tool scope bug is repaired on the next
+credential request only if the full configured consent set is present and usable credential
+material remains; a status read never performs that repair.
 
 For `renewal_expired` or `invalid_renewal_credential`, reconnect is normally needed. For
 `transient_provider_failure` or `persistence_failure`, investigate provider availability and

@@ -103,6 +103,68 @@ describe("provider-neutral connection lifecycle", () => {
     });
   });
 
+  test("repairs only a legacy tool-scope-poisoned row with a complete consent grant", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      consentScopes: scopes,
+    });
+    await authorize(lifecycle, "active-1", "renewal-1");
+    const current = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await store.saveConnection(
+      {
+        ...current,
+        phase: "reauthorization_required",
+        lifecycleErrorCategory: "insufficient_scope",
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+
+    expect(await lifecycle.getActiveCredential(identity, ["read"])).toBe("active-1");
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      connected: true,
+      phase: "connected",
+    });
+    expect(adapter.renewCalls).toBe(0);
+  });
+
+  test("does not repair a genuinely incomplete consent grant", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const lifecycle = new ConnectionLifecycle({
+      adapter: new FixtureAdapter(),
+      store,
+      credentialEncryptionKey: key,
+      consentScopes: scopes,
+    });
+    await authorize(lifecycle, "active-1", "renewal-1");
+    const current = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await store.saveConnection(
+      {
+        ...current,
+        grantedScopes: ["read"],
+        phase: "reauthorization_required",
+        lifecycleErrorCategory: "insufficient_scope",
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+
+    expect(lifecycle.getActiveCredential(identity, ["read"])).rejects.toMatchObject({
+      category: "insufficient_scope",
+    });
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      connected: false,
+      phase: "reauthorization_required",
+      missingScopes: ["write"],
+    });
+  });
+
   test("returns truthful sanitized status without decrypting the credential envelope", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();

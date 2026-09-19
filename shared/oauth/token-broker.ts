@@ -17,6 +17,7 @@ export interface GoogleTokenBrokerOptions {
   fetch?: OAuthFetch;
   now?: () => number;
   audit?: AuditSink;
+  consentScopes?: string[];
 }
 
 export class GoogleTokenBroker {
@@ -32,6 +33,7 @@ export class GoogleTokenBroker {
         adapter: new GoogleConnectionAdapter(this.options.config, this.options.fetch),
         store: this.options.tokenStore,
         credentialEncryptionKey: this.options.config.tokenEncryptionKey,
+        consentScopes: this.options.consentScopes,
         now: now ? () => new Date(now()) : undefined,
         audit: this.options.audit,
       }).getActiveCredential(identity, requiredScopes);

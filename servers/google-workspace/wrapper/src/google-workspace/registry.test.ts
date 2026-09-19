@@ -364,6 +364,36 @@ describe("Google Workspace request registry", () => {
     expect(brokerRequirement).toEqual(requirement);
   });
 
+  test("lets brokerage attempt guarded recovery of a legacy scope-poisoned row", async () => {
+    let brokerCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      oauth: {
+        status: {
+          connected: false,
+          phase: "reauthorization_required",
+          errorCategory: "insufficient_scope",
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: ["https://www.googleapis.com/auth/drive"],
+          missingScopes: [],
+        },
+        startOAuth: () => Promise.resolve({ authorizationUrl: "https://example.com" }),
+      },
+      tokenBroker: {
+        getAccessToken: () => {
+          brokerCalls += 1;
+          return Promise.resolve("active");
+        },
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    expect(await registry.callTool("google_drive_files_list", {})).toMatchObject({
+      content: [{ type: "text" }],
+    });
+    expect(brokerCalls).toBe(1);
+  });
+
   test("preserves per-service provider authority in legacy and catalog modes", async () => {
     for (const governanceCatalogId of [undefined, GOOGLE_WORKSPACE_CATALOG_ID]) {
       const policyInputs: ToolPolicyInput[] = [];
