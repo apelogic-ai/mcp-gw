@@ -10,9 +10,10 @@ import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
 import { createYamlPolicyFromString, OpaPolicyAdapter } from "../../../../../shared/policy/policy";
 import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { GWS_GENERATED_TOOLS } from "../catalog/gws-generated";
-import { SEND_OPERATIONS } from "../../../../../shared/policy/policy";
+import { OPAQUE_MAIL_OPERATIONS, SEND_OPERATIONS } from "../../../../../shared/policy/policy";
 import { GwsExecutionError } from "../executor/gws";
 import { createGoogleWorkspaceRegistry } from "./registry";
+import { PINNED_GWS_OPERATIONS } from "./operation-resolver";
 
 const identity: Hop1Identity = {
   profile: "google",
@@ -42,7 +43,12 @@ describe("Google Workspace request registry", () => {
           (tool.command[1]?.startsWith("+") &&
             tool.scopes.includes("https://www.googleapis.com/auth/gmail.send"))),
     ).map((tool) => tool.command.join("."));
-    expect(new Set(sendCapable)).toEqual(new Set(SEND_OPERATIONS));
+    expect(new Set(sendCapable)).toEqual(
+      new Set([...SEND_OPERATIONS].filter((operation) => !OPAQUE_MAIL_OPERATIONS.has(operation))),
+    );
+    for (const operation of OPAQUE_MAIL_OPERATIONS) {
+      expect(PINNED_GWS_OPERATIONS.has(operation)).toBe(true);
+    }
   });
   test("advertises a stable Google catalog and fails data calls closed before consent", async () => {
     let policyCalls = 0;
@@ -910,6 +916,34 @@ guardrails:
     for (const [name, args] of cases) {
       await expectPolicyRejection(
         registry.callTool(name, args),
+        "Outbound email recipients cannot be verified",
+      );
+    }
+  });
+
+  test("blocks indirect mail-producing commands when recipients cannot be proven", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(
+        "guardrails: { outboundEmail: { allowedRecipientDomains: [example.org] } }",
+      ),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+    for (const command of [
+      ["script", "scripts", "run"],
+      ["gmail", "users", "settings", "forwardingAddresses", "create"],
+      ["gmail", "users", "settings", "updateAutoForwarding"],
+      ["gmail", "users", "settings", "filters", "create"],
+      ["gmail", "users", "settings", "updateVacation"],
+      ["gmail", "users", "settings", "sendAs", "create"],
+      ["gmail", "users", "settings", "sendAs", "verify"],
+    ]) {
+      await expectPolicyRejection(
+        registry.callTool("google_workspace_gws", {
+          argv: [...command, "--json", "{}"],
+          scopes: [],
+        }),
         "Outbound email recipients cannot be verified",
       );
     }

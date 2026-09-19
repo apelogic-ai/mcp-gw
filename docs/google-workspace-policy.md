@@ -70,8 +70,12 @@ The helper supports its documented `--to`, `--cc`, `--bcc`, `--subject`, `--body
 `messages.send` requires a parseable base64url MIME `json.raw`; upload and alternate body
 forms are denied, as are raw messages over 10 MiB. Malformed or ambiguous address/header forms
 fail closed. Draft-ID sends and reply/reply-all/forward helpers are denied under this guardrail
-because their final recipients depend on mutable provider state. This does **not** disable
-unrelated low-level GWS commands.
+because their final recipients depend on mutable provider state. The guard also blocks
+indirect mail-producing operations whose recipients cannot be proven at dispatch time:
+Apps Script `scripts.run`, forwarding-address creation and auto-forwarding changes, filter
+creation, vacation-responder changes, and send-as creation/verification. Some of these
+operations are blocked even when a particular invocation would be harmless; their effects
+can depend on later provider state. This does **not** disable unrelated low-level GWS commands.
 
 This policy governs only mail sent through MCP-GW. For a domain-wide restriction that also
 applies outside MCP-GW, consider Google Workspace Admin's [Restrict delivery](https://knowledge.workspace.google.com/admin/gmail/advanced/restrict-email-messages-to-authorized-addresses-or-domains-only),

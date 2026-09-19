@@ -315,7 +315,18 @@ function parseYamlGuardrails(value: unknown): YamlPolicyConfig["guardrails"] {
   return { deniedOperations, outboundEmail };
 }
 
-/** Every pinned Gmail operation that can deliver mail or derive recipients by reference. */
+/** Indirect mail-producing operations whose eventual recipient set is not fixed by this call. */
+export const OPAQUE_MAIL_OPERATIONS: ReadonlySet<string> = new Set([
+  "script.scripts.run",
+  "gmail.users.settings.forwardingAddresses.create",
+  "gmail.users.settings.updateAutoForwarding",
+  "gmail.users.settings.filters.create",
+  "gmail.users.settings.updateVacation",
+  "gmail.users.settings.sendAs.create",
+  "gmail.users.settings.sendAs.verify",
+]);
+
+/** Every pinned route that can directly or indirectly produce outgoing mail. */
 export const SEND_OPERATIONS: ReadonlySet<string> = new Set([
   "gmail.users.messages.send",
   "gmail.users.drafts.send",
@@ -323,6 +334,7 @@ export const SEND_OPERATIONS: ReadonlySet<string> = new Set([
   "gmail.+reply",
   "gmail.+reply-all",
   "gmail.+forward",
+  ...OPAQUE_MAIL_OPERATIONS,
 ]);
 
 function parseYamlPolicyRule(value: unknown, index: number): YamlPolicyRule {
