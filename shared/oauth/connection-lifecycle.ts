@@ -1542,6 +1542,7 @@ function statusFromRecord(
     (scope) => !scopesSatisfied(adapter, record.grantedScopes, [scope]),
   );
   let phase = record.phase;
+  let errorCategory = record.lifecycleErrorCategory;
   if (record.phase === "authorizing") {
     phase = "authorizing";
   } else if (record.localDisabledAt) {
@@ -1553,6 +1554,7 @@ function statusFromRecord(
           : "disconnected";
   } else if (missingScopes.length > 0) {
     phase = "reauthorization_required";
+    errorCategory = "insufficient_scope";
   } else if (
     (!record.activeCredentialPresent && !record.renewalCredentialPresent) ||
     (!record.activeCredentialPresent &&
@@ -1567,6 +1569,11 @@ function statusFromRecord(
           record.renewalCredentialExpiresAt.getTime() <= now.getTime())))
   ) {
     phase = "reauthorization_required";
+    errorCategory =
+      record.renewalCredentialExpiresAt &&
+      record.renewalCredentialExpiresAt.getTime() <= now.getTime()
+        ? "renewal_expired"
+        : "invalid_active_credential";
   }
   const connected = !record.localDisabledAt && phase === "connected" && missingScopes.length === 0;
   return {
@@ -1580,13 +1587,16 @@ function statusFromRecord(
     requiredScopes: [...requiredScopes],
     grantedScopes: [...record.grantedScopes],
     missingScopes,
+    activeCredentialPresent: record.activeCredentialPresent,
+    renewalCredentialPresent: record.renewalCredentialPresent,
     activeCredentialExpiresAt: iso(record.activeCredentialExpiresAt),
     renewalCredentialExpiresAt: iso(record.renewalCredentialExpiresAt),
     lastAuthorizedAt: iso(record.lastAuthorizedAt),
     lastRenewedAt: iso(record.lastRenewedAt),
     lastValidatedAt: iso(record.lastValidatedAt),
+    statusUpdatedAt: iso(record.updatedAt),
     capabilities: { ...adapter.capabilities },
-    errorCategory: record.lifecycleErrorCategory,
+    errorCategory,
   };
 }
 
@@ -1602,11 +1612,14 @@ function disconnectedStatus(
     requiredScopes: [...requiredScopes],
     grantedScopes: [],
     missingScopes: [...requiredScopes],
+    activeCredentialPresent: false,
+    renewalCredentialPresent: false,
     activeCredentialExpiresAt: null,
     renewalCredentialExpiresAt: null,
     lastAuthorizedAt: null,
     lastRenewedAt: null,
     lastValidatedAt: null,
+    statusUpdatedAt: null,
     capabilities: { ...adapter.capabilities },
   };
 }

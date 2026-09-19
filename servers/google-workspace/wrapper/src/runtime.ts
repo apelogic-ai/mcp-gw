@@ -10,6 +10,7 @@ import {
 } from "../../../../shared/identity/hop1";
 import { startGoogleOAuth, type OAuthFetch } from "../../../../shared/oauth/google";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { googleOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 import { GoogleTokenBroker } from "../../../../shared/oauth/token-broker";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
@@ -160,13 +161,7 @@ export function createRuntimeWrapperHandler(
     getOAuthStatus: providerOAuth
       ? async (identity) => {
           const status = await connectionLifecycle.status(identity, providerOAuth.scopes);
-          return {
-            connected: status.connected,
-            ...(status.account ? { email: status.account.displayName } : {}),
-            scopesRequired: status.requiredScopes,
-            scopesGranted: status.grantedScopes,
-            missingScopes: status.missingScopes,
-          };
+          return googleOAuthCompatibilityStatus(status);
         }
       : undefined,
     startOAuth: providerOAuth

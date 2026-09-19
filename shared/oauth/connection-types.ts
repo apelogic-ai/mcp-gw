@@ -240,11 +240,14 @@ export interface ConnectionStatusV1 {
   requiredScopes: string[];
   grantedScopes: string[];
   missingScopes: string[];
+  activeCredentialPresent: boolean;
+  renewalCredentialPresent: boolean;
   activeCredentialExpiresAt: string | null;
   renewalCredentialExpiresAt: string | null;
   lastAuthorizedAt: string | null;
   lastRenewedAt: string | null;
   lastValidatedAt: string | null;
+  statusUpdatedAt: string | null;
   capabilities: ProviderConnectionCapabilities;
   errorCategory?: LifecycleErrorCategory;
 }

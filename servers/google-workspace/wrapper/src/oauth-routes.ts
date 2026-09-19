@@ -11,6 +11,7 @@ import {
 import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { googleOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import {
   createConnectionRouteHandler,
   withConnectionErrorMapping,
@@ -169,14 +170,7 @@ export function createOAuthRouteHandler(
 
     if (request.method === "GET" && url.pathname === "/oauth/google/status") {
       const status = await lifecycle.status(identity, options.scopes);
-      if (status.phase === "disconnected") return json({ connected: false });
-      return json({
-        connected: status.connected,
-        ...(status.account ? { email: status.account.displayName } : {}),
-        scopesRequired: status.requiredScopes,
-        scopesGranted: status.grantedScopes,
-        missingScopes: status.missingScopes,
-      });
+      return json(googleOAuthCompatibilityStatus(status));
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/google/refresh") {

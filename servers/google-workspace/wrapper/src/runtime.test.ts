@@ -14,6 +14,7 @@ import {
   InMemoryOAuthTokenStore,
 } from "../../../../shared/oauth/memory-store";
 import { completeGoogleOAuth, startGoogleOAuth } from "../../../../shared/oauth/google";
+import { connectionWriteGuard } from "../../../../shared/oauth/store";
 import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
 import {
   createRuntimeAuthenticator,
@@ -504,6 +505,75 @@ describe("runtime wrapper wiring", () => {
     const names = body.result.tools.map((tool) => tool.name);
     expect(names.slice(0, 2)).toEqual(["google_oauth_status", "google_oauth_start"]);
     expect(names).toContain("google_drive_files_list");
+  });
+
+  test("MCP OAuth status reports why a complete grant is unavailable", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const scopes = ["https://www.googleapis.com/auth/drive"];
+    await tokenStore.saveAccount({
+      provider: "google",
+      hop1Issuer: hop1.issuer,
+      hop1Subject: "google-subject",
+      email: "user@example.com",
+      scopesGranted: scopes,
+      encryptedRefreshToken: "encrypted-fixture",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const current = await tokenStore.getConnection("google", hop1.issuer, "google-subject");
+    if (!current) throw new Error("missing connection fixture");
+    await tokenStore.saveConnection(
+      {
+        ...current,
+        phase: "reauthorization_required",
+        lifecycleErrorCategory: "insufficient_scope",
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+    const handler = createRuntimeWrapperHandler({
+      config: {
+        gwsBinary: await fakeGws(),
+        hop1,
+        hop1Issuers: [{ ...hop1, jwksUrl: "https://www.googleapis.com/oauth2/v3/certs" }],
+        oauth: {
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          redirectUri: "https://dev.example.com/oauth/google/callback",
+          tokenEncryptionKey,
+        },
+      },
+      tokenStore,
+      providerOAuth: { scopes, stateStore: new InMemoryOAuthStateStore() },
+      issuers: [{ profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) }],
+    });
+
+    const response = await handler(
+      new Request("http://127.0.0.1/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${await signHop1Token()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "status",
+          method: "tools/call",
+          params: { name: "google_oauth_status", arguments: {} },
+        }),
+      }),
+    );
+    const body = (await response.json()) as {
+      result: { content: { text: string }[] };
+    };
+    expect(JSON.parse(body.result.content[0]?.text ?? "{}")).toMatchObject({
+      connected: false,
+      phase: "reauthorization_required",
+      errorCategory: "insufficient_scope",
+      scopesGranted: scopes,
+      missingScopes: [],
+      renewalCredentialPresent: true,
+    });
   });
 
   test("creates YAML, OPA policy, and JSONL audit sinks from runtime config", async () => {

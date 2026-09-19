@@ -129,6 +129,30 @@ describe("provider-neutral connection lifecycle", () => {
     expect(JSON.stringify(status)).not.toContain("renewal-1");
   });
 
+  test("status distinguishes an expired renewal credential without decrypting it", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const lifecycle = fixtureLifecycle(store, new FixtureAdapter());
+    await authorize(lifecycle, "expired-active", "expired-renewal", new Date(Date.now() - 1));
+    const current = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await store.saveConnection(
+      {
+        ...current,
+        renewalCredentialExpiresAt: new Date(Date.now() - 1),
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      connected: false,
+      phase: "reauthorization_required",
+      errorCategory: "renewal_expired",
+      activeCredentialPresent: true,
+      renewalCredentialPresent: true,
+    });
+  });
+
   test("isolates connection state by immutable HOP-1 issuer and subject", async () => {
     const store = new InMemoryOAuthTokenStore();
     const lifecycle = fixtureLifecycle(store, new FixtureAdapter());
