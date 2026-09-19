@@ -323,6 +323,7 @@ export class ConnectionLifecycle {
   async getActiveCredential(
     identity: Hop1Identity,
     requiredScopes: ScopeRequirementInput,
+    expectedGrantedScopes?: readonly string[],
   ): Promise<string> {
     let record = await this.options.store.getConnection(
       this.providerId,
@@ -336,6 +337,7 @@ export class ConnectionLifecycle {
       record = await this.repairLegacyScopePoison(identity);
     }
     if (!record || record.localDisabledAt) throw reauthorizationRequired();
+    requireUnchangedGrant(record.grantedScopes, expectedGrantedScopes);
     if (record.phase === "reauthorization_required") {
       throw new ProviderLifecycleError(
         "Provider connection must be reauthorized",
@@ -361,6 +363,7 @@ export class ConnectionLifecycle {
       identity.subject,
     );
     if (!renewed || renewed.localDisabledAt) throw reauthorizationRequired();
+    requireUnchangedGrant(renewed.grantedScopes, expectedGrantedScopes);
     requireToolScopes(this.options.adapter, renewed.grantedScopes, requiredScopes);
     const active = decryptGeneration(renewed, this.options.credentialEncryptionKey).credential
       .activeCredential;
@@ -1873,6 +1876,16 @@ function scopeRequirementSatisfied(
       group.anyOf.length > 0 &&
       group.anyOf.some((scope) => scopesSatisfied(adapter, granted, [scope])),
   );
+}
+
+function requireUnchangedGrant(actual: string[], expected?: readonly string[]): void {
+  if (!expected) return;
+  if (actual.length !== expected.length || actual.some((scope) => !expected.includes(scope))) {
+    throw new ProviderLifecycleError(
+      "Provider grant changed during policy evaluation",
+      "generation_conflict",
+    );
+  }
 }
 
 function scopesSatisfied(

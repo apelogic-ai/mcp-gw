@@ -25,10 +25,24 @@ export interface GoogleTokenBrokerOptions {
 export class GoogleTokenBroker {
   constructor(private readonly options: GoogleTokenBrokerOptions) {}
 
+  async getGrantedScopes(identity: Hop1Identity): Promise<string[]> {
+    try {
+      const record = await this.options.tokenStore.getConnection(
+        "google",
+        identity.issuer,
+        identity.subject,
+      );
+      return [...(record?.grantedScopes ?? [])];
+    } catch {
+      throw new ProviderLifecycleError("Google grant lookup failed", "persistence_failure");
+    }
+  }
+
   async getAccessToken(
     identity: Hop1Identity,
     requiredScopes: ScopeRequirementInput,
     diagnosticId?: string,
+    expectedGrantedScopes?: readonly string[],
   ): Promise<string> {
     const now = this.options.now;
     try {
@@ -41,7 +55,7 @@ export class GoogleTokenBroker {
         audit: this.options.audit,
         metrics: this.options.metrics,
         diagnosticId,
-      }).getActiveCredential(identity, requiredScopes);
+      }).getActiveCredential(identity, requiredScopes, expectedGrantedScopes);
     } catch (error) {
       if (lifecycleErrorRequiresReauthorization(error)) {
         throw new GoogleOAuthError("Google account must be reconnected", "reauth_required");

@@ -267,6 +267,7 @@ describe("Google Workspace wrapper app", () => {
         return Promise.resolve(identity);
       },
       tokenBroker: {
+        getGrantedScopes: () => Promise.resolve(["https://www.googleapis.com/auth/drive"]),
         getAccessToken: (_identity, scopes) => {
           if (Array.isArray(scopes)) throw new Error("Expected a derived scope requirement");
           expect(scopes.allOf[0]?.anyOf).toContain("https://www.googleapis.com/auth/drive");
@@ -330,6 +331,7 @@ describe("Google Workspace wrapper app", () => {
       startOAuth: () =>
         Promise.resolve({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth" }),
       tokenBroker: {
+        getGrantedScopes: () => Promise.resolve(["https://www.googleapis.com/auth/drive"]),
         getAccessToken: () => Promise.resolve("google-access-token"),
       },
       executor: () => Promise.resolve({ ok: true }),
@@ -373,6 +375,7 @@ describe("Google Workspace wrapper app", () => {
         decide: () => Promise.resolve({ kind: "deny", reason: "delete disabled" }),
       },
       tokenBroker: {
+        getGrantedScopes: () => Promise.resolve(["https://www.googleapis.com/auth/drive"]),
         getAccessToken: () => Promise.reject(new Error("token lookup should not run")),
       },
       executor: () => Promise.reject(new Error("executor should not run")),

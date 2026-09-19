@@ -13,6 +13,7 @@ import {
   type AuthorizationContinuation,
   type CompleteAuthorizationRequest,
   type IssuedCredentialGeneration,
+  type ScopeRequirementInput,
 } from "./connection-types";
 
 const GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -429,6 +430,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasGoogleScope(granted: Set<string>, required: string): boolean {
   if (granted.has(required)) return true;
   return [...granted].some((scope) => googleScopeImplies(scope, required));
+}
+
+/** Select the authority actually held for each method requirement, never its full OR-list. */
+export function effectiveGoogleScopes(
+  grantedScopes: string[],
+  requirement: ScopeRequirementInput,
+): string[] {
+  const groups = Array.isArray(requirement)
+    ? requirement.map((scope) => ({ anyOf: [scope] }))
+    : requirement.allOf;
+  const selected = groups.flatMap(({ anyOf }) => {
+    for (const accepted of anyOf) {
+      const exact = grantedScopes.find((granted) => granted === accepted);
+      if (exact) return [exact];
+    }
+    for (const accepted of anyOf) {
+      const impliedBy = grantedScopes.find((granted) => googleScopeImplies(granted, accepted));
+      if (impliedBy) return [impliedBy];
+    }
+    return [];
+  });
+  return [...new Set(selected)];
 }
 
 function googleScopeImplies(granted: string, required: string): boolean {

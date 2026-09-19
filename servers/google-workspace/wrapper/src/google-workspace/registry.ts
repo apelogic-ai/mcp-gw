@@ -8,6 +8,7 @@ import {
   ProviderToolScopeError,
 } from "../../../../../shared/oauth/connection-types";
 import { GoogleOAuthError } from "../../../../../shared/oauth/google";
+import { effectiveGoogleScopes } from "../../../../../shared/oauth/provider-adapters";
 import type {
   ConnectionPhase,
   LifecycleErrorCategory,
@@ -43,10 +44,12 @@ export interface GoogleOAuthTools {
 }
 
 export interface AccessTokenBroker {
+  getGrantedScopes(identity: Hop1Identity): Promise<string[]>;
   getAccessToken(
     identity: Hop1Identity,
     requiredScopes: ScopeRequirementInput,
     diagnosticId?: string,
+    expectedGrantedScopes?: readonly string[],
   ): Promise<string>;
 }
 
@@ -123,6 +126,12 @@ export function createGoogleWorkspaceRegistry(
       validateRequiredArgs(tool, args);
       const resolved = resolveWorkspaceOperation(tool, args, policy.hardGuardrails === true);
       const scopeRequirement = resolved.scopeRequirement;
+      let grantedScopes: string[];
+      try {
+        grantedScopes = await options.tokenBroker.getGrantedScopes(options.identity);
+      } catch (error) {
+        return reportToolError(error, tool, resolved.args, started, options, diagnosticId);
+      }
 
       const decision = await policy.decide({
         principal: options.identity.email,
@@ -131,18 +140,27 @@ export function createGoogleWorkspaceRegistry(
         operation: resolved.operation,
         service: resolved.service,
         actionClass: resolved.actionClass,
-        scopes: flattenedScopes(scopeRequirement),
+        scopes: effectiveGoogleScopes(grantedScopes, scopeRequirement),
         scopeRequirement,
         ...(resolved.outboundEmail ? { outboundEmail: resolved.outboundEmail } : {}),
         args: resolved.args,
       });
-      await enforcePolicyDecision(decision, tool, resolved.args, started, options, diagnosticId);
+      await enforcePolicyDecision(
+        decision,
+        tool,
+        resolved.operation,
+        resolved.args,
+        started,
+        options,
+        diagnosticId,
+      );
 
       try {
         const accessToken = await options.tokenBroker.getAccessToken(
           options.identity,
           scopeRequirement,
           diagnosticId,
+          grantedScopes,
         );
         const result = await options.executor({
           tool,
@@ -163,29 +181,40 @@ export function createGoogleWorkspaceRegistry(
 
         return formatToolResult(result);
       } catch (error) {
-        if (error instanceof ProviderToolScopeError) {
-          recordMetricSafely(options.metrics, {
-            name: "tool_scope_denied",
-            provider: "google",
-            operation: tool.name,
-            diagnosticId,
-            value: 1,
-          });
-        }
-        await options.audit?.emit({
-          ts: new Date().toISOString(),
-          category: "tool_call",
-          principal: options.identity.email,
-          status: "error",
-          tool: tool.name,
-          argDigest: digestArgs(resolved.args),
-          latencyMs: Date.now() - started,
-          error: error instanceof Error ? error.message : "Unknown tool error",
-        });
-        return formatToolError(error, diagnosticId);
+        return reportToolError(error, tool, resolved.args, started, options, diagnosticId);
       }
     },
   };
+}
+
+async function reportToolError(
+  error: unknown,
+  tool: Pick<WorkspaceToolDefinition, "name">,
+  args: Record<string, unknown>,
+  started: number,
+  options: CreateGoogleWorkspaceRegistryOptions,
+  diagnosticId: string,
+): Promise<ToolResult> {
+  if (error instanceof ProviderToolScopeError) {
+    recordMetricSafely(options.metrics, {
+      name: "tool_scope_denied",
+      provider: "google",
+      operation: tool.name,
+      diagnosticId,
+      value: 1,
+    });
+  }
+  await options.audit?.emit({
+    ts: new Date().toISOString(),
+    category: "tool_call",
+    principal: options.identity.email,
+    status: "error",
+    tool: tool.name,
+    argDigest: digestArgs(args),
+    latencyMs: Date.now() - started,
+    error: error instanceof Error ? error.message : "Unknown tool error",
+  });
+  return formatToolError(error, diagnosticId);
 }
 
 function providerOAuthRequiredResult(): ToolResult {
@@ -275,6 +304,7 @@ function formatCompactToolResult(result: unknown): ToolResult {
 async function enforcePolicyDecision(
   decision: PolicyDecision,
   tool: Pick<WorkspaceToolDefinition, "name">,
+  operation: string,
   args: Record<string, unknown>,
   started: number,
   options: CreateGoogleWorkspaceRegistryOptions,
@@ -320,12 +350,6 @@ function validateRequiredArgs(tool: WorkspaceToolDefinition, args: Record<string
   if (missing.length > 0) {
     throw new Error(`Missing required arguments for ${tool.name}: ${missing.join(", ")}`);
   }
-}
-
-function flattenedScopes(required: ScopeRequirementInput): string[] {
-  return Array.isArray(required)
-    ? required
-    : [...new Set(required.allOf.flatMap((group) => group.anyOf))];
 }
 
 function formatToolResult(result: unknown): ToolResult {

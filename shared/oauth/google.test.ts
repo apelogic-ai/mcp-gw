@@ -74,6 +74,40 @@ describe("Google OAuth consent flow", () => {
     ).toBe("connected");
   });
 
+  test("rejects a token when the stored grant changes after policy inspected it", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const started = await startGoogleOAuth({
+      identity,
+      scopes,
+      config,
+      stateStore,
+      tokenStore,
+    });
+    await completeGoogleOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: successFetchWithScopes("user@example.com", scopes),
+    });
+    const broker = new GoogleTokenBroker({ config, tokenStore });
+    const policySnapshot = await broker.getGrantedScopes(identity);
+    const current = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection");
+    expect(
+      await tokenStore.saveConnection(
+        { ...current, grantedScopes: ["https://www.googleapis.com/auth/drive.file"] },
+        connectionWriteGuard(current),
+      ),
+    ).toBe(true);
+    expect(broker.getAccessToken(identity, [], undefined, policySnapshot)).rejects.toMatchObject({
+      category: "generation_conflict",
+    });
+  });
+
   test("does not treat full Drive as an apps.list grant", () => {
     const adapter = new GoogleConnectionAdapter(config);
     expect(

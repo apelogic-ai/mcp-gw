@@ -9,13 +9,16 @@ import {
 import type { AuditSink } from "../../../../shared/audit/audit";
 import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
-import type { ScopeRequirementInput } from "../../../../shared/oauth/connection-types";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
 import {
   GOOGLE_WORKSPACE_CATALOG_ID,
   type GoogleWorkspaceCatalogId,
 } from "./catalog/google-workspace";
-import type { GoogleOAuthStatus, WorkspaceToolExecutor } from "./google-workspace/registry";
+import type {
+  AccessTokenBroker,
+  GoogleOAuthStatus,
+  WorkspaceToolExecutor,
+} from "./google-workspace/registry";
 import { createGoogleWorkspaceRegistry } from "./google-workspace/registry";
 import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
 
@@ -62,13 +65,7 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
     identity: Hop1Identity,
     redirectAfter?: string,
   ) => Promise<{ authorizationUrl: string }>;
-  tokenBroker: {
-    getAccessToken(
-      identity: Hop1Identity,
-      requiredScopes: ScopeRequirementInput,
-      diagnosticId?: string,
-    ): Promise<string>;
-  };
+  tokenBroker: AccessTokenBroker;
   executor: WorkspaceToolExecutor;
   governanceCatalogId?: GoogleWorkspaceCatalogId;
 }
@@ -89,8 +86,15 @@ export function createGoogleWorkspaceWrapperHandler(
         metrics: options.metrics,
         policy: options.policy,
         tokenBroker: {
-          getAccessToken: (requestIdentity, scopes, diagnosticId) =>
-            options.tokenBroker.getAccessToken(requestIdentity, scopes, diagnosticId),
+          getGrantedScopes: (requestIdentity) =>
+            options.tokenBroker.getGrantedScopes(requestIdentity),
+          getAccessToken: (requestIdentity, scopes, diagnosticId, expectedGrantedScopes) =>
+            options.tokenBroker.getAccessToken(
+              requestIdentity,
+              scopes,
+              diagnosticId,
+              expectedGrantedScopes,
+            ),
         },
         oauth:
           oauthStatus && startOAuth

@@ -12,7 +12,11 @@ import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/
 import { GWS_GENERATED_TOOLS } from "../catalog/gws-generated";
 import { OPAQUE_MAIL_OPERATIONS, SEND_OPERATIONS } from "../../../../../shared/policy/policy";
 import { GwsExecutionError } from "../executor/gws";
-import { createGoogleWorkspaceRegistry } from "./registry";
+import {
+  createGoogleWorkspaceRegistry as createRegistry,
+  type AccessTokenBroker,
+  type CreateGoogleWorkspaceRegistryOptions,
+} from "./registry";
 import { PINNED_GWS_OPERATIONS } from "./operation-resolver";
 
 const identity: Hop1Identity = {
@@ -22,6 +26,21 @@ const identity: Hop1Identity = {
   email: "user@example.com",
   claims: {},
 };
+
+function createGoogleWorkspaceRegistry(
+  options: Omit<CreateGoogleWorkspaceRegistryOptions, "tokenBroker"> & {
+    tokenBroker: Pick<AccessTokenBroker, "getAccessToken"> &
+      Partial<Pick<AccessTokenBroker, "getGrantedScopes">>;
+  },
+) {
+  return createRegistry({
+    ...options,
+    tokenBroker: {
+      getGrantedScopes: () => Promise.resolve(options.oauth?.status.scopesGranted ?? []),
+      ...options.tokenBroker,
+    },
+  });
+}
 
 async function expectPolicyRejection(result: Promise<unknown>, message: string): Promise<void> {
   let rejection: unknown;
@@ -371,7 +390,7 @@ describe("Google Workspace request registry", () => {
     expect(audit.events[0]?.tool).toBe("google_drive_files_create");
   });
 
-  test("passes all generated method scope alternatives through policy and brokerage", async () => {
+  test("passes generated alternatives to brokerage and effective scope to policy", async () => {
     let policyInput: ToolPolicyInput | undefined;
     let brokerRequirement: ScopeRequirementInput | undefined;
     const registry = createGoogleWorkspaceRegistry({
@@ -383,6 +402,7 @@ describe("Google Workspace request registry", () => {
         },
       },
       tokenBroker: {
+        getGrantedScopes: () => Promise.resolve(["https://www.googleapis.com/auth/gmail.readonly"]),
         getAccessToken: (_identity, required) => {
           brokerRequirement = required;
           return Promise.resolve("access-token");
@@ -398,7 +418,7 @@ describe("Google Workspace request registry", () => {
       "https://www.googleapis.com/auth/gmail.readonly",
     );
     expect(policyInput?.scopeRequirement).toEqual(requirement);
-    expect(policyInput?.scopes).toEqual(requirement?.allOf[0]?.anyOf);
+    expect(policyInput?.scopes).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
     expect(brokerRequirement).toEqual(requirement);
   });
 
@@ -535,6 +555,70 @@ describe("Google Workspace request registry", () => {
       });
       expect(result.content[0]?.text).toContain('"executionService": "drive"');
     }
+  });
+
+  test("scope allow rules use the effective grant, not every accepted alternative", async () => {
+    const fileScope = "https://www.googleapis.com/auth/drive.file";
+    const driveScope = "https://www.googleapis.com/auth/drive";
+    const policy = createYamlPolicyFromString(`
+default: deny
+rules:
+  - effect: allow
+    match:
+      scope: ${fileScope}
+`);
+    for (const grantedScopes of [[driveScope], [driveScope, fileScope], [fileScope]]) {
+      let tokenCalls = 0;
+      let executorCalls = 0;
+      const registry = createGoogleWorkspaceRegistry({
+        identity,
+        policy,
+        tokenBroker: {
+          getGrantedScopes: () => Promise.resolve(grantedScopes),
+          getAccessToken: () => {
+            tokenCalls += 1;
+            return Promise.resolve("access-token");
+          },
+        },
+        executor: () => {
+          executorCalls += 1;
+          return Promise.resolve({ ok: true });
+        },
+      });
+      const call = registry.callTool("gws_drive_files_delete", { params: { fileId: "file-123" } });
+      if (grantedScopes.includes(driveScope)) {
+        await expectPolicyRejection(call, "Policy denied gws_drive_files_delete");
+        expect(tokenCalls).toBe(0);
+        expect(executorCalls).toBe(0);
+      } else {
+        await call;
+        expect(tokenCalls).toBe(1);
+        expect(executorCalls).toBe(1);
+      }
+    }
+  });
+
+  test("classifies a failed pre-policy grant lookup without running policy or the tool", async () => {
+    let policyCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getGrantedScopes: () =>
+          Promise.reject(new ProviderLifecycleError("store detail", "persistence_failure")),
+        getAccessToken: () => Promise.reject(new Error("broker must not run")),
+      },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+    const result = await registry.callTool("gws_drive_files_list", {});
+    expect(result.structuredContent).toMatchObject({ error: "persistence_failure" });
+    expect(policyCalls).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("store detail");
   });
 
   test("does not accept google as authority for an ordinary per-service tool", async () => {
