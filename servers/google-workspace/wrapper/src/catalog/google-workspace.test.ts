@@ -304,14 +304,37 @@ describe("Google Workspace tool catalog", () => {
   });
 
   test("attaches generated Discovery scopes to visible tools", () => {
-    expect(getGoogleWorkspaceTool("gws_slides_presentations_batch_update").scopes).toEqual([
-      "https://www.googleapis.com/auth/drive",
-    ]);
-    expect(getGoogleWorkspaceTool("gws_gmail_users_messages_send").scopes).toEqual([
-      "https://mail.google.com/",
-    ]);
-    expect(getGoogleWorkspaceTool("gws_drive_files_copy").scopes).toEqual([
-      "https://www.googleapis.com/auth/drive",
-    ]);
+    for (const name of [
+      "gws_slides_presentations_batch_update",
+      "gws_gmail_users_messages_send",
+      "gws_drive_files_copy",
+    ]) {
+      const tool = getGoogleWorkspaceTool(name);
+      if (!tool.scopeRequirement) throw new Error(`missing scope requirement for ${name}`);
+      expect(tool.scopes).toEqual(tool.scopeRequirement.allOf[0]?.anyOf ?? []);
+      expect(tool.scopes.length).toBeGreaterThan(1);
+    }
+  });
+
+  test("keeps all accepted Gmail profile scopes while retaining helper AND semantics", () => {
+    expect(getGoogleWorkspaceTool("gws_gmail_users_get_profile").scopeRequirement).toEqual({
+      allOf: [
+        {
+          anyOf: [
+            "https://mail.google.com/",
+            "https://www.googleapis.com/auth/gmail.compose",
+            "https://www.googleapis.com/auth/gmail.metadata",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/gmail.readonly",
+          ],
+        },
+      ],
+    });
+    expect(getGoogleWorkspaceTool("gws_gmail_reply").scopeRequirement).toEqual({
+      allOf: [
+        { anyOf: ["https://www.googleapis.com/auth/gmail.readonly"] },
+        { anyOf: ["https://www.googleapis.com/auth/gmail.send"] },
+      ],
+    });
   });
 });

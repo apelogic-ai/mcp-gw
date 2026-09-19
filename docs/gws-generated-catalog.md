@@ -86,9 +86,18 @@ https://www.googleapis.com/auth/tasks
 https://www.googleapis.com/auth/meetings.space.created
 ```
 
-The token broker treats those broad scopes as satisfying narrower readonly scopes where Google
-documents that relationship. The limited Meet write scope does not satisfy Meet readonly; generated
-Meet readonly tools may require a deployment-specific scope override and reconnect.
+Generated Discovery methods accept **any one** of the scopes listed for that method. Helpers that
+perform several operations may require multiple scopes. The broker checks those requirements
+against the latest stored grant for each call; an unavailable tool does not make unrelated tools
+or the whole connection unusable.
+
+The token broker treats broad scopes as satisfying narrower scopes only for explicitly modeled
+relationships. In particular, a full Drive grant does **not** substitute for
+`drive.apps.readonly`: deployments that previously passed the local check for `apps.list` with
+only full Drive now receive a tool-specific `insufficient_scope` result. The limited Meet write
+scope does not satisfy Meet readonly; generated Meet readonly tools may require a
+deployment-specific scope override and reconnect.
 
 Deployments can override `GOOGLE_OAUTH_SCOPES` with a comma/space-separated set. If the override is
-narrower than the visible tools need, affected tools return reconnect/scope errors.
+narrower than a visible tool needs, that tool returns a scoped `insufficient_scope` error while
+other tools remain available.

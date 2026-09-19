@@ -20,8 +20,9 @@ import type {
   ProviderRevocationResult,
   RefreshConnectionResult,
   RenewedCredentialGeneration,
+  ScopeRequirementInput,
 } from "./connection-types";
-import { ProviderLifecycleError } from "./connection-types";
+import { ProviderLifecycleError, ProviderToolScopeError } from "./connection-types";
 import { connectionWriteGuard, type OAuthConnectionStore } from "./store";
 
 const CREDENTIAL_SCHEMA_VERSION = 1;
@@ -316,19 +317,17 @@ export class ConnectionLifecycle {
     return status;
   }
 
-  async getActiveCredential(identity: Hop1Identity, requiredScopes: string[]): Promise<string> {
+  async getActiveCredential(
+    identity: Hop1Identity,
+    requiredScopes: ScopeRequirementInput,
+  ): Promise<string> {
     const record = await this.options.store.getConnection(
       this.providerId,
       identity.issuer,
       identity.subject,
     );
     if (!record || record.localDisabledAt) throw reauthorizationRequired();
-    try {
-      requireScopes(this.options.adapter, record.grantedScopes, requiredScopes);
-    } catch {
-      await this.renew(identity, requiredScopes, false, false, record.generation);
-      throw reauthorizationRequired();
-    }
+    requireToolScopes(this.options.adapter, record.grantedScopes, requiredScopes);
     const generation = decryptGeneration(record, this.options.credentialEncryptionKey);
     if (
       generation.credential.activeCredential &&
@@ -347,7 +346,7 @@ export class ConnectionLifecycle {
       identity.subject,
     );
     if (!renewed || renewed.localDisabledAt) throw reauthorizationRequired();
-    requireScopes(this.options.adapter, renewed.grantedScopes, requiredScopes);
+    requireToolScopes(this.options.adapter, renewed.grantedScopes, requiredScopes);
     const active = decryptGeneration(renewed, this.options.credentialEncryptionKey).credential
       .activeCredential;
     if (!active) throw reauthorizationRequired();
@@ -389,7 +388,13 @@ export class ConnectionLifecycle {
         return observedActive;
       }
     }
-    const result = await this.renew(identity, requiredScopes, false, true, observed.generation);
+    let result: RenewalResult;
+    try {
+      result = await this.renew(identity, requiredScopes, false, true, observed.generation);
+    } catch (error) {
+      if (error instanceof ProviderToolScopeError) return undefined;
+      throw error;
+    }
     if (result !== "refreshed" && result !== "already_fresh") return undefined;
     const current = await this.options.store.getConnection(
       this.providerId,
@@ -618,7 +623,7 @@ export class ConnectionLifecycle {
 
   private async renew(
     identity: Hop1Identity,
-    requiredScopes: string[],
+    requiredScopes: ScopeRequirementInput,
     manual: boolean,
     credentialKnownInvalid = false,
     observedGeneration?: number,
@@ -646,9 +651,10 @@ export class ConnectionLifecycle {
           if (!current || current.localDisabledAt) {
             return { kind: "result", result: "reauthorization_required" };
           }
-          try {
-            requireScopes(this.options.adapter, current.grantedScopes, requiredScopes);
-          } catch {
+          if (
+            !scopeRequirementSatisfied(this.options.adapter, current.grantedScopes, requiredScopes)
+          ) {
+            if (!manual) throw new ProviderToolScopeError();
             await this.persistReauthorizationRequired(store, current, "insufficient_scope");
             return { kind: "result", result: "reauthorization_required" };
           }
@@ -773,9 +779,9 @@ export class ConnectionLifecycle {
       if (preparation.kind === "result") {
         result = preparation.result;
       } else if (preparation.kind === "wait") {
-        result = await this.awaitConcurrentRenewal(identity, preparation, requiredScopes);
+        result = await this.awaitConcurrentRenewal(identity, preparation, requiredScopes, manual);
       } else {
-        this.validateRenewedGeneration(preparation, requiredScopes);
+        this.validateRenewedGeneration(preparation, requiredScopes, manual);
         result = await this.activateRenewedGeneration(identity, preparation);
         if (result === "refreshed") {
           issuedPreparation = undefined;
@@ -853,7 +859,8 @@ export class ConnectionLifecycle {
 
   private validateRenewedGeneration(
     preparation: Extract<RenewalPreparation, { kind: "candidate" }>,
-    requiredScopes: string[],
+    requiredScopes: ScopeRequirementInput,
+    manual: boolean,
   ): void {
     const { renewed } = preparation;
     if (!renewed.credential.activeCredential) {
@@ -871,11 +878,13 @@ export class ConnectionLifecycle {
         "malformed_provider_response",
       );
     }
-    requireScopes(
-      this.options.adapter,
-      renewed.grantedScopes ?? preparation.current.grantedScopes,
-      requiredScopes,
-    );
+    if (manual) {
+      requireScopeRequirement(
+        this.options.adapter,
+        renewed.grantedScopes ?? preparation.current.grantedScopes,
+        requiredScopes,
+      );
+    }
   }
 
   private activateRenewedGeneration(
@@ -1007,7 +1016,8 @@ export class ConnectionLifecycle {
   private async awaitConcurrentRenewal(
     identity: Hop1Identity,
     wait: Extract<RenewalPreparation, { kind: "wait" }>,
-    requiredScopes: string[],
+    requiredScopes: ScopeRequirementInput,
+    manual: boolean,
   ): Promise<RenewalResult> {
     const deadline = Date.now() + 20_000;
     let delayMs = 100;
@@ -1019,9 +1029,13 @@ export class ConnectionLifecycle {
       );
       if (!current || current.localDisabledAt) return "reauthorization_required";
       if (current.generation !== wait.generation) {
-        return scopesSatisfied(this.options.adapter, current.grantedScopes, requiredScopes)
-          ? "already_fresh"
-          : "reauthorization_required";
+        if (
+          scopeRequirementSatisfied(this.options.adapter, current.grantedScopes, requiredScopes)
+        ) {
+          return "already_fresh";
+        }
+        if (!manual) throw new ProviderToolScopeError();
+        return "reauthorization_required";
       }
       const generations = await this.options.store.listPrincipalCredentialGenerations(
         this.providerId,
@@ -1718,6 +1732,39 @@ function requireScopes(
   if (!scopesSatisfied(adapter, granted, required)) {
     throw new ProviderLifecycleError("Required provider scope is missing", "insufficient_scope");
   }
+}
+
+function requireToolScopes(
+  adapter: DownstreamConnectionAdapter,
+  granted: string[],
+  required: ScopeRequirementInput,
+): void {
+  if (!scopeRequirementSatisfied(adapter, granted, required)) {
+    throw new ProviderToolScopeError();
+  }
+}
+
+function requireScopeRequirement(
+  adapter: DownstreamConnectionAdapter,
+  granted: string[],
+  required: ScopeRequirementInput,
+): void {
+  if (!scopeRequirementSatisfied(adapter, granted, required)) {
+    throw new ProviderLifecycleError("Required provider scope is missing", "insufficient_scope");
+  }
+}
+
+function scopeRequirementSatisfied(
+  adapter: DownstreamConnectionAdapter,
+  granted: string[],
+  required: ScopeRequirementInput,
+): boolean {
+  if (Array.isArray(required)) return scopesSatisfied(adapter, granted, required);
+  return required.allOf.every(
+    (group) =>
+      group.anyOf.length > 0 &&
+      group.anyOf.some((scope) => scopesSatisfied(adapter, granted, [scope])),
+  );
 }
 
 function scopesSatisfied(

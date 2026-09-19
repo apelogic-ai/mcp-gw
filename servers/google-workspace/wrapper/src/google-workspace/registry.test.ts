@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../../shared/audit/audit";
+import type { ScopeRequirementInput } from "../../../../../shared/oauth/connection-types";
 import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
 import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { GwsExecutionError } from "../executor/gws";
@@ -287,7 +288,7 @@ describe("Google Workspace request registry", () => {
   });
 
   test("uses the tool scopes to obtain a user token before executing gws", async () => {
-    const requestedScopes: string[][] = [];
+    const requestedScopes: ScopeRequirementInput[] = [];
     const executed: unknown[] = [];
     const audit = new InMemoryAuditSink();
     const registry = createGoogleWorkspaceRegistry({
@@ -330,6 +331,37 @@ describe("Google Workspace request registry", () => {
     expect(audit.events[0]?.principal).toBe("user@example.com");
     expect(audit.events[0]?.status).toBe("allow");
     expect(audit.events[0]?.tool).toBe("google_drive_files_create");
+  });
+
+  test("passes all generated method scope alternatives through policy and brokerage", async () => {
+    let policyInput: ToolPolicyInput | undefined;
+    let brokerRequirement: ScopeRequirementInput | undefined;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: (input) => {
+          policyInput = input;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getAccessToken: (_identity, required) => {
+          brokerRequirement = required;
+          return Promise.resolve("access-token");
+        },
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    await registry.callTool("gws_gmail_users_get_profile", { params: { userId: "me" } });
+
+    const requirement = getGoogleWorkspaceTool("gws_gmail_users_get_profile").scopeRequirement;
+    expect(requirement?.allOf[0]?.anyOf).toContain(
+      "https://www.googleapis.com/auth/gmail.readonly",
+    );
+    expect(policyInput?.scopeRequirement).toEqual(requirement);
+    expect(policyInput?.scopes).toEqual(requirement?.allOf[0]?.anyOf);
+    expect(brokerRequirement).toEqual(requirement);
   });
 
   test("preserves per-service provider authority in legacy and catalog modes", async () => {
@@ -442,7 +474,7 @@ describe("Google Workspace request registry", () => {
   });
 
   test("uses caller-supplied scopes for the generic gws tool", async () => {
-    const requestedScopes: string[][] = [];
+    const requestedScopes: ScopeRequirementInput[] = [];
     const registry = createGoogleWorkspaceRegistry({
       identity,
       tokenBroker: {

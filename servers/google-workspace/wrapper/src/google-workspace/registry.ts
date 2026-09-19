@@ -1,5 +1,6 @@
 import { normalizedHop1Claims, type Hop1Identity } from "../../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../../shared/audit/audit";
+import type { ScopeRequirementInput } from "../../../../../shared/oauth/connection-types";
 import {
   AllowAllPolicy,
   type PolicyDecision,
@@ -28,7 +29,7 @@ export interface GoogleOAuthTools {
 }
 
 export interface AccessTokenBroker {
-  getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
+  getAccessToken(identity: Hop1Identity, requiredScopes: ScopeRequirementInput): Promise<string>;
 }
 
 export interface ExecuteWorkspaceToolRequest {
@@ -92,13 +93,16 @@ export function createGoogleWorkspaceRegistry(
       }
       validateRequiredArgs(tool, args);
 
+      const scopeRequirement = requiredScopes(tool, args);
+
       const decision = await policy.decide({
         principal: options.identity.email,
         tokenClaims: normalizedHop1Claims(options.identity),
         tool: tool.name,
         service: tool.service,
         actionClass: tool.actionClass,
-        scopes: requiredScopes(tool, args),
+        scopes: flattenedScopes(scopeRequirement),
+        ...(!Array.isArray(scopeRequirement) ? { scopeRequirement } : {}),
         args,
       });
       await enforcePolicyDecision(decision, tool, args, started, options);
@@ -106,7 +110,7 @@ export function createGoogleWorkspaceRegistry(
       try {
         const accessToken = await options.tokenBroker.getAccessToken(
           options.identity,
-          requiredScopes(tool, args),
+          scopeRequirement,
         );
         const result = await options.executor({
           tool,
@@ -268,9 +272,12 @@ function validateRequiredArgs(tool: WorkspaceToolDefinition, args: Record<string
   }
 }
 
-function requiredScopes(tool: WorkspaceToolDefinition, args: Record<string, unknown>): string[] {
+function requiredScopes(
+  tool: WorkspaceToolDefinition,
+  args: Record<string, unknown>,
+): ScopeRequirementInput {
   if (!tool.dynamicScopesParam) {
-    return tool.scopes;
+    return tool.scopeRequirement ?? tool.scopes;
   }
 
   const value = args[tool.dynamicScopesParam];
@@ -286,6 +293,12 @@ function requiredScopes(tool: WorkspaceToolDefinition, args: Record<string, unkn
   }
 
   return value;
+}
+
+function flattenedScopes(required: ScopeRequirementInput): string[] {
+  return Array.isArray(required)
+    ? required
+    : [...new Set(required.allOf.flatMap((group) => group.anyOf))];
 }
 
 function isStringArray(value: unknown): value is string[] {

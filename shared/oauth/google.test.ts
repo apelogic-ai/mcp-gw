@@ -5,6 +5,7 @@ import { completeGoogleOAuth, GoogleOAuthError, startGoogleOAuth, type OAuthFetc
 import { InMemoryOAuthStateStore, InMemoryOAuthTokenStore } from "./memory-store";
 import { GoogleConnectionAdapter } from "./provider-adapters";
 import { GoogleTokenBroker } from "./token-broker";
+import { getGoogleWorkspaceTool } from "../../servers/google-workspace/wrapper/src/catalog/google-workspace";
 import { connectionWriteGuard } from "./store";
 import { hashState } from "./state";
 
@@ -30,6 +31,59 @@ const scopes = [
 ];
 
 describe("Google OAuth consent flow", () => {
+  test("brokers Gmail profile with a non-first accepted scope and no provider renewal", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const grantedScopes = [
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/gmail.readonly",
+    ];
+    const started = await startGoogleOAuth({
+      identity,
+      scopes: grantedScopes,
+      config,
+      stateStore,
+      tokenStore,
+    });
+    await completeGoogleOAuth({
+      identity,
+      code: "auth-code",
+      state: started.state,
+      config,
+      stateStore,
+      tokenStore,
+      fetch: successFetchWithScopes("user@example.com", grantedScopes),
+    });
+    let renewalCalls = 0;
+    const broker = new GoogleTokenBroker({
+      config,
+      tokenStore,
+      fetch: () => {
+        renewalCalls += 1;
+        return Promise.reject(new Error("renewal must not run"));
+      },
+    });
+    const requirement = getGoogleWorkspaceTool("gws_gmail_users_get_profile").scopeRequirement;
+    if (!requirement) throw new Error("missing generated scope requirement");
+
+    expect(await broker.getAccessToken(identity, requirement)).toBe("access-token");
+    expect(renewalCalls).toBe(0);
+    expect(
+      (await tokenStore.getConnection("google", identity.issuer, identity.subject))?.phase,
+    ).toBe("connected");
+  });
+
+  test("does not treat full Drive as an apps.list grant", () => {
+    const adapter = new GoogleConnectionAdapter(config);
+    expect(
+      adapter.hasRequiredScopes(
+        ["https://www.googleapis.com/auth/drive"],
+        ["https://www.googleapis.com/auth/drive.apps.readonly"],
+      ),
+    ).toBe(false);
+  });
+
   test("builds an offline consent URL and stores CSRF state", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
@@ -354,14 +408,17 @@ describe("Google token broker", () => {
         ),
     });
 
-    expect.assertions(2);
+    expect.assertions(3);
     try {
       await broker.getAccessToken(identity, [
         "https://www.googleapis.com/auth/meetings.space.readonly",
       ]);
     } catch (error) {
-      expect(error).toBeInstanceOf(GoogleOAuthError);
-      expect((error as GoogleOAuthError).code).toBe("reauth_required");
+      expect(error).toMatchObject({ code: "insufficient_scope" });
+      expect((error as Error).name).toBe("ProviderToolScopeError");
+      expect(
+        (await tokenStore.getConnection("google", identity.issuer, identity.subject))?.phase,
+      ).toBe("connected");
     }
   });
 

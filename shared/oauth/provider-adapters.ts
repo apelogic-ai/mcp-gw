@@ -433,7 +433,11 @@ function hasGoogleScope(granted: Set<string>, required: string): boolean {
 
 function googleScopeImplies(granted: string, required: string): boolean {
   if (granted === "https://www.googleapis.com/auth/drive") {
-    return required.startsWith("https://www.googleapis.com/auth/drive.");
+    return [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.metadata",
+      "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ].includes(required);
   }
   if (granted === "https://www.googleapis.com/auth/gmail.modify") {
     return (

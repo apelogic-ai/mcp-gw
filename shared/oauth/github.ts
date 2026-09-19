@@ -5,7 +5,11 @@ import {
   isCompleteAuthorizationActivationGuard,
   snapshotAuthorizationGuard,
 } from "./connection-lifecycle";
-import { lifecycleErrorRequiresReauthorization, ProviderLifecycleError } from "./connection-types";
+import {
+  lifecycleErrorRequiresReauthorization,
+  ProviderLifecycleError,
+  ProviderToolScopeError,
+} from "./connection-types";
 import { GitHubConnectionAdapter } from "./provider-adapters";
 import { generateOAuthState, hashState } from "./state";
 import type { OAuthFetch } from "./google";
@@ -261,7 +265,9 @@ export class GitHubTokenBroker {
       if (lifecycleErrorRequiresReauthorization(error)) {
         throw new GitHubOAuthError("GitHub account must be connected", "reauth_required");
       }
-      if (error instanceof ProviderLifecycleError) throw error;
+      if (error instanceof ProviderLifecycleError || error instanceof ProviderToolScopeError) {
+        throw error;
+      }
       throw new ProviderLifecycleError("GitHub credential brokerage failed", "persistence_failure");
     }
   }

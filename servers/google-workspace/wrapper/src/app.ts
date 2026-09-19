@@ -8,6 +8,7 @@ import {
 } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
+import type { ScopeRequirementInput } from "../../../../shared/oauth/connection-types";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
 import {
   GOOGLE_WORKSPACE_CATALOG_ID,
@@ -60,7 +61,7 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
     redirectAfter?: string,
   ) => Promise<{ authorizationUrl: string }>;
   tokenBroker: {
-    getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
+    getAccessToken(identity: Hop1Identity, requiredScopes: ScopeRequirementInput): Promise<string>;
   };
   executor: WorkspaceToolExecutor;
   governanceCatalogId?: GoogleWorkspaceCatalogId;

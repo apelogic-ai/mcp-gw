@@ -472,7 +472,9 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
   }),
 ];
 
-export const GWS_VISIBLE_GENERATED_TOOLS = GWS_GENERATED_TOOLS.filter(isVisibleGeneratedTool);
+export const GWS_VISIBLE_GENERATED_TOOLS = GWS_GENERATED_TOOLS.map(
+  filterExcludedScopeAlternatives,
+).filter(isVisibleGeneratedTool);
 
 export const GOOGLE_WORKSPACE_CATALOG_ID =
   "google-workspace-cli@0.22.5/visible-v1/actions-v1" as const;
@@ -563,7 +565,23 @@ function isVisibleGeneratedTool(tool: WorkspaceToolDefinition): boolean {
     return false;
   }
 
+  if (tool.scopeRequirement) {
+    return tool.scopeRequirement.allOf.every((group) => group.anyOf.length > 0);
+  }
   return !tool.scopes.some(isExcludedGoogleWorkspaceScope);
+}
+
+function filterExcludedScopeAlternatives(tool: WorkspaceToolDefinition): WorkspaceToolDefinition {
+  if (!tool.scopeRequirement) return tool;
+  return {
+    ...tool,
+    scopes: tool.scopes.filter((scope) => !isExcludedGoogleWorkspaceScope(scope)),
+    scopeRequirement: {
+      allOf: tool.scopeRequirement.allOf.map((group) => ({
+        anyOf: group.anyOf.filter((scope) => !isExcludedGoogleWorkspaceScope(scope)),
+      })),
+    },
+  };
 }
 
 export function isExcludedGoogleWorkspaceScope(scope: string): boolean {

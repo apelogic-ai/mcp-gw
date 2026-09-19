@@ -1,5 +1,6 @@
 import { redactValue } from "../audit/audit";
 import { parse as parseYaml } from "yaml";
+import type { ScopeRequirement } from "../oauth/connection-types";
 
 export type PolicyActionClass = "read" | "write" | "destructive";
 
@@ -10,6 +11,7 @@ export interface ToolPolicyInput {
   service: string;
   actionClass: PolicyActionClass;
   scopes: string[];
+  scopeRequirement?: ScopeRequirement;
   args: Record<string, unknown>;
 }
 
