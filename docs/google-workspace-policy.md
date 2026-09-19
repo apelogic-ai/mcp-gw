@@ -112,12 +112,14 @@ operation guardrails and raw command classification apply independently of that 
 
 An omitted `match` block matches every call.
 
-For data tools, `match.scope`/`match.scopes` inspect the effective authority selected from the
-connection's freshly stored Google grant for that method—not the union of all scopes Google
-would accept. For example, a `drive.file` allow does not authorize a deletion carried by a
-broader `drive` grant, even when the method also accepts `drive.file`. The full method
-alternatives remain available to brokerage as `scopeRequirement`; the selected effective scopes
-are sent in `scopes` to YAML and OPA. If the stored grant changes after policy evaluation,
+For data tools, `match.scope`/`match.scopes` inspect the usable authorities in the connection's
+freshly stored Google grant for that method—not the union of all scopes Google would accept. An
+allow rule must cover **every** usable authority; a deny or approval rule matches if **any**
+catalog-accepted alternative matches, preserving existing deny rules. For example, a `drive.file`
+allow does not authorize a deletion carried by a broader `drive` grant, even when the token also
+contains `drive.file`. The full method alternatives remain available to brokerage as
+`scopeRequirement`; the usable granted scopes are
+sent in `scopes` to YAML and OPA. If the stored grant changes after policy evaluation,
 brokerage refuses to return the token, so the request must be retried under the new grant.
 
 Unlabelled ordered YAML rules receive stable position-based diagnostic IDs (`yaml.rule.1`,

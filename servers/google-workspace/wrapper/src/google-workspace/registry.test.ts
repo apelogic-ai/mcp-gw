@@ -596,6 +596,25 @@ rules:
         expect(executorCalls).toBe(1);
       }
     }
+
+    const deny = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(`
+default: allow
+rules:
+  - effect: deny
+    match: { scope: ${fileScope} }
+`),
+      tokenBroker: {
+        getGrantedScopes: () => Promise.resolve([driveScope]),
+        getAccessToken: () => Promise.reject(new Error("deny must precede brokerage")),
+      },
+      executor: () => Promise.reject(new Error("deny must precede execution")),
+    });
+    await expectPolicyRejection(
+      deny.callTool("gws_drive_files_delete", { params: { fileId: "file-123" } }),
+      "Policy denied gws_drive_files_delete",
+    );
   });
 
   test("classifies a failed pre-policy grant lookup without running policy or the tool", async () => {

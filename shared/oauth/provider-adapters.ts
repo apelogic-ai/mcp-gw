@@ -432,7 +432,7 @@ function hasGoogleScope(granted: Set<string>, required: string): boolean {
   return [...granted].some((scope) => googleScopeImplies(scope, required));
 }
 
-/** Select the authority actually held for each method requirement, never its full OR-list. */
+/** Report every granted authority usable for this method, never its full OR-list. */
 export function effectiveGoogleScopes(
   grantedScopes: string[],
   requirement: ScopeRequirementInput,
@@ -440,18 +440,12 @@ export function effectiveGoogleScopes(
   const groups = Array.isArray(requirement)
     ? requirement.map((scope) => ({ anyOf: [scope] }))
     : requirement.allOf;
-  const selected = groups.flatMap(({ anyOf }) => {
-    for (const accepted of anyOf) {
-      const exact = grantedScopes.find((granted) => granted === accepted);
-      if (exact) return [exact];
-    }
-    for (const accepted of anyOf) {
-      const impliedBy = grantedScopes.find((granted) => googleScopeImplies(granted, accepted));
-      if (impliedBy) return [impliedBy];
-    }
-    return [];
-  });
-  return [...new Set(selected)];
+  const acceptedScopes = groups.flatMap(({ anyOf }) => anyOf);
+  return [...new Set(grantedScopes)].filter((granted) =>
+    acceptedScopes.some(
+      (accepted) => granted === accepted || googleScopeImplies(granted, accepted),
+    ),
+  );
 }
 
 function googleScopeImplies(granted: string, required: string): boolean {

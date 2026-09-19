@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../identity/hop1";
 import { completeGoogleOAuth, GoogleOAuthError, startGoogleOAuth, type OAuthFetch } from "./google";
 import { InMemoryOAuthStateStore, InMemoryOAuthTokenStore } from "./memory-store";
-import { GoogleConnectionAdapter } from "./provider-adapters";
+import { effectiveGoogleScopes, GoogleConnectionAdapter } from "./provider-adapters";
 import { GoogleTokenBroker } from "./token-broker";
 import { getGoogleWorkspaceTool } from "../../servers/google-workspace/wrapper/src/catalog/google-workspace";
 import { connectionWriteGuard } from "./store";
@@ -116,6 +116,15 @@ describe("Google OAuth consent flow", () => {
         ["https://www.googleapis.com/auth/drive.apps.readonly"],
       ),
     ).toBe(false);
+  });
+
+  test("policy sees every usable granted authority, including a broader implied scope", () => {
+    const drive = "https://www.googleapis.com/auth/drive";
+    const metadata = "https://www.googleapis.com/auth/drive.metadata";
+    expect(effectiveGoogleScopes([drive, metadata], { allOf: [{ anyOf: [metadata] }] })).toEqual([
+      drive,
+      metadata,
+    ]);
   });
 
   test("builds an offline consent URL and stores CSRF state", async () => {

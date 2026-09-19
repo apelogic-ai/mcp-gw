@@ -505,7 +505,13 @@ function matchesRule(rule: YamlPolicyRule, input: ToolPolicyInput): boolean {
     matchesAny(input.service, [...values(match.service), ...values(match.services)]) &&
     matchesAny(input.operation ?? "", [...values(match.operation), ...values(match.operations)]) &&
     matchesAny(input.actionClass, [...values(match.actionClass), ...values(match.actionClasses)]) &&
-    matchesScopes(input.scopes, [...values(match.scope), ...values(match.scopes)])
+    matchesScopes(
+      rule.effect === "allow" || !input.scopeRequirement
+        ? input.scopes
+        : input.scopeRequirement.allOf.flatMap((group) => group.anyOf),
+      [...values(match.scope), ...values(match.scopes)],
+      rule.effect,
+    )
   );
 }
 
@@ -521,11 +527,17 @@ function matchesAny<T extends string>(actual: T, allowed: T[]): boolean {
   return allowed.length === 0 || allowed.includes(actual);
 }
 
-function matchesScopes(actualScopes: string[], requiredScopes: string[]): boolean {
-  return (
-    requiredScopes.length === 0 ||
-    requiredScopes.some((requiredScope) => actualScopes.includes(requiredScope))
-  );
+function matchesScopes(
+  actualScopes: string[],
+  matchedScopes: string[],
+  effect: YamlPolicyEffect,
+): boolean {
+  if (matchedScopes.length === 0) return true;
+  if (actualScopes.length === 0) return false;
+  // An allow must cover every usable authority in the issued token; a deny is conservative.
+  return effect === "allow"
+    ? actualScopes.every((scope) => matchedScopes.includes(scope))
+    : actualScopes.some((scope) => matchedScopes.includes(scope));
 }
 
 function decisionForEffect(

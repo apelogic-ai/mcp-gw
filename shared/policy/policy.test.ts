@@ -102,6 +102,39 @@ rules:
     }
   });
 
+  test("scope allows require every usable authority, while denials match any", async () => {
+    const fileScope = "https://www.googleapis.com/auth/drive.file";
+    const driveScope = "https://www.googleapis.com/auth/drive";
+    const allow = createYamlPolicyFromString(`
+default: deny
+rules:
+  - effect: allow
+    match: { scope: ${fileScope} }
+`);
+    expect(await allow.decide({ ...input, scopes: [fileScope] })).toEqual({ kind: "allow" });
+    expect(await allow.decide({ ...input, scopes: [driveScope, fileScope] })).toMatchObject({
+      kind: "deny",
+      ruleId: "yaml.default",
+    });
+    const deny = createYamlPolicyFromString(`
+default: allow
+rules:
+  - effect: deny
+    match: { scope: ${fileScope} }
+`);
+    expect(await deny.decide({ ...input, scopes: [driveScope, fileScope] })).toMatchObject({
+      kind: "deny",
+      ruleId: "yaml.rule.1",
+    });
+    expect(
+      await deny.decide({
+        ...input,
+        scopes: [driveScope],
+        scopeRequirement: { allOf: [{ anyOf: [driveScope, fileScope] }] },
+      }),
+    ).toMatchObject({ kind: "deny", ruleId: "yaml.rule.1" });
+  });
+
   test("rejects malformed hard guardrails at policy startup", () => {
     expect(() =>
       createYamlPolicyFromString('guardrails: { deniedOperations: ["not a command"] }'),
