@@ -102,7 +102,15 @@ export function createGoogleWorkspaceRegistry(
           scopes: options.oauth.status.scopesRequired,
           args,
         });
-        await enforcePolicyDecision(decision, { name }, args, started, options, diagnosticId);
+        await enforcePolicyDecision(
+          decision,
+          { name },
+          "google.oauth.start",
+          args,
+          started,
+          options,
+          diagnosticId,
+        );
       }
 
       const oauthResult = await callGoogleOAuthTool(name, args, options.oauth);
@@ -318,7 +326,7 @@ async function enforcePolicyDecision(
   recordMetricSafely(options.metrics, {
     name: "policy_denied",
     provider: "google",
-    operation: tool.name,
+    operation,
     ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
     diagnosticId,
     value: 1,

@@ -744,9 +744,11 @@ guardrails:
     let brokerCalls = 0;
     let lastRequirement: ScopeRequirementInput | undefined;
     let executed = 0;
+    const metrics = new InMemoryConnectionLifecycleMetricSink();
     const registry = createGoogleWorkspaceRegistry({
       identity,
       policy,
+      metrics,
       tokenBroker: {
         getAccessToken: (_identity, requirement) => {
           brokerCalls += 1;
@@ -772,10 +774,23 @@ guardrails:
         { argv: ["calendar", "calendars", "clear", "--params", "{}"], scopes: [] },
       ],
     ] as const) {
-      expect(registry.callTool(name, args)).rejects.toThrow("Operation disabled by global policy");
+      await expectPolicyRejection(
+        registry.callTool(name, args),
+        "Operation disabled by global policy",
+      );
     }
     expect(brokerCalls).toBe(0);
     expect(executed).toBe(0);
+    expect(
+      metrics.metrics
+        .filter((metric) => metric.name === "policy_denied")
+        .map((metric) => metric.operation),
+    ).toEqual([
+      "calendar.events.delete",
+      "calendar.events.delete",
+      "calendar.events.delete",
+      "calendar.calendars.clear",
+    ]);
 
     await registry.callTool("google_workspace_gws", {
       argv: ["drive", "files", "list", "--params", "{}"],

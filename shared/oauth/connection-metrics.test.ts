@@ -34,4 +34,34 @@ describe("connection diagnostic event sink", () => {
     expect(lines[0]).not.toContain("user@example.com");
     expect(lines[0]).not.toContain("raw MIME");
   });
+
+  test("keeps bounded pinned dotted operations on policy denial", () => {
+    const lines: string[] = [];
+    const sink = new JsonLineConnectionLifecycleMetricSink((line) => lines.push(line));
+    sink.record({
+      name: "policy_denied",
+      provider: "google",
+      operation: "calendar.events.delete",
+      ruleId: "yaml.rule.2",
+      value: 1,
+    });
+    expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({
+      operation: "calendar.events.delete",
+      ruleId: "yaml.rule.2",
+    });
+    sink.record({
+      name: "policy_denied",
+      provider: "google",
+      operation: "gmail.+reply-all",
+      value: 1,
+    });
+    expect(JSON.parse(lines[1] ?? "{}")).toMatchObject({ operation: "gmail.+reply-all" });
+    sink.record({
+      name: "policy_denied",
+      provider: "google",
+      operation: "raw user input / secret",
+      value: 1,
+    });
+    expect(JSON.parse(lines[2] ?? "{}")).toMatchObject({ operation: "unclassified" });
+  });
 });
