@@ -59,9 +59,18 @@ describe("connection diagnostic event sink", () => {
     sink.record({
       name: "policy_denied",
       provider: "google",
+      operation: "sheets.spreadsheets.values.batchGet",
+      value: 1,
+    });
+    expect(JSON.parse(lines[2] ?? "{}")).toMatchObject({
+      operation: "sheets.spreadsheets.values.batchGet",
+    });
+    sink.record({
+      name: "policy_denied",
+      provider: "google",
       operation: "raw user input / secret",
       value: 1,
     });
-    expect(JSON.parse(lines[2] ?? "{}")).toMatchObject({ operation: "unclassified" });
+    expect(JSON.parse(lines[3] ?? "{}")).toMatchObject({ operation: "unclassified" });
   });
 });

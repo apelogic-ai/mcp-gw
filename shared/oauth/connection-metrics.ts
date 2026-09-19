@@ -162,7 +162,8 @@ export class JsonLineConnectionLifecycleMetricSink implements ConnectionLifecycl
 }
 
 function boundedOperation(value: string): string {
-  return /^[a-z][a-z0-9_]*(?:\.[+]?[a-z][a-z0-9_-]*){0,5}$/.test(value) && value.length <= 128
+  return /^[a-z][A-Za-z0-9_]*(?:\.[+]?[A-Za-z][A-Za-z0-9_-]*){0,5}$/.test(value) &&
+    value.length <= 128
     ? value
     : "unclassified";
 }
