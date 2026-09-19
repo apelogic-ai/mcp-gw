@@ -7,6 +7,7 @@ import {
   validateHop1IssuerProfiles,
 } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
+import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
 import type { ScopeRequirementInput } from "../../../../shared/oauth/connection-types";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
@@ -54,6 +55,7 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
   serverInfo: ServerInfo;
   authenticate(token: string): Promise<Hop1Identity>;
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   policy?: ToolPolicy;
   getOAuthStatus?: (identity: Hop1Identity) => Promise<GoogleOAuthStatus>;
   startOAuth?: (
@@ -61,7 +63,11 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
     redirectAfter?: string,
   ) => Promise<{ authorizationUrl: string }>;
   tokenBroker: {
-    getAccessToken(identity: Hop1Identity, requiredScopes: ScopeRequirementInput): Promise<string>;
+    getAccessToken(
+      identity: Hop1Identity,
+      requiredScopes: ScopeRequirementInput,
+      diagnosticId?: string,
+    ): Promise<string>;
   };
   executor: WorkspaceToolExecutor;
   governanceCatalogId?: GoogleWorkspaceCatalogId;
@@ -80,10 +86,11 @@ export function createGoogleWorkspaceWrapperHandler(
         identity,
         governanceCatalogId: options.governanceCatalogId,
         audit: options.audit,
+        metrics: options.metrics,
         policy: options.policy,
         tokenBroker: {
-          getAccessToken: (requestIdentity, scopes) =>
-            options.tokenBroker.getAccessToken(requestIdentity, scopes),
+          getAccessToken: (requestIdentity, scopes, diagnosticId) =>
+            options.tokenBroker.getAccessToken(requestIdentity, scopes, diagnosticId),
         },
         oauth:
           oauthStatus && startOAuth

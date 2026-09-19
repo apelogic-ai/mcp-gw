@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../../shared/audit/audit";
 import type { ScopeRequirementInput } from "../../../../../shared/oauth/connection-types";
+import { ProviderToolScopeError } from "../../../../../shared/oauth/connection-types";
+import { ProviderLifecycleError } from "../../../../../shared/oauth/connection-types";
+import { InMemoryConnectionLifecycleMetricSink } from "../../../../../shared/oauth/connection-metrics";
 import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
 import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { GwsExecutionError } from "../executor/gws";
@@ -362,6 +365,73 @@ describe("Google Workspace request registry", () => {
     expect(policyInput?.scopeRequirement).toEqual(requirement);
     expect(policyInput?.scopes).toEqual(requirement?.allOf[0]?.anyOf);
     expect(brokerRequirement).toEqual(requirement);
+  });
+
+  test("returns a scoped machine error and correlated redacted diagnostic event", async () => {
+    const metrics = new InMemoryConnectionLifecycleMetricSink();
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      metrics,
+      tokenBroker: {
+        getAccessToken: () => Promise.reject(new ProviderToolScopeError()),
+      },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+
+    const result = await registry.callTool("gws_gmail_users_get_profile", {});
+    expect(result.structuredContent).toMatchObject({
+      error: "insufficient_scope",
+    });
+    expect(typeof result.structuredContent?.diagnosticId).toBe("string");
+    expect(metrics.metrics).toEqual([
+      {
+        name: "tool_scope_denied",
+        provider: "google",
+        operation: "gws_gmail_users_get_profile",
+        value: 1,
+        diagnosticId: result.structuredContent?.diagnosticId as string,
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain(identity.email);
+  });
+
+  test("a failed diagnostic sink cannot change a tool-scope denial", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      metrics: {
+        record: () => {
+          throw new Error("sink unavailable");
+        },
+      },
+      tokenBroker: { getAccessToken: () => Promise.reject(new ProviderToolScopeError()) },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+
+    expect(
+      (await registry.callTool("gws_gmail_users_get_profile", {})).structuredContent,
+    ).toMatchObject({
+      error: "insufficient_scope",
+    });
+  });
+
+  test("keeps transient and persistence brokerage failures machine-distinguishable", async () => {
+    for (const category of ["transient_provider_failure", "persistence_failure"] as const) {
+      const registry = createGoogleWorkspaceRegistry({
+        identity,
+        tokenBroker: {
+          getAccessToken: () =>
+            Promise.reject(new ProviderLifecycleError("internal detail", category)),
+        },
+        executor: () => Promise.reject(new Error("executor must not run")),
+      });
+
+      const result = await registry.callTool("gws_gmail_users_get_profile", {});
+      expect(result.structuredContent).toMatchObject({
+        error: category,
+      });
+      expect(typeof result.structuredContent?.diagnosticId).toBe("string");
+      expect(JSON.stringify(result)).not.toContain("internal detail");
+    }
   });
 
   test("lets brokerage attempt guarded recovery of a legacy scope-poisoned row", async () => {

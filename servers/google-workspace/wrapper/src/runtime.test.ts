@@ -14,6 +14,7 @@ import {
   InMemoryOAuthTokenStore,
 } from "../../../../shared/oauth/memory-store";
 import { completeGoogleOAuth, startGoogleOAuth } from "../../../../shared/oauth/google";
+import { InMemoryConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import { connectionWriteGuard } from "../../../../shared/oauth/store";
 import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
 import {
@@ -509,6 +510,7 @@ describe("runtime wrapper wiring", () => {
 
   test("MCP OAuth status reports why a complete grant is unavailable", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
+    const metrics = new InMemoryConnectionLifecycleMetricSink();
     const scopes = ["https://www.googleapis.com/auth/drive"];
     await tokenStore.saveAccount({
       provider: "google",
@@ -544,6 +546,7 @@ describe("runtime wrapper wiring", () => {
         },
       },
       tokenStore,
+      metrics,
       providerOAuth: { scopes, stateStore: new InMemoryOAuthStateStore() },
       issuers: [{ profile: hop1, jwksProvider: () => Promise.resolve([publicJwk]) }],
     });
@@ -574,6 +577,7 @@ describe("runtime wrapper wiring", () => {
       missingScopes: [],
       renewalCredentialPresent: true,
     });
+    expect(metrics.metrics.some((metric) => metric.name === "status_latency_ms")).toBe(true);
   });
 
   test("creates YAML, OPA policy, and JSONL audit sinks from runtime config", async () => {

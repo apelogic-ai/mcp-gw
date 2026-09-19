@@ -1,4 +1,5 @@
 import type { AuditSink } from "../audit/audit";
+import type { ConnectionLifecycleMetricSink } from "./connection-metrics";
 import type { Hop1Identity } from "../identity/hop1";
 import { ConnectionLifecycle } from "./connection-lifecycle";
 import {
@@ -17,6 +18,7 @@ export interface GoogleTokenBrokerOptions {
   fetch?: OAuthFetch;
   now?: () => number;
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   consentScopes?: string[];
 }
 
@@ -26,6 +28,7 @@ export class GoogleTokenBroker {
   async getAccessToken(
     identity: Hop1Identity,
     requiredScopes: ScopeRequirementInput,
+    diagnosticId?: string,
   ): Promise<string> {
     const now = this.options.now;
     try {
@@ -36,6 +39,8 @@ export class GoogleTokenBroker {
         consentScopes: this.options.consentScopes,
         now: now ? () => new Date(now()) : undefined,
         audit: this.options.audit,
+        metrics: this.options.metrics,
+        diagnosticId,
       }).getActiveCredential(identity, requiredScopes);
     } catch (error) {
       if (lifecycleErrorRequiresReauthorization(error)) {

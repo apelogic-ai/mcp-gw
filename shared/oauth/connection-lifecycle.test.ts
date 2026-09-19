@@ -707,6 +707,7 @@ describe("provider-neutral connection lifecycle", () => {
 
     expect(new Set(metrics.metrics.map((metric) => metric.name))).toEqual(
       new Set([
+        "renewal_attempt",
         "renewal_lock_wait_ms",
         "renewal_outcome",
         "status_latency_ms",

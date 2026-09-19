@@ -11,6 +11,7 @@ import {
 import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import { googleOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import {
   createConnectionRouteHandler,
@@ -25,6 +26,7 @@ export interface CreateOAuthRouteHandlerOptions {
   stateStore: OAuthStateStore;
   tokenStore: OAuthTokenStore;
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   fetch?: OAuthFetch;
 }
 
@@ -41,6 +43,7 @@ export function createOAuthRouteHandler(
     store: options.tokenStore,
     credentialEncryptionKey: options.config.tokenEncryptionKey,
     audit: options.audit,
+    metrics: options.metrics,
   });
   const connectionRoutes = createConnectionRouteHandler({
     authenticate,

@@ -10,6 +10,7 @@ import {
 } from "../../../../shared/identity/hop1";
 import { startGoogleOAuth, type OAuthFetch } from "../../../../shared/oauth/google";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import { googleOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 import { GoogleTokenBroker } from "../../../../shared/oauth/token-broker";
@@ -52,6 +53,7 @@ export interface CreateRuntimeWrapperHandlerOptions {
   tokenStore: OAuthTokenStore;
   issuers?: RuntimeTrustedIssuer[];
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   policy?: ToolPolicy;
   fetch?: OAuthFetch;
   providerOAuth?: {
@@ -128,12 +130,14 @@ export function createRuntimeWrapperHandler(
     fetch: options.fetch,
     audit,
     consentScopes: providerOAuth?.scopes,
+    metrics: options.metrics,
   });
   const connectionLifecycle = new ConnectionLifecycle({
     adapter: new GoogleConnectionAdapter(options.config.oauth, options.fetch),
     store: options.tokenStore,
     credentialEncryptionKey: options.config.oauth.tokenEncryptionKey,
     audit,
+    metrics: options.metrics,
   });
 
   return createGoogleWorkspaceWrapperHandler({
@@ -157,6 +161,7 @@ export function createRuntimeWrapperHandler(
         })),
     }),
     audit,
+    metrics: options.metrics,
     policy: options.policy ?? createPolicy(options.config, options.fetch),
     governanceCatalogId: options.config.governanceCatalogId,
     getOAuthStatus: providerOAuth

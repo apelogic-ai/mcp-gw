@@ -20,5 +20,13 @@ For `renewal_expired` or `invalid_renewal_credential`, reconnect is normally nee
 `transient_provider_failure` or `persistence_failure`, investigate provider availability and
 datastore health first. An elapsed run time alone does not prove that the refresh token expired.
 
+The wrapper emits `mcp_gw_connection_diagnostic` JSON lines to stdout for status latency,
+renewal attempts/outcomes, phase transitions, provider authentication rejections, cleanup, and
+tool-scope or policy denials. A tool error's `diagnosticId` can be used to find its matching
+events. These events contain bounded categories and catalog operation names, never tokens,
+principal identity, recipient addresses, arguments, provider response bodies, or MIME. The
+`connections_by_phase` event is an observation made during a status read, **not** a gauge of all
+database rows.
+
 Never ask a user for an access token, refresh token, OAuth code, state value, or credential
 envelope. Do not paste full provider errors or message payloads into tickets or logs.

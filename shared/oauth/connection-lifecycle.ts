@@ -73,6 +73,7 @@ export interface ConnectionLifecycleOptions {
   consentScopes?: string[];
   audit?: AuditSink;
   metrics?: ConnectionLifecycleMetricSink;
+  diagnosticId?: string;
   now?: () => Date;
   renewalSafetyWindowMs?: number;
   transientRetries?: number;
@@ -409,6 +410,15 @@ export class ConnectionLifecycle {
           updatedAt: new Date(Math.max(this.now().getTime(), current.updatedAt.getTime() + 1)),
         };
         const saved = await store.saveConnection(repaired, connectionWriteGuard(current));
+        if (saved) {
+          this.metric({
+            name: "lifecycle_phase_transition",
+            provider: this.providerId,
+            from: current.phase,
+            to: repaired.phase,
+            value: 1,
+          });
+        }
         return saved
           ? repaired
           : store.getConnection(this.providerId, identity.issuer, identity.subject);
@@ -434,6 +444,7 @@ export class ConnectionLifecycle {
     requiredScopes: string[],
     rejectedActiveCredential?: string,
   ): Promise<string | undefined> {
+    this.metric({ name: "provider_auth_rejection", provider: this.providerId, value: 1 });
     const observed = await this.options.store.getConnection(
       this.providerId,
       identity.issuer,
@@ -693,7 +704,9 @@ export class ConnectionLifecycle {
   ): Promise<RefreshConnectionResult["result"]> {
     const operation = manual ? "manual" : "automatic";
     const lockStartedAt = performance.now();
+    this.metric({ name: "renewal_attempt", provider: this.providerId, operation, value: 1 });
     let issuedPreparation: Extract<RenewalPreparation, { kind: "candidate" }> | undefined;
+    let resultCategory: LifecycleErrorCategory | undefined;
     try {
       const preparation = await this.options.store.withConnectionIssuanceLock(
         this.providerId,
@@ -712,12 +725,14 @@ export class ConnectionLifecycle {
             identity.subject,
           );
           if (!current || current.localDisabledAt) {
+            resultCategory = "invalid_active_credential";
             return { kind: "result", result: "reauthorization_required" };
           }
           if (
             !scopeRequirementSatisfied(this.options.adapter, current.grantedScopes, requiredScopes)
           ) {
             if (!manual) throw new ProviderToolScopeError();
+            resultCategory = "insufficient_scope";
             await this.persistReauthorizationRequired(store, current, "insufficient_scope");
             return { kind: "result", result: "reauthorization_required" };
           }
@@ -742,6 +757,7 @@ export class ConnectionLifecycle {
           if (!this.options.adapter.renew || !renewalSupported) {
             if (manual) return { kind: "result", result: "refresh_not_supported" };
             if (!fresh) {
+              resultCategory = "invalid_active_credential";
               await this.persistReauthorizationRequired(
                 store,
                 current,
@@ -756,6 +772,7 @@ export class ConnectionLifecycle {
             decrypted.renewalCredentialExpiresAt &&
             decrypted.renewalCredentialExpiresAt.getTime() <= this.now().getTime()
           ) {
+            resultCategory = "renewal_expired";
             await this.persistReauthorizationRequired(store, current, "renewal_expired");
             return { kind: "result", result: "reauthorization_required" };
           }
@@ -818,6 +835,7 @@ export class ConnectionLifecycle {
           } catch (error) {
             const category = lifecycleCategory(error);
             if (category && isPermanentRenewalFailure(category)) {
+              resultCategory = category;
               await this.persistReauthorizationRequired(store, current, category);
               return { kind: "result", result: "reauthorization_required" };
             }
@@ -858,6 +876,8 @@ export class ConnectionLifecycle {
         provider: this.providerId,
         operation,
         outcome: result,
+        ...(resultCategory ? { category: resultCategory } : {}),
+        durationMs: performance.now() - lockStartedAt,
         value: 1,
       });
       if (result === "reauthorization_required") {
@@ -908,6 +928,8 @@ export class ConnectionLifecycle {
         provider: this.providerId,
         operation,
         outcome: "failure",
+        category: lifecycleCategory(error) ?? "persistence_failure",
+        durationMs: performance.now() - lockStartedAt,
         value: 1,
       });
       await this.emit(
@@ -1139,6 +1161,16 @@ export class ConnectionLifecycle {
       connectionWriteGuard(current),
     );
     if (!saved) throw generationConflict();
+    if (current.phase !== "reauthorization_required") {
+      this.metric({
+        name: "lifecycle_phase_transition",
+        provider: this.providerId,
+        from: current.phase,
+        to: "reauthorization_required",
+        category,
+        value: 1,
+      });
+    }
   }
 
   private async revoke(
@@ -1587,7 +1619,7 @@ export class ConnectionLifecycle {
 
   private metric(metric: ConnectionLifecycleMetric): void {
     try {
-      this.options.metrics?.record(metric);
+      this.options.metrics?.record({ ...metric, diagnosticId: this.options.diagnosticId });
     } catch {
       // Observability must never change credential lifecycle behavior.
     }
@@ -1867,7 +1899,9 @@ async function retryTransient<T>(operation: () => Promise<T>, retries: number): 
 }
 
 function lifecycleCategory(error: unknown): LifecycleErrorCategory | undefined {
-  return error instanceof ProviderLifecycleError ? error.category : undefined;
+  return error instanceof ProviderLifecycleError || error instanceof ProviderToolScopeError
+    ? error.category
+    : undefined;
 }
 
 function isPermanentRenewalFailure(category: LifecycleErrorCategory | undefined): boolean {
