@@ -55,16 +55,38 @@ The wrapper stages the decoded bytes in a private temporary file, invokes `gws`,
 file afterward. Inline uploads are limited to 10 MiB after decoding. The legacy `upload` argument
 addresses the MCP server filesystem, not the agent filesystem.
 
-## Generic Passthrough
+## Google Docs Positional Writes
 
-Use `google_workspace_gws` for raw CLI cases:
+Use `gws_docs_write` for a plain-text append to an existing document; the pinned helper places
+text at the end of the body without a caller-supplied index. For a raw append through
+`gws_docs_documents_batch_update`, prefer the API's end-of-segment location:
 
 ```json
 {
-  "argv": ["schema", "slides.presentations.batchUpdate"],
-  "scopes": []
+  "params": { "documentId": "document-id" },
+  "json": {
+    "requests": [{ "insertText": { "endOfSegmentLocation": {}, "text": "New paragraph\n" } }]
+  }
 }
 ```
+
+When an explicit `location.index` is necessary, fetch the current document structure first.
+Google Docs indices and `endIndex` values are UTF-16 code-unit offsets; `endIndex` is exclusive,
+not automatically a valid insertion position. In JavaScript, string `.length` counts UTF-16
+code units. In Python, use `len(text.encode("utf-16-le")) // 2`, not `len(text)`, when adjusting
+an index for inserted text containing emoji or other non-BMP characters. Do not apply a blanket
+`endIndex - 1` rule to tables, headers, or multi-tab documents; choose a valid paragraph location
+in the intended segment/tab.
+
+Each `batchUpdate` request is applied in order, so an insert shifts later offsets even though
+the batch succeeds or fails atomically. For multiple positional inserts, work from highest index
+to lowest when locations are independent, or re-fetch/recalculate after each edit. If other users
+may edit concurrently, use the Docs API's revision write control to reject a stale snapshot.
+
+## Generic Passthrough
+
+Use `google_workspace_gws` for raw commands in the pinned command catalog. Unclassified CLI
+commands, including schema introspection, are not currently accepted by this tool.
 
 ```json
 {
@@ -79,7 +101,8 @@ Use `google_workspace_gws` for raw CLI cases:
 }
 ```
 
-Prefer named tools when available because they already know their generated scopes.
+The gateway derives OAuth scope requirements from the command catalog; the `scopes` argument is
+retained for compatibility and does not grant authority. Prefer named tools for clearer schemas.
 
 ## Helper Commands
 
@@ -101,8 +124,8 @@ gws gmail +send --to user@example.com --subject Hello --body Hi
 
 - Drive works, Slides fails: usually `slides.googleapis.com` disabled or missing presentations scope.
 - Method exists but Claude says no tool: reconnect after a tool-catalog deploy.
-- Tool exists but says reconnect required: OAuth consent scopes are narrower than the tool's scope.
-- Opaque tool execution error: retry with the named schema/read tool or use raw passthrough with
-  `schema <service.resource.method>` to validate request shape.
+- Tool-specific `insufficient_scope`: inspect the method's accepted alternatives and the configured
+  consent set; unrelated tools may remain usable.
+- Opaque tool execution error: inspect the named tool's schema and request shape.
 - Opaque Slides `batchUpdate` error: check `objectId` length first; Google rejects IDs shorter than
   5 characters.

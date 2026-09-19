@@ -472,9 +472,17 @@ export const GOOGLE_WORKSPACE_TOOLS: WorkspaceToolDefinition[] = [
   }),
 ];
 
-export const GWS_VISIBLE_GENERATED_TOOLS = GWS_GENERATED_TOOLS.map(
-  filterExcludedScopeAlternatives,
-).filter(isVisibleGeneratedTool);
+export const GWS_VISIBLE_GENERATED_TOOLS = GWS_GENERATED_TOOLS.map(filterExcludedScopeAlternatives)
+  .filter(isVisibleGeneratedTool)
+  .map(withDocsIndexGuidance);
+
+function withDocsIndexGuidance(tool: WorkspaceToolDefinition): WorkspaceToolDefinition {
+  if (tool.name !== "gws_docs_documents_batch_update") return tool;
+  return {
+    ...tool,
+    description: `${tool.description} For positional insertText requests, indices are UTF-16 code units and earlier inserts shift later positions. Prefer endOfSegmentLocation for append, or re-read/recalculate indices before later positional writes. The gws_docs_write helper appends plain text without caller-supplied indices.`,
+  };
+}
 
 export const GOOGLE_WORKSPACE_CATALOG_ID =
   "google-workspace-cli@0.22.5/visible-v1/actions-v1" as const;

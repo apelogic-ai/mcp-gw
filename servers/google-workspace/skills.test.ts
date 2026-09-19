@@ -14,6 +14,8 @@ describe("Google Workspace MCP skill bundle", () => {
     expect(skill).toContain("server filesystem");
     expect(skill).toContain("args");
     expect(skill).toContain("reconnect");
+    expect(skill).toContain("gws_docs_write");
+    expect(skill).toContain("Docs index recipe");
   });
 
   test("ships gws MCP recipe reference material", () => {
@@ -32,5 +34,8 @@ describe("Google Workspace MCP skill bundle", () => {
     expect(reference).toContain("missing scope");
     expect(reference).toContain("Inline Drive Upload");
     expect(reference).toContain("uploadBase64");
+    expect(reference).toContain('"endOfSegmentLocation": {}');
+    expect(reference).toContain("UTF-16");
+    expect(reference).toContain("highest index");
   });
 });

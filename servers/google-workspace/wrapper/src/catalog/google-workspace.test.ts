@@ -337,4 +337,13 @@ describe("Google Workspace tool catalog", () => {
       ],
     });
   });
+
+  test("warns positional Google Docs writers about UTF-16 indices without blaming the append helper", () => {
+    const raw = getGoogleWorkspaceTool("gws_docs_documents_batch_update");
+    const append = getGoogleWorkspaceTool("gws_docs_write");
+    expect(raw.description).toContain("UTF-16");
+    expect(raw.description).toContain("endOfSegmentLocation");
+    expect(append.description).toContain("Append");
+    expect(append.description).not.toContain("endIndex - 1");
+  });
 });
