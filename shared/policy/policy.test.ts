@@ -77,6 +77,31 @@ rules:
     });
   });
 
+  test("assigns stable IDs to unlabeled ordered decisions and the default", async () => {
+    const config = `
+default: deny
+rules:
+  - effect: approval_required
+    match: { operation: drive.files.delete }
+  - effect: deny
+    match: { operation: calendar.events.delete }
+`;
+    for (const policy of [createYamlPolicyFromString(config), createYamlPolicyFromString(config)]) {
+      expect(await policy.decide({ ...input, operation: "drive.files.delete" })).toMatchObject({
+        kind: "approval_required",
+        ruleId: "yaml.rule.1",
+      });
+      expect(await policy.decide({ ...input, operation: "calendar.events.delete" })).toMatchObject({
+        kind: "deny",
+        ruleId: "yaml.rule.2",
+      });
+      expect(await policy.decide({ ...input, operation: "drive.files.get" })).toMatchObject({
+        kind: "deny",
+        ruleId: "yaml.default",
+      });
+    }
+  });
+
   test("rejects malformed hard guardrails at policy startup", () => {
     expect(() =>
       createYamlPolicyFromString('guardrails: { deniedOperations: ["not a command"] }'),
@@ -282,6 +307,7 @@ rules:
     ).toEqual({
       kind: "approval_required",
       reason: "Destructive Google Workspace actions require approval",
+      ruleId: "yaml.rule.3",
     });
 
     expect(
@@ -294,6 +320,7 @@ rules:
     ).toEqual({
       kind: "deny",
       reason: "YAML policy default deny",
+      ruleId: "yaml.default",
     });
   });
 
@@ -311,6 +338,7 @@ rules:
     expect(await new CompositePolicy([localPolicy, remotePolicy]).decide(input)).toEqual({
       kind: "deny",
       reason: "Deletes are disabled locally",
+      ruleId: "yaml.rule.1",
     });
 
     const localAllow = createYamlPolicyFromString("default: allow\n");

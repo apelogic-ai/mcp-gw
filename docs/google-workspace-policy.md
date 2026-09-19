@@ -112,6 +112,18 @@ operation guardrails and raw command classification apply independently of that 
 
 An omitted `match` block matches every call.
 
+For data tools, `match.scope`/`match.scopes` inspect the effective authority selected from the
+connection's freshly stored Google grant for that method—not the union of all scopes Google
+would accept. For example, a `drive.file` allow does not authorize a deletion carried by a
+broader `drive` grant, even when the method also accepts `drive.file`. The full method
+alternatives remain available to brokerage as `scopeRequirement`; the selected effective scopes
+are sent in `scopes` to YAML and OPA. If the stored grant changes after policy evaluation,
+brokerage refuses to return the token, so the request must be retried under the new grant.
+
+Unlabelled ordered YAML rules receive stable position-based diagnostic IDs (`yaml.rule.1`,
+`yaml.rule.2`, and so on); an unlabelled default deny or approval uses `yaml.default`. Reordering
+rules changes their derived IDs. Set explicit `id` fields if dashboards must survive reordering.
+
 ## OPA
 
 OPA is optional and external. Set `OPA_POLICY_URL` when an organization wants to

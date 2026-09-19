@@ -27,6 +27,9 @@ events. These events contain bounded categories and catalog operation names, nev
 principal identity, recipient addresses, arguments, provider response bodies, or MIME. The
 `connections_by_phase` event is an observation made during a status read, **not** a gauge of all
 database rows.
+Policy-denial events report the resolved catalog operation (including classified low-level
+`google_workspace_gws` calls) and the matching YAML rule ID, when available. Unlabelled YAML
+rules use position-based IDs; the default decision uses `yaml.default`.
 
 Never ask a user for an access token, refresh token, OAuth code, state value, or credential
 envelope. Do not paste full provider errors or message payloads into tickets or logs.

@@ -163,14 +163,20 @@ export class YamlPolicy implements ToolPolicy {
         });
       }
     }
-    for (const rule of this.rules) {
+    for (const [index, rule] of this.rules.entries()) {
       if (matchesRule(rule, input)) {
-        return Promise.resolve(decisionForEffect(rule.effect, rule.reason, rule.id));
+        return Promise.resolve(
+          decisionForEffect(rule.effect, rule.reason, rule.id ?? `yaml.rule.${String(index + 1)}`),
+        );
       }
     }
 
     return Promise.resolve(
-      decisionForEffect(this.defaultEffect, `YAML policy default ${this.defaultEffect}`),
+      decisionForEffect(
+        this.defaultEffect,
+        `YAML policy default ${this.defaultEffect}`,
+        "yaml.default",
+      ),
     );
   }
 }
