@@ -22,7 +22,12 @@ describe("release metadata", () => {
     expect(parsedPackage.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(parsedPackage.scripts["release:check"]).toBe("bun scripts/check-release-metadata.ts");
     expect(changelog).toContain("## [Unreleased]");
-    expect(changelog).toContain(`## [${parsedPackage.version}] - 2026-09-14`);
+    expect(changelog).toMatch(
+      new RegExp(
+        `^## \\[${parsedPackage.version.replaceAll(".", "\\.")}\\] - \\d{4}-\\d{2}-\\d{2}$`,
+        "m",
+      ),
+    );
     expect(changelog).toContain(
       `[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v${parsedPackage.version}...HEAD`,
     );

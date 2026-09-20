@@ -8,10 +8,26 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
-## [0.4.11] - 2026-09-14
+## [0.4.11] - 2026-09-19
+
+### Added
+
+- Add declarative Google Workspace operation denials and outbound-recipient domain guardrails
+  across named, generated, helper, and classified low-level GWS calls. The low-level tool remains
+  available for other pinned operations.
+- Add redacted lifecycle and policy-denial diagnostics, including resolved operation and stable
+  IDs for unlabelled YAML rules. Document safe Google Docs positional-write practices in the
+  shipped GWS skill.
 
 ### Fixed
 
+- Preserve Google's alternative method scopes, report tool-specific missing scopes without
+  disabling the whole connection, and expose phase, error category, and renewal timing in
+  `google_oauth_status`. Eligible rows affected by the earlier scope-poisoning bug can recover
+  when their configured consent scopes are intact.
+- Evaluate scope-based policy allows against every usable scope in the stored grant rather than
+  every possible method alternative, and reject a token if its grant changes after policy
+  evaluation. Existing scope-based deny rules remain conservative.
 - Clarify that the authorization-broker NetworkPolicy source must select the
   actual data-plane proxy Pods or observed source CIDRs in Gateway API and
   Ingress deployments. The fail-closed, exactly-one-source requirement remains.
@@ -25,6 +41,13 @@ human-maintained compatibility summary.
 - No ingress, Secret, or database migration is required for existing installs.
   Operators using one aggregate signing/runtime Secret should set non-empty
   `secretRef.envKeys` lists for each importing wrapper and omit the signing key.
+- Review YAML `match.scope` allow rules before rollout: a narrow allow no longer admits a broader
+  usable Google grant. Full Drive also no longer satisfies `drive.apps.readonly`; users of
+  `apps.list` may need consent for that scope. Raw GWS calls must resolve to a pinned command;
+  caller-supplied scopes cannot authorize an unclassified operation.
+- The outbound-recipient guard applies only when explicitly configured. In that mode, opaque or
+  indirect mail-producing calls fail closed, and OPA receives normalized recipient domains
+  instead of message arguments. Existing policies without this guard are unchanged.
 
 ## [0.4.10] - 2026-09-14
 
