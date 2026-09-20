@@ -1,4 +1,5 @@
 import type { JsonSchemaObject, ToolAnnotations, ToolDefinition } from "../mcp/registry";
+import type { ScopeRequirement } from "../../../../../shared/oauth/connection-types";
 
 export type WorkspaceService = string;
 
@@ -18,6 +19,7 @@ export interface WorkspaceToolDefinition extends ToolDefinition {
   actionClass: ActionClass;
   command: string[];
   scopes: string[];
+  scopeRequirement?: ScopeRequirement;
   params: CatalogParam[];
   bodyParams?: CatalogParam[];
   defaultParams?: Record<string, unknown>;
@@ -37,6 +39,7 @@ export interface WorkspaceToolSpec {
   actionClass: ActionClass;
   command: string[];
   scopes: string[];
+  scopeRequirement?: ScopeRequirement;
   params?: CatalogParam[];
   bodyParams?: CatalogParam[];
   defaultParams?: Record<string, unknown>;
@@ -77,6 +80,7 @@ export function defineWorkspaceTool(spec: WorkspaceToolSpec): WorkspaceToolDefin
     actionClass: spec.actionClass,
     command: spec.command,
     scopes: spec.scopes,
+    scopeRequirement: spec.scopeRequirement,
     params,
     bodyParams,
     defaultParams: spec.defaultParams,

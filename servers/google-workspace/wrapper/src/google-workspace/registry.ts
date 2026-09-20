@@ -1,5 +1,19 @@
+import { randomUUID } from "node:crypto";
+
 import { normalizedHop1Claims, type Hop1Identity } from "../../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../../shared/audit/audit";
+import type { ConnectionLifecycleMetricSink } from "../../../../../shared/oauth/connection-metrics";
+import {
+  ProviderLifecycleError,
+  ProviderToolScopeError,
+} from "../../../../../shared/oauth/connection-types";
+import { GoogleOAuthError } from "../../../../../shared/oauth/google";
+import { effectiveGoogleScopes } from "../../../../../shared/oauth/provider-adapters";
+import type {
+  ConnectionPhase,
+  LifecycleErrorCategory,
+  ScopeRequirementInput,
+} from "../../../../../shared/oauth/connection-types";
 import {
   AllowAllPolicy,
   type PolicyDecision,
@@ -7,12 +21,12 @@ import {
 } from "../../../../../shared/policy/policy";
 import {
   getGoogleWorkspaceTool,
-  isExcludedGoogleWorkspaceScope,
   listGoogleWorkspaceTools,
   type GoogleWorkspaceCatalogId,
 } from "../catalog/google-workspace";
 import type { WorkspaceToolDefinition } from "../catalog/types";
 import type { ToolRegistry, ToolResult } from "../mcp/registry";
+import { resolveWorkspaceOperation } from "./operation-resolver";
 
 export interface GoogleOAuthStatus {
   connected: boolean;
@@ -20,6 +34,8 @@ export interface GoogleOAuthStatus {
   scopesRequired: string[];
   scopesGranted: string[];
   missingScopes: string[];
+  phase?: ConnectionPhase;
+  errorCategory?: LifecycleErrorCategory;
 }
 
 export interface GoogleOAuthTools {
@@ -28,7 +44,13 @@ export interface GoogleOAuthTools {
 }
 
 export interface AccessTokenBroker {
-  getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
+  getGrantedScopes(identity: Hop1Identity): Promise<string[]>;
+  getAccessToken(
+    identity: Hop1Identity,
+    requiredScopes: ScopeRequirementInput,
+    diagnosticId?: string,
+    expectedGrantedScopes?: readonly string[],
+  ): Promise<string>;
 }
 
 export interface ExecuteWorkspaceToolRequest {
@@ -43,6 +65,7 @@ export interface CreateGoogleWorkspaceRegistryOptions {
   identity: Hop1Identity;
   governanceCatalogId?: GoogleWorkspaceCatalogId;
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   policy?: ToolPolicy;
   oauth?: GoogleOAuthTools;
   tokenBroker: AccessTokenBroker;
@@ -52,7 +75,7 @@ export interface CreateGoogleWorkspaceRegistryOptions {
 export function createGoogleWorkspaceRegistry(
   options: CreateGoogleWorkspaceRegistryOptions,
 ): ToolRegistry {
-  const policy = options.policy ?? new AllowAllPolicy();
+  const policy: ToolPolicy = options.policy ?? new AllowAllPolicy();
 
   return {
     listTools: () => {
@@ -66,18 +89,28 @@ export function createGoogleWorkspaceRegistry(
       ];
     },
     callTool: async (name, args) => {
+      const diagnosticId = randomUUID();
       if (name === "google_oauth_start" && options.oauth) {
         const started = Date.now();
         const decision = await policy.decide({
           principal: options.identity.email,
           tokenClaims: normalizedHop1Claims(options.identity),
           tool: name,
+          operation: "google.oauth.start",
           service: "google",
           actionClass: "write",
           scopes: options.oauth.status.scopesRequired,
           args,
         });
-        await enforcePolicyDecision(decision, { name }, args, started, options);
+        await enforcePolicyDecision(
+          decision,
+          { name },
+          "google.oauth.start",
+          args,
+          started,
+          options,
+          diagnosticId,
+        );
       }
 
       const oauthResult = await callGoogleOAuthTool(name, args, options.oauth);
@@ -87,30 +120,59 @@ export function createGoogleWorkspaceRegistry(
 
       const started = Date.now();
       const tool = getGoogleWorkspaceTool(name, options.governanceCatalogId);
-      if (options.oauth && !options.oauth.status.connected) {
+      if (
+        options.oauth &&
+        !options.oauth.status.connected &&
+        !(
+          options.oauth.status.phase === "reauthorization_required" &&
+          options.oauth.status.errorCategory === "insufficient_scope" &&
+          options.oauth.status.missingScopes.length === 0
+        )
+      ) {
         return providerOAuthRequiredResult();
       }
       validateRequiredArgs(tool, args);
+      const resolved = resolveWorkspaceOperation(tool, args, policy.hardGuardrails === true);
+      const scopeRequirement = resolved.scopeRequirement;
+      let grantedScopes: string[];
+      try {
+        grantedScopes = await options.tokenBroker.getGrantedScopes(options.identity);
+      } catch (error) {
+        return reportToolError(error, tool, resolved.args, started, options, diagnosticId);
+      }
 
       const decision = await policy.decide({
         principal: options.identity.email,
         tokenClaims: normalizedHop1Claims(options.identity),
         tool: tool.name,
-        service: tool.service,
-        actionClass: tool.actionClass,
-        scopes: requiredScopes(tool, args),
-        args,
+        operation: resolved.operation,
+        service: resolved.service,
+        actionClass: resolved.actionClass,
+        scopes: effectiveGoogleScopes(grantedScopes, scopeRequirement),
+        scopeRequirement,
+        ...(resolved.outboundEmail ? { outboundEmail: resolved.outboundEmail } : {}),
+        args: resolved.args,
       });
-      await enforcePolicyDecision(decision, tool, args, started, options);
+      await enforcePolicyDecision(
+        decision,
+        tool,
+        resolved.operation,
+        resolved.args,
+        started,
+        options,
+        diagnosticId,
+      );
 
       try {
         const accessToken = await options.tokenBroker.getAccessToken(
           options.identity,
-          requiredScopes(tool, args),
+          scopeRequirement,
+          diagnosticId,
+          grantedScopes,
         );
         const result = await options.executor({
           tool,
-          args,
+          args: resolved.args,
           accessToken,
         });
 
@@ -120,27 +182,47 @@ export function createGoogleWorkspaceRegistry(
           principal: options.identity.email,
           status: "allow",
           tool: tool.name,
-          argDigest: digestArgs(args),
+          argDigest: digestArgs(resolved.args),
           latencyMs: Date.now() - started,
           resultSize: resultSize(result),
         });
 
         return formatToolResult(result);
       } catch (error) {
-        await options.audit?.emit({
-          ts: new Date().toISOString(),
-          category: "tool_call",
-          principal: options.identity.email,
-          status: "error",
-          tool: tool.name,
-          argDigest: digestArgs(args),
-          latencyMs: Date.now() - started,
-          error: error instanceof Error ? error.message : "Unknown tool error",
-        });
-        return formatToolError(error);
+        return reportToolError(error, tool, resolved.args, started, options, diagnosticId);
       }
     },
   };
+}
+
+async function reportToolError(
+  error: unknown,
+  tool: Pick<WorkspaceToolDefinition, "name">,
+  args: Record<string, unknown>,
+  started: number,
+  options: CreateGoogleWorkspaceRegistryOptions,
+  diagnosticId: string,
+): Promise<ToolResult> {
+  if (error instanceof ProviderToolScopeError) {
+    recordMetricSafely(options.metrics, {
+      name: "tool_scope_denied",
+      provider: "google",
+      operation: tool.name,
+      diagnosticId,
+      value: 1,
+    });
+  }
+  await options.audit?.emit({
+    ts: new Date().toISOString(),
+    category: "tool_call",
+    principal: options.identity.email,
+    status: "error",
+    tool: tool.name,
+    argDigest: digestArgs(args),
+    latencyMs: Date.now() - started,
+    error: error instanceof Error ? error.message : "Unknown tool error",
+  });
+  return formatToolError(error, diagnosticId);
 }
 
 function providerOAuthRequiredResult(): ToolResult {
@@ -230,15 +312,25 @@ function formatCompactToolResult(result: unknown): ToolResult {
 async function enforcePolicyDecision(
   decision: PolicyDecision,
   tool: Pick<WorkspaceToolDefinition, "name">,
+  operation: string,
   args: Record<string, unknown>,
   started: number,
   options: CreateGoogleWorkspaceRegistryOptions,
+  diagnosticId: string,
 ): Promise<void> {
   if (decision.kind === "allow") {
     return;
   }
 
   const event = decision.kind === "approval_required" ? "approval_required" : "deny";
+  recordMetricSafely(options.metrics, {
+    name: "policy_denied",
+    provider: "google",
+    operation,
+    ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
+    diagnosticId,
+    value: 1,
+  });
   await options.audit?.emit({
     ts: new Date().toISOString(),
     category: "tool_call",
@@ -268,30 +360,6 @@ function validateRequiredArgs(tool: WorkspaceToolDefinition, args: Record<string
   }
 }
 
-function requiredScopes(tool: WorkspaceToolDefinition, args: Record<string, unknown>): string[] {
-  if (!tool.dynamicScopesParam) {
-    return tool.scopes;
-  }
-
-  const value = args[tool.dynamicScopesParam];
-  if (!isStringArray(value)) {
-    throw new Error(`${tool.dynamicScopesParam} must be an array of strings`);
-  }
-
-  const excludedScopes = value.filter(isExcludedGoogleWorkspaceScope);
-  if (excludedScopes.length > 0) {
-    throw new Error(
-      `${tool.dynamicScopesParam} contains unsupported Google Workspace scopes: ${excludedScopes.join(", ")}`,
-    );
-  }
-
-  return value;
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
 function formatToolResult(result: unknown): ToolResult {
   return {
     content: [
@@ -303,16 +371,60 @@ function formatToolResult(result: unknown): ToolResult {
   };
 }
 
-function formatToolError(error: unknown): ToolResult {
+function formatToolError(error: unknown, diagnosticId: string): ToolResult {
+  const code =
+    error instanceof ProviderToolScopeError
+      ? "insufficient_scope"
+      : error instanceof ProviderLifecycleError
+        ? error.category
+        : error instanceof GoogleOAuthError
+          ? error.code
+          : undefined;
   return {
     isError: true,
     content: [
       {
         type: "text",
-        text: JSON.stringify(serializableError(error), null, 2),
+        text: JSON.stringify(
+          code
+            ? { error: safeBrokerageMessage(code), code, diagnosticId }
+            : serializableError(error),
+          null,
+          2,
+        ),
       },
     ],
+    ...(code ? { structuredContent: { error: code, diagnosticId } } : {}),
   };
+}
+
+function safeBrokerageMessage(code: string): string {
+  switch (code) {
+    case "insufficient_scope":
+      return "This tool needs an additional Google Workspace scope";
+    case "reauth_required":
+    case "invalid_active_credential":
+    case "invalid_renewal_credential":
+    case "renewal_expired":
+      return "Google Workspace must be reconnected";
+    case "transient_provider_failure":
+      return "Google Workspace is temporarily unavailable";
+    case "persistence_failure":
+      return "Credential storage is temporarily unavailable";
+    default:
+      return "Google Workspace tool execution failed";
+  }
+}
+
+function recordMetricSafely(
+  sink: ConnectionLifecycleMetricSink | undefined,
+  metric: Parameters<ConnectionLifecycleMetricSink["record"]>[0],
+): void {
+  try {
+    sink?.record(metric);
+  } catch {
+    // Diagnostics cannot affect policy or credential behavior.
+  }
 }
 
 function serializableError(error: unknown): Record<string, unknown> {

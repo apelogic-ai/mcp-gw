@@ -13,6 +13,7 @@ import {
   type AuthorizationContinuation,
   type CompleteAuthorizationRequest,
   type IssuedCredentialGeneration,
+  type ScopeRequirementInput,
 } from "./connection-types";
 
 const GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -431,9 +432,29 @@ function hasGoogleScope(granted: Set<string>, required: string): boolean {
   return [...granted].some((scope) => googleScopeImplies(scope, required));
 }
 
+/** Report every granted authority usable for this method, never its full OR-list. */
+export function effectiveGoogleScopes(
+  grantedScopes: string[],
+  requirement: ScopeRequirementInput,
+): string[] {
+  const groups = Array.isArray(requirement)
+    ? requirement.map((scope) => ({ anyOf: [scope] }))
+    : requirement.allOf;
+  const acceptedScopes = groups.flatMap(({ anyOf }) => anyOf);
+  return [...new Set(grantedScopes)].filter((granted) =>
+    acceptedScopes.some(
+      (accepted) => granted === accepted || googleScopeImplies(granted, accepted),
+    ),
+  );
+}
+
 function googleScopeImplies(granted: string, required: string): boolean {
   if (granted === "https://www.googleapis.com/auth/drive") {
-    return required.startsWith("https://www.googleapis.com/auth/drive.");
+    return [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.metadata",
+      "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ].includes(required);
   }
   if (granted === "https://www.googleapis.com/auth/gmail.modify") {
     return (

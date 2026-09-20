@@ -10,6 +10,8 @@ import {
 } from "../../../../shared/identity/hop1";
 import { startGoogleOAuth, type OAuthFetch } from "../../../../shared/oauth/google";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
+import { googleOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 import { GoogleTokenBroker } from "../../../../shared/oauth/token-broker";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
@@ -21,6 +23,7 @@ import {
 } from "../../../../shared/policy/policy";
 import { createGoogleWorkspaceWrapperHandler, type WrapperConfig } from "./app";
 import { executeGwsTool } from "./executor/gws";
+import { PINNED_GWS_OPERATIONS } from "./google-workspace/operation-resolver";
 
 export type JwksProvider = () => Promise<JWK[]>;
 
@@ -51,6 +54,7 @@ export interface CreateRuntimeWrapperHandlerOptions {
   tokenStore: OAuthTokenStore;
   issuers?: RuntimeTrustedIssuer[];
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   policy?: ToolPolicy;
   fetch?: OAuthFetch;
   providerOAuth?: {
@@ -126,12 +130,15 @@ export function createRuntimeWrapperHandler(
     tokenStore: options.tokenStore,
     fetch: options.fetch,
     audit,
+    consentScopes: providerOAuth?.scopes,
+    metrics: options.metrics,
   });
   const connectionLifecycle = new ConnectionLifecycle({
     adapter: new GoogleConnectionAdapter(options.config.oauth, options.fetch),
     store: options.tokenStore,
     credentialEncryptionKey: options.config.oauth.tokenEncryptionKey,
     audit,
+    metrics: options.metrics,
   });
 
   return createGoogleWorkspaceWrapperHandler({
@@ -155,18 +162,13 @@ export function createRuntimeWrapperHandler(
         })),
     }),
     audit,
+    metrics: options.metrics,
     policy: options.policy ?? createPolicy(options.config, options.fetch),
     governanceCatalogId: options.config.governanceCatalogId,
     getOAuthStatus: providerOAuth
       ? async (identity) => {
           const status = await connectionLifecycle.status(identity, providerOAuth.scopes);
-          return {
-            connected: status.connected,
-            ...(status.account ? { email: status.account.displayName } : {}),
-            scopesRequired: status.requiredScopes,
-            scopesGranted: status.grantedScopes,
-            missingScopes: status.missingScopes,
-          };
+          return googleOAuthCompatibilityStatus(status);
         }
       : undefined,
     startOAuth: providerOAuth
@@ -275,7 +277,12 @@ function createPolicy(
   const policies: ToolPolicy[] = [];
 
   if (config.policy?.yamlFile) {
-    policies.push(createYamlPolicyFromString(readFileSync(config.policy.yamlFile, "utf8")));
+    policies.push(
+      createYamlPolicyFromString(
+        readFileSync(config.policy.yamlFile, "utf8"),
+        PINNED_GWS_OPERATIONS,
+      ),
+    );
   }
   if (config.policy?.opaUrl) {
     policies.push(createOpaPolicyFromUrl(config.policy.opaUrl, fetchImpl));

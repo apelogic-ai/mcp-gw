@@ -24,6 +24,14 @@ export type LifecycleErrorCategory =
   | "persistence_failure"
   | "generation_conflict";
 
+/** AND of groups, each of which accepts any one provider scope. */
+export interface ScopeRequirement {
+  allOf: { anyOf: string[] }[];
+}
+
+/** Legacy flat scope lists continue to mean AND. */
+export type ScopeRequirementInput = string[] | ScopeRequirement;
+
 export type ProviderRevocationResult =
   "revoked" | "already_absent" | "not_supported" | "retryable_failure" | "permanent_failure";
 
@@ -154,6 +162,17 @@ export class ProviderLifecycleError extends Error {
   }
 }
 
+/** A single tool cannot use this grant; the connection itself may still be healthy. */
+export class ProviderToolScopeError extends Error {
+  readonly code = "insufficient_scope";
+  readonly category = "insufficient_scope";
+
+  constructor() {
+    super("This tool requires an additional provider scope");
+    this.name = "ProviderToolScopeError";
+  }
+}
+
 export function lifecycleErrorRequiresReauthorization(error: unknown): boolean {
   if (!(error instanceof ProviderLifecycleError)) return false;
   return (
@@ -221,11 +240,14 @@ export interface ConnectionStatusV1 {
   requiredScopes: string[];
   grantedScopes: string[];
   missingScopes: string[];
+  activeCredentialPresent: boolean;
+  renewalCredentialPresent: boolean;
   activeCredentialExpiresAt: string | null;
   renewalCredentialExpiresAt: string | null;
   lastAuthorizedAt: string | null;
   lastRenewedAt: string | null;
   lastValidatedAt: string | null;
+  statusUpdatedAt: string | null;
   capabilities: ProviderConnectionCapabilities;
   errorCategory?: LifecycleErrorCategory;
 }

@@ -150,7 +150,10 @@ describe("control-plane mediated provider connection journey", () => {
           tokenStore,
           redirectAfter,
         }),
-      tokenBroker: { getAccessToken: () => Promise.resolve("google-access-token") },
+      tokenBroker: {
+        getGrantedScopes: () => Promise.resolve(GOOGLE_SCOPES),
+        getAccessToken: () => Promise.resolve("google-access-token"),
+      },
       executor: () => Promise.resolve({ ok: true }),
     });
 

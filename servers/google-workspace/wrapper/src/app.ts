@@ -7,13 +7,18 @@ import {
   validateHop1IssuerProfiles,
 } from "../../../../shared/identity/hop1";
 import type { AuditSink } from "../../../../shared/audit/audit";
+import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
 import {
   GOOGLE_WORKSPACE_CATALOG_ID,
   type GoogleWorkspaceCatalogId,
 } from "./catalog/google-workspace";
-import type { GoogleOAuthStatus, WorkspaceToolExecutor } from "./google-workspace/registry";
+import type {
+  AccessTokenBroker,
+  GoogleOAuthStatus,
+  WorkspaceToolExecutor,
+} from "./google-workspace/registry";
 import { createGoogleWorkspaceRegistry } from "./google-workspace/registry";
 import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
 
@@ -53,15 +58,14 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
   serverInfo: ServerInfo;
   authenticate(token: string): Promise<Hop1Identity>;
   audit?: AuditSink;
+  metrics?: ConnectionLifecycleMetricSink;
   policy?: ToolPolicy;
   getOAuthStatus?: (identity: Hop1Identity) => Promise<GoogleOAuthStatus>;
   startOAuth?: (
     identity: Hop1Identity,
     redirectAfter?: string,
   ) => Promise<{ authorizationUrl: string }>;
-  tokenBroker: {
-    getAccessToken(identity: Hop1Identity, requiredScopes: string[]): Promise<string>;
-  };
+  tokenBroker: AccessTokenBroker;
   executor: WorkspaceToolExecutor;
   governanceCatalogId?: GoogleWorkspaceCatalogId;
 }
@@ -79,10 +83,18 @@ export function createGoogleWorkspaceWrapperHandler(
         identity,
         governanceCatalogId: options.governanceCatalogId,
         audit: options.audit,
+        metrics: options.metrics,
         policy: options.policy,
         tokenBroker: {
-          getAccessToken: (requestIdentity, scopes) =>
-            options.tokenBroker.getAccessToken(requestIdentity, scopes),
+          getGrantedScopes: (requestIdentity) =>
+            options.tokenBroker.getGrantedScopes(requestIdentity),
+          getAccessToken: (requestIdentity, scopes, diagnosticId, expectedGrantedScopes) =>
+            options.tokenBroker.getAccessToken(
+              requestIdentity,
+              scopes,
+              diagnosticId,
+              expectedGrantedScopes,
+            ),
         },
         oauth:
           oauthStatus && startOAuth

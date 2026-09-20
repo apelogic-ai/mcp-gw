@@ -6,9 +6,9 @@ import {
 } from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
+import { JsonLineConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 import { createRevocationWorker } from "../../../../shared/oauth/revocation-worker";
-import { createOpaPolicyFromUrl } from "../../../../shared/policy/policy";
 import { loadWrapperConfig, type WrapperConfig } from "./app";
 import { createOAuthRouteHandler } from "./oauth-routes";
 import {
@@ -93,17 +93,16 @@ export async function createMainHandler(
   const audit = config.wrapper.audit?.jsonlPath
     ? new JsonlAuditSink(config.wrapper.audit.jsonlPath)
     : undefined;
+  const metrics = new JsonLineConnectionLifecycleMetricSink();
   createRevocationWorker([
     new ConnectionLifecycle({
       adapter: new GoogleConnectionAdapter(config.wrapper.oauth),
       store: tokenStore,
       credentialEncryptionKey: config.wrapper.oauth.tokenEncryptionKey,
       audit,
+      metrics,
     }),
   ]).start();
-  const policy = config.wrapper.policy?.opaUrl
-    ? createOpaPolicyFromUrl(config.wrapper.policy.opaUrl)
-    : undefined;
   const authorizationBroker = config.authorizationBroker
     ? await createAuthorizationBrokerRuntime({
         config: config.authorizationBroker,
@@ -122,13 +121,14 @@ export async function createMainHandler(
     stateStore,
     tokenStore,
     audit,
+    metrics,
   });
   const mcpHandler = createRuntimeWrapperHandler({
     config: config.wrapper,
     tokenStore,
     issuers: hop1Issuers,
     audit,
-    policy,
+    metrics,
     providerOAuth: {
       scopes: config.googleOAuthScopes,
       stateStore,

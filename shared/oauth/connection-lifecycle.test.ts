@@ -79,6 +79,92 @@ class FixtureAdapter implements DownstreamConnectionAdapter {
 }
 
 describe("provider-neutral connection lifecycle", () => {
+  test("brokers any accepted scope without renewing and never poisons a connection for a tool-scope miss", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    const lifecycle = fixtureLifecycle(store, adapter);
+    await authorize(lifecycle, "active-1", "renewal-1");
+
+    expect(
+      await lifecycle.getActiveCredential(identity, {
+        allOf: [{ anyOf: ["ungranted-alternative", "read"] }],
+      }),
+    ).toBe("active-1");
+    expect(
+      lifecycle.getActiveCredential(identity, {
+        allOf: [{ anyOf: ["ungranted-alternative"] }],
+      }),
+    ).rejects.toMatchObject({ category: "insufficient_scope" });
+    expect(adapter.renewCalls).toBe(0);
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      phase: "connected",
+      connected: true,
+      errorCategory: undefined,
+    });
+  });
+
+  test("repairs only a legacy tool-scope-poisoned row with a complete consent grant", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      consentScopes: scopes,
+    });
+    await authorize(lifecycle, "active-1", "renewal-1");
+    const current = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await store.saveConnection(
+      {
+        ...current,
+        phase: "reauthorization_required",
+        lifecycleErrorCategory: "insufficient_scope",
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+
+    expect(await lifecycle.getActiveCredential(identity, ["read"])).toBe("active-1");
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      connected: true,
+      phase: "connected",
+    });
+    expect(adapter.renewCalls).toBe(0);
+  });
+
+  test("does not repair a genuinely incomplete consent grant", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const lifecycle = new ConnectionLifecycle({
+      adapter: new FixtureAdapter(),
+      store,
+      credentialEncryptionKey: key,
+      consentScopes: scopes,
+    });
+    await authorize(lifecycle, "active-1", "renewal-1");
+    const current = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await store.saveConnection(
+      {
+        ...current,
+        grantedScopes: ["read"],
+        phase: "reauthorization_required",
+        lifecycleErrorCategory: "insufficient_scope",
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+
+    expect(lifecycle.getActiveCredential(identity, ["read"])).rejects.toMatchObject({
+      category: "insufficient_scope",
+    });
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      connected: false,
+      phase: "reauthorization_required",
+      missingScopes: ["write"],
+    });
+  });
+
   test("returns truthful sanitized status without decrypting the credential envelope", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
@@ -103,6 +189,30 @@ describe("provider-neutral connection lifecycle", () => {
     });
     expect(JSON.stringify(status)).not.toContain("active-1");
     expect(JSON.stringify(status)).not.toContain("renewal-1");
+  });
+
+  test("status distinguishes an expired renewal credential without decrypting it", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const lifecycle = fixtureLifecycle(store, new FixtureAdapter());
+    await authorize(lifecycle, "expired-active", "expired-renewal", new Date(Date.now() - 1));
+    const current = await store.getConnection("github", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await store.saveConnection(
+      {
+        ...current,
+        renewalCredentialExpiresAt: new Date(Date.now() - 1),
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      connected: false,
+      phase: "reauthorization_required",
+      errorCategory: "renewal_expired",
+      activeCredentialPresent: true,
+      renewalCredentialPresent: true,
+    });
   });
 
   test("isolates connection state by immutable HOP-1 issuer and subject", async () => {
@@ -189,19 +299,16 @@ describe("provider-neutral connection lifecycle", () => {
       reads += 1;
       return listGenerations(...args);
     };
-    const waiter = lifecycle.getActiveCredential(identity, ["write"]);
+    const waiter = lifecycle
+      .getActiveCredential(identity, ["write"])
+      .catch((error: unknown) => error);
     await Bun.sleep(450);
     const readsWhileWaiting = reads;
     releaseOwner();
 
     expect(await owner).toBe("read-only-active");
-    let waiterError: unknown;
-    try {
-      await waiter;
-    } catch (error) {
-      waiterError = error;
-    }
-    expect(waiterError).toMatchObject({ category: "invalid_active_credential" });
+    const waiterError = await waiter;
+    expect(waiterError).toMatchObject({ category: "insufficient_scope" });
     expect(
       await lifecycle.recoverFromProviderAuthenticationFailure(
         identity,
@@ -600,6 +707,7 @@ describe("provider-neutral connection lifecycle", () => {
 
     expect(new Set(metrics.metrics.map((metric) => metric.name))).toEqual(
       new Set([
+        "renewal_attempt",
         "renewal_lock_wait_ms",
         "renewal_outcome",
         "status_latency_ms",

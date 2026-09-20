@@ -437,7 +437,10 @@ export const GWS_GENERATED_TOOLS: WorkspaceToolDefinition[] = [
       service: method.alias,
       actionClass: actionClassForHttpMethod(method.httpMethod),
       command: [...method.command],
-      scopes: selectedScopes(method.scopes),
+      scopes: [...method.scopes],
+      scopeRequirement: {
+        allOf: method.scopes.length > 0 ? [{ anyOf: [...method.scopes] }] : [],
+      },
       params: [
         {
           name: "params",
@@ -543,6 +546,7 @@ export const GWS_GENERATED_TOOLS: WorkspaceToolDefinition[] = [
       actionClass: helper.actionClass,
       command: [helper.alias, helper.command],
       scopes: [...helper.scopes],
+      scopeRequirement: { allOf: helper.scopes.map((scope) => ({ anyOf: [scope] })) },
       params: [
         {
           name: "args",
@@ -557,10 +561,6 @@ export const GWS_GENERATED_TOOLS: WorkspaceToolDefinition[] = [
     }),
   ),
 ];
-
-function selectedScopes(scopes: readonly string[]): string[] {
-  return scopes.length > 0 ? [scopes[0] ?? ""] : [];
-}
 
 function actionClassForHttpMethod(method: string): "read" | "write" | "destructive" {
   if (method === "GET") {

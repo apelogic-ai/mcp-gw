@@ -117,6 +117,7 @@ async function googleToolNames(store: OAuthTokenStore, identity: Hop1Identity): 
         Promise.resolve({ authorizationUrl: "https://accounts.google.com/fixture-consent" }),
     },
     tokenBroker: {
+      getGrantedScopes: () => Promise.resolve(GOOGLE_SCOPES),
       getAccessToken: () => Promise.resolve("fixture-google-access-token"),
     },
     executor: () => Promise.resolve({ ok: true }),

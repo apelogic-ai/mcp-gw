@@ -5,9 +5,8 @@ description: Use when an agent is working with the mcp-gw Google Workspace MCP c
 
 # Google Workspace MCP
 
-Use the named `gws_*` tools first. Use `google_workspace_gws` only when a needed command is not
-available as a named tool, when an unlisted `<api>:<version>` command is needed, or when raw CLI
-control is required.
+Use the named `gws_*` tools first. Use `google_workspace_gws` for raw CLI control over commands
+in the pinned catalog. Unknown commands are rejected until the catalog is updated.
 
 ## Tool Shapes
 
@@ -63,13 +62,25 @@ Raw passthrough:
 google_workspace_gws
 ```
 
-Use `argv` for arguments after the `gws` binary and `scopes` for the OAuth scopes required for the
-command. Prefer named tools because they carry generated scopes and clearer policy metadata.
+Use `argv` for arguments after the `gws` binary. The `scopes` field remains in the schema for
+compatibility, but the gateway derives the actual requirement from the pinned command catalog;
+the caller cannot declare its own authority. Prefer named tools for clearer schemas.
+
+## Google Docs Writes
+
+For plain-text append, use `gws_docs_write` (`args: ["--document", ID, "--text", TEXT]`); it
+handles the append position. For raw `gws_docs_documents_batch_update` positional writes, read
+the [Docs index recipe](references/tool-patterns.md#google-docs-positional-writes) before
+constructing indices. This is guidance for raw API calls, not a claim that the append helper
+has an index bug.
 
 ## Failure Diagnosis
 
-- `Google account must be reconnected for additional scopes`: the user consent token lacks a needed
-  scope. Ask the user to disconnect/reconnect the connector after deployment has the scope.
+- `insufficient_scope` on one tool: its accepted scope alternatives are not in the current grant.
+  Other Google tools can remain usable. Ask for reauthorization only after the deployment's
+  configured consent scopes include a suitable alternative.
+- `connected: false` with `missingScopes: []`: inspect `phase` and `errorCategory` from
+  `google_oauth_status`; an empty missing-scope list does not prove credentials are usable.
 - `API not enabled`: the Google Cloud project must enable that API, for example `slides.googleapis.com`.
 - Validation errors mentioning `--params` or `--json`: fix the `params` or `json` object shape.
 - Upload path not found: do not pass an agent-local path through `upload`; encode the file and pass

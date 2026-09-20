@@ -1,5 +1,13 @@
 import { redactValue } from "../audit/audit";
 import { parse as parseYaml } from "yaml";
+import type { ScopeRequirement } from "../oauth/connection-types";
+import { canonicalPolicyDomain, domainIsAllowed } from "./outbound-email";
+
+export interface VerifiedOutboundEmail {
+  kind: "verified";
+  /** Domains only; full recipient addresses are never sent to policy or telemetry. */
+  recipientDomains: string[];
+}
 
 export type PolicyActionClass = "read" | "write" | "destructive";
 
@@ -7,18 +15,23 @@ export interface ToolPolicyInput {
   principal: string;
   tokenClaims: Record<string, unknown>;
   tool: string;
+  /** Server-resolved provider operation, never asserted by the caller. */
+  operation?: string;
   service: string;
   actionClass: PolicyActionClass;
   scopes: string[];
+  scopeRequirement?: ScopeRequirement;
+  outboundEmail?: VerifiedOutboundEmail;
   args: Record<string, unknown>;
 }
 
 export type PolicyDecision =
   | { kind: "allow" }
-  | { kind: "deny"; reason: string }
-  | { kind: "approval_required"; reason: string };
+  | { kind: "deny"; reason: string; ruleId?: string }
+  | { kind: "approval_required"; reason: string; ruleId?: string };
 
 export interface ToolPolicy {
+  readonly hardGuardrails?: boolean;
   decide(input: ToolPolicyInput): Promise<PolicyDecision>;
 }
 
@@ -30,7 +43,11 @@ export class AllowAllPolicy implements ToolPolicy {
 }
 
 export class CompositePolicy implements ToolPolicy {
-  constructor(private readonly policies: ToolPolicy[]) {}
+  readonly hardGuardrails: boolean;
+
+  constructor(private readonly policies: ToolPolicy[]) {
+    this.hardGuardrails = policies.some((policy) => policy.hardGuardrails === true);
+  }
 
   async decide(input: ToolPolicyInput): Promise<PolicyDecision> {
     let approval: PolicyDecision | undefined;
@@ -52,11 +69,16 @@ export class CompositePolicy implements ToolPolicy {
 export interface YamlPolicyConfig {
   default?: YamlPolicyEffect;
   rules?: YamlPolicyRule[];
+  guardrails?: {
+    deniedOperations?: string[];
+    outboundEmail?: { allowedRecipientDomains: string[] };
+  };
 }
 
 export type YamlPolicyEffect = "allow" | "deny" | "approval_required";
 
 export interface YamlPolicyRule {
+  id?: string;
   effect: YamlPolicyEffect;
   reason?: string;
   match?: YamlPolicyMatch;
@@ -69,6 +91,8 @@ export interface YamlPolicyMatch {
   tools?: string[];
   service?: string | string[];
   services?: string[];
+  operation?: string | string[];
+  operations?: string[];
   actionClass?: PolicyActionClass | PolicyActionClass[];
   actionClasses?: PolicyActionClass[];
   scope?: string | string[];
@@ -76,36 +100,103 @@ export interface YamlPolicyMatch {
 }
 
 export class YamlPolicy implements ToolPolicy {
+  readonly hardGuardrails: boolean;
   private readonly defaultEffect: YamlPolicyEffect;
   private readonly rules: YamlPolicyRule[];
+  private readonly deniedOperations: Set<string>;
+  private readonly allowedRecipientDomains: Set<string>;
 
   constructor(config: YamlPolicyConfig) {
     this.defaultEffect = config.default ?? "allow";
     this.rules = config.rules ?? [];
+    this.deniedOperations = new Set(config.guardrails?.deniedOperations ?? []);
+    this.allowedRecipientDomains = new Set(
+      config.guardrails?.outboundEmail?.allowedRecipientDomains ?? [],
+    );
+    this.hardGuardrails = this.deniedOperations.size > 0 || this.allowedRecipientDomains.size > 0;
     validateYamlPolicyEffect(this.defaultEffect, "default");
     this.rules.forEach(validateYamlPolicyRule);
   }
 
   decide(input: ToolPolicyInput): Promise<PolicyDecision> {
-    for (const rule of this.rules) {
+    if (this.hardGuardrails && !input.operation) {
+      return Promise.resolve({
+        kind: "deny",
+        reason: "Operation cannot be classified under global policy",
+        ruleId: "guardrails.unclassified_operation",
+      });
+    }
+    if (input.operation && this.deniedOperations.has(input.operation)) {
+      return Promise.resolve({
+        kind: "deny",
+        reason: "Operation disabled by global policy",
+        ruleId: "guardrails.denied_operations",
+      });
+    }
+    if (
+      this.allowedRecipientDomains.size > 0 &&
+      input.operation &&
+      SEND_OPERATIONS.has(input.operation)
+    ) {
+      if (
+        input.outboundEmail?.kind !== "verified" ||
+        input.outboundEmail.recipientDomains.length === 0
+      ) {
+        return Promise.resolve({
+          kind: "deny",
+          reason: "Outbound email recipients cannot be verified",
+          ruleId: "guardrails.outbound_email_opaque",
+        });
+      }
+      if (
+        input.outboundEmail.recipientDomains.some(
+          (recipient) =>
+            ![...this.allowedRecipientDomains].some((allowed) =>
+              domainIsAllowed(recipient, allowed),
+            ),
+        )
+      ) {
+        return Promise.resolve({
+          kind: "deny",
+          reason: "Outbound email recipient domain is not allowed",
+          ruleId: "guardrails.outbound_email_domain",
+        });
+      }
+    }
+    for (const [index, rule] of this.rules.entries()) {
       if (matchesRule(rule, input)) {
-        return Promise.resolve(decisionForEffect(rule.effect, rule.reason));
+        return Promise.resolve(
+          decisionForEffect(rule.effect, rule.reason, rule.id ?? `yaml.rule.${String(index + 1)}`),
+        );
       }
     }
 
     return Promise.resolve(
-      decisionForEffect(this.defaultEffect, `YAML policy default ${this.defaultEffect}`),
+      decisionForEffect(
+        this.defaultEffect,
+        `YAML policy default ${this.defaultEffect}`,
+        "yaml.default",
+      ),
     );
   }
 }
 
-export function createYamlPolicyFromString(content: string): ToolPolicy {
+export function createYamlPolicyFromString(
+  content: string,
+  knownOperations?: ReadonlySet<string>,
+): ToolPolicy {
   const parsed: unknown = parseYaml(content);
   if (!isRecord(parsed)) {
     throw new Error("YAML policy must be an object");
   }
 
-  return new YamlPolicy(parseYamlPolicyConfig(parsed));
+  const config = parseYamlPolicyConfig(parsed);
+  for (const operation of config.guardrails?.deniedOperations ?? []) {
+    if (knownOperations && !knownOperations.has(operation)) {
+      throw new Error(`Unknown guardrail operation: ${operation}`);
+    }
+  }
+  return new YamlPolicy(config);
 }
 
 export interface OpaPolicyRequest {
@@ -130,7 +221,10 @@ export class OpaPolicyAdapter implements ToolPolicy {
     const response = await this.evaluate({
       input: {
         ...input,
-        args: redactValue(input.args) as Record<string, unknown>,
+        args:
+          input.operation && SEND_OPERATIONS.has(input.operation)
+            ? {}
+            : (redactValue(input.args) as Record<string, unknown>),
       },
     });
     const result = response.result;
@@ -179,8 +273,75 @@ function parseYamlPolicyConfig(record: Record<string, unknown>): YamlPolicyConfi
   return {
     default: defaultEffect,
     rules: rulesValue?.map(parseYamlPolicyRule),
+    guardrails: parseYamlGuardrails(record.guardrails),
   };
 }
+
+function parseYamlGuardrails(value: unknown): YamlPolicyConfig["guardrails"] {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("guardrails must be an object");
+  for (const key of Object.keys(value)) {
+    if (key !== "deniedOperations" && key !== "outboundEmail") {
+      throw new Error(`Unsupported guardrails field: ${key}`);
+    }
+  }
+  const deniedOperations = optionalStringArray(
+    value.deniedOperations,
+    "guardrails.deniedOperations",
+  );
+  for (const operation of deniedOperations ?? []) {
+    if (!/^[a-z][a-z0-9]*(?:\.\+?[a-z][a-zA-Z0-9]*){1,5}$/.test(operation)) {
+      throw new Error("guardrails.deniedOperations contains an invalid operation");
+    }
+  }
+  let outboundEmail: { allowedRecipientDomains: string[] } | undefined;
+  if (value.outboundEmail !== undefined) {
+    if (!isRecord(value.outboundEmail))
+      throw new Error("guardrails.outboundEmail must be an object");
+    for (const key of Object.keys(value.outboundEmail)) {
+      if (key !== "allowedRecipientDomains") {
+        throw new Error(`Unsupported guardrails.outboundEmail field: ${key}`);
+      }
+    }
+    const domains = optionalStringArray(
+      value.outboundEmail.allowedRecipientDomains,
+      "guardrails.outboundEmail.allowedRecipientDomains",
+    );
+    if (
+      !domains ||
+      domains.length === 0 ||
+      domains.some((domain) => !canonicalPolicyDomain(domain))
+    ) {
+      throw new Error(
+        "guardrails.outboundEmail.allowedRecipientDomains must contain canonical domains",
+      );
+    }
+    outboundEmail = { allowedRecipientDomains: domains };
+  }
+  return { deniedOperations, outboundEmail };
+}
+
+/** Indirect mail-producing operations whose eventual recipient set is not fixed by this call. */
+export const OPAQUE_MAIL_OPERATIONS: ReadonlySet<string> = new Set([
+  "script.scripts.run",
+  "gmail.users.settings.forwardingAddresses.create",
+  "gmail.users.settings.updateAutoForwarding",
+  "gmail.users.settings.filters.create",
+  "gmail.users.settings.updateVacation",
+  "gmail.users.settings.sendAs.create",
+  "gmail.users.settings.sendAs.verify",
+]);
+
+/** Every pinned route that can directly or indirectly produce outgoing mail. */
+export const SEND_OPERATIONS: ReadonlySet<string> = new Set([
+  "gmail.users.messages.send",
+  "gmail.users.drafts.send",
+  "gmail.+send",
+  "gmail.+reply",
+  "gmail.+reply-all",
+  "gmail.+forward",
+  ...OPAQUE_MAIL_OPERATIONS,
+]);
 
 function parseYamlPolicyRule(value: unknown, index: number): YamlPolicyRule {
   if (!isRecord(value)) {
@@ -191,6 +352,7 @@ function parseYamlPolicyRule(value: unknown, index: number): YamlPolicyRule {
   validateYamlPolicyEffect(effect, `rules[${String(index)}].effect`);
 
   return {
+    id: optionalString(value.id, `rules[${String(index)}].id`),
     effect,
     reason: optionalString(value.reason, `rules[${String(index)}].reason`),
     match: parseYamlPolicyMatch(value.match, index),
@@ -221,6 +383,14 @@ function parseYamlPolicyMatch(value: unknown, ruleIndex: number): YamlPolicyMatc
       `rules[${String(ruleIndex)}].match.service`,
     ),
     services: optionalStringArray(value.services, `rules[${String(ruleIndex)}].match.services`),
+    operation: optionalStringOrStringArray(
+      value.operation,
+      `rules[${String(ruleIndex)}].match.operation`,
+    ),
+    operations: optionalStringArray(
+      value.operations,
+      `rules[${String(ruleIndex)}].match.operations`,
+    ),
     actionClass: optionalActionClassOrArray(
       value.actionClass,
       `rules[${String(ruleIndex)}].match.actionClass`,
@@ -236,6 +406,9 @@ function parseYamlPolicyMatch(value: unknown, ruleIndex: number): YamlPolicyMatc
 
 function validateYamlPolicyRule(rule: YamlPolicyRule, index: number): void {
   validateYamlPolicyEffect(rule.effect, `rules[${String(index)}].effect`);
+  if (rule.id && !/^[a-z][a-z0-9_.-]{0,63}$/.test(rule.id)) {
+    throw new Error(`rules[${String(index)}].id must be a stable low-cardinality identifier`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -330,8 +503,15 @@ function matchesRule(rule: YamlPolicyRule, input: ToolPolicyInput): boolean {
     matchesAny(input.principal, [...values(match.principal), ...values(match.principals)]) &&
     matchesAny(input.tool, [...values(match.tool), ...values(match.tools)]) &&
     matchesAny(input.service, [...values(match.service), ...values(match.services)]) &&
+    matchesAny(input.operation ?? "", [...values(match.operation), ...values(match.operations)]) &&
     matchesAny(input.actionClass, [...values(match.actionClass), ...values(match.actionClasses)]) &&
-    matchesScopes(input.scopes, [...values(match.scope), ...values(match.scopes)])
+    matchesScopes(
+      rule.effect === "allow" || !input.scopeRequirement
+        ? input.scopes
+        : input.scopeRequirement.allOf.flatMap((group) => group.anyOf),
+      [...values(match.scope), ...values(match.scopes)],
+      rule.effect,
+    )
   );
 }
 
@@ -347,14 +527,24 @@ function matchesAny<T extends string>(actual: T, allowed: T[]): boolean {
   return allowed.length === 0 || allowed.includes(actual);
 }
 
-function matchesScopes(actualScopes: string[], requiredScopes: string[]): boolean {
-  return (
-    requiredScopes.length === 0 ||
-    requiredScopes.some((requiredScope) => actualScopes.includes(requiredScope))
-  );
+function matchesScopes(
+  actualScopes: string[],
+  matchedScopes: string[],
+  effect: YamlPolicyEffect,
+): boolean {
+  if (matchedScopes.length === 0) return true;
+  if (actualScopes.length === 0) return false;
+  // An allow must cover every usable authority in the issued token; a deny is conservative.
+  return effect === "allow"
+    ? actualScopes.every((scope) => matchedScopes.includes(scope))
+    : actualScopes.some((scope) => matchedScopes.includes(scope));
 }
 
-function decisionForEffect(effect: YamlPolicyEffect, reason?: string): PolicyDecision {
+function decisionForEffect(
+  effect: YamlPolicyEffect,
+  reason?: string,
+  ruleId?: string,
+): PolicyDecision {
   if (effect === "allow") {
     return { kind: "allow" };
   }
@@ -362,5 +552,6 @@ function decisionForEffect(effect: YamlPolicyEffect, reason?: string): PolicyDec
   return {
     kind: effect,
     reason: reason ?? `YAML policy ${effect}`,
+    ...(ruleId ? { ruleId } : {}),
   };
 }

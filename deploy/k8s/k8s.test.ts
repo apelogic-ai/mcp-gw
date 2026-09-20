@@ -1520,6 +1520,9 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("GOOGLE_WORKSPACE_POLICY_FILE");
     expect(rendered).toContain("/etc/mcp-gw/google-workspace-policy.yaml");
     expect(rendered).toContain("default: deny");
+    expect(rendered).toContain("outboundEmail:");
+    expect(rendered).toContain("allowedRecipientDomains:");
+    expect(rendered).toContain("example.org");
     expect(rendered).toContain("actionClass: read");
   });
 

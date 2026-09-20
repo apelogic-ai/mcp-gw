@@ -2,10 +2,22 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../../shared/audit/audit";
+import type { ScopeRequirementInput } from "../../../../../shared/oauth/connection-types";
+import { ProviderToolScopeError } from "../../../../../shared/oauth/connection-types";
+import { ProviderLifecycleError } from "../../../../../shared/oauth/connection-types";
+import { InMemoryConnectionLifecycleMetricSink } from "../../../../../shared/oauth/connection-metrics";
 import type { ToolPolicyInput } from "../../../../../shared/policy/policy";
+import { createYamlPolicyFromString, OpaPolicyAdapter } from "../../../../../shared/policy/policy";
 import { GOOGLE_WORKSPACE_CATALOG_ID, getGoogleWorkspaceTool } from "../catalog/google-workspace";
+import { GWS_GENERATED_TOOLS } from "../catalog/gws-generated";
+import { OPAQUE_MAIL_OPERATIONS, SEND_OPERATIONS } from "../../../../../shared/policy/policy";
 import { GwsExecutionError } from "../executor/gws";
-import { createGoogleWorkspaceRegistry } from "./registry";
+import {
+  createGoogleWorkspaceRegistry as createRegistry,
+  type AccessTokenBroker,
+  type CreateGoogleWorkspaceRegistryOptions,
+} from "./registry";
+import { PINNED_GWS_OPERATIONS } from "./operation-resolver";
 
 const identity: Hop1Identity = {
   profile: "google",
@@ -15,7 +27,48 @@ const identity: Hop1Identity = {
   claims: {},
 };
 
+function createGoogleWorkspaceRegistry(
+  options: Omit<CreateGoogleWorkspaceRegistryOptions, "tokenBroker"> & {
+    tokenBroker: Pick<AccessTokenBroker, "getAccessToken"> &
+      Partial<Pick<AccessTokenBroker, "getGrantedScopes">>;
+  },
+) {
+  return createRegistry({
+    ...options,
+    tokenBroker: {
+      getGrantedScopes: () => Promise.resolve(options.oauth?.status.scopesGranted ?? []),
+      ...options.tokenBroker,
+    },
+  });
+}
+
+async function expectPolicyRejection(result: Promise<unknown>, message: string): Promise<void> {
+  let rejection: unknown;
+  try {
+    await result;
+  } catch (error) {
+    rejection = error;
+  }
+  expect(rejection).toBeInstanceOf(Error);
+  expect((rejection as Error).message).toContain(message);
+}
+
 describe("Google Workspace request registry", () => {
+  test("pins every send-capable Gmail catalog route to the recipient guard", () => {
+    const sendCapable = GWS_GENERATED_TOOLS.filter(
+      (tool) =>
+        tool.command[0] === "gmail" &&
+        (tool.command.at(-1) === "send" ||
+          (tool.command[1]?.startsWith("+") &&
+            tool.scopes.includes("https://www.googleapis.com/auth/gmail.send"))),
+    ).map((tool) => tool.command.join("."));
+    expect(new Set(sendCapable)).toEqual(
+      new Set([...SEND_OPERATIONS].filter((operation) => !OPAQUE_MAIL_OPERATIONS.has(operation))),
+    );
+    for (const operation of OPAQUE_MAIL_OPERATIONS) {
+      expect(PINNED_GWS_OPERATIONS.has(operation)).toBe(true);
+    }
+  });
   test("advertises a stable Google catalog and fails data calls closed before consent", async () => {
     let policyCalls = 0;
     let tokenCalls = 0;
@@ -158,6 +211,7 @@ describe("Google Workspace request registry", () => {
           sub: "google-subject",
         },
         tool: "google_oauth_start",
+        operation: "google.oauth.start",
         service: "google",
         actionClass: "write",
         scopes: ["https://www.googleapis.com/auth/drive"],
@@ -287,7 +341,7 @@ describe("Google Workspace request registry", () => {
   });
 
   test("uses the tool scopes to obtain a user token before executing gws", async () => {
-    const requestedScopes: string[][] = [];
+    const requestedScopes: ScopeRequirementInput[] = [];
     const executed: unknown[] = [];
     const audit = new InMemoryAuditSink();
     const registry = createGoogleWorkspaceRegistry({
@@ -309,7 +363,11 @@ describe("Google Workspace request registry", () => {
       name: "Roadmap",
     });
 
-    expect(requestedScopes).toEqual([getGoogleWorkspaceTool("google_drive_files_create").scopes]);
+    expect(requestedScopes).toEqual([
+      {
+        allOf: [{ anyOf: getGoogleWorkspaceTool("google_drive_files_create").scopes }],
+      },
+    ]);
     expect(executed).toEqual([
       {
         tool: getGoogleWorkspaceTool("google_drive_files_create"),
@@ -330,6 +388,135 @@ describe("Google Workspace request registry", () => {
     expect(audit.events[0]?.principal).toBe("user@example.com");
     expect(audit.events[0]?.status).toBe("allow");
     expect(audit.events[0]?.tool).toBe("google_drive_files_create");
+  });
+
+  test("passes generated alternatives to brokerage and effective scope to policy", async () => {
+    let policyInput: ToolPolicyInput | undefined;
+    let brokerRequirement: ScopeRequirementInput | undefined;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: (input) => {
+          policyInput = input;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getGrantedScopes: () => Promise.resolve(["https://www.googleapis.com/auth/gmail.readonly"]),
+        getAccessToken: (_identity, required) => {
+          brokerRequirement = required;
+          return Promise.resolve("access-token");
+        },
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    await registry.callTool("gws_gmail_users_get_profile", { params: { userId: "me" } });
+
+    const requirement = getGoogleWorkspaceTool("gws_gmail_users_get_profile").scopeRequirement;
+    expect(requirement?.allOf[0]?.anyOf).toContain(
+      "https://www.googleapis.com/auth/gmail.readonly",
+    );
+    expect(policyInput?.scopeRequirement).toEqual(requirement);
+    expect(policyInput?.scopes).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
+    expect(brokerRequirement).toEqual(requirement);
+  });
+
+  test("returns a scoped machine error and correlated redacted diagnostic event", async () => {
+    const metrics = new InMemoryConnectionLifecycleMetricSink();
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      metrics,
+      tokenBroker: {
+        getAccessToken: () => Promise.reject(new ProviderToolScopeError()),
+      },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+
+    const result = await registry.callTool("gws_gmail_users_get_profile", {});
+    expect(result.structuredContent).toMatchObject({
+      error: "insufficient_scope",
+    });
+    expect(typeof result.structuredContent?.diagnosticId).toBe("string");
+    expect(metrics.metrics).toEqual([
+      {
+        name: "tool_scope_denied",
+        provider: "google",
+        operation: "gws_gmail_users_get_profile",
+        value: 1,
+        diagnosticId: result.structuredContent?.diagnosticId as string,
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain(identity.email);
+  });
+
+  test("a failed diagnostic sink cannot change a tool-scope denial", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      metrics: {
+        record: () => {
+          throw new Error("sink unavailable");
+        },
+      },
+      tokenBroker: { getAccessToken: () => Promise.reject(new ProviderToolScopeError()) },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+
+    expect(
+      (await registry.callTool("gws_gmail_users_get_profile", {})).structuredContent,
+    ).toMatchObject({
+      error: "insufficient_scope",
+    });
+  });
+
+  test("keeps transient and persistence brokerage failures machine-distinguishable", async () => {
+    for (const category of ["transient_provider_failure", "persistence_failure"] as const) {
+      const registry = createGoogleWorkspaceRegistry({
+        identity,
+        tokenBroker: {
+          getAccessToken: () =>
+            Promise.reject(new ProviderLifecycleError("internal detail", category)),
+        },
+        executor: () => Promise.reject(new Error("executor must not run")),
+      });
+
+      const result = await registry.callTool("gws_gmail_users_get_profile", {});
+      expect(result.structuredContent).toMatchObject({
+        error: category,
+      });
+      expect(typeof result.structuredContent?.diagnosticId).toBe("string");
+      expect(JSON.stringify(result)).not.toContain("internal detail");
+    }
+  });
+
+  test("lets brokerage attempt guarded recovery of a legacy scope-poisoned row", async () => {
+    let brokerCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      oauth: {
+        status: {
+          connected: false,
+          phase: "reauthorization_required",
+          errorCategory: "insufficient_scope",
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: ["https://www.googleapis.com/auth/drive"],
+          missingScopes: [],
+        },
+        startOAuth: () => Promise.resolve({ authorizationUrl: "https://example.com" }),
+      },
+      tokenBroker: {
+        getAccessToken: () => {
+          brokerCalls += 1;
+          return Promise.resolve("active");
+        },
+      },
+      executor: () => Promise.resolve({ ok: true }),
+    });
+
+    expect(await registry.callTool("google_drive_files_list", {})).toMatchObject({
+      content: [{ type: "text" }],
+    });
+    expect(brokerCalls).toBe(1);
   });
 
   test("preserves per-service provider authority in legacy and catalog modes", async () => {
@@ -368,6 +555,89 @@ describe("Google Workspace request registry", () => {
       });
       expect(result.content[0]?.text).toContain('"executionService": "drive"');
     }
+  });
+
+  test("scope allow rules use the effective grant, not every accepted alternative", async () => {
+    const fileScope = "https://www.googleapis.com/auth/drive.file";
+    const driveScope = "https://www.googleapis.com/auth/drive";
+    const policy = createYamlPolicyFromString(`
+default: deny
+rules:
+  - effect: allow
+    match:
+      scope: ${fileScope}
+`);
+    for (const grantedScopes of [[driveScope], [driveScope, fileScope], [fileScope]]) {
+      let tokenCalls = 0;
+      let executorCalls = 0;
+      const registry = createGoogleWorkspaceRegistry({
+        identity,
+        policy,
+        tokenBroker: {
+          getGrantedScopes: () => Promise.resolve(grantedScopes),
+          getAccessToken: () => {
+            tokenCalls += 1;
+            return Promise.resolve("access-token");
+          },
+        },
+        executor: () => {
+          executorCalls += 1;
+          return Promise.resolve({ ok: true });
+        },
+      });
+      const call = registry.callTool("gws_drive_files_delete", { params: { fileId: "file-123" } });
+      if (grantedScopes.includes(driveScope)) {
+        await expectPolicyRejection(call, "Policy denied gws_drive_files_delete");
+        expect(tokenCalls).toBe(0);
+        expect(executorCalls).toBe(0);
+      } else {
+        await call;
+        expect(tokenCalls).toBe(1);
+        expect(executorCalls).toBe(1);
+      }
+    }
+
+    const deny = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(`
+default: allow
+rules:
+  - effect: deny
+    match: { scope: ${fileScope} }
+`),
+      tokenBroker: {
+        getGrantedScopes: () => Promise.resolve([driveScope]),
+        getAccessToken: () => Promise.reject(new Error("deny must precede brokerage")),
+      },
+      executor: () => Promise.reject(new Error("deny must precede execution")),
+    });
+    await expectPolicyRejection(
+      deny.callTool("gws_drive_files_delete", { params: { fileId: "file-123" } }),
+      "Policy denied gws_drive_files_delete",
+    );
+  });
+
+  test("classifies a failed pre-policy grant lookup without running policy or the tool", async () => {
+    let policyCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getGrantedScopes: () =>
+          Promise.reject(new ProviderLifecycleError("store detail", "persistence_failure")),
+        getAccessToken: () => Promise.reject(new Error("broker must not run")),
+      },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+    const result = await registry.callTool("gws_drive_files_list", {});
+    expect(result.structuredContent).toMatchObject({ error: "persistence_failure" });
+    expect(policyCalls).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("store detail");
   });
 
   test("does not accept google as authority for an ordinary per-service tool", async () => {
@@ -441,8 +711,8 @@ describe("Google Workspace request registry", () => {
     expect(observed).toEqual(["gmail:write", "gmail:destructive"]);
   });
 
-  test("uses caller-supplied scopes for the generic gws tool", async () => {
-    const requestedScopes: string[][] = [];
+  test("derives raw command authority from the pinned catalog, not caller-supplied scopes", async () => {
+    const requestedScopes: ScopeRequirementInput[] = [];
     const registry = createGoogleWorkspaceRegistry({
       identity,
       tokenBroker: {
@@ -463,7 +733,12 @@ describe("Google Workspace request registry", () => {
       scopes: ["https://www.googleapis.com/auth/presentations.readonly"],
     });
 
-    expect(requestedScopes).toEqual([["https://www.googleapis.com/auth/presentations.readonly"]]);
+    const requirement = requestedScopes[0];
+    if (!requirement || Array.isArray(requirement)) throw new Error("missing derived requirement");
+    expect(requirement.allOf[0]?.anyOf).toContain(
+      "https://www.googleapis.com/auth/presentations.readonly",
+    );
+    expect(requirement.allOf[0]?.anyOf.length).toBeGreaterThan(1);
     expect(result.content[0]?.text).toBe(
       JSON.stringify(
         {
@@ -474,6 +749,381 @@ describe("Google Workspace request registry", () => {
         2,
       ),
     );
+  });
+
+  test("denies calendar deletion through named, generated, and raw routes while retaining raw reads", async () => {
+    const policy = createYamlPolicyFromString(`
+default: allow
+guardrails:
+  deniedOperations:
+    - calendar.events.delete
+    - calendar.calendars.clear
+    - calendar.calendars.delete
+`);
+    let brokerCalls = 0;
+    let lastRequirement: ScopeRequirementInput | undefined;
+    let executed = 0;
+    const metrics = new InMemoryConnectionLifecycleMetricSink();
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy,
+      metrics,
+      tokenBroker: {
+        getAccessToken: (_identity, requirement) => {
+          brokerCalls += 1;
+          lastRequirement = requirement;
+          return Promise.resolve("active");
+        },
+      },
+      executor: () => {
+        executed += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    for (const [name, args] of [
+      ["google_calendar_events_delete", { calendarId: "primary", eventId: "event-1" }],
+      ["gws_calendar_events_delete", { params: { calendarId: "primary", eventId: "event-1" } }],
+      [
+        "google_workspace_gws",
+        { argv: ["calendar", "events", "delete", "--params", "{}"], scopes: [] },
+      ],
+      [
+        "google_workspace_gws",
+        { argv: ["calendar", "calendars", "clear", "--params", "{}"], scopes: [] },
+      ],
+    ] as const) {
+      await expectPolicyRejection(
+        registry.callTool(name, args),
+        "Operation disabled by global policy",
+      );
+    }
+    expect(brokerCalls).toBe(0);
+    expect(executed).toBe(0);
+    expect(
+      metrics.metrics
+        .filter((metric) => metric.name === "policy_denied")
+        .map((metric) => metric.operation),
+    ).toEqual([
+      "calendar.events.delete",
+      "calendar.events.delete",
+      "calendar.events.delete",
+      "calendar.calendars.clear",
+    ]);
+
+    await registry.callTool("google_workspace_gws", {
+      argv: ["drive", "files", "list", "--params", "{}"],
+      scopes: [],
+    });
+    expect(brokerCalls).toBe(1);
+    expect(executed).toBe(1);
+    if (!lastRequirement || Array.isArray(lastRequirement))
+      throw new Error("missing derived requirement");
+    expect(lastRequirement.allOf[0]?.anyOf).toContain("https://www.googleapis.com/auth/drive");
+  });
+
+  test("checks exact outgoing recipients across generated, helper and low-level sends", async () => {
+    const policy = createYamlPolicyFromString(`
+default: allow
+guardrails:
+  outboundEmail:
+    allowedRecipientDomains: [example.org]
+`);
+    let brokerCalls = 0;
+    let executeCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy,
+      tokenBroker: {
+        getAccessToken: () => {
+          brokerCalls += 1;
+          return Promise.resolve("active");
+        },
+      },
+      executor: () => {
+        executeCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    const mime = (to: string, cc = "", bcc = "") =>
+      Buffer.from(
+        `From: sender@example.org\r\nTo: ${to}\r\nCc: ${cc}\r\nBcc: ${bcc}\r\nSubject: Test\r\n\r\nBody`,
+      ).toString("base64url");
+
+    await registry.callTool("gws_gmail_users_messages_send", {
+      params: { userId: "me" },
+      json: { raw: mime("Alice <alice@team.example.org>") },
+    });
+    await registry.callTool("gws_gmail_send", {
+      args: [
+        "--to",
+        "a@example.org",
+        "--subject",
+        "Test",
+        "--body",
+        "Body",
+        "--attach",
+        "first.pdf",
+        "-a",
+        "second.csv",
+        "--attach",
+        "third.txt",
+      ],
+    });
+    await registry.callTool("google_workspace_gws", {
+      argv: [
+        "gmail",
+        "users",
+        "messages",
+        "send",
+        "--params",
+        '{"userId":"me"}',
+        "--json",
+        JSON.stringify({ raw: mime("a@example.org") }),
+      ],
+      scopes: [],
+    });
+    await registry.callTool("google_workspace_gws", {
+      argv: ["gmail", "+send", "--to", "a@example.org", "--subject", "Test", "--body", "Body"],
+      scopes: [],
+    });
+    expect(brokerCalls).toBe(4);
+    expect(executeCalls).toBe(4);
+
+    for (const [name, args] of [
+      [
+        "gws_gmail_users_messages_send",
+        { json: { raw: mime("a@example.org", "", "hidden@outside.org") } },
+      ],
+      [
+        "gws_gmail_send",
+        {
+          args: [
+            "--to",
+            "a@example.org",
+            "--cc",
+            "external@outside.org",
+            "--subject",
+            "Test",
+            "--body",
+            "Body",
+          ],
+        },
+      ],
+      [
+        "google_workspace_gws",
+        {
+          argv: [
+            "gmail",
+            "users",
+            "messages",
+            "send",
+            "--json",
+            JSON.stringify({ raw: mime("outside@outside.org") }),
+          ],
+          scopes: [],
+        },
+      ],
+      [
+        "google_workspace_gws",
+        {
+          argv: [
+            "gmail",
+            "+send",
+            "--to",
+            "outside@outside.org",
+            "--subject",
+            "Test",
+            "--body",
+            "Body",
+          ],
+          scopes: [],
+        },
+      ],
+    ] as const) {
+      await expectPolicyRejection(
+        registry.callTool(name, args),
+        "Outbound email recipient domain is not allowed",
+      );
+    }
+    expect(brokerCalls).toBe(4);
+    expect(executeCalls).toBe(4);
+    await registry.callTool("google_workspace_gws", {
+      argv: ["drive", "files", "list", "--params", "{}"],
+      scopes: [],
+    });
+    expect(executeCalls).toBe(5);
+  });
+
+  test("OPA-only policy receives normalized send domains without raw mail arguments", async () => {
+    const raw = Buffer.from("To: Jane <jane@team.example.org>\r\n\r\nPrivate body").toString(
+      "base64url",
+    );
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: new OpaPolicyAdapter((request) => {
+        expect(request.input.operation).toBe("gmail.users.messages.send");
+        expect(request.input.outboundEmail).toEqual({
+          kind: "verified",
+          recipientDomains: ["team.example.org"],
+        });
+        expect(request.input.args).toEqual({});
+        expect(JSON.stringify(request)).not.toContain(raw);
+        return Promise.resolve({ result: { allow: false } });
+      }),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+    await expectPolicyRejection(
+      registry.callTool("gws_gmail_users_messages_send", { json: { raw } }),
+      "policy denied",
+    );
+  });
+
+  test("old YAML policy files do not turn on the outbound recipient guard", async () => {
+    let executeCalls = 0;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString("default: allow"),
+      tokenBroker: { getAccessToken: () => Promise.resolve("active") },
+      executor: () => {
+        executeCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    await registry.callTool("gws_gmail_users_messages_send", { json: { raw: "opaque-to-policy" } });
+    expect(executeCalls).toBe(1);
+  });
+
+  test("fails closed on by-reference and opaque mail sends without disabling low-level reads", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(
+        "guardrails: { outboundEmail: { allowedRecipientDomains: [example.org] } }",
+      ),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+    const cases: [string, Record<string, unknown>][] = [
+      ["gws_gmail_users_drafts_send", { json: { id: "draft-1" } }],
+      ["gws_gmail_reply", { args: ["--message-id", "m1", "--body", "Reply"] }],
+      ["gws_gmail_reply_all", { args: ["--message-id", "m1", "--body", "Reply"] }],
+      ["gws_gmail_forward", { args: ["--message-id", "m1", "--to", "a@example.org"] }],
+      ["gws_gmail_users_messages_send", { json: { raw: "invalid!" } }],
+      [
+        "gws_gmail_users_messages_send",
+        {
+          json: { raw: Buffer.from("To: a@example.org\r\n\r\nBody").toString("base64url") },
+          upload: "/tmp/unverified.eml",
+        },
+      ],
+      ["gws_gmail_send", { args: ["--to", "a@example.org", "--unknown", "outside@outside.org"] }],
+      [
+        "google_workspace_gws",
+        { argv: ["gmail", "users", "drafts", "send", "--json", '{"id":"draft-1"}'], scopes: [] },
+      ],
+      ["google_workspace_gws", { argv: ["gmail", "+reply", "--message-id", "m1"], scopes: [] }],
+      [
+        "google_workspace_gws",
+        {
+          argv: ["gmail", "users", "messages", "send", "--upload", "/tmp/unverified.eml"],
+          scopes: [],
+        },
+      ],
+    ];
+    for (const [name, args] of cases) {
+      await expectPolicyRejection(
+        registry.callTool(name, args),
+        "Outbound email recipients cannot be verified",
+      );
+    }
+  });
+
+  test("blocks indirect mail-producing commands when recipients cannot be proven", async () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(
+        "guardrails: { outboundEmail: { allowedRecipientDomains: [example.org] } }",
+      ),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+    for (const command of [
+      ["script", "scripts", "run"],
+      ["gmail", "users", "settings", "forwardingAddresses", "create"],
+      ["gmail", "users", "settings", "updateAutoForwarding"],
+      ["gmail", "users", "settings", "filters", "create"],
+      ["gmail", "users", "settings", "updateVacation"],
+      ["gmail", "users", "settings", "sendAs", "create"],
+      ["gmail", "users", "settings", "sendAs", "verify"],
+    ]) {
+      await expectPolicyRejection(
+        registry.callTool("google_workspace_gws", {
+          argv: [...command, "--json", "{}"],
+          scopes: [],
+        }),
+        "Outbound email recipients cannot be verified",
+      );
+    }
+  });
+
+  test("hard guardrails fail closed on unclassified raw commands and extra arguments", () => {
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: createYamlPolicyFromString(
+        "default: allow\nguardrails: { deniedOperations: [calendar.events.delete] }",
+      ),
+      tokenBroker: { getAccessToken: () => Promise.reject(new Error("must not broker")) },
+      executor: () => Promise.reject(new Error("must not execute")),
+    });
+
+    expect(
+      registry.callTool("google_workspace_gws", {
+        argv: ["calendar", "events", "delete", "--unknown-bypass"],
+        scopes: [],
+      }),
+    ).rejects.toThrow();
+    expect(
+      registry.callTool("google_workspace_gws", {
+        argv: ["calendar", "unknown", "delete"],
+        scopes: [],
+      }),
+    ).rejects.toThrow();
+    expect(
+      registry.callTool("gws_calendar_events_delete", {
+        params: { calendarId: "primary", eventId: "event-1" },
+        extraArgs: ["--unknown-bypass"],
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("executes the same frozen raw request that policy inspected", async () => {
+    let executedArgv: unknown;
+    const registry = createGoogleWorkspaceRegistry({
+      identity,
+      policy: {
+        decide: (input) => {
+          expect(input.operation).toBe("drive.files.list");
+          try {
+            (input.args.argv as string[])[2] = "delete";
+          } catch {
+            // Frozen policy input is expected under strict-mode modules.
+          }
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: { getAccessToken: () => Promise.resolve("active") },
+      executor: (request) => {
+        executedArgv = request.args.argv;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    await registry.callTool("google_workspace_gws", {
+      argv: ["drive", "files", "list", "--params", "{}"],
+      scopes: [],
+    });
+    expect(executedArgv).toEqual(["drive", "files", "list", "--params", "{}"]);
   });
 
   test("rejects excluded scopes for the generic gws tool before token lookup", async () => {
@@ -497,7 +1147,7 @@ describe("Google Workspace request registry", () => {
       });
     } catch (error) {
       expect((error as Error).message).toBe(
-        "scopes contains unsupported Google Workspace scopes: https://www.googleapis.com/auth/classroom.courses.readonly",
+        "scopes contains an unsupported Google Workspace scope",
       );
       expect(tokenCalls).toBe(0);
     }

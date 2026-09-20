@@ -6,6 +6,7 @@ import {
   InMemoryOAuthStateStore,
   InMemoryOAuthTokenStore,
 } from "../../../../shared/oauth/memory-store";
+import { connectionWriteGuard } from "../../../../shared/oauth/store";
 import { createOAuthRouteHandler } from "./oauth-routes";
 
 const identity: Hop1Identity = {
@@ -244,7 +245,11 @@ describe("OAuth route handler", () => {
         headers: { authorization: "Bearer hop1" },
       }),
     );
-    expect(await statusBefore.json()).toEqual({ connected: false });
+    expect(await statusBefore.json()).toMatchObject({
+      connected: false,
+      phase: "disconnected",
+      renewalCredentialPresent: false,
+    });
 
     const start = await handler(
       new Request("https://dev.example.com/oauth/google/start", {
@@ -263,8 +268,9 @@ describe("OAuth route handler", () => {
         headers: { authorization: "Bearer hop1" },
       }),
     );
-    expect(await statusAfter.json()).toEqual({
+    expect(await statusAfter.json()).toMatchObject({
       connected: true,
+      phase: "connected",
       email: "user@example.com",
       scopesRequired: scopes,
       scopesGranted: scopes,
@@ -306,12 +312,60 @@ describe("OAuth route handler", () => {
       }),
     );
 
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       connected: false,
+      phase: "reauthorization_required",
+      errorCategory: "insufficient_scope",
       email: "user@example.com",
       scopesRequired: scopes,
       scopesGranted: ["openid"],
       missingScopes: ["https://www.googleapis.com/auth/userinfo.email"],
+    });
+  });
+
+  test("explains a disconnected-looking status with complete granted scopes", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    await tokenStore.saveAccount({
+      provider: "google",
+      hop1Issuer: identity.issuer,
+      hop1Subject: identity.subject,
+      email: identity.email,
+      scopesGranted: scopes,
+      encryptedRefreshToken: "encrypted-fixture",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const current = await tokenStore.getConnection("google", identity.issuer, identity.subject);
+    if (!current) throw new Error("missing connection fixture");
+    await tokenStore.saveConnection(
+      {
+        ...current,
+        phase: "reauthorization_required",
+        lifecycleErrorCategory: "insufficient_scope",
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+      },
+      connectionWriteGuard(current),
+    );
+    const handler = createOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes,
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore,
+    });
+
+    const response = await handler(
+      new Request("https://dev.example.com/oauth/google/status", {
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    expect(await response.json()).toMatchObject({
+      connected: false,
+      phase: "reauthorization_required",
+      errorCategory: "insufficient_scope",
+      scopesGranted: scopes,
+      missingScopes: [],
+      renewalCredentialPresent: true,
     });
   });
 
