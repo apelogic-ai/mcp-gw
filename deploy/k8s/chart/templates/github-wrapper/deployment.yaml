@@ -84,6 +84,14 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- with .Values.policy.opaUrl }}
+            - name: OPA_POLICY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.githubWrapper.oauth.redirectAfterAllowedOrigins }}
+            - name: GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS
+              value: {{ join "," .Values.githubWrapper.oauth.redirectAfterAllowedOrigins | quote }}
+            {{- end }}
             {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
           {{- include "mcp-gateway.probes" .Values.githubWrapper | nindent 10 }}
           {{- if or .Values.postgresql.caBundle.enabled .Values.trustBundle.enabled .Values.githubWrapper.extraVolumeMounts }}

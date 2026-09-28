@@ -73,7 +73,7 @@ Content-Type: application/json
 MCP-GW responds with the provider consent URL:
 
 ```json
-{"authorizationUrl":"https://provider.example.com/oauth/authorize?..."}
+{ "authorizationUrl": "https://provider.example.com/oauth/authorize?..." }
 ```
 
 The control plane should send the user's browser to that `authorizationUrl`.
@@ -162,6 +162,23 @@ GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS=https://admin.example.com
 GITHUB_OAUTH_SCOPES="repo read:org workflow notifications user:email"
 GITHUB_TOKEN_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 ```
+
+For Helm deployments, configure the post-consent origins through the typed
+chart value instead of a free-form environment variable:
+
+```yaml
+githubWrapper:
+  oauth:
+    redirectAfterAllowedOrigins:
+      - https://admin.example.com
+```
+
+An external policy decision endpoint is similarly configured once for both
+wrappers through `policy.opaUrl`. See
+[External Governing Platform Integration](external-platform-issuer.md) for the
+issuer, `introspection.credentialSecretKeyRef`,
+`connectionLifecycle.allowedCallers`, policy, return-origin, and trust-bundle
+contract.
 
 The control plane starts the GitHub flow through the wrapper's private Service:
 

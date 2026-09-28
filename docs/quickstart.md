@@ -254,6 +254,10 @@ Per-user refresh tokens are stored encrypted in PostgreSQL, keyed by
 - **Google Workspace tool policy:** enable `googleWorkspace.policy` with inline
   YAML. See
   [`deploy/k8s/examples/values-google-policy.example.yaml`](../deploy/k8s/examples/values-google-policy.example.yaml).
+- **External governing platform:** configure its workload-token issuer,
+  introspection Secret reference, shared policy endpoint, private lifecycle
+  callers, and GitHub return origins using
+  [`docs/external-platform-issuer.md`](external-platform-issuer.md).
 - **Full production bundle:** see
   [`deploy/k8s/examples/values-production-bundle.example.yaml`](../deploy/k8s/examples/values-production-bundle.example.yaml).
 

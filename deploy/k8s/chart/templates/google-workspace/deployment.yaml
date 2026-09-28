@@ -83,6 +83,10 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- with .Values.policy.opaUrl }}
+            - name: OPA_POLICY_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.googleWorkspace.policy.enabled }}
             - name: GOOGLE_WORKSPACE_POLICY_FILE
               value: {{ .Values.googleWorkspace.policy.mountPath | quote }}

@@ -33,6 +33,14 @@ To enforce Google Workspace tool policy without running an external policy
 service, enable `googleWorkspace.policy` and provide YAML policy content in a
 private values overlay. See `values-google-policy.example.yaml`.
 
+To integrate an external governing platform, start from
+`values-external-platform-issuer.example.yaml`. It demonstrates a fixed
+workload-token audience, EdDSA verification, Secret-backed introspection,
+private lifecycle caller selectors, a shared typed OPA endpoint, exact GitHub
+post-consent origins, and optional private-CA trust. Replace every illustrative
+coordinate and existing resource name in a private overlay. The full operator
+contract is in `docs/external-platform-issuer.md`.
+
 Do not expose the agentgateway Admin UI on the public MCP ingress. Agentgateway
 serves its Admin UI on port `15000` in standalone/Kubernetes modes, but the
 upstream Kubernetes docs describe it as read-only and accessed with
