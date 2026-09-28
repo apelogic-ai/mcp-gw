@@ -119,6 +119,30 @@ describe("release metadata", () => {
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: security");
   });
 
+  test("publishes organization-owned chart and Artifact Hub metadata", async () => {
+    const [chartYaml, repositoryYaml] = await Promise.all([
+      readFile("deploy/k8s/chart/Chart.yaml", "utf8"),
+      readFile("deploy/k8s/chart/artifacthub-repo.yml", "utf8"),
+    ]);
+    const chart = parse(chartYaml) as {
+      annotations: Record<string, string>;
+      maintainers: Array<Record<string, string>>;
+    };
+    const repository = parse(repositoryYaml) as {
+      owners?: Array<Record<string, string>>;
+      repositoryID: string;
+    };
+
+    expect(chart.maintainers).toEqual([{ name: "HyperShell", url: "https://hypershell.ai" }]);
+    expect(parse(chart.annotations["artifacthub.io/maintainers"] ?? "")).toEqual([
+      { name: "HyperShell", url: "https://hypershell.ai" },
+    ]);
+    expect(chartYaml).not.toContain("email:");
+    expect(repository.repositoryID).toBe("8476ff5d-bc01-4d7e-8904-907efd486c42");
+    expect(repository.owners).toBeUndefined();
+    expect(repositoryYaml).not.toContain("email:");
+  });
+
   test("keeps public deployment examples on the current release", async () => {
     const [compose, composeEnv, argo, flux, runbook] = await Promise.all([
       readFile("deploy/compose/docker-compose.yaml", "utf8"),

@@ -6,13 +6,13 @@ kubeVersion: ">=1.32.0-0"
 version: 0.5.0
 appVersion: "0.5.0"
 maintainers:
-  - name: Leonid Belyaev
-    email: lbeliaev@gmail.com
+  - name: HyperShell
+    url: https://hypershell.ai
 annotations:
   artifacthub.io/license: MIT
   artifacthub.io/maintainers: |
-    - name: Leonid Belyaev
-      email: lbeliaev@gmail.com
+    - name: HyperShell
+      url: https://hypershell.ai
   artifacthub.io/links: |
     - name: source
       url: https://github.com/apelogic-ai/mcp-gw
@@ -27,12 +27,10 @@ annotations:
       image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.0
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
-  # Release images and the chart are signed with cosign keyless (Sigstore
-  # OIDC) signatures pushed to the registry, verifiable via the GitHub Actions
-  # workflow identity. Keyless signing uses short-lived Fulcio certificates and
-  # has no static PGP fingerprint or key URL, so the artifacthub.io/signKey
-  # annotation (which requires fingerprint + url for a PGP key) does not apply
-  # and is intentionally omitted.
+  # Release images and the chart have signed GitHub build-provenance
+  # attestations, verifiable via the GitHub Actions workflow identity. The
+  # artifacthub.io/signKey annotation requires a PGP fingerprint and key URL,
+  # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
       description: Add governed-platform issuer, trust-bundle, lifecycle-caller, policy, and workload extension contracts.
