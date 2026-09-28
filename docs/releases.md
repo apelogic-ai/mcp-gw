@@ -36,8 +36,11 @@ repository variables. Set `ECR_PROMOTION_ENABLED`, `AWS_RELEASE_ROLE_ARN`, `AWS_
 `MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY`, `MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY`, and
 `MCP_GW_ECR_CHART_REPOSITORY`. The release workflow copies the approved first-party image and chart
 manifests to those OCI repositories, verifies that every destination digest matches the public
-release, and uploads a private handoff artifact containing signatures, certificates, provenance,
-SBOMs, vulnerability reports, and immutable coordinates. The legacy
+release, and uploads a private handoff artifact containing SBOMs, vulnerability reports, and
+immutable coordinates. Public provenance remains attached only to the GHCR source artifacts;
+private registry copies are not separately attested or signed because that would publish private
+coordinates to a public transparency log. Entries created by older releases are append-only and
+cannot be deleted. The legacy
 `MCP_GW_ECR_IMAGE_REPOSITORY` variable remains a fallback for the agentgateway repository. The
 third-party official GitHub MCP image is not promoted; deployment GitOps owns its reviewed mirror.
 Registry locations and IAM role identifiers are deployment configuration and are never committed

@@ -574,7 +574,6 @@ jobs:
       contents: read
       packages: read
       id-token: write
-      attestations: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
@@ -595,11 +594,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.2.21"
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@874852de93c66509b01dc7cd80f7a5385182d017
-        with:
-          cosign-release: v3.1.2
 
       - name: Download approved release evidence
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -704,92 +698,6 @@ jobs:
           printf 'github-wrapper-digest=%s\n' "$GITHUB_WRAPPER_DIGEST" >> "$GITHUB_OUTPUT"
           printf 'chart-digest=%s\n' "$CHART_DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Sign promoted artifacts
-        env:
-          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
-          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
-          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
-          CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
-          AGENTGATEWAY_DIGEST: ${{ steps.promote.outputs['agentgateway-digest'] }}
-          GOOGLE_WORKSPACE_DIGEST: ${{ steps.promote.outputs['google-workspace-digest'] }}
-          GITHUB_WRAPPER_DIGEST: ${{ steps.promote.outputs['github-wrapper-digest'] }}
-          CHART_DIGEST: ${{ steps.promote.outputs['chart-digest'] }}
-        run: |
-          COSIGN_CERTIFICATE_IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"
-          COSIGN_CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"
-
-          cosign sign --yes \
-            --output-signature dist/ecr-agentgateway.sig \
-            --output-certificate dist/ecr-agentgateway.pem \
-            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
-          cosign sign --yes \
-            --output-signature dist/ecr-google-workspace.sig \
-            --output-certificate dist/ecr-google-workspace.pem \
-            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
-          cosign sign --yes \
-            --output-signature dist/ecr-github-wrapper.sig \
-            --output-certificate dist/ecr-github-wrapper.pem \
-            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
-          cosign sign --yes \
-            --output-signature dist/ecr-helm-chart.sig \
-            --output-certificate dist/ecr-helm-chart.pem \
-            "$CHART_REPOSITORY@$CHART_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$CHART_REPOSITORY@$CHART_DIGEST"
-
-      - name: Attest promoted agentgateway provenance
-        id: ecr-agentgateway-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['agentgateway-digest'] }}
-          push-to-registry: true
-
-      - name: Attest promoted Google Workspace wrapper provenance
-        id: ecr-google-workspace-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['google-workspace-digest'] }}
-          push-to-registry: true
-
-      - name: Attest promoted GitHub wrapper provenance
-        id: ecr-github-wrapper-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['github-wrapper-digest'] }}
-          push-to-registry: true
-
-      - name: Attest promoted chart provenance
-        id: ecr-chart-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['chart-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['chart-digest'] }}
-          push-to-registry: true
-
-      - name: Preserve private registry evidence
-        run: |
-          cp '${{ steps.ecr-agentgateway-provenance.outputs['bundle-path'] }}' dist/ecr-agentgateway.provenance.json
-          cp '${{ steps.ecr-google-workspace-provenance.outputs['bundle-path'] }}' dist/ecr-google-workspace.provenance.json
-          cp '${{ steps.ecr-github-wrapper-provenance.outputs['bundle-path'] }}' dist/ecr-github-wrapper.provenance.json
-          cp '${{ steps.ecr-chart-provenance.outputs['bundle-path'] }}' dist/ecr-helm-chart.provenance.json
-
       - name: Generate private registry handoff
         env:
           VERSION: ${{ steps.coordinates.outputs.version }}
@@ -836,6 +744,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      attestations: read
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -875,6 +784,35 @@ jobs:
           helm pull "oci://ghcr.io/$OWNER/charts/mcp-gateway" \
             --version "${GITHUB_REF_NAME#v}" \
             --destination /tmp
+
+      - name: Verify public release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          mkdir -p "$RUNNER_TEMP/public-attestations"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-agentgateway@$(cat dist/agentgateway.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/agentgateway.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/google-workspace.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/github-wrapper.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
+          bun scripts/check-public-release-evidence.ts \
+            --artifacts dist \
+            --subject "ghcr.io/$OWNER/mcp-gw-agentgateway" \
+            --subject "ghcr.io/$OWNER/mcp-gw-google-workspace" \
+            --subject "ghcr.io/$OWNER/mcp-gw-github-wrapper" \
+            --subject "ghcr.io/$OWNER/charts/mcp-gateway" \
+            --attestation "$RUNNER_TEMP/public-attestations/agentgateway.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/google-workspace.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/github-wrapper.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json"
 
       - name: Create GitHub Release
         env:

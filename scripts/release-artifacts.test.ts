@@ -113,20 +113,10 @@ describe("release artifacts", () => {
     expect(promotion).toContain("aws-actions/configure-aws-credentials@");
     expect(promotion).toContain("oras-project/setup-oras@");
     expect(promotion).toContain("oras cp");
-    expect(promotion).toContain("cosign sign --yes");
-    expect(promotion).toContain("--output-signature dist/ecr-agentgateway.sig");
-    expect(promotion).toContain("--output-signature dist/ecr-google-workspace.sig");
-    expect(promotion).toContain("--output-signature dist/ecr-github-wrapper.sig");
-    expect(promotion).toContain("--output-certificate dist/ecr-helm-chart.pem");
-    expect(promotion.match(/cosign verify \\/g)).toHaveLength(4);
-    expect(promotion).toContain('--certificate-identity "$COSIGN_CERTIFICATE_IDENTITY"');
-    expect(promotion).toContain('--certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER"');
-    expect(promotion).toContain(
-      'COSIGN_CERTIFICATE_IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"',
-    );
-    expect(promotion).toContain(
-      'COSIGN_CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"',
-    );
+    expect(promotion).not.toContain("cosign");
+    expect(promotion).not.toContain("actions/attest-build-provenance@");
+    expect(promotion).not.toContain("attestations: write");
+    expect(promotion).not.toMatch(/ecr-.*\.(?:sig|pem|provenance\.json)/);
     expect(promotion).not.toMatch(/outputs\.[a-z]+-[a-z-]+/);
     expect(promotion).toContain('test "$AGENTGATEWAY_DIGEST" = "$SOURCE_AGENTGATEWAY_DIGEST"');
     expect(promotion).toContain(
@@ -137,6 +127,19 @@ describe("release artifacts", () => {
     expect(promotion).toContain("ecr-release-handoff");
     expect(promotion).not.toContain("github-mcp-server");
     expect(promotion).not.toMatch(/\b\d{12}\b/);
+  });
+
+  test("rejects non-public registry subjects and identifiers before creating a release", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const release = workflow.slice(workflow.indexOf("  release:"));
+
+    expect(release).toContain("Verify public release evidence");
+    expect(release).toContain("check-public-release-evidence.ts");
+    expect(release).toContain("gh attestation verify");
+    expect(release).toContain("ghcr.io/$OWNER/mcp-gw-agentgateway");
+    expect(release).toContain("ghcr.io/$OWNER/mcp-gw-google-workspace");
+    expect(release).toContain("ghcr.io/$OWNER/mcp-gw-github-wrapper");
+    expect(release).toContain("ghcr.io/$OWNER/charts/mcp-gateway");
   });
 
   test("blocks releases with critical first-party vulnerabilities", async () => {
@@ -205,13 +208,8 @@ describe("release artifacts", () => {
     expect(handoff).toContain("registry.example.com/mcp-gw-github-wrapper@" + githubWrapperDigest);
     expect(handoff).toContain("registry.example.com/charts/mcp-gw@" + chartDigest);
     expect(handoff).toContain("0123456789abcdef");
-    expect(handoff).toContain("ecr-agentgateway.sig");
-    expect(handoff).toContain("ecr-agentgateway.pem");
-    expect(handoff).toContain("ecr-agentgateway.provenance.json");
-    expect(handoff).toContain("ecr-google-workspace.sig");
-    expect(handoff).toContain("ecr-google-workspace.provenance.json");
-    expect(handoff).toContain("ecr-github-wrapper.sig");
-    expect(handoff).toContain("ecr-github-wrapper.provenance.json");
+    expect(handoff).not.toMatch(/ecr-.*\.(?:sig|pem|provenance\.json)/);
+    expect(handoff).toMatch(/private\s+copies are not separately attested or signed/);
     expect(handoff).toContain("agentgateway.spdx.json");
     expect(handoff).toContain("agentgateway.vulnerabilities.json");
     expect(handoff).toContain("google-workspace.spdx.json");

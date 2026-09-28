@@ -42,38 +42,26 @@ export async function generatePrivateReleaseHandoff(
 
 | Artifact | Evidence files |
 | --- | --- |
-| Agentgateway image | \`agentgateway.spdx.json\`, \`agentgateway.vulnerabilities.json\`, \`ecr-agentgateway.sig\`, \`ecr-agentgateway.pem\`, \`ecr-agentgateway.provenance.json\` |
-| Google Workspace wrapper image | \`google-workspace.spdx.json\`, \`google-workspace.vulnerabilities.json\`, \`ecr-google-workspace.sig\`, \`ecr-google-workspace.pem\`, \`ecr-google-workspace.provenance.json\` |
-| GitHub wrapper image | \`github-wrapper.spdx.json\`, \`github-wrapper.vulnerabilities.json\`, \`ecr-github-wrapper.sig\`, \`ecr-github-wrapper.pem\`, \`ecr-github-wrapper.provenance.json\` |
-| Helm chart | \`helm-chart.spdx.json\`, \`helm-chart.vulnerabilities.json\`, \`ecr-helm-chart.sig\`, \`ecr-helm-chart.pem\`, \`ecr-helm-chart.provenance.json\` |
+| Agentgateway image | \`agentgateway.spdx.json\`, \`agentgateway.vulnerabilities.json\` |
+| Google Workspace wrapper image | \`google-workspace.spdx.json\`, \`google-workspace.vulnerabilities.json\` |
+| GitHub wrapper image | \`github-wrapper.spdx.json\`, \`github-wrapper.vulnerabilities.json\` |
+| Helm chart | \`helm-chart.spdx.json\`, \`helm-chart.vulnerabilities.json\` |
 
 The ECR digest files are \`ecr-agentgateway.digest\`, \`ecr-google-workspace.digest\`,
 \`ecr-github-wrapper.digest\`, and \`ecr-helm-chart.digest\`. They match the approved public release
-manifests byte-for-byte.
+manifests byte-for-byte. The public GHCR source artifacts carry the release provenance; private
+copies are not separately attested or signed, so private registry coordinates are never written to
+a public transparency log.
 
 ## Verification
 
-Authenticate to the private registry, then verify the keyless signatures against the release
-workflow identity:
+Authenticate to the private registry and confirm each descriptor digest matches the corresponding
+public release digest. Verify provenance against the public GHCR source coordinate:
 
 \`\`\`bash
-IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/v${options.version}"
-cosign verify \\
-  --certificate-identity "$IDENTITY" \\
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  "${agentgateway}"
-cosign verify \\
-  --certificate-identity "$IDENTITY" \\
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  "${googleWorkspace}"
-cosign verify \\
-  --certificate-identity "$IDENTITY" \\
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  "${githubWrapper}"
-cosign verify \\
-  --certificate-identity "$IDENTITY" \\
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  "${chart}"
+gh attestation verify \\
+  "oci://ghcr.io/<owner>/mcp-gw-agentgateway@${agentgatewayDigest}" \\
+  --owner <owner>
 \`\`\`
 
 Configure GitOps with the chart version and chart digest above. Configure
