@@ -212,6 +212,40 @@ readinessProbe:
 {{- end }}
 {{- end -}}
 
+{{- define "mcp-gateway.trustBundlePath" -}}
+{{- printf "%s/ca-bundle.pem" (trimSuffix "/" .Values.trustBundle.mountPath) -}}
+{{- end -}}
+
+{{- define "mcp-gateway.trustBundleVolumeMount" -}}
+{{- if .Values.trustBundle.enabled }}
+- name: issuer-trust-bundle
+  mountPath: {{ .Values.trustBundle.mountPath | quote }}
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "mcp-gateway.trustBundleVolume" -}}
+{{- if .Values.trustBundle.enabled }}
+- name: issuer-trust-bundle
+  projected:
+    defaultMode: 0444
+    sources:
+      {{- if and .Values.trustBundle.configMapKeyRef.name .Values.trustBundle.configMapKeyRef.key }}
+      - configMap:
+          name: {{ .Values.trustBundle.configMapKeyRef.name }}
+          items:
+            - key: {{ .Values.trustBundle.configMapKeyRef.key }}
+              path: ca-bundle.pem
+      {{- else }}
+      - secret:
+          name: {{ .Values.trustBundle.secretKeyRef.name }}
+          items:
+            - key: {{ .Values.trustBundle.secretKeyRef.key }}
+              path: ca-bundle.pem
+      {{- end }}
+{{- end }}
+{{- end -}}
+
 {{/* Fail unless a URL satisfies the public HTTPS rules used by broker runtime config. */}}
 {{- define "mcp-gateway.assertPublicHttpsUrl" -}}
 {{- $name := .name -}}

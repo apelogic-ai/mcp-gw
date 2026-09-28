@@ -1415,6 +1415,127 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("BEGIN CERTIFICATE");
   });
 
+  test("mounts one issuer trust bundle into AgentGateway and both authenticated wrappers", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "trustBundle.enabled=true",
+      "--set-string",
+      "trustBundle.configMapKeyRef.name=platform-trust",
+      "--set-string",
+      "trustBundle.configMapKeyRef.key=ca-bundle.pem",
+    ]);
+    const path = "/var/run/secrets/mcp-gateway/trust/ca-bundle.pem";
+    const agentgateway = renderedResource(rendered, "Deployment", "mcp-gateway-agentgateway");
+    const google = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const github = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+
+    expect(deploymentEnvValue(agentgateway, "SSL_CERT_FILE")).toBe(path);
+    expect(deploymentEnvValue(google, "NODE_EXTRA_CA_CERTS")).toBe(path);
+    expect(deploymentEnvValue(github, "NODE_EXTRA_CA_CERTS")).toBe(path);
+    for (const deployment of [agentgateway, google, github]) {
+      expect(deployment).toContain("name: issuer-trust-bundle");
+      expect(deployment).toContain('mountPath: "/var/run/secrets/mcp-gateway/trust"');
+      expect(deployment).toContain("name: platform-trust");
+      expect(deployment).toContain("key: ca-bundle.pem");
+      expect(deployment).toContain("path: ca-bundle.pem");
+      expect(deployment).toContain("readOnly: true");
+    }
+  });
+
+  test("supports a Secret-backed issuer trust bundle without rendering certificate data", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "trustBundle.enabled=true",
+      "--set-string",
+      "trustBundle.secretKeyRef.name=platform-trust",
+      "--set-string",
+      "trustBundle.secretKeyRef.key=ca-bundle.pem",
+    ]);
+    const deployment = renderedResource(
+      rendered,
+      "Deployment",
+      "mcp-gateway-google-workspace",
+    );
+
+    expect(deployment).toContain("secret:");
+    expect(deployment).toContain("name: platform-trust");
+    expect(deployment).toContain("key: ca-bundle.pem");
+    expect(deployment).not.toContain("BEGIN CERTIFICATE");
+  });
+
+  test("rejects incomplete, ambiguous, or silently disabled issuer trust references", () => {
+    for (const args of [
+      ["--set", "trustBundle.enabled=true"],
+      [
+        "--set",
+        "trustBundle.enabled=true",
+        "--set-string",
+        "trustBundle.configMapKeyRef.name=platform-trust",
+      ],
+      [
+        "--set",
+        "trustBundle.enabled=true",
+        "--set-string",
+        "trustBundle.configMapKeyRef.name=platform-trust",
+        "--set-string",
+        "trustBundle.configMapKeyRef.key=ca.pem",
+        "--set-string",
+        "trustBundle.secretKeyRef.name=platform-trust",
+        "--set-string",
+        "trustBundle.secretKeyRef.key=ca.pem",
+      ],
+      [
+        "--set-string",
+        "trustBundle.configMapKeyRef.name=platform-trust",
+        "--set-string",
+        "trustBundle.configMapKeyRef.key=ca.pem",
+      ],
+    ]) {
+      assertHelmRejected(helmTemplateResult(args));
+    }
+  });
+
+  test("renders generic environment and volume extensions for every chart workload", () => {
+    const workloads = [
+      ["agentgateway", "Deployment", "mcp-gateway-agentgateway"],
+      ["googleWorkspace", "Deployment", "mcp-gateway-google-workspace"],
+      ["githubWrapper", "Deployment", "mcp-gateway-github-wrapper"],
+      ["dbMcp", "Deployment", "mcp-gateway-db-mcp"],
+      ["githubMcp", "Deployment", "mcp-gateway-github-mcp"],
+      ["oauthMigrations", "Job", "mcp-gateway-oauth-migrations"],
+    ] as const;
+    const args = [
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "dbMcp.enabled=true",
+    ];
+    for (const [valuesKey] of workloads) {
+      args.push(
+        "--set-json",
+        `${valuesKey}.extraEnv=[{"name":"EXTENSION_MODE","value":"${valuesKey}"}]`,
+        "--set-json",
+        `${valuesKey}.extraVolumeMounts=[{"name":"extension","mountPath":"/etc/extension","readOnly":true}]`,
+        "--set-json",
+        `${valuesKey}.extraVolumes=[{"name":"extension","configMap":{"name":"${valuesKey}-extension"}}]`,
+      );
+    }
+    const rendered = helmTemplate(args);
+
+    for (const [valuesKey, kind, name] of workloads) {
+      const resource = renderedResource(rendered, kind, name);
+      expect(resource).toContain("name: EXTENSION_MODE");
+      expect(resource).toContain(`value: ${valuesKey}`);
+      expect(resource).toContain("name: extension");
+      expect(resource).toContain("mountPath: /etc/extension");
+      expect(resource).toContain(`name: ${valuesKey}-extension`);
+    }
+  });
+
   test("rejects incomplete, ambiguous, or silently disabled PostgreSQL CA references", () => {
     const invalidArgs = [
       [

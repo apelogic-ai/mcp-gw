@@ -17,6 +17,19 @@ connectionLifecycle:
   enabled: false
   allowedCallers: []
 
+# Complete PEM trust bundle for HTTPS HOP-1 JWKS and introspection endpoints.
+# AgentGateway uses it as SSL_CERT_FILE; the Bun wrappers add it through
+# NODE_EXTRA_CA_CERTS. Choose exactly one existing ConfigMap or Secret key.
+trustBundle:
+  enabled: false
+  mountPath: /var/run/secrets/mcp-gateway/trust
+  configMapKeyRef:
+    name: ""
+    key: ""
+  secretKeyRef:
+    name: ""
+    key: ""
+
 postgresql:
   caBundle:
     enabled: false
@@ -52,6 +65,9 @@ oauthMigrations:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
 
 agentgateway:
   enabled: false
@@ -107,6 +123,9 @@ agentgateway:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   service:
     type: ClusterIP
   nodeSelector: {}
@@ -183,6 +202,9 @@ googleWorkspace:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
@@ -279,6 +301,9 @@ dbMcp:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
@@ -337,6 +362,9 @@ githubWrapper:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
@@ -397,6 +425,9 @@ githubMcp:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []

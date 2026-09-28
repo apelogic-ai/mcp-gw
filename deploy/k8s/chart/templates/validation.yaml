@@ -51,6 +51,35 @@
 {{- fail "postgresql.caBundle.enabled must be true when a CA reference is configured" }}
 {{- end }}
 
+{{- $trust := .Values.trustBundle }}
+{{- $trustConfigMapAny := or $trust.configMapKeyRef.name $trust.configMapKeyRef.key }}
+{{- $trustConfigMapComplete := and $trust.configMapKeyRef.name $trust.configMapKeyRef.key }}
+{{- $trustSecretAny := or $trust.secretKeyRef.name $trust.secretKeyRef.key }}
+{{- $trustSecretComplete := and $trust.secretKeyRef.name $trust.secretKeyRef.key }}
+{{- $trustConfigMapOnly := and $trustConfigMapComplete (not $trustSecretAny) }}
+{{- $trustSecretOnly := and $trustSecretComplete (not $trustConfigMapAny) }}
+{{- if $trust.enabled }}
+{{- if not (or $trustConfigMapOnly $trustSecretOnly) }}
+{{- fail "trustBundle requires exactly one complete configMapKeyRef or secretKeyRef when enabled" }}
+{{- end }}
+{{- if not $trust.mountPath }}
+{{- fail "trustBundle.mountPath is required when enabled" }}
+{{- end }}
+{{- else if or $trustConfigMapAny $trustSecretAny }}
+{{- fail "trustBundle.enabled must be true when a trust reference is configured" }}
+{{- end }}
+
+{{- if $trust.enabled }}
+{{- range .Values.agentgateway.extraEnv }}
+{{- if eq .name "SSL_CERT_FILE" }}{{- fail "agentgateway.extraEnv must not override chart-managed SSL_CERT_FILE" }}{{- end }}
+{{- end }}
+{{- range $backendName := list "googleWorkspace" "githubWrapper" }}
+{{- range (index $.Values $backendName).extraEnv }}
+{{- if eq .name "NODE_EXTRA_CA_CERTS" }}{{- fail (printf "%s.extraEnv must not override chart-managed NODE_EXTRA_CA_CERTS" $backendName) }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- range $backendName := list "googleWorkspace" "githubWrapper" "dbMcp" }}
 {{- $backend := index $.Values $backendName }}
 {{- if gt (len $backend.secretRef.envKeys) 0 }}

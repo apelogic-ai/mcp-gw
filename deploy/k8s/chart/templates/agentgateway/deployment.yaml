@@ -52,6 +52,16 @@ spec:
             - name: http
               containerPort: {{ .Values.agentgateway.port }}
           {{- include "mcp-gateway.probes" .Values.agentgateway | nindent 10 }}
+          {{- if or .Values.trustBundle.enabled .Values.agentgateway.extraEnv }}
+          env:
+            {{- if .Values.trustBundle.enabled }}
+            - name: SSL_CERT_FILE
+              value: {{ include "mcp-gateway.trustBundlePath" . | quote }}
+            {{- end }}
+            {{- with .Values.agentgateway.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/agentgateway/config.yaml
@@ -62,6 +72,10 @@ spec:
               mountPath: /var/run/secrets/mcp-gateway/introspection
               readOnly: true
           {{- end }}
+            {{- include "mcp-gateway.trustBundleVolumeMount" . | nindent 12 }}
+            {{- with .Values.agentgateway.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- with .Values.agentgateway.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -84,4 +98,8 @@ spec:
                       path: issuer-{{ $entry.index }}
           {{- end }}
       {{- end }}
+        {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
+        {{- with .Values.agentgateway.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
 {{- end }}
