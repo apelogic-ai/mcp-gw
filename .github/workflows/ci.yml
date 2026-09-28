@@ -52,6 +52,36 @@ jobs:
         with:
           bun-version: "1.2.21"
 
+      - name: Resolve pinned AgentGateway source
+        id: agentgateway-source
+        run: bun scripts/resolve-agentgateway-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Check out pinned AgentGateway source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: ${{ steps.agentgateway-source.outputs.repository }}
+          ref: ${{ steps.agentgateway-source.outputs.ref }}
+          path: .build/agentgateway
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Build pinned AgentGateway candidate
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .build/agentgateway
+          load: true
+          tags: mcp-gw-agentgateway:ci
+          build-args: |
+            VERSION=ci
+            GIT_REVISION=${{ steps.agentgateway-source.outputs.ref }}
+          labels: |
+            org.opencontainers.image.source=${{ steps.agentgateway-source.outputs.source_url }}
+            org.opencontainers.image.revision=${{ steps.agentgateway-source.outputs.ref }}
+            org.opencontainers.image.version=ci
+          cache-from: type=gha,scope=agentgateway-ci
+          cache-to: type=gha,mode=max,scope=agentgateway-ci
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -59,9 +89,9 @@ jobs:
         run: bun run integration:local
         env:
           LOCAL_INCLUDE_GITHUB: "1"
-          LOCAL_AGENTGATEWAY_IMAGE: ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859
+          LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:ci
 
       - name: Run Linux broker-disabled external issuer integration smoke
         run: bun run integration:external
         env:
-          LOCAL_AGENTGATEWAY_IMAGE: ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859
+          LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:ci

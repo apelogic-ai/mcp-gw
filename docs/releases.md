@@ -62,8 +62,10 @@ workflow also verifies that the chart and first-party images can be fetched anon
 creates the GitHub Release. A critical vulnerability in any first-party artifact blocks release.
 
 The release-owned `mcp-gw-agentgateway` image is built from the exact compatible source revision
-declared in the release workflow. It contains the MCP multi-provider authentication and routing
-behavior expected by this chart.
+declared once in [`.release/agentgateway-source.json`](../.release/agentgateway-source.json). Pull
+request CI and tagged releases build that same source and record the fork source URL and revision in
+the image metadata. See [AgentGateway compatibility source](agentgateway-source.md) for the patch
+set and upstream sync procedure.
 
 ## Cutting A Release
 

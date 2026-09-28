@@ -62,7 +62,7 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("release-handoff.md");
   });
 
-  test("builds candidate and release images only in the release workflow", async () => {
+  test("builds the pinned AgentGateway source in CI and release", async () => {
     const [ciWorkflow, releaseWorkflow] = await Promise.all([
       readFile(".github/workflows/ci.yml", "utf8"),
       readFile(".github/workflows/release.yml", "utf8"),
@@ -75,11 +75,11 @@ describe("release metadata", () => {
     expect(ciWorkflow).toContain('LOCAL_INCLUDE_GITHUB: "1"');
     expect(ciWorkflow).toContain("Run Linux broker-disabled external issuer integration smoke");
     expect(ciWorkflow).toContain("bun run integration:external");
-    expect(ciWorkflow).toContain(
-      "ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:b55af06eccd96e4cf87bde9d4d75f2c45eb70e7768e4989d93ccab3f45db3859",
-    );
-    expect(ciWorkflow).not.toContain("docker/build-push-action@");
-    expect(ciWorkflow).not.toContain("docker/setup-buildx-action@");
+    expect(ciWorkflow).not.toContain("ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:");
+    expect(ciWorkflow).toContain("bun scripts/resolve-agentgateway-source.ts");
+    expect(ciWorkflow).toContain("docker/build-push-action@");
+    expect(ciWorkflow).toContain("docker/setup-buildx-action@");
+    expect(ciWorkflow).toContain("mcp-gw-agentgateway:ci");
     expect(ciWorkflow).not.toContain("arm64-inputs:");
     expect(ciWorkflow).not.toContain("arm64-image-build:");
     expect(ciWorkflow).not.toContain("helm/kind-action@");
@@ -88,7 +88,34 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("runner: ubuntu-24.04-arm");
     expect(releaseWorkflow).toContain("platform: linux/arm64");
     expect(releaseWorkflow).toContain("bun run integration:external");
+    expect(releaseWorkflow).toContain("bun scripts/resolve-agentgateway-source.ts");
     expect(releaseWorkflow).not.toContain("docker/setup-qemu-action@");
+  });
+
+  test("declares the AgentGateway fork source and compatibility patch set once", async () => {
+    const [sourceText, ciWorkflow, releaseWorkflow, sourceDocs] = await Promise.all([
+      readFile(".release/agentgateway-source.json", "utf8"),
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+      readFile("docs/agentgateway-source.md", "utf8"),
+    ]);
+    const source = JSON.parse(sourceText) as {
+      repository: string;
+      ref: string;
+      upstreamRepository: string;
+    };
+
+    expect(source.repository).toBe("apelogic-ai/agentgateway");
+    expect(source.ref).toMatch(/^[0-9a-f]{40}$/);
+    expect(source.upstreamRepository).toBe("agentgateway/agentgateway");
+    expect(ciWorkflow).not.toContain(source.ref);
+    expect(releaseWorkflow).not.toContain(source.ref);
+    expect(ciWorkflow).toContain("steps.agentgateway-source.outputs.repository");
+    expect(ciWorkflow).toContain("steps.agentgateway-source.outputs.ref");
+    expect(releaseWorkflow).toContain("steps.agentgateway-source.outputs.repository");
+    expect(releaseWorkflow).toContain("steps.agentgateway-source.outputs.ref");
+    expect(sourceDocs).toContain("Compatibility patch set");
+    expect(sourceDocs).toContain("Upstream sync procedure");
   });
 
   test("keeps Helm chart versions aligned with the package release", async () => {

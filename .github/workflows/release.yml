@@ -42,11 +42,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Check out pinned agentgateway source
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Resolve pinned AgentGateway source
+        id: agentgateway-source
+        run: bun scripts/resolve-agentgateway-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Check out pinned AgentGateway source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          repository: apelogic-ai/agentgateway
-          ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43
+          repository: ${{ steps.agentgateway-source.outputs.repository }}
+          ref: ${{ steps.agentgateway-source.outputs.ref }}
           path: .build/agentgateway
 
       - name: Set up Docker Buildx
@@ -60,7 +69,11 @@ jobs:
           tags: mcp-gw-agentgateway:smoke
           build-args: |
             VERSION=smoke
-            GIT_REVISION=360a5dfd2f088ddb91d8f506f329934fe8b92c43
+            GIT_REVISION=${{ steps.agentgateway-source.outputs.ref }}
+          labels: |
+            org.opencontainers.image.source=${{ steps.agentgateway-source.outputs.source_url }}
+            org.opencontainers.image.revision=${{ steps.agentgateway-source.outputs.ref }}
+            org.opencontainers.image.version=smoke
           cache-from: type=gha,scope=agentgateway-smoke
           cache-to: type=gha,mode=max,scope=agentgateway-smoke
 
@@ -83,11 +96,6 @@ jobs:
           tags: mcp-gw-github-wrapper:smoke
           cache-from: type=gha,scope=github-wrapper-smoke
           cache-to: type=gha,mode=max,scope=github-wrapper-smoke
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: "1.2.21"
 
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
@@ -193,13 +201,33 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Check out pinned agentgateway source
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Resolve pinned AgentGateway source
+        id: agentgateway-source
+        run: bun scripts/resolve-agentgateway-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Check out pinned AgentGateway source
         if: matrix.component == 'agentgateway'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          repository: apelogic-ai/agentgateway
-          ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43
+          repository: ${{ steps.agentgateway-source.outputs.repository }}
+          ref: ${{ steps.agentgateway-source.outputs.ref }}
           path: .release/agentgateway
+
+      - name: Select image source metadata
+        shell: bash
+        run: |
+          if [[ '${{ matrix.component }}' == 'agentgateway' ]]; then
+            printf 'BUILD_SOURCE_URL=%s\n' '${{ steps.agentgateway-source.outputs.source_url }}' >> "$GITHUB_ENV"
+            printf 'BUILD_GIT_REVISION=%s\n' '${{ steps.agentgateway-source.outputs.ref }}' >> "$GITHUB_ENV"
+          else
+            printf 'BUILD_SOURCE_URL=https://github.com/%s\n' "$GITHUB_REPOSITORY" >> "$GITHUB_ENV"
+            printf 'BUILD_GIT_REVISION=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -221,10 +249,10 @@ jobs:
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             VERSION=${{ github.ref_name }}
-            GIT_REVISION=${{ github.sha }}
+            GIT_REVISION=${{ env.BUILD_GIT_REVISION }}
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ env.BUILD_SOURCE_URL }}
+            org.opencontainers.image.revision=${{ env.BUILD_GIT_REVISION }}
             org.opencontainers.image.version=${{ github.ref_name }}
           provenance: mode=max
           sbom: true
