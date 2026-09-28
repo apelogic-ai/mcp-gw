@@ -2,11 +2,56 @@
 
 All notable project changes are tracked here.
 
-This project uses SemVer for source, deployment templates, and public operational contracts. The
-GitHub release notes for each tag are generated from merged pull requests; this file records the
-human-maintained compatibility summary.
+This project uses SemVer for source, deployment templates, and public operational contracts. Each
+GitHub Release publishes the curated deployment handoff and supply-chain evidence; this file
+records the human-maintained compatibility summary.
 
 ## [Unreleased]
+
+## [0.5.1] - 2026-09-28
+
+### Added
+
+- Add configurable AgentGateway CORS allowlists and backend failure behavior, conservative default
+  resource requests and limits, chart discovery metadata, operator notes, and validation for
+  Google-only, GitHub-only, or combined production profiles.
+- Define the compatible AgentGateway fork and immutable commit in one machine-readable source pin,
+  use it in both pull-request CI and tagged releases, and document the five-patch compatibility set
+  plus upstream sync procedure.
+
+### Fixed
+
+- Build and smoke-test the pinned AgentGateway source in CI instead of an older published image,
+  and record the fork source URL and revision in binary and OCI metadata.
+- Publish curated release notes without automatically injected contributor handles, use accurate
+  architecture-index artifact names, and keep deployment handoffs platform-neutral.
+- Reconcile release-version, external-issuer refresh-route, compatibility callback, and minimal
+  Helm values documentation.
+
+### Security
+
+- Stop signing or publicly attesting optional private-registry mirrors; public provenance remains
+  attached to the GHCR source artifacts without disclosing private registry coordinates.
+- Replace personal chart and Artifact Hub contact metadata with organization-owned coordinates,
+  run Google and GitHub wrappers with read-only root filesystems and writable ephemeral `/tmp`, and
+  scope internal NetworkPolicy peers to the same Helm release.
+
+### Upgrade Notes
+
+- No database migration, Secret-format change, OAuth reconnect, or provider reauthorization is
+  required.
+- The chart now supplies conservative resource requests and limits. Existing explicit resource
+  values remain authoritative; review capacity and tune them from observed workload usage.
+- Google Workspace and GitHub wrapper root filesystems are now read-only with an ephemeral writable
+  `/tmp`. Deployments that add integrations writing elsewhere must provide an explicit writable
+  volume mount or override that workload's security context.
+- Internal provider NetworkPolicies now require the AgentGateway Pod's
+  `app.kubernetes.io/instance` label to match this Helm release. Wrapper-only deployments with an
+  externally managed AgentGateway must apply that release label or provide an environment-owned
+  NetworkPolicy extension.
+- CORS still defaults to `*` and backend failure behavior still defaults to `failOpen` for upgrade
+  compatibility; browser-facing production deployments should set explicit origins, and operators
+  may opt into `failClosed`.
 
 ## [0.5.0] - 2026-09-28
 
@@ -565,7 +610,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.11...v0.5.0
 [0.4.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.9...v0.4.10

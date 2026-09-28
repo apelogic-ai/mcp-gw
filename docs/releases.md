@@ -1,9 +1,9 @@
 # Releases
 
-MCP Gateway releases are environment-neutral product artifacts that an external GitOps repository
+MCP Gateway releases are environment-neutral product artifacts that an external deployment system
 can consume directly. Organization-specific domains, issuers, Secret names, enabled adapters,
-sizing, and scheduling remain in a private values overlay; deployment teams do not patch or fork the
-public chart.
+sizing, and scheduling remain in a private values overlay; deployment teams do not patch or fork
+the public chart.
 
 ## Versioning
 
@@ -18,7 +18,21 @@ release:
 - `PATCH`: bug fixes, documentation fixes, test improvements, and non-breaking deployment-template
   corrections.
 
-The current public release line is `v0.5.0`.
+The current public release line is `v0.5.1`.
+
+### 0.5.1 upgrade notes
+
+- No database migration, Secret-format change, OAuth reconnect, or provider reauthorization is
+  required.
+- Review the chart's new default resource requests and limits against available cluster capacity.
+  Existing explicit workload resource values remain authoritative.
+- Google Workspace and GitHub wrapper root filesystems are now read-only with a writable ephemeral
+  `/tmp`. Mount an explicit writable volume for any added integration that writes elsewhere.
+- Provider NetworkPolicies now admit only AgentGateway Pods with the same Helm release-instance
+  label. Label an externally managed AgentGateway accordingly or add an environment-owned policy
+  for that peer.
+- CORS and backend failure behavior are configurable. Their defaults remain `*` and `failOpen`,
+  respectively, for compatibility.
 
 ### 0.5.0 upgrade notes
 
@@ -52,7 +66,8 @@ private registry copies are not separately attested or signed because that would
 coordinates to a public transparency log. Entries created by older releases are append-only and
 cannot be deleted. The legacy
 `MCP_GW_ECR_IMAGE_REPOSITORY` variable remains a fallback for the agentgateway repository. The
-third-party official GitHub MCP image is not promoted; deployment GitOps owns its reviewed mirror.
+third-party official GitHub MCP image is not promoted; deployment configuration owns its reviewed
+mirror.
 Registry locations and IAM role identifiers are deployment configuration and are never committed
 to this repository.
 
