@@ -31,6 +31,20 @@ hop1:
 
 agentgateway:
   enabled: true
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported:
+        - openid
+        - email
+      bearerMethodsSupported:
+        - header
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
   image:
     repository: ghcr.io/example/agentgateway
     tag: ""

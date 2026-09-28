@@ -33,6 +33,19 @@
 {{- end }}
 {{- end }}
 
+{{- if .Values.agentgateway.enabled }}
+{{- if not .Values.agentgateway.mcpAuthentication.resourceMetadata.resource }}
+{{- fail "agentgateway.enabled requires a non-empty agentgateway.mcpAuthentication.resourceMetadata.resource" }}
+{{- end }}
+{{- $enabledBackendTargets := 0 }}
+{{- range .Values.agentgateway.backends }}
+{{- if .enabled }}{{- $enabledBackendTargets = add1 $enabledBackendTargets }}{{- end }}
+{{- end }}
+{{- if eq $enabledBackendTargets 0 }}
+{{- fail "agentgateway.enabled requires at least one enabled agentgateway backend target" }}
+{{- end }}
+{{- end }}
+
 {{- $ca := .Values.postgresql.caBundle }}
 {{- $configMapAny := or $ca.configMapKeyRef.name $ca.configMapKeyRef.key }}
 {{- $configMapComplete := and $ca.configMapKeyRef.name $ca.configMapKeyRef.key }}

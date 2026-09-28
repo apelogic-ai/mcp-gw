@@ -75,6 +75,8 @@ helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
   --version 0.4.11 \
   --set agentgateway.enabled=true \
   --set agentgateway.image.tag=0.4.11 \
+  --set-string agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp \
+  --set-json 'agentgateway.backends=[{"name":"google-workspace","enabled":true,"serviceName":"google-workspace","port":8080,"path":"/mcp"}]' \
   --set googleWorkspace.enabled=true \
   --set googleWorkspace.image.tag=0.4.11 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \

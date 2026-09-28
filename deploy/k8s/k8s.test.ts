@@ -74,6 +74,49 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("/var/run/secrets/mcp-gateway/broker");
   });
 
+  test("rejects an enabled AgentGateway without a resource or backend target", () => {
+    const issuer =
+      'hop1.issuers=[{"name":"fixture","issuer":"https://identity.example.com","audiences":["mcp-gateway"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"]}]';
+    for (const [args, expected] of [
+      [
+        [
+          "--set",
+          "agentgateway.enabled=true",
+          "--set-json",
+          issuer,
+          "--set-json",
+          'agentgateway.backends=[{"name":"fixture","enabled":true,"host":"http://fixture:8080/mcp"}]',
+        ],
+        "resourceMetadata.resource",
+      ],
+      [
+        [
+          "--set",
+          "agentgateway.enabled=true",
+          "--set-string",
+          "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp",
+          "--set-json",
+          issuer,
+        ],
+        "backend",
+      ],
+    ] as const) {
+      const result = helmTemplateResult([...args]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toContain(expected);
+    }
+  });
+
+  test("documents an inline install with a resource and enabled Google backend", async () => {
+    const readme = await Bun.file("deploy/k8s/chart/README.md").text();
+
+    expect(readme).toContain(
+      "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp",
+    );
+    expect(readme).toContain('agentgateway.backends=[{"name":"google-workspace","enabled":true');
+  });
+
   test("renders a complete OAuth broker contract with a read-only Secret keyring projection", () => {
     const rendered = helmTemplate([
       "--values",
