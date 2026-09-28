@@ -1673,6 +1673,83 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("kind: PodDisruptionBudget");
   });
 
+  test("admits named private control-plane callers to provider lifecycle services", () => {
+    const callers = [
+      {
+        namespaceSelector: {
+          matchLabels: { "kubernetes.io/metadata.name": "governing-platform" },
+        },
+        podSelector: {
+          matchLabels: { "app.kubernetes.io/name": "connections-bridge" },
+        },
+      },
+      {
+        namespaceSelector: {
+          matchLabels: { "platform.example.com/provider-control": "allowed" },
+        },
+      },
+    ];
+    const rendered = helmTemplate([
+      ...brokerWithGithubArgs(),
+      "--set",
+      "connectionLifecycle.enabled=true",
+      "--set-json",
+      `connectionLifecycle.allowedCallers=${JSON.stringify(callers)}`,
+    ]);
+
+    for (const [component, port] of [
+      ["google-workspace", 8080],
+      ["github-wrapper", 8080],
+    ] as const) {
+      const policy = renderedResource(rendered, "NetworkPolicy", `mcp-gateway-${component}`);
+      const service = renderedResource(rendered, "Service", `mcp-gateway-${component}`);
+
+      expect(service).toContain("type: ClusterIP");
+      expect(service).toContain(`port: ${port}`);
+      expect(policy).toContain("kubernetes.io/metadata.name: governing-platform");
+      expect(policy).toContain("app.kubernetes.io/name: connections-bridge");
+      expect(policy).toContain("platform.example.com/provider-control: allowed");
+      expect(policy).toMatch(
+        /namespaceSelector:[\s\S]*kubernetes\.io\/metadata\.name: governing-platform[\s\S]*podSelector:[\s\S]*app\.kubernetes\.io\/name: connections-bridge/,
+      );
+    }
+  });
+
+  test("keeps provider lifecycle services private unless callers are explicitly configured", () => {
+    const rendered = helmTemplate(brokerWithGithubArgs());
+
+    for (const component of ["google-workspace", "github-wrapper"]) {
+      const policy = renderedResource(rendered, "NetworkPolicy", `mcp-gateway-${component}`);
+      expect(policy).not.toContain("governing-platform");
+      expect(policy).not.toContain("connections-bridge");
+    }
+  });
+
+  test("rejects incomplete provider lifecycle access configuration", () => {
+    const validCaller = [
+      {
+        namespaceSelector: {
+          matchLabels: { "kubernetes.io/metadata.name": "governing-platform" },
+        },
+      },
+    ];
+    for (const args of [
+      ["--set", "connectionLifecycle.enabled=true"],
+      [
+        "--set-json",
+        `connectionLifecycle.allowedCallers=${JSON.stringify(validCaller)}`,
+      ],
+      [
+        "--set",
+        "connectionLifecycle.enabled=true",
+        "--set-json",
+        'connectionLifecycle.allowedCallers=[{"namespaceSelector":{"matchLabels":{}}}]',
+      ],
+    ]) {
+      assertHelmRejected(helmTemplateResult(args));
+    }
+  });
+
   test("renders multiple HOP-1 issuers and secret-backed introspection credentials", () => {
     const rendered = helmTemplate([
       "--values",

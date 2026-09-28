@@ -10,6 +10,13 @@ productionProfile:
 hop1:
   issuers: []
 
+# Opt-in private access to authenticated provider connection lifecycle routes.
+# Each caller selects a trusted namespace and may further restrict its Pods.
+# This only changes wrapper NetworkPolicies; it never creates a public route.
+connectionLifecycle:
+  enabled: false
+  allowedCallers: []
+
 postgresql:
   caBundle:
     enabled: false

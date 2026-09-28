@@ -59,21 +59,24 @@ An external control plane can be an internal portal, CLI, backend service, or ag
 responsibility is to authenticate the user, obtain a HOP-1 token for MCP-GW, and start provider
 connection flows.
 
-The control plane starts a provider OAuth flow by calling MCP-GW with the authenticated user's HOP-1
-token:
+The control plane starts a provider OAuth flow by calling the provider wrapper with the
+authenticated user's HOP-1 token:
 
 ```http
-GET https://mcp-gw.example.com/oauth/<provider>/start?redirect_after=https%3A%2F%2Fportal.example.com%2Fintegrations%2F<provider>%2Fcomplete
+POST http://<provider-wrapper-service>/connections/<provider>/authorize
 Authorization: Bearer <hop1-user-token>
+Content-Type: application/json
+
+{"redirectAfter":"https://portal.example.com/integrations/<provider>/complete"}
 ```
 
-MCP-GW responds with a redirect to the provider consent screen:
+MCP-GW responds with the provider consent URL:
 
-```http
-302 Location: https://provider.example.com/oauth/authorize?...
+```json
+{"authorizationUrl":"https://provider.example.com/oauth/authorize?..."}
 ```
 
-The control plane should send the user's browser to that `Location`.
+The control plane should send the user's browser to that `authorizationUrl`.
 
 The provider redirects back to MCP-GW:
 
@@ -90,7 +93,7 @@ original `redirect_after` value.
 Connection status:
 
 ```http
-GET https://mcp-gw.example.com/oauth/<provider>/status
+GET http://<provider-wrapper-service>/connections/<provider>/status
 Authorization: Bearer <hop1-user-token>
 ```
 
@@ -109,14 +112,19 @@ Example response:
 Disconnect:
 
 ```http
-POST https://mcp-gw.example.com/oauth/<provider>/disconnect
+POST http://<provider-wrapper-service>/connections/<provider>/disconnect
 Authorization: Bearer <hop1-user-token>
 ```
 
 Expected response:
 
-```http
-204 No Content
+```json
+{
+  "version": "1",
+  "provider": "github",
+  "phase": "disconnected",
+  "connected": false
+}
 ```
 
 For GitHub, MCP-GW first asks GitHub to revoke the stored OAuth access token
@@ -155,11 +163,14 @@ GITHUB_OAUTH_SCOPES="repo read:org workflow notifications user:email"
 GITHUB_TOKEN_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 ```
 
-The control plane starts the GitHub flow:
+The control plane starts the GitHub flow through the wrapper's private Service:
 
 ```http
-GET https://mcp-gw.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fportal.example.com%2Fintegrations%2Fgithub%2Fcomplete
+POST http://mcp-gateway-github-wrapper.mcp-gateway.svc:8080/connections/github/authorize
 Authorization: Bearer <hop1-user-token>
+Content-Type: application/json
+
+{"redirectAfter":"https://portal.example.com/integrations/github/complete"}
 ```
 
 After connection, MCP clients call the gateway MCP endpoint with the same stable HOP-1 subject:
@@ -205,9 +216,13 @@ OAuth using the advertised provider helpers. Clients that cannot do that can use
 plane and the equivalent HTTP routes.
 
 Headless clients and internal portals may use the provider connection routes with a trusted HOP-1
-token only through a private control-plane route. The authenticated
-`/oauth/google|github/start|status|disconnect` handlers are not part of the public remote-client
-ingress. Remote MCP clients use the equivalent `google_oauth_*` and `github_oauth_*` MCP tools.
+token only through a private control-plane route. In the Helm chart,
+`connectionLifecycle.allowedCallers` adds selected Namespace and optional Pod peers to both wrapper
+NetworkPolicies while the existing ClusterIP Services provide the internal route. It creates no
+public Ingress or HTTPRoute and does not bypass authentication. The authenticated compatibility
+handlers under `/oauth/google|github/start|status|disconnect` are not part of the public
+remote-client ingress. New integrations use `/connections/{provider}/*`; remote MCP clients use the
+equivalent `google_oauth_*` and `github_oauth_*` MCP tools.
 
 Provider callbacks remain separately state-bound return endpoints for the configured provider OAuth
 apps; their reachability does not make the control-plane handlers public APIs. See

@@ -194,6 +194,34 @@ When provider consent uses the shared PostgreSQL token store, enable
 holding `TOKEN_STORE_DSN`. The pre-install/pre-upgrade hook runs the OAuth schema
 migrations under an advisory lock.
 
+## Private connection lifecycle access
+
+An internal control plane can use the canonical authenticated
+`/connections/{provider}/*` routes through each enabled wrapper's existing
+ClusterIP Service. The chart does not publish those routes through its public
+Ingress or HTTPRoute. Opt in by selecting the trusted caller Namespace and,
+optionally, its Pods:
+
+```yaml
+connectionLifecycle:
+  enabled: true
+  allowedCallers:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: governing-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: connections-bridge
+```
+
+For a release named `mcp-gateway` in Namespace `mcp-gateway`, the internal base
+URLs are `http://mcp-gateway-google-workspace.mcp-gateway.svc:8080` and
+`http://mcp-gateway-github-wrapper.mcp-gateway.svc:8080`. Callers must still send
+the user's valid HOP-1 bearer token; the NetworkPolicy allowlist does not bypass
+authentication, principal binding, policy, or lifecycle generation guards. A
+caller entry without `podSelector` admits all Pods in only the selected
+Namespace. Provider callbacks remain separately routed return endpoints.
+
 ## Minimal values
 
 The smallest valid configuration is one `hop1.issuers` entry plus one enabled
@@ -226,6 +254,8 @@ and are left in place.
 | Key                                                               | Default                                             | Description                                                                                                             |
 | ----------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `hop1.issuers`                                                    | `[]`                                                | Optional direct HOP-1 issuer profiles. Required for enabled authenticated workloads unless the OAuth broker is enabled. |
+| `connectionLifecycle.enabled`                                     | `false`                                             | Admit selected private control-plane callers to wrapper Services; never creates a public route.                         |
+| `connectionLifecycle.allowedCallers`                              | `[]`                                                | Namespace selectors and optional Pod selectors allowed by both wrapper NetworkPolicies.                                |
 | `agentgateway.enabled`                                            | `false`                                             | Deploy the `/mcp` front door.                                                                                           |
 | `agentgateway.image.tag`                                          | `""`                                                | Agentgateway image tag (or set `image.digest`).                                                                         |
 | `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                                               |
