@@ -27,6 +27,15 @@ type BoundedProcessResult = {
 };
 
 describe("Kubernetes production chart", () => {
+  test("declares Kubernetes 1.32 as the minimum supported version", () => {
+    const unsupported = helmTemplateResult(["--kube-version", "1.31.9"]);
+
+    assertHelmRejected(unsupported);
+    expect(unsupported.stderr.toString()).toContain(">=1.32.0-0");
+    expect(helmTemplate(["--kube-version", "1.32.0"])).toBeString();
+    expect(helmTemplate(["--kube-version", "1.33.0-rc.1"])).toBeString();
+  });
+
   test("ships wrapper images with a numeric non-root runtime user", async () => {
     const dockerfiles = await Promise.all([
       Bun.file("servers/google-workspace/wrapper/Dockerfile").text(),
@@ -63,6 +72,49 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("MCP_BROKER_");
     expect(rendered).not.toContain("broker-signing-keyring");
     expect(rendered).not.toContain("/var/run/secrets/mcp-gateway/broker");
+  });
+
+  test("rejects an enabled AgentGateway without a resource or backend target", () => {
+    const issuer =
+      'hop1.issuers=[{"name":"fixture","issuer":"https://identity.example.com","audiences":["mcp-gateway"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"]}]';
+    for (const [args, expected] of [
+      [
+        [
+          "--set",
+          "agentgateway.enabled=true",
+          "--set-json",
+          issuer,
+          "--set-json",
+          'agentgateway.backends=[{"name":"fixture","enabled":true,"host":"http://fixture:8080/mcp"}]',
+        ],
+        "resourceMetadata.resource",
+      ],
+      [
+        [
+          "--set",
+          "agentgateway.enabled=true",
+          "--set-string",
+          "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp",
+          "--set-json",
+          issuer,
+        ],
+        "backend",
+      ],
+    ] as const) {
+      const result = helmTemplateResult([...args]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toContain(expected);
+    }
+  });
+
+  test("documents an inline install with a resource and enabled Google backend", async () => {
+    const readme = await Bun.file("deploy/k8s/chart/README.md").text();
+
+    expect(readme).toContain(
+      "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp",
+    );
+    expect(readme).toContain('agentgateway.backends=[{"name":"google-workspace","enabled":true');
   });
 
   test("renders a complete OAuth broker contract with a read-only Secret keyring projection", () => {
@@ -1772,7 +1824,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.11");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.0");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
@@ -1796,6 +1848,72 @@ describe("Kubernetes production chart", () => {
     expect(githubMcpDeployment).toBeDefined();
     expect(githubMcpDeployment).toMatch(/name: github-mcp[\s\S]*runAsUser: 10001/);
     expect(githubMcpDeployment).toMatch(/name: github-mcp[\s\S]*runAsGroup: 10001/);
+  });
+
+  test("derives the GitHub upstream URL from the release-scoped Service name", () => {
+    for (const [releaseName, extraArgs, componentName] of [
+      ["team-gateway", [], "team-gateway-github-mcp"],
+      [
+        "ignored-release",
+        ["--set-string", "fullnameOverride=platform-mcp"],
+        "platform-mcp-github-mcp",
+      ],
+    ] as const) {
+      const rendered = helmTemplateForRelease(releaseName, [
+        "--values",
+        "deploy/k8s/examples/values-k8s-smoke.yaml",
+        "--values",
+        "deploy/k8s/examples/values-github-mcp.example.yaml",
+        ...extraArgs,
+      ]);
+      const wrapper = renderedResource(
+        rendered,
+        "Deployment",
+        componentName.replace(/-github-mcp$/u, "-github-wrapper"),
+      );
+
+      expect(deploymentEnvValue(wrapper, "GITHUB_MCP_UPSTREAM_URL")).toBe(
+        `http://${componentName}:8082/mcp`,
+      );
+    }
+  });
+
+  test("preserves an explicit legacy GitHub upstream URL override", () => {
+    const rendered = helmTemplateForRelease("team-gateway", [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+      "--set-string",
+      "githubWrapper.env.GITHUB_MCP_UPSTREAM_URL=http://external-github-mcp.tools.svc:8082/mcp",
+    ]);
+    const wrapper = renderedResource(rendered, "Deployment", "team-gateway-github-wrapper");
+
+    expect(deploymentEnvValue(wrapper, "GITHUB_MCP_UPSTREAM_URL")).toBe(
+      "http://external-github-mcp.tools.svc:8082/mcp",
+    );
+    expect(countOccurrences(wrapper, "name: GITHUB_MCP_UPSTREAM_URL")).toBe(1);
+  });
+
+  test("rejects ambiguous GitHub upstream URL injection paths", () => {
+    const base = [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+    ];
+    for (const args of [
+      [
+        "--set-json",
+        'githubWrapper.extraEnv=[{"name":"GITHUB_MCP_UPSTREAM_URL","value":"http://other:8082/mcp"}]',
+      ],
+      ["--set-json", 'githubWrapper.secretRef.envKeys=["GITHUB_MCP_UPSTREAM_URL"]'],
+    ]) {
+      const result = helmTemplateResult([...base, ...args]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toContain("GITHUB_MCP_UPSTREAM_URL");
+    }
   });
 
   test("renders the opt-in full provider bundle production profile", () => {

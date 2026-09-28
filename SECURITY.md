@@ -2,15 +2,27 @@
 
 ## Reporting Vulnerabilities
 
-Do not open public issues for vulnerabilities or leaked credentials.
+Do not open a public issue for vulnerabilities or leaked credentials.
 
-Send security reports to the repository owners through the private channel configured for your
-deployment. Include:
+Use [GitHub private vulnerability reporting](https://github.com/apelogic-ai/mcp-gw/security/advisories/new)
+through **Security → Report a vulnerability**. It creates a private advisory visible only to the
+reporter and repository security maintainers.
+
+Include:
 
 - affected component and version or commit;
 - reproduction steps;
 - expected impact;
 - any relevant logs with tokens, secrets, and personal data redacted.
+
+You should receive an acknowledgement within five business days. Please allow the maintainers time
+to investigate and coordinate a fix before publishing details.
+
+## Supported Versions
+
+Security fixes are applied to the latest released version. Older versions may require upgrading to
+receive a fix. Release and upgrade notes identify any migration, credential-rotation, or
+reauthorization action required by a security update.
 
 ## Secret Handling
 

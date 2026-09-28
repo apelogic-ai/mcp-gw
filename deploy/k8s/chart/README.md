@@ -8,6 +8,8 @@ consent. The chart ships a Google Workspace MCP wrapper, an optional official
 GitHub MCP backend, and per-user OAuth token storage in PostgreSQL. Every
 workload is disabled by default and enabled explicitly.
 
+The chart supports Kubernetes `1.32` and newer (`kubeVersion: >=1.32.0-0`).
+
 ## Install
 
 The chart is published as an OCI artifact. Enabling `agentgateway` or any
@@ -17,7 +19,7 @@ the install fails schema validation.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.11 \
+  --version 0.5.0 \
   -f my-values.yaml
 ```
 
@@ -41,7 +43,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.4.11"
+    tag: "0.5.0"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -59,7 +61,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.4.11"
+    tag: "0.5.0"
   # Existing Secret supplying GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
   # GOOGLE_OAUTH_REDIRECT_URI, GOOGLE_TOKEN_ENCRYPTION_KEY, and TOKEN_STORE_DSN.
   secretRef:
@@ -70,11 +72,13 @@ Or override the same knobs inline:
 
 ```bash
 helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.11 \
+  --version 0.5.0 \
   --set agentgateway.enabled=true \
-  --set agentgateway.image.tag=0.4.11 \
+  --set agentgateway.image.tag=0.5.0 \
+  --set-string agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp \
+  --set-json 'agentgateway.backends=[{"name":"google-workspace","enabled":true,"serviceName":"google-workspace","port":8080,"path":"/mcp"}]' \
   --set googleWorkspace.enabled=true \
-  --set googleWorkspace.image.tag=0.4.11 \
+  --set googleWorkspace.image.tag=0.5.0 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \
   --set-json 'hop1.issuers=[{"name":"workforce","issuer":"https://identity.example.com","audiences":["https://mcp.example.com/mcp"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"],"emailClaim":"email","subjectClaim":"sub"}]'
 ```

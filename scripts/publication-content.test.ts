@@ -73,6 +73,26 @@ describe("public repository content", () => {
     expect(publishedPaths).not.toContain("scripts/smoke-dev-remote.sh");
     expect(publishedPaths).not.toContain("scripts/check-infra.sh");
   });
+
+  test("publishes actionable private reporting and contributor guidance", async () => {
+    const [security, contributing, codeOfConduct] = await Promise.all([
+      readFile("SECURITY.md", "utf8"),
+      readFile("CONTRIBUTING.md", "utf8"),
+      readFile("CODE_OF_CONDUCT.md", "utf8"),
+    ]);
+
+    const privateReportingUrl = "https://github.com/apelogic-ai/mcp-gw/security/advisories/new";
+    const emailAddress = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+
+    expect(security).toContain(privateReportingUrl);
+    expect(security).not.toMatch(emailAddress);
+    expect(security).toContain("Do not open a public issue");
+    expect(contributing).toContain("bun run ci");
+    expect(contributing).toContain("SECURITY.md");
+    expect(codeOfConduct).toContain("Contributor Covenant");
+    expect(codeOfConduct).toContain(privateReportingUrl);
+    expect(codeOfConduct).not.toMatch(emailAddress);
+  });
 });
 
 async function listTextFiles(root: string): Promise<string[]> {

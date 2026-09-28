@@ -60,13 +60,15 @@ overlay and fill the `GITHUB_*` values.
 
 ### Path B — Kubernetes via Helm (OCI)
 
+The Helm chart requires Kubernetes 1.32 or newer.
+
 The chart is disabled by default and validated against a JSON schema: enabling
 any workload requires at least one complete `hop1.issuers` entry.
 
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.11 \
+  --version 0.5.0 \
   -f my-values.yaml
 ```
 
@@ -89,7 +91,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.4.11"
+    tag: "0.5.0"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -107,7 +109,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.4.11"
+    tag: "0.5.0"
   secretRef:
     name: mcp-provider-runtime
 
@@ -123,7 +125,7 @@ Verify:
 
 ```bash
 helm upgrade --install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.4.11 -f my-values.yaml
+  --version 0.5.0 -f my-values.yaml
 kubectl rollout status deploy/mcp-gateway-agentgateway
 ```
 
@@ -302,8 +304,10 @@ github_oauth_status   github_oauth_start   # when the GitHub backend is enabled
 
 Provider grants are never inferred from the HOP-1 login: every provider is
 gated by its own consent. Use the same stable HOP-1 subject for connect, status,
-and later tool calls. Headless clients and portals can drive the equivalent HTTP
-routes (`/oauth/<provider>/start`, `/status`, `/disconnect`) directly with a
-trusted HOP-1 token; see
+and later tool calls. Headless clients and portals should use the canonical
+`/connections/{provider}/authorize|status|refresh|disconnect` HTTP routes with
+a trusted HOP-1 token. The older private `/oauth/{provider}/*` aliases remain
+supported through the complete 0.6.x release line; their earliest possible
+removal is 0.7.0, announced in the preceding minor release notes. See
 [`provider-connection-flows.md`](provider-connection-flows.md) and the
 [`client-integration-runbook.md`](client-integration-runbook.md).

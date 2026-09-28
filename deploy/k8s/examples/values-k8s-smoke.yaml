@@ -13,6 +13,13 @@ hop1:
 
 agentgateway:
   enabled: true
+  backends:
+    # The smoke exercises authentication before backend dispatch. Keep one
+    # deliberately unavailable target so the production no-empty-target
+    # invariant is covered without adding an unrelated workload.
+    - name: unavailable-fixture
+      enabled: true
+      host: http://unavailable-backend.invalid:8080/mcp
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp

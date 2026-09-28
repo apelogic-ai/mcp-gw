@@ -63,4 +63,18 @@ describe("public OAuth routing contract", () => {
     expect(contract).toContain("public discovery authority");
     expect(contract).toContain("authorizationServers");
   });
+
+  test("commits to a versioned support window for private OAuth compatibility aliases", async () => {
+    const [lifecycle, flows, quickstart] = await Promise.all([
+      Bun.file("docs/provider-connection-lifecycle.md").text(),
+      Bun.file("docs/provider-connection-flows.md").text(),
+      Bun.file("docs/quickstart.md").text(),
+    ]);
+
+    for (const document of [lifecycle, flows, quickstart]) {
+      expect(document).toMatch(/complete\s+0\.6\.x release line/u);
+      expect(document).toContain("0.7.0");
+      expect(document).toContain("/connections/{provider}");
+    }
+  });
 });
