@@ -17,4 +17,20 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.githubWrapper.port }}
+    {{- if .Values.connectionLifecycle.enabled }}
+    - from:
+        {{- range .Values.connectionLifecycle.allowedCallers }}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .namespaceSelector.matchLabels | nindent 14 }}
+          {{- with .podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .matchLabels | nindent 14 }}
+          {{- end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.githubWrapper.port }}
+    {{- end }}
 {{- end }}

@@ -1415,6 +1415,253 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("BEGIN CERTIFICATE");
   });
 
+  test("mounts one issuer trust bundle into AgentGateway and both authenticated wrappers", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "trustBundle.enabled=true",
+      "--set-string",
+      "trustBundle.configMapKeyRef.name=platform-trust",
+      "--set-string",
+      "trustBundle.configMapKeyRef.key=ca-bundle.pem",
+    ]);
+    const path = "/var/run/secrets/mcp-gateway/trust/ca-bundle.pem";
+    const agentgateway = renderedResource(rendered, "Deployment", "mcp-gateway-agentgateway");
+    const google = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const github = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+
+    expect(deploymentEnvValue(agentgateway, "SSL_CERT_FILE")).toBe(path);
+    expect(deploymentEnvValue(google, "NODE_EXTRA_CA_CERTS")).toBe(path);
+    expect(deploymentEnvValue(github, "NODE_EXTRA_CA_CERTS")).toBe(path);
+    for (const deployment of [agentgateway, google, github]) {
+      expect(deployment).toContain("name: issuer-trust-bundle");
+      expect(deployment).toContain('mountPath: "/var/run/secrets/mcp-gateway/trust"');
+      expect(deployment).toContain("name: platform-trust");
+      expect(deployment).toContain("key: ca-bundle.pem");
+      expect(deployment).toContain("path: ca-bundle.pem");
+      expect(deployment).toContain("readOnly: true");
+    }
+  });
+
+  test("renders a governed external issuer, shared policy endpoint, and GitHub return origins", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-external-platform-issuer.example.yaml",
+    ]);
+    const gateway = renderedResource(rendered, "ConfigMap", "mcp-gateway-agentgateway-config");
+    const google = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+    const github = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+
+    expect(gateway).toContain("- issuer: https://tokens.platform.example");
+    expect(gateway).toContain("- mcp-gateway-workload");
+    expect(gateway).toContain("- EdDSA");
+    expect(gateway).toContain("url: https://tokens.platform.example/oauth2/introspect");
+    expect(gateway).toContain(
+      "credentialFile: /var/run/secrets/mcp-gateway/introspection/issuer-0",
+    );
+
+    for (const deployment of [google, github]) {
+      const profiles = JSON.parse(deploymentEnvValue(deployment, "HOP1_ISSUERS_JSON")) as Array<
+        Record<string, unknown>
+      >;
+      expect(profiles).toEqual([
+        {
+          name: "governing-platform",
+          issuer: "https://tokens.platform.example",
+          jwksUrl: "https://tokens.platform.example/.well-known/jwks.json",
+          audiences: ["mcp-gateway-workload"],
+          allowedAlgorithms: ["EdDSA"],
+          emailClaim: "email",
+          subjectClaim: "sub",
+          introspectionUrl: "https://tokens.platform.example/oauth2/introspect",
+          introspectionClientCredentialEnv: "HOP1_INTROSPECTION_CREDENTIAL_0",
+        },
+      ]);
+      expect(deploymentEnvValue(deployment, "OPA_POLICY_URL")).toBe(
+        "http://policy.governing-platform.svc:8181/v1/data/mcp/allow",
+      );
+    }
+    expect(deploymentEnvValue(github, "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS")).toBe(
+      "https://portal.platform.example,http://127.0.0.1:8765",
+    );
+  });
+
+  test("keeps legacy wrapper env compatible when typed governance values are empty", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set-string",
+      "googleWorkspace.env.OPA_POLICY_URL=http://legacy-opa:8181/v1/data/mcp/allow",
+      "--set-string",
+      "githubWrapper.env.OPA_POLICY_URL=http://legacy-opa:8181/v1/data/mcp/allow",
+      "--set-string",
+      "githubWrapper.env.GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS=https://legacy.example.com",
+    ]);
+
+    expect(
+      deploymentEnvValue(
+        renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace"),
+        "OPA_POLICY_URL",
+      ),
+    ).toBe("http://legacy-opa:8181/v1/data/mcp/allow");
+    const github = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+    expect(deploymentEnvValue(github, "OPA_POLICY_URL")).toBe(
+      "http://legacy-opa:8181/v1/data/mcp/allow",
+    );
+    expect(deploymentEnvValue(github, "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS")).toBe(
+      "https://legacy.example.com",
+    );
+  });
+
+  test("rejects invalid or conflicting typed governance values", () => {
+    const base = ["--values", "deploy/k8s/examples/values-production-bundle.example.yaml"];
+    for (const args of [
+      ["--set-string", "policy.opaUrl=file:///etc/policy"],
+      ["--set-string", "policy.opaUrl=http://user:pass@opa.example.com/v1/data/mcp/allow"],
+      ["--set-string", "policy.opaUrl=https://opa.example.com/v1/data/mcp/allow#fragment"],
+      [
+        "--set-json",
+        'githubWrapper.oauth.redirectAfterAllowedOrigins=["http://portal.example.com"]',
+      ],
+      [
+        "--set-json",
+        'githubWrapper.oauth.redirectAfterAllowedOrigins=["https://portal.example.com/path"]',
+      ],
+      [
+        "--set-json",
+        'githubWrapper.oauth.redirectAfterAllowedOrigins=["https://portal.example.com:99999"]',
+      ],
+      ["--set-json", 'githubWrapper.oauth.redirectAfterAllowedOrigins=["http://[::1]:99999"]'],
+      [
+        "--set-json",
+        'githubWrapper.oauth.redirectAfterAllowedOrigins=["https://portal.example.com"]',
+        "--set-string",
+        "githubWrapper.env.GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS=https://legacy.example.com",
+      ],
+      [
+        "--set-string",
+        "policy.opaUrl=http://opa:8181/v1/data/mcp/allow",
+        "--set-string",
+        "googleWorkspace.env.OPA_POLICY_URL=http://legacy-opa:8181/v1/data/mcp/allow",
+      ],
+      [
+        "--set-string",
+        "policy.opaUrl=http://opa:8181/v1/data/mcp/allow",
+        "--set-json",
+        'githubWrapper.extraEnv=[{"name":"OPA_POLICY_URL","value":"http://legacy-opa:8181"}]',
+      ],
+      [
+        "--set-string",
+        "policy.opaUrl=http://opa:8181/v1/data/mcp/allow",
+        "--set-json",
+        'googleWorkspace.secretRef.envKeys=["OPA_POLICY_URL"]',
+      ],
+      [
+        "--set-json",
+        'githubWrapper.oauth.redirectAfterAllowedOrigins=["https://portal.example.com"]',
+        "--set-json",
+        'githubWrapper.extraEnv=[{"name":"GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS","value":"https://legacy.example.com"}]',
+      ],
+      [
+        "--set-json",
+        'githubWrapper.oauth.redirectAfterAllowedOrigins=["https://portal.example.com"]',
+        "--set-json",
+        'githubWrapper.secretRef.envKeys=["GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS"]',
+      ],
+    ]) {
+      assertHelmRejected(helmTemplateResult([...base, ...args]));
+    }
+  });
+
+  test("supports a Secret-backed issuer trust bundle without rendering certificate data", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "trustBundle.enabled=true",
+      "--set-string",
+      "trustBundle.secretKeyRef.name=platform-trust",
+      "--set-string",
+      "trustBundle.secretKeyRef.key=ca-bundle.pem",
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-google-workspace");
+
+    expect(deployment).toContain("secret:");
+    expect(deployment).toContain("name: platform-trust");
+    expect(deployment).toContain("key: ca-bundle.pem");
+    expect(deployment).not.toContain("BEGIN CERTIFICATE");
+  });
+
+  test("rejects incomplete, ambiguous, or silently disabled issuer trust references", () => {
+    for (const args of [
+      ["--set", "trustBundle.enabled=true"],
+      [
+        "--set",
+        "trustBundle.enabled=true",
+        "--set-string",
+        "trustBundle.configMapKeyRef.name=platform-trust",
+      ],
+      [
+        "--set",
+        "trustBundle.enabled=true",
+        "--set-string",
+        "trustBundle.configMapKeyRef.name=platform-trust",
+        "--set-string",
+        "trustBundle.configMapKeyRef.key=ca.pem",
+        "--set-string",
+        "trustBundle.secretKeyRef.name=platform-trust",
+        "--set-string",
+        "trustBundle.secretKeyRef.key=ca.pem",
+      ],
+      [
+        "--set-string",
+        "trustBundle.configMapKeyRef.name=platform-trust",
+        "--set-string",
+        "trustBundle.configMapKeyRef.key=ca.pem",
+      ],
+    ]) {
+      assertHelmRejected(helmTemplateResult(args));
+    }
+  });
+
+  test("renders generic environment and volume extensions for every chart workload", () => {
+    const workloads = [
+      ["agentgateway", "Deployment", "mcp-gateway-agentgateway"],
+      ["googleWorkspace", "Deployment", "mcp-gateway-google-workspace"],
+      ["githubWrapper", "Deployment", "mcp-gateway-github-wrapper"],
+      ["dbMcp", "Deployment", "mcp-gateway-db-mcp"],
+      ["githubMcp", "Deployment", "mcp-gateway-github-mcp"],
+      ["oauthMigrations", "Job", "mcp-gateway-oauth-migrations"],
+    ] as const;
+    const args = [
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "dbMcp.enabled=true",
+    ];
+    for (const [valuesKey] of workloads) {
+      args.push(
+        "--set-json",
+        `${valuesKey}.extraEnv=[{"name":"EXTENSION_MODE","value":"${valuesKey}"}]`,
+        "--set-json",
+        `${valuesKey}.extraVolumeMounts=[{"name":"extension","mountPath":"/etc/extension","readOnly":true}]`,
+        "--set-json",
+        `${valuesKey}.extraVolumes=[{"name":"extension","configMap":{"name":"${valuesKey}-extension"}}]`,
+      );
+    }
+    const rendered = helmTemplate(args);
+
+    for (const [valuesKey, kind, name] of workloads) {
+      const resource = renderedResource(rendered, kind, name);
+      expect(resource).toContain("name: EXTENSION_MODE");
+      expect(resource).toContain(`value: ${valuesKey}`);
+      expect(resource).toContain("name: extension");
+      expect(resource).toContain("mountPath: /etc/extension");
+      expect(resource).toContain(`name: ${valuesKey}-extension`);
+    }
+  });
+
   test("rejects incomplete, ambiguous, or silently disabled PostgreSQL CA references", () => {
     const invalidArgs = [
       [
@@ -1673,6 +1920,80 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("kind: PodDisruptionBudget");
   });
 
+  test("admits named private control-plane callers to provider lifecycle services", () => {
+    const callers = [
+      {
+        namespaceSelector: {
+          matchLabels: { "kubernetes.io/metadata.name": "governing-platform" },
+        },
+        podSelector: {
+          matchLabels: { "app.kubernetes.io/name": "connections-bridge" },
+        },
+      },
+      {
+        namespaceSelector: {
+          matchLabels: { "platform.example.com/provider-control": "allowed" },
+        },
+      },
+    ];
+    const rendered = helmTemplate([
+      ...brokerWithGithubArgs(),
+      "--set",
+      "connectionLifecycle.enabled=true",
+      "--set-json",
+      `connectionLifecycle.allowedCallers=${JSON.stringify(callers)}`,
+    ]);
+
+    for (const [component, port] of [
+      ["google-workspace", 8080],
+      ["github-wrapper", 8080],
+    ] as const) {
+      const policy = renderedResource(rendered, "NetworkPolicy", `mcp-gateway-${component}`);
+      const service = renderedResource(rendered, "Service", `mcp-gateway-${component}`);
+
+      expect(service).toContain("type: ClusterIP");
+      expect(service).toContain(`port: ${port}`);
+      expect(policy).toContain("kubernetes.io/metadata.name: governing-platform");
+      expect(policy).toContain("app.kubernetes.io/name: connections-bridge");
+      expect(policy).toContain("platform.example.com/provider-control: allowed");
+      expect(policy).toMatch(
+        /namespaceSelector:[\s\S]*kubernetes\.io\/metadata\.name: governing-platform[\s\S]*podSelector:[\s\S]*app\.kubernetes\.io\/name: connections-bridge/,
+      );
+    }
+  });
+
+  test("keeps provider lifecycle services private unless callers are explicitly configured", () => {
+    const rendered = helmTemplate(brokerWithGithubArgs());
+
+    for (const component of ["google-workspace", "github-wrapper"]) {
+      const policy = renderedResource(rendered, "NetworkPolicy", `mcp-gateway-${component}`);
+      expect(policy).not.toContain("governing-platform");
+      expect(policy).not.toContain("connections-bridge");
+    }
+  });
+
+  test("rejects incomplete provider lifecycle access configuration", () => {
+    const validCaller = [
+      {
+        namespaceSelector: {
+          matchLabels: { "kubernetes.io/metadata.name": "governing-platform" },
+        },
+      },
+    ];
+    for (const args of [
+      ["--set", "connectionLifecycle.enabled=true"],
+      ["--set-json", `connectionLifecycle.allowedCallers=${JSON.stringify(validCaller)}`],
+      [
+        "--set",
+        "connectionLifecycle.enabled=true",
+        "--set-json",
+        'connectionLifecycle.allowedCallers=[{"namespaceSelector":{"matchLabels":{}}}]',
+      ],
+    ]) {
+      assertHelmRejected(helmTemplateResult(args));
+    }
+  });
+
   test("renders multiple HOP-1 issuers and secret-backed introspection credentials", () => {
     const rendered = helmTemplate([
       "--values",
@@ -1808,6 +2129,21 @@ describe("Kubernetes production chart", () => {
     expect(argo).toContain("repoURL: ghcr.io/apelogic-ai/charts");
     expect(argo).toContain("chart: mcp-gateway");
     expect(argo).toContain("$values/");
+  });
+
+  test("documents the external platform issuer and typed governance contract", async () => {
+    const guide = await Bun.file("docs/external-platform-issuer.md").text();
+    const chartReadme = await Bun.file("deploy/k8s/chart/README.md").text();
+
+    for (const content of [guide, chartReadme]) {
+      expect(content).toContain("policy.opaUrl");
+      expect(content).toContain("githubWrapper.oauth.redirectAfterAllowedOrigins");
+      expect(content).toContain("connectionLifecycle.allowedCallers");
+      expect(content).toContain("introspection.credentialSecretKeyRef");
+    }
+    expect(guide).toContain("provider + hop1_issuer + hop1_subject");
+    expect(guide).toContain("mcp-gateway-workload");
+    expect(guide).toContain("values-external-platform-issuer.example.yaml");
   });
 
   test("public deployment examples do not contain private environment values", async () => {
@@ -2018,6 +2354,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "argocd-application.yaml",
     "flux-helmrelease.yaml",
     "values-extra-backend.example.yaml",
+    "values-external-platform-issuer.example.yaml",
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-google-policy.example.yaml",

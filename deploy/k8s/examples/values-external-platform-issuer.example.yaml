@@ -1,0 +1,90 @@
+# Example integration with an external governing platform. Replace every
+# *.example coordinate and existing Secret/ConfigMap name in a private overlay.
+hop1:
+  issuers:
+    - name: governing-platform
+      issuer: https://tokens.platform.example
+      # This is the fixed audience minted into workload tokens. It does not
+      # have to equal the public MCP resource URL.
+      audiences:
+        - mcp-gateway-workload
+      jwksUrl: https://tokens.platform.example/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      discoverable: false
+      emailClaim: email
+      subjectClaim: sub
+      introspection:
+        url: https://tokens.platform.example/oauth2/introspect
+        credentialSecretKeyRef:
+          name: governing-platform-runtime
+          key: introspection-client-credential
+
+# One decision endpoint governs both authenticated provider wrappers.
+policy:
+  opaUrl: http://policy.governing-platform.svc:8181/v1/data/mcp/allow
+
+# Required only when HTTPS issuer/policy endpoints use a private CA. This must
+# be a complete root set for every TLS endpoint AgentGateway calls.
+trustBundle:
+  enabled: true
+  configMapKeyRef:
+    name: governing-platform-trust
+    key: ca-bundle.pem
+
+# Admit only the platform Pods that call the authenticated internal lifecycle
+# endpoints. No public OAuth start/status/disconnect route is created.
+connectionLifecycle:
+  enabled: true
+  allowedCallers:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: governing-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: connections-bridge
+
+oauthMigrations:
+  enabled: true
+  secretKeyRef:
+    name: mcp-oauth-database
+    key: dsn
+
+agentgateway:
+  enabled: true
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.platform.example/mcp
+      scopesSupported:
+        - openid
+        - email
+      bearerMethodsSupported:
+        - header
+  backends:
+    - name: google-workspace
+      enabled: true
+      serviceName: google-workspace
+      port: 8080
+      path: /mcp
+    - name: github-mcp
+      enabled: true
+      serviceName: github-wrapper
+      port: 8080
+      path: /mcp
+
+googleWorkspace:
+  enabled: true
+  secretRef:
+    name: mcp-provider-runtime
+
+githubWrapper:
+  enabled: true
+  oauth:
+    redirectAfterAllowedOrigins:
+      - https://portal.platform.example
+      - http://127.0.0.1:8765
+  secretRef:
+    name: mcp-provider-runtime
+
+githubMcp:
+  enabled: true

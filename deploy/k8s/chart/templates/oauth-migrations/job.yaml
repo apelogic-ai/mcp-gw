@@ -46,16 +46,25 @@ spec:
                   name: {{ .Values.oauthMigrations.secretKeyRef.name }}
                   key: {{ .Values.oauthMigrations.secretKeyRef.key }}
             {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
-          {{- if .Values.postgresql.caBundle.enabled }}
+            {{- with .Values.oauthMigrations.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.postgresql.caBundle.enabled .Values.oauthMigrations.extraVolumeMounts }}
           volumeMounts:
             {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
+            {{- with .Values.oauthMigrations.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           {{- with .Values.oauthMigrations.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if .Values.postgresql.caBundle.enabled }}
+      {{- if or .Values.postgresql.caBundle.enabled .Values.oauthMigrations.extraVolumes }}
       volumes:
         {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
+        {{- with .Values.oauthMigrations.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
 {{- end }}

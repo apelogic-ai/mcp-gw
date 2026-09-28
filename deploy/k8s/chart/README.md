@@ -194,6 +194,105 @@ When provider consent uses the shared PostgreSQL token store, enable
 holding `TOKEN_STORE_DSN`. The pre-install/pre-upgrade hook runs the OAuth schema
 migrations under an advisory lock.
 
+## Private issuer trust and workload extensions
+
+For a HOP-1 issuer whose HTTPS JWKS or introspection endpoint chains to a private
+CA, reference one existing ConfigMap or Secret key containing a PEM bundle:
+
+```yaml
+trustBundle:
+  enabled: true
+  configMapKeyRef:
+    name: platform-trust
+    key: ca-bundle.pem
+  secretKeyRef:
+    name: ""
+    key: ""
+```
+
+The chart mounts the bundle read-only in AgentGateway and both authenticated
+wrappers. It sets `SSL_CERT_FILE` for AgentGateway and `NODE_EXTRA_CA_CERTS` for
+the Bun wrappers. AgentGateway's `SSL_CERT_FILE` is its complete root set, so the
+referenced PEM must contain every public and private root that AgentGateway must
+trust; do not supply only a private delta when public issuers are also configured.
+The chart stores no certificate content in values and accepts exactly one
+complete ConfigMap or Secret reference.
+
+Every workload also supports Kubernetes-native `extraEnv`, `extraVolumeMounts`,
+and `extraVolumes` arrays. These are escape hatches for environment-specific
+integrations rather than substitutes for typed chart contracts:
+
+```yaml
+googleWorkspace:
+  extraEnv:
+    - name: HTTPS_PROXY
+      value: http://egress-proxy.platform.svc:8080
+  extraVolumeMounts:
+    - name: proxy-config
+      mountPath: /etc/platform/proxy
+      readOnly: true
+  extraVolumes:
+    - name: proxy-config
+      configMap:
+        name: proxy-config
+```
+
+The same extension fields are available on `agentgateway`, `githubWrapper`,
+`dbMcp`, `githubMcp`, and `oauthMigrations`. Operators own the validity and
+security of resources supplied through these generic fields.
+
+## External governing platforms
+
+An external platform can mint HOP-1 workload tokens, call the private provider
+connection lifecycle, receive GitHub post-consent browser returns, and provide
+one policy decision endpoint for both authenticated wrappers. Use
+[`values-external-platform-issuer.example.yaml`](../examples/values-external-platform-issuer.example.yaml)
+as the customer-neutral overlay starting point and see
+[`docs/external-platform-issuer.md`](../../../docs/external-platform-issuer.md)
+for the complete contract.
+
+The issuer profile may use a fixed workload audience such as
+`mcp-gateway-workload` rather than the public MCP URL. EdDSA is supported, and
+an introspection credential is selected from an existing Secret through
+`hop1.issuers[].introspection.credentialSecretKeyRef`. The same stable
+`(issuer, subject)` must be presented to the lifecycle routes and later MCP
+tool calls.
+
+Set `policy.opaUrl` for the shared OPA-compatible decision endpoint and
+`githubWrapper.oauth.redirectAfterAllowedOrigins` for exact post-consent UI
+origins. The chart rejects simultaneous typed and free-form versions of those
+environment variables; legacy `env` configuration remains compatible while
+the typed value is empty. Use `connectionLifecycle.allowedCallers` for private
+ClusterIP reachability, and `trustBundle` when private HTTPS roots are needed.
+
+## Private connection lifecycle access
+
+An internal control plane can use the canonical authenticated
+`/connections/{provider}/*` routes through each enabled wrapper's existing
+ClusterIP Service. The chart does not publish those routes through its public
+Ingress or HTTPRoute. Opt in by selecting the trusted caller Namespace and,
+optionally, its Pods:
+
+```yaml
+connectionLifecycle:
+  enabled: true
+  allowedCallers:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: governing-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: connections-bridge
+```
+
+For a release named `mcp-gateway` in Namespace `mcp-gateway`, the internal base
+URLs are `http://mcp-gateway-google-workspace.mcp-gateway.svc:8080` and
+`http://mcp-gateway-github-wrapper.mcp-gateway.svc:8080`. Callers must still send
+the user's valid HOP-1 bearer token; the NetworkPolicy allowlist does not bypass
+authentication, principal binding, policy, or lifecycle generation guards. A
+caller entry without `podSelector` admits all Pods in only the selected
+Namespace. Provider callbacks remain separately routed return endpoints.
+
 ## Minimal values
 
 The smallest valid configuration is one `hop1.issuers` entry plus one enabled
@@ -226,6 +325,11 @@ and are left in place.
 | Key                                                               | Default                                             | Description                                                                                                             |
 | ----------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `hop1.issuers`                                                    | `[]`                                                | Optional direct HOP-1 issuer profiles. Required for enabled authenticated workloads unless the OAuth broker is enabled. |
+| `policy.opaUrl`                                                   | `""`                                                | Shared OPA-compatible decision endpoint injected into both authenticated wrappers.                                      |
+| `trustBundle.enabled`                                             | `false`                                             | Mount a complete private issuer CA bundle into AgentGateway and both authenticated wrappers.                            |
+| `trustBundle.configMapKeyRef` / `secretKeyRef`                    | empty                                               | Exactly one existing PEM bundle reference when issuer trust is enabled.                                                 |
+| `connectionLifecycle.enabled`                                     | `false`                                             | Admit selected private control-plane callers to wrapper Services; never creates a public route.                         |
+| `connectionLifecycle.allowedCallers`                              | `[]`                                                | Namespace selectors and optional Pod selectors allowed by both wrapper NetworkPolicies.                                 |
 | `agentgateway.enabled`                                            | `false`                                             | Deploy the `/mcp` front door.                                                                                           |
 | `agentgateway.image.tag`                                          | `""`                                                | Agentgateway image tag (or set `image.digest`).                                                                         |
 | `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                                               |
@@ -242,11 +346,13 @@ and are left in place.
 | `googleWorkspace.authorizationBroker.ingressSourceCidrs`          | `[]`                                                | Trusted ALB/IP-target source CIDRs; choose this or `ingressControllerPeer`, never both.                                 |
 | `googleWorkspace.authorizationBroker.dcr.enabled`                 | `false`                                             | Explicitly enable constrained dynamic client registration on the public broker route.                                   |
 | `googleWorkspace.policy.enabled`                                  | `false`                                             | Enforce a YAML Google Workspace tool policy.                                                                            |
+| `githubWrapper.oauth.redirectAfterAllowedOrigins`                 | `[]`                                                | Exact HTTPS (or explicit loopback HTTP) origins allowed after GitHub consent.                                           |
 | `githubWrapper.enabled`                                           | `false`                                             | Deploy the GitHub MCP credential wrapper.                                                                               |
 | `githubWrapper.secretRef.envKeys`                                 | `[]`                                                | Optional runtime-key allowlist for the GitHub wrapper Secret.                                                           |
 | `githubMcp.enabled`                                               | `false`                                             | Deploy the bundled official GitHub MCP server backend.                                                                  |
 | `dbMcp.enabled`                                                   | `false`                                             | Deploy the database MCP backend.                                                                                        |
 | `dbMcp.secretRef.envKeys`                                         | `[]`                                                | Optional runtime-key allowlist for the database MCP Secret.                                                             |
+| `<workload>.extraEnv` / `extraVolumeMounts` / `extraVolumes`      | `[]`                                                | Kubernetes-native extension points for environment-owned integrations.                                                  |
 | `oauthMigrations.enabled`                                         | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                                                 |
 | `postgresql.caBundle.enabled`                                     | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.                                  |
 | `productionProfile.enabled`                                       | `false`                                             | Validate that the full provider bundle is enabled explicitly.                                                           |

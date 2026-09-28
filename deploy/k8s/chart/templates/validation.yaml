@@ -51,6 +51,80 @@
 {{- fail "postgresql.caBundle.enabled must be true when a CA reference is configured" }}
 {{- end }}
 
+{{- $trust := .Values.trustBundle }}
+{{- $trustConfigMapAny := or $trust.configMapKeyRef.name $trust.configMapKeyRef.key }}
+{{- $trustConfigMapComplete := and $trust.configMapKeyRef.name $trust.configMapKeyRef.key }}
+{{- $trustSecretAny := or $trust.secretKeyRef.name $trust.secretKeyRef.key }}
+{{- $trustSecretComplete := and $trust.secretKeyRef.name $trust.secretKeyRef.key }}
+{{- $trustConfigMapOnly := and $trustConfigMapComplete (not $trustSecretAny) }}
+{{- $trustSecretOnly := and $trustSecretComplete (not $trustConfigMapAny) }}
+{{- if $trust.enabled }}
+{{- if not (or $trustConfigMapOnly $trustSecretOnly) }}
+{{- fail "trustBundle requires exactly one complete configMapKeyRef or secretKeyRef when enabled" }}
+{{- end }}
+{{- if not $trust.mountPath }}
+{{- fail "trustBundle.mountPath is required when enabled" }}
+{{- end }}
+{{- else if or $trustConfigMapAny $trustSecretAny }}
+{{- fail "trustBundle.enabled must be true when a trust reference is configured" }}
+{{- end }}
+
+{{- with .Values.policy.opaUrl }}
+{{- $policyUrl := urlParse . }}
+{{- if or (not (has $policyUrl.scheme (list "http" "https"))) (not $policyUrl.host) $policyUrl.userinfo $policyUrl.fragment }}
+{{- fail "policy.opaUrl must be an HTTP(S) URL without credentials or a fragment" }}
+{{- end }}
+{{- end }}
+
+{{- $typedPolicy := not (not .Values.policy.opaUrl) }}
+{{- if $typedPolicy }}
+{{- range $backendName := list "googleWorkspace" "githubWrapper" }}
+{{- $backend := index $.Values $backendName }}
+{{- if hasKey $backend.env "OPA_POLICY_URL" }}
+{{- fail (printf "%s.env.OPA_POLICY_URL conflicts with policy.opaUrl" $backendName) }}
+{{- end }}
+{{- range $backend.extraEnv }}
+{{- if eq .name "OPA_POLICY_URL" }}{{- fail (printf "%s.extraEnv must not override chart-managed OPA_POLICY_URL" $backendName) }}{{- end }}
+{{- end }}
+{{- if has "OPA_POLICY_URL" $backend.secretRef.envKeys }}
+{{- fail (printf "%s.secretRef.envKeys must not import chart-managed OPA_POLICY_URL" $backendName) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- $redirectOrigins := .Values.githubWrapper.oauth.redirectAfterAllowedOrigins }}
+{{- range $index, $origin := $redirectOrigins }}
+{{- $originUrl := urlParse $origin }}
+{{- $originPort := trimPrefix ":" (regexFind ":[0-9]+$" $originUrl.host) }}
+{{- $invalidOriginPort := and $originPort (or (gt (len $originPort) 5) (gt (int $originPort) 65535)) }}
+{{- $loopbackHttp := and (eq $originUrl.scheme "http") (regexMatch "^(?:127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?$" $originUrl.host) }}
+{{- if or (not (or (eq $originUrl.scheme "https") $loopbackHttp)) (not $originUrl.host) $originUrl.userinfo $originUrl.query $originUrl.fragment (and $originUrl.path (ne $originUrl.path "/")) (contains "*" $originUrl.host) $invalidOriginPort }}
+{{- fail (printf "githubWrapper.oauth.redirectAfterAllowedOrigins[%d] must be a canonical HTTPS origin or explicit loopback HTTP origin" $index) }}
+{{- end }}
+{{- end }}
+{{- if gt (len $redirectOrigins) 0 }}
+{{- if hasKey .Values.githubWrapper.env "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS" }}
+{{- fail "githubWrapper.env.GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS conflicts with githubWrapper.oauth.redirectAfterAllowedOrigins" }}
+{{- end }}
+{{- range .Values.githubWrapper.extraEnv }}
+{{- if eq .name "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS" }}{{- fail "githubWrapper.extraEnv must not override chart-managed GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS" }}{{- end }}
+{{- end }}
+{{- if has "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS" .Values.githubWrapper.secretRef.envKeys }}
+{{- fail "githubWrapper.secretRef.envKeys must not import chart-managed GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS" }}
+{{- end }}
+{{- end }}
+
+{{- if $trust.enabled }}
+{{- range .Values.agentgateway.extraEnv }}
+{{- if eq .name "SSL_CERT_FILE" }}{{- fail "agentgateway.extraEnv must not override chart-managed SSL_CERT_FILE" }}{{- end }}
+{{- end }}
+{{- range $backendName := list "googleWorkspace" "githubWrapper" }}
+{{- range (index $.Values $backendName).extraEnv }}
+{{- if eq .name "NODE_EXTRA_CA_CERTS" }}{{- fail (printf "%s.extraEnv must not override chart-managed NODE_EXTRA_CA_CERTS" $backendName) }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- range $backendName := list "googleWorkspace" "githubWrapper" "dbMcp" }}
 {{- $backend := index $.Values $backendName }}
 {{- if gt (len $backend.secretRef.envKeys) 0 }}

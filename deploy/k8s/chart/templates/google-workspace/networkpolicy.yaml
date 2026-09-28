@@ -24,6 +24,22 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.googleWorkspace.port }}
+    {{- if .Values.connectionLifecycle.enabled }}
+    - from:
+        {{- range .Values.connectionLifecycle.allowedCallers }}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .namespaceSelector.matchLabels | nindent 14 }}
+          {{- with .podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .matchLabels | nindent 14 }}
+          {{- end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.googleWorkspace.port }}
+    {{- end }}
     {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
     {{- if .Values.googleWorkspace.authorizationBroker.ingressSourceCidrs }}
     - from:

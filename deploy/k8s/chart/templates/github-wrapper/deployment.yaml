@@ -55,6 +55,13 @@ spec:
                   name: {{ $.Values.githubWrapper.secretRef.name }}
                   key: {{ . }}
             {{- end }}
+            {{- with .Values.githubWrapper.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.trustBundle.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ include "mcp-gateway.trustBundlePath" . | quote }}
+            {{- end }}
             {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
             - name: HOP1_ISSUERS_JSON
               value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}
@@ -77,18 +84,34 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- with .Values.policy.opaUrl }}
+            - name: OPA_POLICY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.githubWrapper.oauth.redirectAfterAllowedOrigins }}
+            - name: GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS
+              value: {{ join "," .Values.githubWrapper.oauth.redirectAfterAllowedOrigins | quote }}
+            {{- end }}
             {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
           {{- include "mcp-gateway.probes" .Values.githubWrapper | nindent 10 }}
-          {{- if .Values.postgresql.caBundle.enabled }}
+          {{- if or .Values.postgresql.caBundle.enabled .Values.trustBundle.enabled .Values.githubWrapper.extraVolumeMounts }}
           volumeMounts:
             {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
+            {{- include "mcp-gateway.trustBundleVolumeMount" . | nindent 12 }}
+            {{- with .Values.githubWrapper.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           {{- with .Values.githubWrapper.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if .Values.postgresql.caBundle.enabled }}
+      {{- if or .Values.postgresql.caBundle.enabled .Values.trustBundle.enabled .Values.githubWrapper.extraVolumes }}
       volumes:
         {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
+        {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
+        {{- with .Values.githubWrapper.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
 {{- end }}

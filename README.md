@@ -124,6 +124,9 @@ gateway principal to a GitHub bearer token before forwarding to the upstream Git
 
 Downstream provider credentials can be connected by an external control plane, internal portal, or
 future built-in UI. See [docs/provider-connection-flows.md](docs/provider-connection-flows.md).
+For a typed Helm integration with an external token issuer, policy service, and
+private lifecycle caller, see
+[docs/external-platform-issuer.md](docs/external-platform-issuer.md).
 The durable provider-neutral status, renewal, reauthorization, and disconnect contract is documented
 in [docs/provider-connection-lifecycle.md](docs/provider-connection-lifecycle.md).
 Enterprise MCP client integration guidance is in

@@ -10,6 +10,32 @@ productionProfile:
 hop1:
   issuers: []
 
+# Optional external policy decision endpoint shared by authenticated wrappers.
+# The endpoint may use HTTP for an in-cluster service or HTTPS for a remote
+# service. Prefer this typed value over wrapper-specific OPA_POLICY_URL entries.
+policy:
+  opaUrl: ""
+
+# Opt-in private access to authenticated provider connection lifecycle routes.
+# Each caller selects a trusted namespace and may further restrict its Pods.
+# This only changes wrapper NetworkPolicies; it never creates a public route.
+connectionLifecycle:
+  enabled: false
+  allowedCallers: []
+
+# Complete PEM trust bundle for HTTPS HOP-1 JWKS and introspection endpoints.
+# AgentGateway uses it as SSL_CERT_FILE; the Bun wrappers add it through
+# NODE_EXTRA_CA_CERTS. Choose exactly one existing ConfigMap or Secret key.
+trustBundle:
+  enabled: false
+  mountPath: /var/run/secrets/mcp-gateway/trust
+  configMapKeyRef:
+    name: ""
+    key: ""
+  secretKeyRef:
+    name: ""
+    key: ""
+
 postgresql:
   caBundle:
     enabled: false
@@ -45,6 +71,9 @@ oauthMigrations:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
 
 agentgateway:
   enabled: false
@@ -100,6 +129,9 @@ agentgateway:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   service:
     type: ClusterIP
   nodeSelector: {}
@@ -176,6 +208,9 @@ googleWorkspace:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
@@ -272,6 +307,9 @@ dbMcp:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
@@ -330,6 +368,9 @@ githubWrapper:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
@@ -355,6 +396,10 @@ githubWrapper:
   pdb:
     enabled: false
     minAvailable: 1
+  oauth:
+    # Exact browser origins allowed to receive the post-consent GitHub return.
+    # HTTPS is required except for explicit 127.0.0.1 or [::1] HTTP origins.
+    redirectAfterAllowedOrigins: []
   env:
     PORT: "8080"
     GITHUB_MCP_UPSTREAM_URL: http://mcp-gateway-github-mcp:8082/mcp
@@ -390,6 +435,9 @@ githubMcp:
       drop:
         - ALL
   resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+  extraVolumes: []
   nodeSelector: {}
   affinity: {}
   tolerations: []
