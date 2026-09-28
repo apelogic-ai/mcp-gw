@@ -21,8 +21,11 @@ The normalized response contract is version `1`. It includes `phase`, the compat
 expiry, authorization/renewal/validation timestamps, and declared adapter capabilities. It never
 contains provider credential material.
 
-The `/oauth/google/*` and `/oauth/github/*` routes remain compatibility aliases during the migration
-window. `/oauth/{provider}/refresh` is also available to older control-plane integrations.
+The `/oauth/google/*` and `/oauth/github/*` start, status, disconnect, and refresh routes remain
+compatibility aliases through the complete 0.6.x release line. Their earliest possible removal is
+0.7.0, with removal announced in the preceding minor release notes. New integrations must use the
+canonical `/connections/{provider}/authorize|status|refresh|disconnect` routes now; the support
+window exists so deployed control planes can migrate without a flag day.
 
 Authorization state records are bound to one provider and capture the observed generation,
 local-disable flag, and durable connection update time. Activation requires the complete snapshot and

@@ -241,6 +241,11 @@ handlers under `/oauth/google|github/start|status|disconnect` are not part of th
 remote-client ingress. New integrations use `/connections/{provider}/*`; remote MCP clients use the
 equivalent `google_oauth_*` and `github_oauth_*` MCP tools.
 
+The private `/oauth/{provider}/*` compatibility aliases remain supported through the complete
+0.6.x release line. Their earliest possible removal is 0.7.0, with removal announced in the
+preceding minor release notes. Integrations should migrate to
+`/connections/{provider}/authorize|status|refresh|disconnect` before then.
+
 Provider callbacks remain separately state-bound return endpoints for the configured provider OAuth
 apps; their reachability does not make the control-plane handlers public APIs. See
 [Direct-Client OAuth Contract](direct-client-oauth-contract.md) for the complete public/private

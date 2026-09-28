@@ -116,13 +116,24 @@ upstream GitHub resource toolsets retain those resources.
 For the generic external control-plane contract, see
 [../../docs/provider-connection-flows.md](../../docs/provider-connection-flows.md).
 
-The wrapper exposes provider connection routes:
+The wrapper exposes canonical provider connection routes:
+
+```text
+POST /connections/github/authorize
+GET  /connections/github/status
+POST /connections/github/refresh
+POST /connections/github/disconnect
+```
+
+It also retains these compatibility routes through the complete 0.6.x release
+line, with 0.7.0 as the earliest possible removal:
 
 ```text
 GET  /oauth/github/start
 POST /oauth/github/start
 GET  /oauth/github/callback
 GET  /oauth/github/status
+POST /oauth/github/refresh
 POST /oauth/github/disconnect
 ```
 
@@ -133,7 +144,7 @@ gateway callback URL, for example:
 https://mcp-gw.example.com/oauth/github/callback
 ```
 
-The start/status/disconnect routes require a HOP-1 bearer token. The callback
+The start/status/refresh/disconnect routes require a HOP-1 bearer token. The callback
 recovers identity from the OAuth state record, so browser redirects from GitHub
 do not need to carry the bearer token. The callback stores a credential only
 when any GitHub `/user/emails` entry with `verified=true` case-insensitively matches the HOP-1 email
