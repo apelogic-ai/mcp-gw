@@ -2,15 +2,6 @@
 {{- if not .Values.agentgateway.enabled }}
 {{- fail "productionProfile requires agentgateway.enabled=true" }}
 {{- end }}
-{{- if not .Values.googleWorkspace.enabled }}
-{{- fail "productionProfile requires googleWorkspace.enabled=true" }}
-{{- end }}
-{{- if not .Values.githubWrapper.enabled }}
-{{- fail "productionProfile requires githubWrapper.enabled=true" }}
-{{- end }}
-{{- if not .Values.githubMcp.enabled }}
-{{- fail "productionProfile requires githubMcp.enabled=true" }}
-{{- end }}
 {{- if not .Values.oauthMigrations.enabled }}
 {{- fail "productionProfile requires oauthMigrations.enabled=true" }}
 {{- end }}
@@ -25,11 +16,24 @@
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if ne $googleWorkspaceTargets 1 }}
-{{- fail "productionProfile requires exactly one enabled agentgateway backend named google-workspace" }}
+{{- if and (eq $googleWorkspaceTargets 0) (eq $githubMcpTargets 0) }}
+{{- fail "productionProfile requires at least one enabled google-workspace or github-mcp agentgateway backend" }}
 {{- end }}
-{{- if ne $githubMcpTargets 1 }}
-{{- fail "productionProfile requires exactly one enabled agentgateway backend named github-mcp" }}
+{{- if gt $googleWorkspaceTargets 1 }}
+{{- fail "productionProfile permits at most one enabled agentgateway backend named google-workspace" }}
+{{- end }}
+{{- if gt $githubMcpTargets 1 }}
+{{- fail "productionProfile permits at most one enabled agentgateway backend named github-mcp" }}
+{{- end }}
+{{- if ne (gt $googleWorkspaceTargets 0) .Values.googleWorkspace.enabled }}
+{{- fail "productionProfile requires googleWorkspace.enabled to match the google-workspace backend" }}
+{{- end }}
+{{- $githubEnabled := and .Values.githubWrapper.enabled .Values.githubMcp.enabled }}
+{{- if ne .Values.githubWrapper.enabled .Values.githubMcp.enabled }}
+{{- fail "productionProfile requires githubWrapper.enabled and githubMcp.enabled to match" }}
+{{- end }}
+{{- if ne (gt $githubMcpTargets 0) $githubEnabled }}
+{{- fail "productionProfile requires GitHub workloads to match the github-mcp backend" }}
 {{- end }}
 {{- end }}
 

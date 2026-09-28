@@ -1,0 +1,18 @@
+MCP Gateway {{ .Chart.AppVersion }} has been deployed as release {{ .Release.Name }}.
+
+Check workload readiness:
+
+  kubectl get pods --namespace {{ .Release.Namespace }} \
+    -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Services are ClusterIP-only by default.
+{{- if .Values.agentgateway.enabled }}
+
+The AgentGateway service is available inside the cluster at:
+
+  http://{{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway") }}.{{ .Release.Namespace }}.svc:{{ .Values.agentgateway.port }}/mcp
+
+Configure one supported ingress source before exposing it publicly. Do not
+publish wrapper lifecycle routes unless connectionLifecycle is explicitly
+enabled for trusted in-cluster callers.
+{{- end }}

@@ -865,6 +865,31 @@
               "additionalProperties": false,
               "properties": { "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] } }
             },
+            "cors": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["allowOrigins", "allowHeaders", "exposeHeaders"],
+              "properties": {
+                "allowOrigins": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "allowHeaders": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "exposeHeaders": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "backendFailureMode": { "enum": ["failOpen", "failClosed"] },
             "backends": { "type": "array", "items": { "type": "object" } },
             "mcpAuthentication": { "type": "object" },
             "gatewayApi": {

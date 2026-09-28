@@ -13,7 +13,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: agentgateway
+              {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.dbMcp.port }}

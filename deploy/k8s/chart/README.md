@@ -297,6 +297,14 @@ authentication, principal binding, policy, or lifecycle generation guards. A
 caller entry without `podSelector` admits all Pods in only the selected
 Namespace. Provider callbacks remain separately routed return endpoints.
 
+The rendered NetworkPolicies restrict reachability; they do not encrypt
+in-cluster HTTP between AgentGateway and provider workloads. Use a service
+mesh, sidecar, or equivalent platform control when transport confidentiality
+inside the cluster is required. Egress remains deployment-owned because DNS,
+PostgreSQL, identity, policy, and provider API destinations vary by cluster;
+enforce it with the cluster's network policy or egress gateway once those
+destinations are known.
+
 ## Minimal values
 
 The smallest wrapper-only configuration is one `hop1.issuers` entry plus one
@@ -363,7 +371,13 @@ and are left in place.
 | `<workload>.extraEnv` / `extraVolumeMounts` / `extraVolumes`      | `[]`                                                | Kubernetes-native extension points for environment-owned integrations.                                                  |
 | `oauthMigrations.enabled`                                         | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                                                 |
 | `postgresql.caBundle.enabled`                                     | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.                                  |
-| `productionProfile.enabled`                                       | `false`                                             | Validate that the full provider bundle is enabled explicitly.                                                           |
+| `agentgateway.cors.allowOrigins`                                  | `["*"]`                                             | Browser origins allowed by AgentGateway CORS; replace the wildcard for browser-facing production deployments.           |
+| `agentgateway.cors.allowHeaders`                                  | MCP protocol, content type, authorization           | Request headers allowed by AgentGateway CORS.                                                                           |
+| `agentgateway.cors.exposeHeaders`                                 | `Mcp-Session-Id`                                    | Response headers exposed to browser clients.                                                                            |
+| `agentgateway.backendFailureMode`                                 | `failOpen`                                          | AgentGateway backend failure behavior; set `failClosed` when partial backend availability must reject the request.      |
+| `<workload>.resources`                                            | conservative requests and limits                    | Per-workload resource requests and limits; tune these defaults from observed usage.                                     |
+| `<workload>.securityContext.readOnlyRootFilesystem`               | `true` except `dbMcp`                               | Read-only container root filesystem; wrappers receive an ephemeral writable `/tmp`.                                     |
+| `productionProfile.enabled`                                       | `false`                                             | Validate an explicit Google-only, GitHub-only, or combined provider production topology.                                |
 
 See `docs/quickstart.md` in the source repository for the end-to-end install,
 setup, and client-connection walkthrough.

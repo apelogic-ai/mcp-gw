@@ -2,6 +2,7 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
+icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
 version: 0.5.0
 appVersion: "0.5.0"

@@ -13,7 +13,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: github-wrapper
+              {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "github-wrapper") | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.githubMcp.port }}

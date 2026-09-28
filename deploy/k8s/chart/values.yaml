@@ -70,7 +70,13 @@ oauthMigrations:
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -108,6 +114,16 @@ agentgateway:
       serviceName: github-wrapper
       port: 8080
       path: /mcp
+  cors:
+    allowOrigins:
+      - "*"
+    allowHeaders:
+      - mcp-protocol-version
+      - content-type
+      - authorization
+    exposeHeaders:
+      - Mcp-Session-Id
+  backendFailureMode: failOpen
   serviceAccount:
     create: true
     annotations: {}
@@ -128,7 +144,13 @@ agentgateway:
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -203,11 +225,17 @@ googleWorkspace:
     runAsNonRoot: true
   securityContext:
     allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -306,7 +334,13 @@ dbMcp:
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -363,11 +397,17 @@ githubWrapper:
     runAsNonRoot: true
   securityContext:
     allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -433,7 +473,13 @@ githubMcp:
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
