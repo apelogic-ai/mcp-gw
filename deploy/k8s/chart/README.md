@@ -8,6 +8,8 @@ consent. The chart ships a Google Workspace MCP wrapper, an optional official
 GitHub MCP backend, and per-user OAuth token storage in PostgreSQL. Every
 workload is disabled by default and enabled explicitly.
 
+The chart supports Kubernetes `1.32` and newer (`kubeVersion: >=1.32.0-0`).
+
 ## Install
 
 The chart is published as an OCI artifact. Enabling `agentgateway` or any

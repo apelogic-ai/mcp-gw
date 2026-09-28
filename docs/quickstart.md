@@ -60,6 +60,8 @@ overlay and fill the `GITHUB_*` values.
 
 ### Path B — Kubernetes via Helm (OCI)
 
+The Helm chart requires Kubernetes 1.32 or newer.
+
 The chart is disabled by default and validated against a JSON schema: enabling
 any workload requires at least one complete `hop1.issuers` entry.
 

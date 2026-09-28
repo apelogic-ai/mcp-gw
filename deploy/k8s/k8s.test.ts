@@ -27,6 +27,15 @@ type BoundedProcessResult = {
 };
 
 describe("Kubernetes production chart", () => {
+  test("declares Kubernetes 1.32 as the minimum supported version", () => {
+    const unsupported = helmTemplateResult(["--kube-version", "1.31.9"]);
+
+    assertHelmRejected(unsupported);
+    expect(unsupported.stderr.toString()).toContain(">=1.32.0-0");
+    expect(helmTemplate(["--kube-version", "1.32.0"])).toBeString();
+    expect(helmTemplate(["--kube-version", "1.33.0-rc.1"])).toBeString();
+  });
+
   test("ships wrapper images with a numeric non-root runtime user", async () => {
     const dockerfiles = await Promise.all([
       Bun.file("servers/google-workspace/wrapper/Dockerfile").text(),
