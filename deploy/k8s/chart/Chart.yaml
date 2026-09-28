@@ -2,17 +2,18 @@ apiVersion: v2
 name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
+icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.5.0
-appVersion: "0.5.0"
+version: 0.5.1
+appVersion: "0.5.1"
 maintainers:
-  - name: Leonid Belyaev
-    email: lbeliaev@gmail.com
+  - name: HyperShell
+    url: https://hypershell.ai
 annotations:
   artifacthub.io/license: MIT
   artifacthub.io/maintainers: |
-    - name: Leonid Belyaev
-      email: lbeliaev@gmail.com
+    - name: HyperShell
+      url: https://hypershell.ai
   artifacthub.io/links: |
     - name: source
       url: https://github.com/apelogic-ai/mcp-gw
@@ -20,23 +21,21 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.0
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.1
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.0
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.1
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.0
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.1
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
-  # Release images and the chart are signed with cosign keyless (Sigstore
-  # OIDC) signatures pushed to the registry, verifiable via the GitHub Actions
-  # workflow identity. Keyless signing uses short-lived Fulcio certificates and
-  # has no static PGP fingerprint or key URL, so the artifacthub.io/signKey
-  # annotation (which requires fingerprint + url for a PGP key) does not apply
-  # and is intentionally omitted.
+  # Release images and the chart have signed GitHub build-provenance
+  # attestations, verifiable via the GitHub Actions workflow identity. The
+  # artifacthub.io/signKey annotation requires a PGP fingerprint and key URL,
+  # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
-      description: Add governed-platform issuer, trust-bundle, lifecycle-caller, policy, and workload extension contracts.
+      description: Add configurable AgentGateway CORS and backend failure behavior, production resource guidance, chart notes, and Google-only or GitHub-only production profiles.
     - kind: fixed
-      description: Derive the GitHub upstream Service URL from the Helm release and reject gateway installs without an MCP resource or enabled backend.
+      description: Use one immutable AgentGateway fork pin in CI and release, publish truthful source metadata, and reconcile release and lifecycle documentation.
     - kind: security
-      description: Publish a private vulnerability-reporting path and keep provider lifecycle routes private by default.
+      description: Keep private registry coordinates out of public attestations, scope internal NetworkPolicy peers to one release, and remove personal chart contact metadata.

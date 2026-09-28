@@ -1815,6 +1815,28 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("host: http://enterprise-search.search.svc.cluster.local:8080/mcp");
   });
 
+  test("renders configurable CORS and backend failure behavior", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--set-json",
+      'agentgateway.cors.allowOrigins=["https://client.example.com"]',
+      "--set-json",
+      'agentgateway.cors.allowHeaders=["authorization","content-type"]',
+      "--set-json",
+      'agentgateway.cors.exposeHeaders=["Mcp-Session-Id","X-Request-Id"]',
+      "--set-string",
+      "agentgateway.backendFailureMode=failClosed",
+    ]);
+    const config = renderedResource(rendered, "ConfigMap", "mcp-gateway-agentgateway-config");
+
+    expect(config).toContain("- https://client.example.com");
+    expect(config).toContain("- authorization");
+    expect(config).toContain("- X-Request-Id");
+    expect(config).toContain("failureMode: failClosed");
+    expect(config).not.toContain('allowOrigins: ["*"]');
+  });
+
   test("renders optional GitHub wrapper and internal official MCP workload", () => {
     const rendered = helmTemplate([
       "--values",
@@ -1824,7 +1846,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.0");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.1");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
@@ -1935,6 +1957,78 @@ describe("Kubernetes production chart", () => {
       /jwtValidationOptions:\n\s+requiredClaims:\n\s+- exp\n\s+- iss\n\s+- sub\n\s+- aud/,
     );
     expect(rendered).not.toContain("kind: Ingress");
+  });
+
+  test("supports Google-only and GitHub-only production profiles", () => {
+    const googleOnly = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "githubWrapper.enabled=false",
+      "--set",
+      "githubMcp.enabled=false",
+      "--set",
+      "agentgateway.backends[1].enabled=false",
+    ]);
+    const githubOnly = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "googleWorkspace.enabled=false",
+      "--set",
+      "agentgateway.backends[0].enabled=false",
+    ]);
+
+    expect(googleOnly.exitCode).toBe(0);
+    expect(githubOnly.exitCode).toBe(0);
+  });
+
+  test("keeps resource defaults opt-in and documents production sizing with read-only wrappers", async () => {
+    const [values, rendered] = await Promise.all([
+      Bun.file("deploy/k8s/chart/values.yaml").text(),
+      Promise.resolve(
+        helmTemplate(["--values", "deploy/k8s/examples/values-production-bundle.example.yaml"]),
+      ),
+    ]);
+
+    expect(values.match(/resources: \{\}/g)).toHaveLength(6);
+    for (const component of ["agentgateway", "google-workspace", "github-wrapper", "github-mcp"]) {
+      const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-${component}`);
+      expect(deployment).toContain("requests:");
+      expect(deployment).toContain("limits:");
+    }
+    for (const component of ["google-workspace", "github-wrapper"]) {
+      const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-${component}`);
+      expect(deployment).toContain("readOnlyRootFilesystem: true");
+      expect(deployment).toContain("mountPath: /tmp");
+      expect(deployment).toContain("emptyDir:");
+    }
+  });
+
+  test("scopes internal NetworkPolicy peers to the Helm release instance", () => {
+    const rendered = helmTemplateForRelease("team-gateway", [
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+
+    for (const component of ["google-workspace", "github-wrapper", "github-mcp"]) {
+      const policy = renderedResource(rendered, "NetworkPolicy", `team-gateway-${component}`);
+      expect(policy).toMatch(
+        /from:[\s\S]*podSelector:[\s\S]*app\.kubernetes\.io\/instance: team-gateway/,
+      );
+    }
+  });
+
+  test("publishes chart discovery metadata and operator notes", async () => {
+    const [chartYaml, notes] = await Promise.all([
+      Bun.file("deploy/k8s/chart/Chart.yaml").text(),
+      Bun.file("deploy/k8s/chart/templates/NOTES.txt").text(),
+    ]);
+
+    expect(chartYaml).toContain("icon: https://");
+    expect(notes).toContain("MCP Gateway");
+    expect(notes).toContain("kubectl get pods");
+    expect(notes).toContain("ClusterIP");
   });
 
   test("rejects incomplete production profiles and incomplete or duplicate provider targets", () => {

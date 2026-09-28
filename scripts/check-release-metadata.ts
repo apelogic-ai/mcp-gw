@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolveAgentGatewaySource } from "./resolve-agentgateway-source";
 
 interface PackageJson {
   version?: unknown;
@@ -7,13 +8,15 @@ interface PackageJson {
 const semverPattern = /^\d+\.\d+\.\d+$/;
 
 async function main(): Promise<void> {
-  const [packageJsonRaw, changelog, releaseDocs, releaseWorkflow, ciWorkflow] = await Promise.all([
-    readFile("package.json", "utf8"),
-    readFile("CHANGELOG.md", "utf8"),
-    readFile("docs/releases.md", "utf8"),
-    readFile(".github/workflows/release.yml", "utf8"),
-    readFile(".github/workflows/ci.yml", "utf8"),
-  ]);
+  const [packageJsonRaw, changelog, releaseDocs, releaseWorkflow, ciWorkflow, agentGateway] =
+    await Promise.all([
+      readFile("package.json", "utf8"),
+      readFile("CHANGELOG.md", "utf8"),
+      readFile("docs/releases.md", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8"),
+      readFile(".github/workflows/ci.yml", "utf8"),
+      resolveAgentGatewaySource(),
+    ]);
 
   const packageJson = JSON.parse(packageJsonRaw) as PackageJson;
   if (typeof packageJson.version !== "string" || !semverPattern.test(packageJson.version)) {
@@ -38,10 +41,30 @@ async function main(): Promise<void> {
     "docker buildx imagetools create",
     "release workflow must assemble both supported image platforms into one manifest",
   );
-  expectNotText(
+  expectText(
     ciWorkflow,
     "docker/build-push-action@",
-    "CI must not build images; image builds belong exclusively to the release workflow",
+    "CI must build the pinned AgentGateway candidate tested by integration smoke",
+  );
+  for (const [name, workflow] of [
+    ["CI", ciWorkflow],
+    ["release", releaseWorkflow],
+  ] as const) {
+    expectText(
+      workflow,
+      "bun scripts/resolve-agentgateway-source.ts",
+      `${name} workflow must resolve the shared AgentGateway source pin`,
+    );
+    expectNotText(
+      workflow,
+      agentGateway.ref,
+      `${name} workflow must not duplicate the AgentGateway commit pin`,
+    );
+  }
+  expectNotText(
+    ciWorkflow,
+    "ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:",
+    "CI must build the pinned AgentGateway source instead of testing an older published digest",
   );
 }
 

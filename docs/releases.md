@@ -1,22 +1,48 @@
 # Releases
 
-MCP Gateway releases are environment-neutral product artifacts that an external GitOps repository
+MCP Gateway releases are environment-neutral product artifacts that an external deployment system
 can consume directly. Organization-specific domains, issuers, Secret names, enabled adapters,
-sizing, and scheduling remain in a private values overlay; deployment teams do not patch or fork the
-public chart.
+sizing, and scheduling remain in a private values overlay; deployment teams do not patch or fork
+the public chart.
 
 ## Versioning
 
-Use SemVer:
+Use SemVer. Before 1.0, a minor release may change the deployment contract and must call out every
+required operator action in its upgrade notes. At and after 1.0, those changes require a major
+release:
 
-- `MAJOR`: breaking changes to public deployment shape, MCP endpoint behavior, environment variable
-  names, policy semantics, or documented admin workflows.
-- `MINOR`: backward-compatible features such as new backend registry fields, new Google Workspace
-  tools, new deployment examples, or new optional policy integrations.
+- `MAJOR`: at and after 1.0, breaking changes to public deployment shape, MCP endpoint behavior,
+  environment variable names, policy semantics, or documented admin workflows.
+- `MINOR`: backward-compatible features, or explicitly documented deployment-contract changes while
+  the project remains below 1.0.
 - `PATCH`: bug fixes, documentation fixes, test improvements, and non-breaking deployment-template
-  corrections.
+  corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
+  operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.0`.
+The current public release line is `v0.5.1`.
+
+### 0.5.1 upgrade notes
+
+- No database migration, Secret-format change, OAuth reconnect, or provider reauthorization is
+  required.
+- Workload resources remain opt-in (`resources: {}`), so this patch does not deep-merge new limits
+  into existing partial overrides. Use the production examples as sizing guidance and supply a
+  complete resource map appropriate to the cluster.
+- Google Workspace and GitHub wrapper root filesystems are now read-only with a writable ephemeral
+  `/tmp`. Mount an explicit writable volume for any added integration that writes elsewhere.
+- Provider NetworkPolicies now admit only AgentGateway Pods with the same Helm release-instance
+  label. Label an externally managed AgentGateway accordingly or add an environment-owned policy
+  for that peer.
+- CORS and backend failure behavior are configurable. Their defaults remain `*` and `failOpen`,
+  respectively, for compatibility.
+
+### 0.5.0 upgrade notes
+
+- Kubernetes 1.32 or newer is required.
+- An enabled AgentGateway must set
+  `agentgateway.mcpAuthentication.resourceMetadata.resource` and configure at least one enabled
+  backend. Installations that previously rendered an empty gateway must choose a provider or an
+  external backend before upgrading.
 
 ## Release Artifacts
 
@@ -30,16 +56,16 @@ Each tagged release provides:
 - a generated release handoff recording exact coordinates, digests, ports, probes, and Secret keys;
 - a GitHub Release containing the handoff and supply-chain evidence.
 
-Repositories that require a private registry can opt into release promotion through GitHub
-repository variables. Set `ECR_PROMOTION_ENABLED`, `AWS_RELEASE_ROLE_ARN`, `AWS_REGION`,
-`ECR_REGISTRY`, `MCP_GW_ECR_AGENTGATEWAY_REPOSITORY`,
-`MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY`, `MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY`, and
-`MCP_GW_ECR_CHART_REPOSITORY`. The release workflow copies the approved first-party image and chart
-manifests to those OCI repositories, verifies that every destination digest matches the public
-release, and uploads a private handoff artifact containing signatures, certificates, provenance,
-SBOMs, vulnerability reports, and immutable coordinates. The legacy
-`MCP_GW_ECR_IMAGE_REPOSITORY` variable remains a fallback for the agentgateway repository. The
-third-party official GitHub MCP image is not promoted; deployment GitOps owns its reviewed mirror.
+Private-registry promotion is deliberately outside this public repository's release workflow. A
+private deployment system may authenticate to GHCR and its destination registry, copy the approved
+first-party image and chart manifests by digest, verify that destination digests match, and retain
+private coordinates and handoff evidence only in its private control plane. Do not pass private
+registry hosts, account identifiers, role ARNs, or derived repository names through this public
+repository's Actions variables, logs, outputs, or workflow artifacts. Public provenance remains
+attached only to the GHCR source artifacts. Older public transparency-log entries are append-only
+and cannot be deleted; historical workflow logs and artifacts should be handled separately by a
+repository administrator. The third-party official GitHub MCP image is not mirrored by this
+repository; deployment configuration owns its reviewed mirror.
 Registry locations and IAM role identifiers are deployment configuration and are never committed
 to this repository.
 
@@ -49,8 +75,10 @@ workflow also verifies that the chart and first-party images can be fetched anon
 creates the GitHub Release. A critical vulnerability in any first-party artifact blocks release.
 
 The release-owned `mcp-gw-agentgateway` image is built from the exact compatible source revision
-declared in the release workflow. It contains the MCP multi-provider authentication and routing
-behavior expected by this chart.
+declared once in [`.release/agentgateway-source.json`](../.release/agentgateway-source.json). Pull
+request CI and tagged releases build that same source and record the fork source URL and revision in
+the image metadata. See [AgentGateway compatibility source](agentgateway-source.md) for the patch
+set and upstream sync procedure.
 
 ## Cutting A Release
 

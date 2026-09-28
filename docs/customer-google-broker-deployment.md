@@ -146,7 +146,7 @@ The first callback is the external broker's Google identity return. The second
 is the Google Workspace provider-consent return. Expose it through the separate
 exact-path provider callback Ingress in Ingress mode, or an operator-owned
 HTTPRoute in Gateway API mode; do not publish the authenticated
-`/oauth/google/start`, `/status`, or `/disconnect` control paths.
+`/oauth/google/start`, `/status`, `/refresh`, or `/disconnect` control paths.
 Enable the required Google APIs and request only the Workspace scopes approved
 by the customer policy.
 

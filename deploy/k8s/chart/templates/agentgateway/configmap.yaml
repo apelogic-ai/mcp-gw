@@ -30,9 +30,12 @@ data:
                       exact: {{ $resourceMetadataPath }}
                 policies:
                   cors:
-                    allowOrigins: ["*"]
-                    allowHeaders: [mcp-protocol-version, content-type, authorization]
-                    exposeHeaders: ["Mcp-Session-Id"]
+                    allowOrigins:
+{{ toYaml .Values.agentgateway.cors.allowOrigins | nindent 22 }}
+                    allowHeaders:
+{{ toYaml .Values.agentgateway.cors.allowHeaders | nindent 22 }}
+                    exposeHeaders:
+{{ toYaml .Values.agentgateway.cors.exposeHeaders | nindent 22 }}
                   mcpAuthentication:
                     mode: {{ .Values.agentgateway.mcpAuthentication.mode }}
                     providers:
@@ -80,7 +83,7 @@ data:
 {{ toYaml $resourceMetadata | nindent 22 }}
                 backends:
                   - mcp:
-                      failureMode: failOpen
+                      failureMode: {{ .Values.agentgateway.backendFailureMode }}
                       prefixMode: never
 {{- $enabledBackends := list }}
 {{- range .Values.agentgateway.backends }}

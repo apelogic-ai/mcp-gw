@@ -91,10 +91,10 @@ exit 0
     ]);
 
     expect(ciWorkflow).not.toContain("helm/kind-action@");
-    expect(ciWorkflow).not.toContain("docker/build-push-action@");
+    expect(ciWorkflow).toContain("docker/build-push-action@");
     expect(releaseWorkflow).toContain("helm/kind-action@");
-    expect(releaseWorkflow).toContain("repository: apelogic-ai/agentgateway");
-    expect(releaseWorkflow).toContain("ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43");
+    expect(releaseWorkflow).toContain("steps.agentgateway-source.outputs.repository");
+    expect(releaseWorkflow).toContain("steps.agentgateway-source.outputs.ref");
     expect(releaseWorkflow).toContain("docker/build-push-action@");
     expect(releaseWorkflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
     expect(releaseWorkflow).toContain("bun run integration:k8s");
@@ -154,7 +154,7 @@ exit 0
       "ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION",
     );
 
-    const publishChart = workflow.slice(publishChartStart, workflow.indexOf("  promote-ecr:"));
+    const publishChart = workflow.slice(publishChartStart, workflow.indexOf("  release:"));
     expect(publishChart).toContain("released-kubernetes-broker-smoke");
   });
 

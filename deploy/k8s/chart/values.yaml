@@ -108,6 +108,16 @@ agentgateway:
       serviceName: github-wrapper
       port: 8080
       path: /mcp
+  cors:
+    allowOrigins:
+      - "*"
+    allowHeaders:
+      - mcp-protocol-version
+      - content-type
+      - authorization
+    exposeHeaders:
+      - Mcp-Session-Id
+  backendFailureMode: failOpen
   serviceAccount:
     create: true
     annotations: {}
@@ -203,7 +213,7 @@ googleWorkspace:
     runAsNonRoot: true
   securityContext:
     allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop:
         - ALL
@@ -363,7 +373,7 @@ githubWrapper:
     runAsNonRoot: true
   securityContext:
     allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop:
         - ALL

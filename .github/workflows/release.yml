@@ -42,11 +42,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Check out pinned agentgateway source
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Resolve pinned AgentGateway source
+        id: agentgateway-source
+        run: bun scripts/resolve-agentgateway-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Check out pinned AgentGateway source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          repository: apelogic-ai/agentgateway
-          ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43
+          repository: ${{ steps.agentgateway-source.outputs.repository }}
+          ref: ${{ steps.agentgateway-source.outputs.ref }}
           path: .build/agentgateway
 
       - name: Set up Docker Buildx
@@ -60,7 +69,11 @@ jobs:
           tags: mcp-gw-agentgateway:smoke
           build-args: |
             VERSION=smoke
-            GIT_REVISION=360a5dfd2f088ddb91d8f506f329934fe8b92c43
+            GIT_REVISION=${{ steps.agentgateway-source.outputs.ref }}
+          labels: |
+            org.opencontainers.image.source=${{ steps.agentgateway-source.outputs.source_url }}
+            org.opencontainers.image.revision=${{ steps.agentgateway-source.outputs.ref }}
+            org.opencontainers.image.version=smoke
           cache-from: type=gha,scope=agentgateway-smoke
           cache-to: type=gha,mode=max,scope=agentgateway-smoke
 
@@ -83,11 +96,6 @@ jobs:
           tags: mcp-gw-github-wrapper:smoke
           cache-from: type=gha,scope=github-wrapper-smoke
           cache-to: type=gha,mode=max,scope=github-wrapper-smoke
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: "1.2.21"
 
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
@@ -193,13 +201,33 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Check out pinned agentgateway source
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Resolve pinned AgentGateway source
+        id: agentgateway-source
+        run: bun scripts/resolve-agentgateway-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Check out pinned AgentGateway source
         if: matrix.component == 'agentgateway'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          repository: apelogic-ai/agentgateway
-          ref: 360a5dfd2f088ddb91d8f506f329934fe8b92c43
+          repository: ${{ steps.agentgateway-source.outputs.repository }}
+          ref: ${{ steps.agentgateway-source.outputs.ref }}
           path: .release/agentgateway
+
+      - name: Select image source metadata
+        shell: bash
+        run: |
+          if [[ '${{ matrix.component }}' == 'agentgateway' ]]; then
+            printf 'BUILD_SOURCE_URL=%s\n' '${{ steps.agentgateway-source.outputs.source_url }}' >> "$GITHUB_ENV"
+            printf 'BUILD_GIT_REVISION=%s\n' '${{ steps.agentgateway-source.outputs.ref }}' >> "$GITHUB_ENV"
+          else
+            printf 'BUILD_SOURCE_URL=https://github.com/%s\n' "$GITHUB_REPOSITORY" >> "$GITHUB_ENV"
+            printf 'BUILD_GIT_REVISION=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -221,10 +249,10 @@ jobs:
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             VERSION=${{ github.ref_name }}
-            GIT_REVISION=${{ github.sha }}
+            GIT_REVISION=${{ env.BUILD_GIT_REVISION }}
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ env.BUILD_SOURCE_URL }}
+            org.opencontainers.image.revision=${{ env.BUILD_GIT_REVISION }}
             org.opencontainers.image.version=${{ github.ref_name }}
           provenance: mode=max
           sbom: true
@@ -234,13 +262,13 @@ jobs:
       - name: Record ${{ matrix.architecture }} image digest
         run: |
           mkdir -p dist
-          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'dist/${{ matrix.component }}-${{ matrix.architecture }}.digest'
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'dist/${{ matrix.component }}-${{ matrix.architecture }}-arch-index.digest'
 
       - name: Upload platform digest
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: platform-digest-${{ matrix.component }}-${{ matrix.architecture }}
-          path: dist/${{ matrix.component }}-${{ matrix.architecture }}.digest
+          path: dist/${{ matrix.component }}-${{ matrix.architecture }}-arch-index.digest
           if-no-files-found: error
 
   publish-images:
@@ -288,8 +316,8 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repository }}"
-          AMD64_DIGEST="$(cat "dist/${{ matrix.component }}-amd64.digest")"
-          ARM64_DIGEST="$(cat "dist/${{ matrix.component }}-arm64.digest")"
+          AMD64_DIGEST="$(cat "dist/${{ matrix.component }}-amd64-arch-index.digest")"
+          ARM64_DIGEST="$(cat "dist/${{ matrix.component }}-arm64-arch-index.digest")"
           docker buildx imagetools create \
             --tag "$IMAGE:$VERSION" \
             "$IMAGE@$AMD64_DIGEST" \
@@ -566,276 +594,12 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  promote-ecr:
-    needs: [publish-images, publish-chart]
-    if: ${{ vars.ECR_PROMOTION_ENABLED == 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-      id-token: write
-      attestations: write
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-      MCP_GW_ECR_AGENTGATEWAY_REPOSITORY: ${{ vars.MCP_GW_ECR_AGENTGATEWAY_REPOSITORY || vars.MCP_GW_ECR_IMAGE_REPOSITORY }}
-      MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY: ${{ vars.MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY }}
-      MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY: ${{ vars.MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY }}
-      MCP_GW_ECR_CHART_REPOSITORY: ${{ vars.MCP_GW_ECR_CHART_REPOSITORY }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-
-      - name: Set up ORAS
-        uses: oras-project/setup-oras@4fb5323ce5e4debde6f8fe277e461b0815a75992
-        with:
-          version: 1.3.3
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: "1.2.21"
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@874852de93c66509b01dc7cd80f7a5385182d017
-        with:
-          cosign-release: v3.1.2
-
-      - name: Download approved release evidence
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: release-*
-          path: dist
-          merge-multiple: true
-
-      - name: Resolve private registry coordinates
-        id: coordinates
-        env:
-          AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
-        run: |
-          : "${AWS_RELEASE_ROLE_ARN:?Set the AWS_RELEASE_ROLE_ARN repository variable}"
-          : "${AWS_REGION:?Set the AWS_REGION repository variable}"
-          : "${ECR_REGISTRY:?Set the ECR_REGISTRY repository variable}"
-          : "${MCP_GW_ECR_AGENTGATEWAY_REPOSITORY:?Set MCP_GW_ECR_AGENTGATEWAY_REPOSITORY}"
-          : "${MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY:?Set MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY}"
-          : "${MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY:?Set MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY}"
-          : "${MCP_GW_ECR_CHART_REPOSITORY:?Set MCP_GW_ECR_CHART_REPOSITORY}"
-
-          VERSION="${GITHUB_REF_NAME#v}"
-          SOURCE_AGENTGATEWAY_DIGEST="$(cat dist/agentgateway.digest)"
-          SOURCE_GOOGLE_WORKSPACE_DIGEST="$(cat dist/google-workspace.digest)"
-          SOURCE_GITHUB_WRAPPER_DIGEST="$(cat dist/github-wrapper.digest)"
-          SOURCE_CHART_DIGEST="$(cat dist/helm-chart.digest)"
-          AGENTGATEWAY_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_AGENTGATEWAY_REPOSITORY"
-          GOOGLE_WORKSPACE_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_GOOGLE_WORKSPACE_REPOSITORY"
-          GITHUB_WRAPPER_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_GITHUB_WRAPPER_REPOSITORY"
-          CHART_REPOSITORY="$ECR_REGISTRY/$MCP_GW_ECR_CHART_REPOSITORY"
-
-          {
-            printf 'version=%s\n' "$VERSION"
-            printf 'source-agentgateway-digest=%s\n' "$SOURCE_AGENTGATEWAY_DIGEST"
-            printf 'source-google-workspace-digest=%s\n' "$SOURCE_GOOGLE_WORKSPACE_DIGEST"
-            printf 'source-github-wrapper-digest=%s\n' "$SOURCE_GITHUB_WRAPPER_DIGEST"
-            printf 'source-chart-digest=%s\n' "$SOURCE_CHART_DIGEST"
-            printf 'agentgateway-repository=%s\n' "$AGENTGATEWAY_REPOSITORY"
-            printf 'google-workspace-repository=%s\n' "$GOOGLE_WORKSPACE_REPOSITORY"
-            printf 'github-wrapper-repository=%s\n' "$GITHUB_WRAPPER_REPOSITORY"
-            printf 'chart-repository=%s\n' "$CHART_REPOSITORY"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c
-        with:
-          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          role-session-name: mcp-gw-release-${{ github.run_id }}
-
-      - name: Authenticate registries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          printf '%s' "$GH_TOKEN" | oras login ghcr.io \
-            --username "$GITHUB_ACTOR" --password-stdin
-          aws ecr get-login-password --region "$AWS_REGION" \
-            | oras login "$ECR_REGISTRY" --username AWS --password-stdin
-
-      - name: Promote exact approved manifests
-        id: promote
-        env:
-          VERSION: ${{ steps.coordinates.outputs.version }}
-          SOURCE_AGENTGATEWAY_DIGEST: ${{ steps.coordinates.outputs['source-agentgateway-digest'] }}
-          SOURCE_GOOGLE_WORKSPACE_DIGEST: ${{ steps.coordinates.outputs['source-google-workspace-digest'] }}
-          SOURCE_GITHUB_WRAPPER_DIGEST: ${{ steps.coordinates.outputs['source-github-wrapper-digest'] }}
-          SOURCE_CHART_DIGEST: ${{ steps.coordinates.outputs['source-chart-digest'] }}
-          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
-          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
-          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
-          CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
-        run: |
-          SOURCE_AGENTGATEWAY="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-agentgateway@$SOURCE_AGENTGATEWAY_DIGEST"
-          SOURCE_GOOGLE_WORKSPACE="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-google-workspace@$SOURCE_GOOGLE_WORKSPACE_DIGEST"
-          SOURCE_GITHUB_WRAPPER="ghcr.io/$GITHUB_REPOSITORY_OWNER/mcp-gw-github-wrapper@$SOURCE_GITHUB_WRAPPER_DIGEST"
-          SOURCE_CHART="ghcr.io/$GITHUB_REPOSITORY_OWNER/charts/mcp-gateway@$SOURCE_CHART_DIGEST"
-          TARGET_AGENTGATEWAY="$AGENTGATEWAY_REPOSITORY:$VERSION"
-          TARGET_GOOGLE_WORKSPACE="$GOOGLE_WORKSPACE_REPOSITORY:$VERSION"
-          TARGET_GITHUB_WRAPPER="$GITHUB_WRAPPER_REPOSITORY:$VERSION"
-          TARGET_CHART="$CHART_REPOSITORY:$VERSION"
-
-          oras cp "$SOURCE_AGENTGATEWAY" "$TARGET_AGENTGATEWAY"
-          oras cp "$SOURCE_GOOGLE_WORKSPACE" "$TARGET_GOOGLE_WORKSPACE"
-          oras cp "$SOURCE_GITHUB_WRAPPER" "$TARGET_GITHUB_WRAPPER"
-          oras cp "$SOURCE_CHART" "$TARGET_CHART"
-
-          AGENTGATEWAY_DIGEST="$(oras manifest fetch --descriptor "$TARGET_AGENTGATEWAY" | jq -r '.digest')"
-          GOOGLE_WORKSPACE_DIGEST="$(oras manifest fetch --descriptor "$TARGET_GOOGLE_WORKSPACE" | jq -r '.digest')"
-          GITHUB_WRAPPER_DIGEST="$(oras manifest fetch --descriptor "$TARGET_GITHUB_WRAPPER" | jq -r '.digest')"
-          CHART_DIGEST="$(oras manifest fetch --descriptor "$TARGET_CHART" | jq -r '.digest')"
-          test "$AGENTGATEWAY_DIGEST" = "$SOURCE_AGENTGATEWAY_DIGEST"
-          test "$GOOGLE_WORKSPACE_DIGEST" = "$SOURCE_GOOGLE_WORKSPACE_DIGEST"
-          test "$GITHUB_WRAPPER_DIGEST" = "$SOURCE_GITHUB_WRAPPER_DIGEST"
-          test "$CHART_DIGEST" = "$SOURCE_CHART_DIGEST"
-
-          printf '%s\n' "$AGENTGATEWAY_DIGEST" > dist/ecr-agentgateway.digest
-          printf '%s\n' "$GOOGLE_WORKSPACE_DIGEST" > dist/ecr-google-workspace.digest
-          printf '%s\n' "$GITHUB_WRAPPER_DIGEST" > dist/ecr-github-wrapper.digest
-          printf '%s\n' "$CHART_DIGEST" > dist/ecr-helm-chart.digest
-          printf 'agentgateway-digest=%s\n' "$AGENTGATEWAY_DIGEST" >> "$GITHUB_OUTPUT"
-          printf 'google-workspace-digest=%s\n' "$GOOGLE_WORKSPACE_DIGEST" >> "$GITHUB_OUTPUT"
-          printf 'github-wrapper-digest=%s\n' "$GITHUB_WRAPPER_DIGEST" >> "$GITHUB_OUTPUT"
-          printf 'chart-digest=%s\n' "$CHART_DIGEST" >> "$GITHUB_OUTPUT"
-
-      - name: Sign promoted artifacts
-        env:
-          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
-          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
-          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
-          CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
-          AGENTGATEWAY_DIGEST: ${{ steps.promote.outputs['agentgateway-digest'] }}
-          GOOGLE_WORKSPACE_DIGEST: ${{ steps.promote.outputs['google-workspace-digest'] }}
-          GITHUB_WRAPPER_DIGEST: ${{ steps.promote.outputs['github-wrapper-digest'] }}
-          CHART_DIGEST: ${{ steps.promote.outputs['chart-digest'] }}
-        run: |
-          COSIGN_CERTIFICATE_IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"
-          COSIGN_CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"
-
-          cosign sign --yes \
-            --output-signature dist/ecr-agentgateway.sig \
-            --output-certificate dist/ecr-agentgateway.pem \
-            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$AGENTGATEWAY_REPOSITORY@$AGENTGATEWAY_DIGEST"
-          cosign sign --yes \
-            --output-signature dist/ecr-google-workspace.sig \
-            --output-certificate dist/ecr-google-workspace.pem \
-            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$GOOGLE_WORKSPACE_REPOSITORY@$GOOGLE_WORKSPACE_DIGEST"
-          cosign sign --yes \
-            --output-signature dist/ecr-github-wrapper.sig \
-            --output-certificate dist/ecr-github-wrapper.pem \
-            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$GITHUB_WRAPPER_REPOSITORY@$GITHUB_WRAPPER_DIGEST"
-          cosign sign --yes \
-            --output-signature dist/ecr-helm-chart.sig \
-            --output-certificate dist/ecr-helm-chart.pem \
-            "$CHART_REPOSITORY@$CHART_DIGEST"
-          cosign verify \
-            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
-            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
-            "$CHART_REPOSITORY@$CHART_DIGEST"
-
-      - name: Attest promoted agentgateway provenance
-        id: ecr-agentgateway-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['agentgateway-digest'] }}
-          push-to-registry: true
-
-      - name: Attest promoted Google Workspace wrapper provenance
-        id: ecr-google-workspace-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['google-workspace-digest'] }}
-          push-to-registry: true
-
-      - name: Attest promoted GitHub wrapper provenance
-        id: ecr-github-wrapper-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['github-wrapper-digest'] }}
-          push-to-registry: true
-
-      - name: Attest promoted chart provenance
-        id: ecr-chart-provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
-        with:
-          subject-name: ${{ steps.coordinates.outputs['chart-repository'] }}
-          subject-digest: ${{ steps.promote.outputs['chart-digest'] }}
-          push-to-registry: true
-
-      - name: Preserve private registry evidence
-        run: |
-          cp '${{ steps.ecr-agentgateway-provenance.outputs['bundle-path'] }}' dist/ecr-agentgateway.provenance.json
-          cp '${{ steps.ecr-google-workspace-provenance.outputs['bundle-path'] }}' dist/ecr-google-workspace.provenance.json
-          cp '${{ steps.ecr-github-wrapper-provenance.outputs['bundle-path'] }}' dist/ecr-github-wrapper.provenance.json
-          cp '${{ steps.ecr-chart-provenance.outputs['bundle-path'] }}' dist/ecr-helm-chart.provenance.json
-
-      - name: Generate private registry handoff
-        env:
-          VERSION: ${{ steps.coordinates.outputs.version }}
-          AGENTGATEWAY_REPOSITORY: ${{ steps.coordinates.outputs['agentgateway-repository'] }}
-          GOOGLE_WORKSPACE_REPOSITORY: ${{ steps.coordinates.outputs['google-workspace-repository'] }}
-          GITHUB_WRAPPER_REPOSITORY: ${{ steps.coordinates.outputs['github-wrapper-repository'] }}
-          CHART_REPOSITORY: ${{ steps.coordinates.outputs['chart-repository'] }}
-        run: |
-          bun scripts/generate-private-release-handoff.ts \
-            --version "$VERSION" \
-            --release-commit "$GITHUB_SHA" \
-            --agentgateway-repository "$AGENTGATEWAY_REPOSITORY" \
-            --google-workspace-repository "$GOOGLE_WORKSPACE_REPOSITORY" \
-            --github-wrapper-repository "$GITHUB_WRAPPER_REPOSITORY" \
-            --chart-repository "$CHART_REPOSITORY" \
-            --artifacts dist \
-            --output dist/ecr-release-handoff.md
-
-      - name: Upload private registry handoff
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: ecr-release-handoff
-          path: |
-            dist/ecr-*
-            dist/agentgateway.spdx.json
-            dist/agentgateway.vulnerabilities.json
-            dist/google-workspace.spdx.json
-            dist/google-workspace.vulnerabilities.json
-            dist/github-wrapper.spdx.json
-            dist/github-wrapper.vulnerabilities.json
-            dist/helm-chart.spdx.json
-            dist/helm-chart.vulnerabilities.json
-          if-no-files-found: error
-
   release:
-    needs: [publish-images, publish-chart, promote-ecr]
-    if: >-
-      ${{
-        always() &&
-        needs.publish-images.result == 'success' &&
-        needs.publish-chart.result == 'success' &&
-        (needs.promote-ecr.result == 'success' || needs.promote-ecr.result == 'skipped')
-      }}
+    needs: [publish-images, publish-chart]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      attestations: read
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -876,11 +640,39 @@ jobs:
             --version "${GITHUB_REF_NAME#v}" \
             --destination /tmp
 
+      - name: Verify public release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          mkdir -p "$RUNNER_TEMP/public-attestations"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-agentgateway@$(cat dist/agentgateway.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/agentgateway.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/google-workspace.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/github-wrapper.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
+            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
+          bun scripts/check-public-release-evidence.ts \
+            --artifacts dist \
+            --subject "ghcr.io/$OWNER/mcp-gw-agentgateway" \
+            --subject "ghcr.io/$OWNER/mcp-gw-google-workspace" \
+            --subject "ghcr.io/$OWNER/mcp-gw-github-wrapper" \
+            --subject "ghcr.io/$OWNER/charts/mcp-gateway" \
+            --attestation "$RUNNER_TEMP/public-attestations/agentgateway.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/google-workspace.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/github-wrapper.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --verify-tag \
-            --generate-notes \
             --notes-file dist/release-handoff.md

@@ -19,7 +19,7 @@ the install fails schema validation.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.5.0 \
+  --version 0.5.1 \
   -f my-values.yaml
 ```
 
@@ -43,7 +43,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.5.0"
+    tag: "0.5.1"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -61,7 +61,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.5.0"
+    tag: "0.5.1"
   # Existing Secret supplying GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
   # GOOGLE_OAUTH_REDIRECT_URI, GOOGLE_TOKEN_ENCRYPTION_KEY, and TOKEN_STORE_DSN.
   secretRef:
@@ -72,13 +72,13 @@ Or override the same knobs inline:
 
 ```bash
 helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.5.0 \
+  --version 0.5.1 \
   --set agentgateway.enabled=true \
-  --set agentgateway.image.tag=0.5.0 \
+  --set agentgateway.image.tag=0.5.1 \
   --set-string agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp \
   --set-json 'agentgateway.backends=[{"name":"google-workspace","enabled":true,"serviceName":"google-workspace","port":8080,"path":"/mcp"}]' \
   --set googleWorkspace.enabled=true \
-  --set googleWorkspace.image.tag=0.5.0 \
+  --set googleWorkspace.image.tag=0.5.1 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \
   --set-json 'hop1.issuers=[{"name":"workforce","issuer":"https://identity.example.com","audiences":["https://mcp.example.com/mcp"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"],"emailClaim":"email","subjectClaim":"sub"}]'
 ```
@@ -297,14 +297,26 @@ authentication, principal binding, policy, or lifecycle generation guards. A
 caller entry without `podSelector` admits all Pods in only the selected
 Namespace. Provider callbacks remain separately routed return endpoints.
 
+The rendered NetworkPolicies restrict reachability; they do not encrypt
+in-cluster HTTP between AgentGateway and provider workloads. Use a service
+mesh, sidecar, or equivalent platform control when transport confidentiality
+inside the cluster is required. Egress remains deployment-owned because DNS,
+PostgreSQL, identity, policy, and provider API destinations vary by cluster;
+enforce it with the cluster's network policy or egress gateway once those
+destinations are known.
+
 ## Minimal values
 
-The smallest valid configuration is one `hop1.issuers` entry plus one enabled
-workload. Pin every image with `image.tag` or `image.digest`; the defaults ship
-with an empty tag. Set `agentgateway.mcpAuthentication.resourceMetadata.resource`
-to your public MCP URL and keep `scopesSupported` aligned with the wrapper's
-identity scopes (`openid`, `email` by default). Expose the endpoint by enabling
-`agentgateway.ingress` or fronting the ClusterIP Service with your own gateway.
+The smallest wrapper-only configuration is one `hop1.issuers` entry plus one
+enabled wrapper workload. An AgentGateway deployment additionally requires a
+non-empty `agentgateway.mcpAuthentication.resourceMetadata.resource` and at
+least one enabled backend; an enabled in-chart backend also needs its matching
+workload. The complete Google example under [Install](#install) is the smallest
+public gateway configuration. Pin every image with `image.tag` or
+`image.digest`; the defaults ship with an empty tag. Keep `scopesSupported`
+aligned with the wrapper's identity scopes (`openid`, `email` by default).
+Expose the endpoint by enabling `agentgateway.ingress` or fronting the
+ClusterIP Service with your own gateway.
 
 ## Upgrade
 
@@ -359,7 +371,13 @@ and are left in place.
 | `<workload>.extraEnv` / `extraVolumeMounts` / `extraVolumes`      | `[]`                                                | Kubernetes-native extension points for environment-owned integrations.                                                  |
 | `oauthMigrations.enabled`                                         | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                                                 |
 | `postgresql.caBundle.enabled`                                     | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.                                  |
-| `productionProfile.enabled`                                       | `false`                                             | Validate that the full provider bundle is enabled explicitly.                                                           |
+| `agentgateway.cors.allowOrigins`                                  | `["*"]`                                             | Browser origins allowed by AgentGateway CORS; replace the wildcard for browser-facing production deployments.           |
+| `agentgateway.cors.allowHeaders`                                  | MCP protocol, content type, authorization           | Request headers allowed by AgentGateway CORS.                                                                           |
+| `agentgateway.cors.exposeHeaders`                                 | `Mcp-Session-Id`                                    | Response headers exposed to browser clients.                                                                            |
+| `agentgateway.backendFailureMode`                                 | `failOpen`                                          | AgentGateway backend failure behavior; set `failClosed` when partial backend availability must reject the request.      |
+| `<workload>.resources`                                            | `{}`                                                | Per-workload resource requests and limits; copy and tune complete maps from the production examples.                    |
+| `<workload>.securityContext.readOnlyRootFilesystem`               | `true` except `dbMcp`                               | Read-only container root filesystem; wrappers receive an ephemeral writable `/tmp`.                                     |
+| `productionProfile.enabled`                                       | `false`                                             | Validate an explicit Google-only, GitHub-only, or combined provider production topology.                                |
 
 See `docs/quickstart.md` in the source repository for the end-to-end install,
 setup, and client-connection walkthrough.

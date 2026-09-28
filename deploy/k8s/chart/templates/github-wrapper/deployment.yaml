@@ -99,24 +99,24 @@ spec:
             {{- end }}
             {{- include "mcp-gateway.postgresqlCaEnv" . | nindent 12 }}
           {{- include "mcp-gateway.probes" .Values.githubWrapper | nindent 10 }}
-          {{- if or .Values.postgresql.caBundle.enabled .Values.trustBundle.enabled .Values.githubWrapper.extraVolumeMounts }}
           volumeMounts:
+            - name: runtime-tmp
+              mountPath: /tmp
             {{- include "mcp-gateway.postgresqlCaVolumeMount" . | nindent 12 }}
             {{- include "mcp-gateway.trustBundleVolumeMount" . | nindent 12 }}
             {{- with .Values.githubWrapper.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- end }}
           {{- with .Values.githubWrapper.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if or .Values.postgresql.caBundle.enabled .Values.trustBundle.enabled .Values.githubWrapper.extraVolumes }}
       volumes:
+        - name: runtime-tmp
+          emptyDir: {}
         {{- include "mcp-gateway.postgresqlCaVolume" . | nindent 8 }}
         {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
         {{- with .Values.githubWrapper.extraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- end }}
 {{- end }}
