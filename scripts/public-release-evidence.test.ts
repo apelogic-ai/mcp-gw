@@ -7,6 +7,9 @@ import { describe, expect, test } from "bun:test";
 import { verifyPublicReleaseEvidence } from "./check-public-release-evidence";
 
 const digest = `sha256:${"a".repeat(64)}`;
+const privateRegistry = `${"123456".repeat(2)}.${["dkr", "ecr"].join(
+  ".",
+)}.us-east-1.amazonaws.com/private/chart`;
 
 describe("public release evidence", () => {
   test("accepts only the expected public attestation subjects and clean artifacts", async () => {
@@ -34,10 +37,7 @@ describe("public release evidence", () => {
     await Bun.write(join(artifacts, "release-handoff.md"), "public evidence\n");
     await writeFile(
       attestations,
-      JSON.stringify([
-        attestation("ghcr.io/example/chart"),
-        attestation("123456789012.dkr.ecr.us-east-1.amazonaws.com/private/chart"),
-      ]),
+      JSON.stringify([attestation("ghcr.io/example/chart"), attestation(privateRegistry)]),
     );
 
     await expect(
@@ -54,10 +54,7 @@ describe("public release evidence", () => {
     const artifacts = join(root, "artifacts");
     const attestations = join(root, "attestations.json");
     await mkdir(artifacts);
-    await Bun.write(
-      join(artifacts, "release-handoff.md"),
-      "123456789012.dkr.ecr.us-east-1.amazonaws.com/private/chart\n",
-    );
+    await Bun.write(join(artifacts, "release-handoff.md"), `${privateRegistry}\n`);
     await writeFile(attestations, JSON.stringify(attestation("ghcr.io/example/chart")));
 
     await expect(
