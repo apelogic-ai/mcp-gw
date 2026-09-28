@@ -3,8 +3,8 @@ name: mcp-gateway
 description: Agent-agnostic MCP gateway with independently enabled provider adapters
 type: application
 kubeVersion: ">=1.32.0-0"
-version: 0.4.11
-appVersion: "0.4.11"
+version: 0.5.0
+appVersion: "0.5.0"
 maintainers:
   - name: Leonid Belyaev
     email: lbeliaev@gmail.com
@@ -20,11 +20,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.4.11
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.0
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.4.11
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.0
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.4.11
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.0
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart are signed with cosign keyless (Sigstore
@@ -34,7 +34,9 @@ annotations:
   # annotation (which requires fingerprint + url for a PGP key) does not apply
   # and is intentionally omitted.
   artifacthub.io/changes: |
+    - kind: added
+      description: Add governed-platform issuer, trust-bundle, lifecycle-caller, policy, and workload extension contracts.
     - kind: fixed
-      description: Clarify the authorization broker NetworkPolicy traffic-source selection for Gateway API and Ingress deployments.
+      description: Derive the GitHub upstream Service URL from the Helm release and reject gateway installs without an MCP resource or enabled backend.
     - kind: security
-      description: Add opt-in per-wrapper runtime Secret-key allowlists to keep a shared private signing JWKS out of process environments.
+      description: Publish a private vulnerability-reporting path and keep provider lifecycle routes private by default.

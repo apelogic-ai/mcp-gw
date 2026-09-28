@@ -8,6 +8,45 @@ human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-28
+
+### Added
+
+- Add chart-native governed-platform integration: typed external policy configuration, private
+  provider-lifecycle callers, shared HTTPS trust bundles, GitHub post-consent redirect origins,
+  and additive environment, volume, and mount extension points across first-party workloads.
+- Add an environment-neutral external-platform issuer example and operator documentation while
+  keeping provider connection lifecycle routes private by default.
+- Add a private GitHub vulnerability-reporting path plus contribution and community conduct
+  guidance.
+
+### Changed
+
+- Require Kubernetes `>=1.32.0-0` in Helm chart metadata.
+- Commit to supporting the authenticated `/oauth/{provider}/*` compatibility aliases throughout
+  the complete `0.6.x` release line. Their earliest possible removal is `0.7.0`, following an
+  announcement in preceding minor-release notes; new integrations should use `/connections/*`.
+
+### Fixed
+
+- Derive the GitHub MCP upstream Service URL from the actual Helm release/fullname instead of a
+  hard-coded release name, while preserving an explicit `githubWrapper.env` override.
+- Reject enabled AgentGateway installations that omit the protected resource URI or have no
+  enabled backend target, and make the README installation example deploy a usable backend.
+
+### Upgrade Notes
+
+- No database migration, Secret-format change, OAuth reconnect, or provider reauthorization is
+  required. All governed-platform extension values default to disabled or empty.
+- Kubernetes versions below 1.32 are no longer supported; upgrade the cluster before installing
+  this chart release.
+- Existing valid AgentGateway installations already define a resource URI and enabled backend.
+  Values that enabled the gateway without either are now rejected instead of producing an
+  unusable deployment.
+- Existing GitHub upstream overrides under
+  `githubWrapper.env.GITHUB_MCP_UPSTREAM_URL` remain supported. The default now follows the
+  release-derived Service name.
+
 ## [0.4.11] - 2026-09-19
 
 ### Added
@@ -526,7 +565,8 @@ human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.11...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.11...v0.5.0
 [0.4.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.8...v0.4.9
