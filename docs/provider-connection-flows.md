@@ -237,13 +237,13 @@ token only through a private control-plane route. In the Helm chart,
 `connectionLifecycle.allowedCallers` adds selected Namespace and optional Pod peers to both wrapper
 NetworkPolicies while the existing ClusterIP Services provide the internal route. It creates no
 public Ingress or HTTPRoute and does not bypass authentication. The authenticated compatibility
-handlers under `/oauth/google|github/start|status|disconnect` are not part of the public
+handlers under `/oauth/{provider}/{start,status,refresh,disconnect}` are not part of the public
 remote-client ingress. New integrations use `/connections/{provider}/*`; remote MCP clients use the
 equivalent `google_oauth_*` and `github_oauth_*` MCP tools.
 
-The private `/oauth/{provider}/*` compatibility aliases remain supported through the complete
-0.6.x release line. Their earliest possible removal is 0.7.0, with removal announced in the
-preceding minor release notes. Integrations should migrate to
+The private `/oauth/{provider}/{start,status,refresh,disconnect}` compatibility aliases remain
+supported through the complete 0.6.x release line. Their earliest possible removal is 0.7.0, with
+removal announced in the preceding minor release notes. Integrations should migrate to
 `/connections/{provider}/authorize|status|refresh|disconnect` before then.
 
 Provider callbacks remain separately state-bound return endpoints for the configured provider OAuth

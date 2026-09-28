@@ -299,12 +299,16 @@ Namespace. Provider callbacks remain separately routed return endpoints.
 
 ## Minimal values
 
-The smallest valid configuration is one `hop1.issuers` entry plus one enabled
-workload. Pin every image with `image.tag` or `image.digest`; the defaults ship
-with an empty tag. Set `agentgateway.mcpAuthentication.resourceMetadata.resource`
-to your public MCP URL and keep `scopesSupported` aligned with the wrapper's
-identity scopes (`openid`, `email` by default). Expose the endpoint by enabling
-`agentgateway.ingress` or fronting the ClusterIP Service with your own gateway.
+The smallest wrapper-only configuration is one `hop1.issuers` entry plus one
+enabled wrapper workload. An AgentGateway deployment additionally requires a
+non-empty `agentgateway.mcpAuthentication.resourceMetadata.resource` and at
+least one enabled backend; an enabled in-chart backend also needs its matching
+workload. The complete Google example under [Install](#install) is the smallest
+public gateway configuration. Pin every image with `image.tag` or
+`image.digest`; the defaults ship with an empty tag. Keep `scopesSupported`
+aligned with the wrapper's identity scopes (`openid`, `email` by default).
+Expose the endpoint by enabling `agentgateway.ingress` or fronting the
+ClusterIP Service with your own gateway.
 
 ## Upgrade
 

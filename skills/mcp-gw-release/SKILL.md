@@ -24,10 +24,10 @@ Treat a release as the boundary an organization can:
 
 Use SemVer:
 
-- `MAJOR`: breaking deployment, policy, auth, endpoint, env var, or documented operator workflow
-  changes.
-- `MINOR`: backward-compatible capabilities, backend additions, policy features, tools, or deployment
-  examples.
+- `MAJOR`: at and after 1.0, breaking deployment, policy, auth, endpoint, env var, or documented
+  operator workflow changes.
+- `MINOR`: backward-compatible capabilities, or an explicitly documented deployment-contract change
+  while the project remains below 1.0.
 - `PATCH`: fixes, documentation, tests, and non-breaking deployment corrections.
 
 Tags are annotated and named `vX.Y.Z`. `package.json` stores `X.Y.Z` without the leading `v`.

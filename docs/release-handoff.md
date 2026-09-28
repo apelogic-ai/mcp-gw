@@ -94,7 +94,7 @@ For a release that enables direct-client OAuth, the handoff must also identify:
   ALB/IP-target data plane, rendered into the wrapper NetworkPolicy;
 - the static-client or constrained-DCR registration mode and exact tested-client versions/evidence;
   and
-- explicit exclusion of authenticated `/oauth/google|github/start|status|disconnect` handlers from
+- explicit exclusion of authenticated `/oauth/{provider}/{start,status,refresh,disconnect}` handlers from
   the public ingress.
 
 Refresh-enabled dynamic public clients receive an opaque MCP-GW refresh credential after the

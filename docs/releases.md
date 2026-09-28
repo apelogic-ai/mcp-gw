@@ -7,16 +7,26 @@ public chart.
 
 ## Versioning
 
-Use SemVer:
+Use SemVer. Before 1.0, a minor release may change the deployment contract and must call out every
+required operator action in its upgrade notes. At and after 1.0, those changes require a major
+release:
 
-- `MAJOR`: breaking changes to public deployment shape, MCP endpoint behavior, environment variable
-  names, policy semantics, or documented admin workflows.
-- `MINOR`: backward-compatible features such as new backend registry fields, new Google Workspace
-  tools, new deployment examples, or new optional policy integrations.
+- `MAJOR`: at and after 1.0, breaking changes to public deployment shape, MCP endpoint behavior,
+  environment variable names, policy semantics, or documented admin workflows.
+- `MINOR`: backward-compatible features, or explicitly documented deployment-contract changes while
+  the project remains below 1.0.
 - `PATCH`: bug fixes, documentation fixes, test improvements, and non-breaking deployment-template
   corrections.
 
 The current public release line is `v0.5.0`.
+
+### 0.5.0 upgrade notes
+
+- Kubernetes 1.32 or newer is required.
+- An enabled AgentGateway must set
+  `agentgateway.mcpAuthentication.resourceMetadata.resource` and configure at least one enabled
+  backend. Installations that previously rendered an empty gateway must choose a provider or an
+  external backend before upgrading.
 
 ## Release Artifacts
 

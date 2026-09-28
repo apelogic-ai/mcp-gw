@@ -306,8 +306,10 @@ Provider grants are never inferred from the HOP-1 login: every provider is
 gated by its own consent. Use the same stable HOP-1 subject for connect, status,
 and later tool calls. Headless clients and portals should use the canonical
 `/connections/{provider}/authorize|status|refresh|disconnect` HTTP routes with
-a trusted HOP-1 token. The older private `/oauth/{provider}/*` aliases remain
-supported through the complete 0.6.x release line; their earliest possible
-removal is 0.7.0, announced in the preceding minor release notes. See
+a trusted HOP-1 token. The older private
+`/oauth/{provider}/{start,status,refresh,disconnect}` aliases remain supported
+through the complete 0.6.x release line; their earliest possible removal is
+0.7.0, announced in the preceding minor release notes. Provider callbacks are
+separate registered return endpoints, not compatibility aliases. See
 [`provider-connection-flows.md`](provider-connection-flows.md) and the
 [`client-integration-runbook.md`](client-integration-runbook.md).

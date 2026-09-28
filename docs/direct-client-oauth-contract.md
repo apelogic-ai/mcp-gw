@@ -95,9 +95,11 @@ public MCP ingress or advertised in authorization-server metadata:
 ```text
 /oauth/google/start
 /oauth/google/status
+/oauth/google/refresh
 /oauth/google/disconnect
 /oauth/github/start
 /oauth/github/status
+/oauth/github/refresh
 /oauth/github/disconnect
 ```
 
@@ -105,10 +107,11 @@ Remote MCP clients use the authenticated `google_oauth_*` and `github_oauth_*` M
 lifecycle. Internal portals may call the equivalent HTTP handlers only through a private route with
 a valid HOP-1 bearer token.
 
-These `/oauth/{provider}/*` handlers are compatibility aliases through the complete 0.6.x release
-line. Their earliest possible removal is 0.7.0, announced in the preceding minor release notes.
-New private control-plane integrations use
-`/connections/{provider}/authorize|status|refresh|disconnect`.
+Only the start, status, refresh, and disconnect handlers are compatibility aliases. Provider
+callback routes are not compatibility aliases; they remain the registered HOP-2 OAuth return
+endpoints. The aliases remain supported through the complete 0.6.x release line. Their earliest
+possible removal is 0.7.0, announced in the preceding minor release notes. New private control-plane
+integrations use `/connections/{provider}/authorize|status|refresh|disconnect`.
 
 ## Principal and provider conformance
 

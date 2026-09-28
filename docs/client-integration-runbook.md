@@ -49,9 +49,11 @@ the remote-client ingress or advertise them as authorization-server endpoints:
 ```text
 https://mcp.example.com/oauth/google/start
 https://mcp.example.com/oauth/google/status
+https://mcp.example.com/oauth/google/refresh
 https://mcp.example.com/oauth/google/disconnect
 https://mcp.example.com/oauth/github/start
 https://mcp.example.com/oauth/github/status
+https://mcp.example.com/oauth/github/refresh
 https://mcp.example.com/oauth/github/disconnect
 ```
 

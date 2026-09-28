@@ -109,8 +109,7 @@ connectionLifecycle:
 
 This adds only NetworkPolicy ingress peers to the existing wrapper ClusterIP
 Services. It creates no Ingress or HTTPRoute. Call the canonical internal
-routes `/connections/google/{authorize,status,disconnect}` and
-`/connections/github/{authorize,status,disconnect}` with the user's HOP-1
+routes `/connections/{provider}/{authorize,status,refresh,disconnect}` with the user's HOP-1
 bearer token. Network reachability never bypasses token validation, principal
 binding, policy, or lifecycle generation guards.
 
