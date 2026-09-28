@@ -58,7 +58,7 @@ describe("release metadata", () => {
     expect(releaseWorkflow).toContain("bun run ci");
     expect(releaseWorkflow).toContain("bun run deploy:check");
     expect(releaseWorkflow).toContain("gh release create");
-    expect(releaseWorkflow).toContain("--generate-notes");
+    expect(releaseWorkflow).not.toContain("--generate-notes");
     expect(releaseWorkflow).toContain("release-handoff.md");
   });
 

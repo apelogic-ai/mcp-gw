@@ -79,6 +79,12 @@ describe("release artifacts", () => {
     expect(workflow).toContain(
       "platform-digest-${{ matrix.component }}-${{ matrix.architecture }}",
     );
+    expect(workflow).toContain(
+      "${{ matrix.component }}-${{ matrix.architecture }}-arch-index.digest",
+    );
+    expect(workflow).not.toContain(
+      "dist/${{ matrix.component }}-${{ matrix.architecture }}.digest",
+    );
     expect(workflow).toContain("docker buildx imagetools create");
     expect(workflow).toContain('docker buildx imagetools inspect "$IMAGE:$VERSION" --raw');
     expect(workflow).not.toContain("docker/setup-qemu-action@");
@@ -277,7 +283,8 @@ describe("release artifacts", () => {
     expect(handoff).toContain("RFC 8414");
     expect(handoff).toContain("DCR-enabled mode");
     expect(handoff).toContain("static-only mode");
-    expect(handoff).toContain("GitOps-owned");
+    expect(handoff).toContain("deployment-owned");
+    expect(handoff).not.toContain("GitOps");
     expect(handoff).toContain("tested-client evidence");
     expect(handoff).toContain("does not establish compatibility");
     expect(handoff).toContain("rotating client refresh tokens");

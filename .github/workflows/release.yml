@@ -234,13 +234,13 @@ jobs:
       - name: Record ${{ matrix.architecture }} image digest
         run: |
           mkdir -p dist
-          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'dist/${{ matrix.component }}-${{ matrix.architecture }}.digest'
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'dist/${{ matrix.component }}-${{ matrix.architecture }}-arch-index.digest'
 
       - name: Upload platform digest
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: platform-digest-${{ matrix.component }}-${{ matrix.architecture }}
-          path: dist/${{ matrix.component }}-${{ matrix.architecture }}.digest
+          path: dist/${{ matrix.component }}-${{ matrix.architecture }}-arch-index.digest
           if-no-files-found: error
 
   publish-images:
@@ -288,8 +288,8 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repository }}"
-          AMD64_DIGEST="$(cat "dist/${{ matrix.component }}-amd64.digest")"
-          ARM64_DIGEST="$(cat "dist/${{ matrix.component }}-arm64.digest")"
+          AMD64_DIGEST="$(cat "dist/${{ matrix.component }}-amd64-arch-index.digest")"
+          ARM64_DIGEST="$(cat "dist/${{ matrix.component }}-arm64-arch-index.digest")"
           docker buildx imagetools create \
             --tag "$IMAGE:$VERSION" \
             "$IMAGE@$AMD64_DIGEST" \
@@ -820,5 +820,4 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --verify-tag \
-            --generate-notes \
             --notes-file dist/release-handoff.md

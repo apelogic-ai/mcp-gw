@@ -75,11 +75,11 @@ existing Kubernetes Secret containing these environment-variable keys:
 
 This chart and Google Workspace wrapper include the optional public OAuth authorization broker.
 The broker is disabled by default. Its deployment coordinates are environment-specific,
-GitOps-owned values rather than release constants; this handoff deliberately contains no deployed
-issuer, resource, callback, Secret name, or key ID.
+deployment-owned values rather than release constants; this handoff deliberately contains no
+deployed issuer, resource, callback, Secret name, or key ID.
 
-The typed chart entry point is \`googleWorkspace.authorizationBroker.enabled\`. When enabled, GitOps
-owns these non-secret public coordinates and policy values:
+The typed chart entry point is \`googleWorkspace.authorizationBroker.enabled\`. When enabled, the
+deployment configuration owns these non-secret public coordinates and policy values:
 
 - \`googleWorkspace.authorizationBroker.issuer\`: canonical public authorization-server issuer.
 - \`googleWorkspace.authorizationBroker.resource\`: exact canonical MCP resource and token audience.
@@ -128,7 +128,7 @@ Choose one reviewed registration mode:
   \`googleWorkspace.authorizationBroker.staticClients\`; no registration endpoint is advertised or
   routed. Static clients remain immutable and receive no secret.
 
-Signing material is file-only. GitOps supplies an existing Secret reference through
+Signing material is file-only. The deployment system supplies an existing Secret reference through
 \`googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.name\` and
 \`googleWorkspace.authorizationBroker.signingKeyring.secretKeyRef.key\`. The selected value is a
 JWKS object with a \`"keys"\` array. The JWK selected by \`activeSigningKid\` must be a private RSA
