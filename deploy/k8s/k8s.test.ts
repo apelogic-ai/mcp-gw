@@ -1798,6 +1798,72 @@ describe("Kubernetes production chart", () => {
     expect(githubMcpDeployment).toMatch(/name: github-mcp[\s\S]*runAsGroup: 10001/);
   });
 
+  test("derives the GitHub upstream URL from the release-scoped Service name", () => {
+    for (const [releaseName, extraArgs, componentName] of [
+      ["team-gateway", [], "team-gateway-github-mcp"],
+      [
+        "ignored-release",
+        ["--set-string", "fullnameOverride=platform-mcp"],
+        "platform-mcp-github-mcp",
+      ],
+    ] as const) {
+      const rendered = helmTemplateForRelease(releaseName, [
+        "--values",
+        "deploy/k8s/examples/values-k8s-smoke.yaml",
+        "--values",
+        "deploy/k8s/examples/values-github-mcp.example.yaml",
+        ...extraArgs,
+      ]);
+      const wrapper = renderedResource(
+        rendered,
+        "Deployment",
+        componentName.replace(/-github-mcp$/u, "-github-wrapper"),
+      );
+
+      expect(deploymentEnvValue(wrapper, "GITHUB_MCP_UPSTREAM_URL")).toBe(
+        `http://${componentName}:8082/mcp`,
+      );
+    }
+  });
+
+  test("preserves an explicit legacy GitHub upstream URL override", () => {
+    const rendered = helmTemplateForRelease("team-gateway", [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+      "--set-string",
+      "githubWrapper.env.GITHUB_MCP_UPSTREAM_URL=http://external-github-mcp.tools.svc:8082/mcp",
+    ]);
+    const wrapper = renderedResource(rendered, "Deployment", "team-gateway-github-wrapper");
+
+    expect(deploymentEnvValue(wrapper, "GITHUB_MCP_UPSTREAM_URL")).toBe(
+      "http://external-github-mcp.tools.svc:8082/mcp",
+    );
+    expect(countOccurrences(wrapper, "name: GITHUB_MCP_UPSTREAM_URL")).toBe(1);
+  });
+
+  test("rejects ambiguous GitHub upstream URL injection paths", () => {
+    const base = [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+    ];
+    for (const args of [
+      [
+        "--set-json",
+        'githubWrapper.extraEnv=[{"name":"GITHUB_MCP_UPSTREAM_URL","value":"http://other:8082/mcp"}]',
+      ],
+      ["--set-json", 'githubWrapper.secretRef.envKeys=["GITHUB_MCP_UPSTREAM_URL"]'],
+    ]) {
+      const result = helmTemplateResult([...base, ...args]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString()).toContain("GITHUB_MCP_UPSTREAM_URL");
+    }
+  });
+
   test("renders the opt-in full provider bundle production profile", () => {
     const rendered = helmTemplate([
       "--values",

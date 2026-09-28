@@ -148,6 +148,13 @@
 {{- end }}
 {{- end }}
 
+{{- range .Values.githubWrapper.extraEnv }}
+{{- if eq .name "GITHUB_MCP_UPSTREAM_URL" }}{{- fail "githubWrapper.extraEnv must not override chart-managed GITHUB_MCP_UPSTREAM_URL; use githubWrapper.env.GITHUB_MCP_UPSTREAM_URL for an explicit upstream" }}{{- end }}
+{{- end }}
+{{- if has "GITHUB_MCP_UPSTREAM_URL" .Values.githubWrapper.secretRef.envKeys }}
+{{- fail "githubWrapper.secretRef.envKeys must not import chart-managed GITHUB_MCP_UPSTREAM_URL; use githubWrapper.env.GITHUB_MCP_UPSTREAM_URL for an explicit upstream" }}
+{{- end }}
+
 {{- $broker := .Values.googleWorkspace.authorizationBroker }}
 {{- $brokerIssuer := include "mcp-gateway.authorizationBrokerIssuer" . }}
 {{- $brokerHttpRoute := .Values.agentgateway.gatewayApi.brokerHttpRoute }}

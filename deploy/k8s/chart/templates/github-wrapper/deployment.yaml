@@ -2,6 +2,7 @@
 {{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
 {{- fail "hop1.issuers must contain at least one issuer when githubWrapper is enabled" }}
 {{- end }}
+{{- $githubMcpUpstreamUrl := default (printf "http://%s:%v/mcp" (include "mcp-gateway.componentName" (dict "root" . "component" "github-mcp")) .Values.githubMcp.port) (index .Values.githubWrapper.env "GITHUB_MCP_UPSTREAM_URL") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -80,9 +81,13 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            - name: GITHUB_MCP_UPSTREAM_URL
+              value: {{ $githubMcpUpstreamUrl | quote }}
             {{- range $name, $value := .Values.githubWrapper.env }}
+            {{- if ne $name "GITHUB_MCP_UPSTREAM_URL" }}
             - name: {{ $name }}
               value: {{ $value | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.policy.opaUrl }}
             - name: OPA_POLICY_URL
