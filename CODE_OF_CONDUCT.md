@@ -25,8 +25,10 @@ would reasonably be considered inappropriate in a professional setting.
 Project maintainers are responsible for clarifying and enforcing these standards. They may remove,
 edit, or reject contributions and participation that are inconsistent with this Code of Conduct.
 
-Report conduct concerns privately to `lbeliaev@gmail.com`. Reports will be reviewed promptly and
-handled with respect for the privacy and safety of the reporter.
+Report conduct concerns through
+[this repository's GitHub private reporting channel](https://github.com/apelogic-ai/mcp-gw/security/advisories/new)
+under **Security → Report a vulnerability**. Reports will be reviewed promptly and handled with
+respect for the privacy and safety of the reporter.
 
 ## Attribution
 

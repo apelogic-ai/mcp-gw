@@ -5,9 +5,8 @@
 Do not open a public issue for vulnerabilities or leaked credentials.
 
 Use [GitHub private vulnerability reporting](https://github.com/apelogic-ai/mcp-gw/security/advisories/new)
-whenever possible. It creates a private advisory visible only to the reporter and repository
-security maintainers. If GitHub private reporting is unavailable, email `lbeliaev@gmail.com` with
-the subject `mcp-gw security report`.
+through **Security → Report a vulnerability**. It creates a private advisory visible only to the
+reporter and repository security maintainers.
 
 Include:
 
