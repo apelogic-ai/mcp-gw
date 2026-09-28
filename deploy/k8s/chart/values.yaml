@@ -70,13 +70,7 @@ oauthMigrations:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 500m
-      memory: 256Mi
+  resources: {}
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -144,13 +138,7 @@ agentgateway:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
+  resources: {}
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -229,13 +217,7 @@ googleWorkspace:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
+  resources: {}
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -334,13 +316,7 @@ dbMcp:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
+  resources: {}
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -401,13 +377,7 @@ githubWrapper:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
+  resources: {}
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []
@@ -473,13 +443,7 @@ githubMcp:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: "1"
-      memory: 512Mi
+  resources: {}
   extraEnv: []
   extraVolumeMounts: []
   extraVolumes: []

@@ -34,7 +34,7 @@ annotations:
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
-      description: Add configurable AgentGateway CORS and backend failure behavior, production resource defaults, chart notes, and Google-only or GitHub-only production profiles.
+      description: Add configurable AgentGateway CORS and backend failure behavior, production resource guidance, chart notes, and Google-only or GitHub-only production profiles.
     - kind: fixed
       description: Use one immutable AgentGateway fork pin in CI and release, publish truthful source metadata, and reconcile release and lifecycle documentation.
     - kind: security

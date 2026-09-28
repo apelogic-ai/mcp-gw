@@ -1,5 +1,5 @@
-# Opt-in full provider bundle fixture. Private GitOps must replace the fixture
-# issuer and existing Secret references with deployment-owned values.
+# Opt-in full provider bundle fixture. The deployment overlay must replace the
+# fixture issuer and existing Secret references with environment-owned values.
 productionProfile:
   enabled: true
 
@@ -21,6 +21,13 @@ oauthMigrations:
   secretKeyRef:
     name: mcp-oauth-database
     key: dsn
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 agentgateway:
   enabled: true
@@ -43,16 +50,44 @@ agentgateway:
       serviceName: github-wrapper
       port: 8080
       path: /mcp
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
 
 googleWorkspace:
   enabled: true
   secretRef:
     name: mcp-provider-runtime
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
 
 githubWrapper:
   enabled: true
   secretRef:
     name: mcp-provider-runtime
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
 
 githubMcp:
   enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi

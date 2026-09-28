@@ -28,7 +28,8 @@ Use SemVer:
   operator workflow changes.
 - `MINOR`: backward-compatible capabilities, or an explicitly documented deployment-contract change
   while the project remains below 1.0.
-- `PATCH`: fixes, documentation, tests, and non-breaking deployment corrections.
+- `PATCH`: fixes, documentation, tests, non-breaking deployment corrections, and—before 1.0—narrowly
+  scoped security hardening whose operator impact and opt-out are explicit in the upgrade notes.
 
 Tags are annotated and named `vX.Y.Z`. `package.json` stores `X.Y.Z` without the leading `v`.
 

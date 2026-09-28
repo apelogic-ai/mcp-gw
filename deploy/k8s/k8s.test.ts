@@ -1983,7 +1983,7 @@ describe("Kubernetes production chart", () => {
     expect(githubOnly.exitCode).toBe(0);
   });
 
-  test("ships production resources and read-only wrapper filesystems", async () => {
+  test("keeps resource defaults opt-in and documents production sizing with read-only wrappers", async () => {
     const [values, rendered] = await Promise.all([
       Bun.file("deploy/k8s/chart/values.yaml").text(),
       Promise.resolve(
@@ -1991,7 +1991,7 @@ describe("Kubernetes production chart", () => {
       ),
     ]);
 
-    expect(values).not.toContain("resources: {}");
+    expect(values.match(/resources: \{\}/g)).toHaveLength(6);
     for (const component of ["agentgateway", "google-workspace", "github-wrapper", "github-mcp"]) {
       const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-${component}`);
       expect(deployment).toContain("requests:");

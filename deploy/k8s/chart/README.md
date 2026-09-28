@@ -375,7 +375,7 @@ and are left in place.
 | `agentgateway.cors.allowHeaders`                                  | MCP protocol, content type, authorization           | Request headers allowed by AgentGateway CORS.                                                                           |
 | `agentgateway.cors.exposeHeaders`                                 | `Mcp-Session-Id`                                    | Response headers exposed to browser clients.                                                                            |
 | `agentgateway.backendFailureMode`                                 | `failOpen`                                          | AgentGateway backend failure behavior; set `failClosed` when partial backend availability must reject the request.      |
-| `<workload>.resources`                                            | conservative requests and limits                    | Per-workload resource requests and limits; tune these defaults from observed usage.                                     |
+| `<workload>.resources`                                            | `{}`                                                | Per-workload resource requests and limits; copy and tune complete maps from the production examples.                    |
 | `<workload>.securityContext.readOnlyRootFilesystem`               | `true` except `dbMcp`                               | Read-only container root filesystem; wrappers receive an ephemeral writable `/tmp`.                                     |
 | `productionProfile.enabled`                                       | `false`                                             | Validate an explicit Google-only, GitHub-only, or combined provider production topology.                                |
 

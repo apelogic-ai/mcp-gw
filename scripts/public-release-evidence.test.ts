@@ -40,13 +40,18 @@ describe("public release evidence", () => {
       JSON.stringify([attestation("ghcr.io/example/chart"), attestation(privateRegistry)]),
     );
 
-    await expect(
-      verifyPublicReleaseEvidence({
+    let failure: Error | undefined;
+    try {
+      await verifyPublicReleaseEvidence({
         allowedSubjects: ["ghcr.io/example/chart"],
         artifactsDirectory: artifacts,
         attestationPaths: [attestations],
-      }),
-    ).rejects.toThrow(/private\/chart/);
+      });
+    } catch (error) {
+      failure = error as Error;
+    }
+    expect(failure?.message).toMatch(/Unexpected public attestation subject/);
+    expect(failure?.message).not.toContain(privateRegistry);
   });
 
   test("rejects private registry identifiers in public release assets", async () => {
@@ -64,6 +69,28 @@ describe("public release evidence", () => {
         attestationPaths: [attestations],
       }),
     ).rejects.toThrow(/release-handoff\.md/);
+  });
+
+  test("inspects packaged chart contents for private registry identifiers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mcp-gw-private-chart-"));
+    const artifacts = join(root, "artifacts");
+    const chart = join(root, "chart");
+    const archive = join(artifacts, "mcp-gateway.tgz");
+    const attestations = join(root, "attestations.json");
+    await mkdir(artifacts);
+    await mkdir(chart);
+    await writeFile(join(chart, "values.yaml"), `image: ${privateRegistry}\n`);
+    const tar = Bun.spawn(["tar", "-czf", archive, "-C", chart, "."]);
+    expect(await tar.exited).toBe(0);
+    await writeFile(attestations, JSON.stringify(attestation("ghcr.io/example/chart")));
+
+    await expect(
+      verifyPublicReleaseEvidence({
+        allowedSubjects: ["ghcr.io/example/chart"],
+        artifactsDirectory: artifacts,
+        attestationPaths: [attestations],
+      }),
+    ).rejects.toThrow(/mcp-gateway\.tgz/);
   });
 });
 

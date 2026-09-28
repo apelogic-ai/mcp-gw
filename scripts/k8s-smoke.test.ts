@@ -154,7 +154,7 @@ exit 0
       "ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION",
     );
 
-    const publishChart = workflow.slice(publishChartStart, workflow.indexOf("  promote-ecr:"));
+    const publishChart = workflow.slice(publishChartStart, workflow.indexOf("  release:"));
     expect(publishChart).toContain("released-kubernetes-broker-smoke");
   });
 

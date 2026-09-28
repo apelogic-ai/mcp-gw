@@ -12,9 +12,9 @@ records the human-maintained compatibility summary.
 
 ### Added
 
-- Add configurable AgentGateway CORS allowlists and backend failure behavior, conservative default
-  resource requests and limits, chart discovery metadata, operator notes, and validation for
-  Google-only, GitHub-only, or combined production profiles.
+- Add configurable AgentGateway CORS allowlists and backend failure behavior, documented production
+  resource-sizing examples, chart discovery metadata, operator notes, and validation for Google-only,
+  GitHub-only, or combined production profiles.
 - Define the compatible AgentGateway fork and immutable commit in one machine-readable source pin,
   use it in both pull-request CI and tagged releases, and document the five-patch compatibility set
   plus upstream sync procedure.
@@ -40,8 +40,9 @@ records the human-maintained compatibility summary.
 
 - No database migration, Secret-format change, OAuth reconnect, or provider reauthorization is
   required.
-- The chart now supplies conservative resource requests and limits. Existing explicit resource
-  values remain authoritative; review capacity and tune them from observed workload usage.
+- Workload resources remain opt-in (`resources: {}`), so existing partial resource overrides do not
+  inherit new limits during this patch upgrade. Review the documented production examples and set
+  complete requests and limits from observed workload usage.
 - Google Workspace and GitHub wrapper root filesystems are now read-only with an ephemeral writable
   `/tmp`. Deployments that add integrations writing elsewhere must provide an explicit writable
   volume mount or override that workload's security context.

@@ -13,7 +13,7 @@ const PRIVATE_IDENTIFIER_PATTERNS = [
   /\b\d{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com\b/iu,
   /\b[a-z0-9.-]+\.(?:internal|local)(?=[:/\s]|$)/iu,
 ];
-const BINARY_EXTENSIONS = new Set([".gz", ".tgz"]);
+const BINARY_EXTENSIONS = new Set([".gz"]);
 
 export async function verifyPublicReleaseEvidence(
   options: PublicReleaseEvidenceOptions,
@@ -29,7 +29,7 @@ export async function verifyPublicReleaseEvidence(
     for (const subject of collectSubjects(document)) {
       observed.add(subject);
       if (!allowed.has(subject)) {
-        throw new Error(`Unexpected public attestation subject: ${subject}`);
+        throw new Error(`Unexpected public attestation subject in ${path}`);
       }
     }
   }
@@ -44,12 +44,32 @@ export async function verifyPublicReleaseEvidence(
     if (BINARY_EXTENSIONS.has(extname(path))) {
       continue;
     }
-    const content = await readFile(path, "utf8");
+    const content = await readArtifactText(path);
     const privateIdentifier = PRIVATE_IDENTIFIER_PATTERNS.find((pattern) => pattern.test(content));
     if (privateIdentifier) {
       throw new Error(`Private registry identifier found in public release asset ${path}`);
     }
   }
+}
+
+async function readArtifactText(path: string): Promise<string> {
+  if (extname(path) !== ".tgz") {
+    return readFile(path, "utf8");
+  }
+
+  const extraction = Bun.spawn(["tar", "-xOzf", path], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [content, stderr, exitCode] = await Promise.all([
+    new Response(extraction.stdout).text(),
+    new Response(extraction.stderr).text(),
+    extraction.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`Unable to inspect packaged chart ${path}: ${stderr.trim()}`);
+  }
+  return content;
 }
 
 function collectSubjects(value: unknown): string[] {
