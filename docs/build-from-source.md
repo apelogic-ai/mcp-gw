@@ -27,11 +27,15 @@ bun run deploy:check
 bun run release:check
 ```
 
-The wrapper Dockerfiles pin their Bun and Ubuntu bases by digest, install only production root
-dependencies, and use a dated Ubuntu snapshot plus direct package versions so the complete apt
-dependency closure remains available and fixed. The Google Workspace image also validates an
-architecture-specific SHA-256 checksum before installing the pinned `gws` binary. AgentGateway and
-the third-party GitHub MCP Server have their own immutable source records under `.release/`.
+The wrapper Dockerfiles pin their Bun, Ubuntu, and CA-bootstrap bases by digest, install only
+production root dependencies, and use a dated Ubuntu snapshot plus direct package versions so the
+complete apt dependency closure remains available and fixed. The bootstrap bundle permits the
+first snapshot TLS request before Ubuntu's `ca-certificates` package is installed. Arm64 sources
+are normalized from the ports archive to the snapshot-backed Ubuntu archive, and the build fails
+unless `apt-cache policy` proves that the selected snapshot supplied the package index. The Google
+Workspace image also validates an architecture-specific SHA-256 checksum before installing the
+pinned `gws` binary. AgentGateway and the third-party GitHub MCP Server have their own immutable
+source records under `.release/`.
 
 ## Build The First-Party Images
 
