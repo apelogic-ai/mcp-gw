@@ -334,6 +334,11 @@ helm upgrade mcp-gateway \
   -f my-values.yaml
 ```
 
+When upgrading to 0.5.3, change or remove an existing
+`googleWorkspace.env.GWS_BINARY_PATH=/app/node_modules/.bin/gws` override. The image and chart now
+default to `/usr/local/bin/gws`, and the wrapper refuses to start when an explicit path is not an
+executable file. An existing `/usr/local/bin/gws` workaround may remain or be removed.
+
 ## Uninstall
 
 ```bash

@@ -23,8 +23,10 @@ The current public release line is `v0.5.3`.
 
 ### 0.5.3 upgrade notes
 
-- Upgrade 0.5.2 deployments to restore Google Workspace tools. The chart and Compose defaults now
-  select `/usr/local/bin/gws`, and the wrapper fails startup if an override is not executable.
+- Before upgrading, change or remove any existing Compose `.env` or Helm values override that sets
+  `GWS_BINARY_PATH=/app/node_modules/.bin/gws`; the wrapper now refuses to start when the path is not
+  an executable file. Set it to `GWS_BINARY_PATH=/usr/local/bin/gws` if an explicit override is
+  required. The 0.5.2 workaround already uses that new default and may remain or be removed.
 - No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
   value rename, or new required value is introduced.
 - AgentGateway now retries a remote JWKS source that is unavailable at startup and performs a
@@ -34,9 +36,11 @@ The current public release line is `v0.5.3`.
   user's verified GitHub email addresses. A mismatch consumes the one-time state, cleans up the
   issued credential, activates no connection, and reports `identity_mismatch`.
 - Wrapper images resolve their apt dependency closure from a dated Ubuntu snapshot and no longer
-  include the unused Node.js runtime. First-party attestations are verified against the tagged
-  release workflow; the third-party GitHub MCP mirror is verified from GitHub's upstream Cosign
-  signature plus source/mirror digest equality.
+  include the unused Node.js runtime. A digest-pinned CA bundle bootstraps snapshot TLS, the arm64
+  source is normalized from the ports archive to the snapshot-backed Ubuntu archive, and image
+  builds fail if APT does not resolve from the selected snapshot. First-party attestations are
+  verified against the tagged release workflow; the third-party GitHub MCP mirror is verified from
+  GitHub's upstream Cosign signature plus source/mirror digest equality.
 
 ### 0.5.2 upgrade notes
 

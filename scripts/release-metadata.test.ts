@@ -37,6 +37,12 @@ describe("release metadata", () => {
     expect(releaseDocs).toContain("SBOM");
     expect(releaseDocs).toContain("provenance");
     expect(releaseDocs).toContain("vulnerability report");
+    for (const releaseNotes of [changelog, releaseDocs]) {
+      expect(releaseNotes).toContain("GWS_BINARY_PATH=/app/node_modules/.bin/gws");
+      expect(releaseNotes).toContain("GWS_BINARY_PATH=/usr/local/bin/gws");
+      expect(releaseNotes).toMatch(/Compose.*\.env.*Helm values/is);
+      expect(releaseNotes).toMatch(/change or remove.*GWS_BINARY_PATH/is);
+    }
     expect(readme).toContain("docs/releases.md");
     expect(skill).toContain("name: mcp-gw-release");
     expect(skill).toContain("bun run release:check");

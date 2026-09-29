@@ -10,12 +10,17 @@ test("requires GWS_BINARY_PATH to name an executable file", async () => {
   const binary = join(directory, "gws");
   try {
     await writeFile(binary, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
-    expect(await executableError(binary)).toBe(`GWS_BINARY_PATH is not executable: ${binary}`);
+    expect(await executableError(binary)).toBe(
+      `GWS_BINARY_PATH is not an executable file: ${binary}`,
+    );
 
     await chmod(binary, 0o755);
     await assertGwsBinaryExecutable(binary);
+    expect(await executableError(directory)).toBe(
+      `GWS_BINARY_PATH is not an executable file: ${directory}`,
+    );
     expect(await executableError(join(directory, "missing"))).toContain(
-      "GWS_BINARY_PATH is not executable",
+      "GWS_BINARY_PATH is not an executable file",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });

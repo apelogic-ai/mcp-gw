@@ -33,8 +33,12 @@ records the human-maintained compatibility summary.
 
 ### Upgrade Notes
 
-- Upgrade 0.5.2 deployments to restore Google Workspace tool execution. A temporary 0.5.2
-  workaround is `GWS_BINARY_PATH=/usr/local/bin/gws`.
+- Before upgrading, change or remove any existing Compose `.env` or Helm values override that sets
+  `GWS_BINARY_PATH=/app/node_modules/.bin/gws`; the wrapper now refuses to start when the path is not
+  an executable file. Set it to `GWS_BINARY_PATH=/usr/local/bin/gws` if an explicit override is
+  required. The 0.5.2 workaround already uses that new default and may remain or be removed.
+- AgentGateway now recovers a remote issuer JWKS that was unavailable at startup and refreshes an
+  unknown signing key without a restart.
 - No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
   value rename, or new required value is introduced.
 - Deployments using GitHub OAuth must ensure the configured HOP-1 `emailClaim` resolves to one of

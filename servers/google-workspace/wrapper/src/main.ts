@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { constants as fsConstants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { JsonlAuditSink } from "../../../../shared/audit/audit";
 import {
   createPostgresPoolConfig,
@@ -50,8 +50,11 @@ const DEFAULT_HOP1_OAUTH_SCOPES = ["openid", "email"];
 export async function assertGwsBinaryExecutable(binaryPath: string): Promise<void> {
   try {
     await access(binaryPath, fsConstants.X_OK);
+    if (!(await stat(binaryPath)).isFile()) {
+      throw new Error("not a file");
+    }
   } catch {
-    throw new Error(`GWS_BINARY_PATH is not executable: ${binaryPath}`);
+    throw new Error(`GWS_BINARY_PATH is not an executable file: ${binaryPath}`);
   }
 }
 
