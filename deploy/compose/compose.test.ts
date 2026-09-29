@@ -29,7 +29,7 @@ describe("Docker Compose deployment skeleton", () => {
     expect(compose).toContain("GOOGLE_WORKSPACE_GOVERNANCE_CATALOG:");
     expect(compose).toContain("AUDIT_LOG_PATH:");
     expect(compose).toContain("/docker-entrypoint-initdb.d/001-oauth-schema.sql:ro");
-    expect(compose).toContain("GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/app/node_modules/.bin/gws}");
+    expect(compose).toContain("GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/usr/local/bin/gws}");
   });
 
   test("provides an environment-neutral local Compose template", async () => {

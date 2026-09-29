@@ -17,7 +17,7 @@ services:
       dockerfile: servers/google-workspace/wrapper/Dockerfile
     environment:
       PORT: "8080"
-      GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/app/node_modules/.bin/gws}
+      GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/usr/local/bin/gws}
       GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: ${GOOGLE_WORKSPACE_GOVERNANCE_CATALOG:-}
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}

@@ -1,4 +1,6 @@
 import { Pool } from "pg";
+import { constants as fsConstants } from "node:fs";
+import { access } from "node:fs/promises";
 import { JsonlAuditSink } from "../../../../shared/audit/audit";
 import {
   createPostgresPoolConfig,
@@ -44,6 +46,14 @@ const DEFAULT_GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/meetings.space.created",
 ];
 const DEFAULT_HOP1_OAUTH_SCOPES = ["openid", "email"];
+
+export async function assertGwsBinaryExecutable(binaryPath: string): Promise<void> {
+  try {
+    await access(binaryPath, fsConstants.X_OK);
+  } catch {
+    throw new Error(`GWS_BINARY_PATH is not executable: ${binaryPath}`);
+  }
+}
 
 export function loadMainConfig(env: Record<string, string | undefined>): MainConfig {
   const authorizationBroker = parseAuthorizationBrokerConfig(env);
@@ -257,6 +267,7 @@ function parseJsonArray(value: string | undefined, name: string): unknown[] {
 
 if (import.meta.main) {
   const config = loadMainConfig(process.env);
+  await assertGwsBinaryExecutable(config.wrapper.gwsBinary);
   const handler = await createMainHandler(config);
 
   Bun.serve({
