@@ -134,6 +134,10 @@ exit 0
     expect(smoke).toContain("fetch(process.env.GATEWAY_URL");
     expect(smoke).toContain("Date.now() + 30_000");
     expect(smoke).toContain('[[ "$client_phase" == "Succeeded" ]]');
+    expect(smoke).toContain("wait_for_release_deployments()");
+    expect(smoke).toContain('kubectl rollout status "deployment/$RELEASE_NAME-$component"');
+    expect(smoke).not.toContain("  --wait \\\n  --timeout 5m");
+    expect(smoke).toContain("if kubectl get pod broker-smoke-client");
     expect(smoke).not.toContain("rollout restart");
     expect(values).toContain("fixture-enterprise");
     expect(values).toContain("authorizationBroker:");
