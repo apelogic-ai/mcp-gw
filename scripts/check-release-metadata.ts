@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolveAgentGatewaySource } from "./resolve-agentgateway-source";
+import { resolveGitHubMcpSource } from "./resolve-github-mcp-source";
 
 interface PackageJson {
   version?: unknown;
@@ -8,15 +9,23 @@ interface PackageJson {
 const semverPattern = /^\d+\.\d+\.\d+$/;
 
 async function main(): Promise<void> {
-  const [packageJsonRaw, changelog, releaseDocs, releaseWorkflow, ciWorkflow, agentGateway] =
-    await Promise.all([
-      readFile("package.json", "utf8"),
-      readFile("CHANGELOG.md", "utf8"),
-      readFile("docs/releases.md", "utf8"),
-      readFile(".github/workflows/release.yml", "utf8"),
-      readFile(".github/workflows/ci.yml", "utf8"),
-      resolveAgentGatewaySource(),
-    ]);
+  const [
+    packageJsonRaw,
+    changelog,
+    releaseDocs,
+    releaseWorkflow,
+    ciWorkflow,
+    agentGateway,
+    githubMcp,
+  ] = await Promise.all([
+    readFile("package.json", "utf8"),
+    readFile("CHANGELOG.md", "utf8"),
+    readFile("docs/releases.md", "utf8"),
+    readFile(".github/workflows/release.yml", "utf8"),
+    readFile(".github/workflows/ci.yml", "utf8"),
+    resolveAgentGatewaySource(),
+    resolveGitHubMcpSource(),
+  ]);
 
   const packageJson = JSON.parse(packageJsonRaw) as PackageJson;
   if (typeof packageJson.version !== "string" || !semverPattern.test(packageJson.version)) {
@@ -65,6 +74,16 @@ async function main(): Promise<void> {
     ciWorkflow,
     "ghcr.io/apelogic-ai/mcp-gw-agentgateway@sha256:",
     "CI must build the pinned AgentGateway source instead of testing an older published digest",
+  );
+  expectText(
+    releaseWorkflow,
+    "bun scripts/resolve-github-mcp-source.ts",
+    "release workflow must resolve the shared GitHub MCP Server source pin",
+  );
+  expectNotText(
+    releaseWorkflow,
+    githubMcp.sourceDigest,
+    "release workflow must not duplicate the GitHub MCP Server digest pin",
   );
 }
 

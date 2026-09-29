@@ -51,6 +51,10 @@ jobs:
         id: agentgateway-source
         run: bun scripts/resolve-agentgateway-source.ts --github-output "$GITHUB_OUTPUT"
 
+      - name: Resolve pinned GitHub MCP Server source
+        id: github-mcp-source
+        run: bun scripts/resolve-github-mcp-source.ts --github-output "$GITHUB_OUTPUT"
+
       - name: Check out pinned AgentGateway source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -124,10 +128,13 @@ jobs:
 
       - name: Load provider candidates into Kubernetes
         run: |
-          docker pull ghcr.io/github/github-mcp-server:v1.6.0
+          GITHUB_MCP_SOURCE="${{ steps.github-mcp-source.outputs.source_coordinate }}"
+          GITHUB_MCP_TAGGED="${{ steps.github-mcp-source.outputs.source_repository }}:${{ steps.github-mcp-source.outputs.source_tag }}"
+          docker pull "$GITHUB_MCP_SOURCE"
+          docker tag "$GITHUB_MCP_SOURCE" "$GITHUB_MCP_TAGGED"
           kind load docker-image mcp-gw-google-workspace:smoke --name mcp-gateway-smoke
           kind load docker-image mcp-gw-github-wrapper:smoke --name mcp-gateway-smoke
-          kind load docker-image ghcr.io/github/github-mcp-server:v1.6.0 --name mcp-gateway-smoke
+          kind load docker-image "$GITHUB_MCP_TAGGED" --name mcp-gateway-smoke
 
       - name: Run Kubernetes smoke
         run: bun run integration:k8s
@@ -142,6 +149,59 @@ jobs:
         run: bun run integration:bundle
         env:
           LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke
+
+  mirror-github-mcp-server:
+    needs: [validate, kubernetes-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Resolve pinned GitHub MCP Server source
+        id: github-mcp-source
+        run: bun scripts/resolve-github-mcp-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@4fb5323ce5e4debde6f8fe277e461b0815a75992
+        with:
+          version: 1.3.3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mirror the reviewed third-party image by digest
+        env:
+          MIRROR_REPOSITORY: ${{ steps.github-mcp-source.outputs.mirror_repository }}
+          SOURCE_COORDINATE: ${{ steps.github-mcp-source.outputs.source_coordinate }}
+          SOURCE_DIGEST: ${{ steps.github-mcp-source.outputs.source_digest }}
+          SOURCE_TAG: ${{ steps.github-mcp-source.outputs.source_tag }}
+        run: |
+          set -euo pipefail
+          TARGET="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${MIRROR_REPOSITORY}"
+          oras cp --recursive "$SOURCE_COORDINATE" "$TARGET:$SOURCE_TAG"
+          MIRROR_DIGEST="$(oras resolve "$TARGET:$SOURCE_TAG")"
+          test "$MIRROR_DIGEST" = "$SOURCE_DIGEST"
+          mkdir -p dist
+          printf '%s\n' "$MIRROR_DIGEST" > dist/github-mcp-server.digest
+
+      - name: Upload mirror release evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-github-mcp-server
+          path: dist/github-mcp-server.digest
+          if-no-files-found: error
 
   build-platform-images:
     needs: [validate, kubernetes-smoke]
@@ -383,6 +443,10 @@ jobs:
         with:
           bun-version: "1.2.21"
 
+      - name: Resolve pinned GitHub MCP Server source
+        id: github-mcp-source
+        run: bun scripts/resolve-github-mcp-source.ts --github-output "$GITHUB_OUTPUT"
+
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
 
@@ -408,13 +472,15 @@ jobs:
           AGENTGATEWAY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-agentgateway:$VERSION"
           GOOGLE_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-google-workspace:$VERSION"
           GITHUB_WRAPPER_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION"
-          GITHUB_MCP_IMAGE="ghcr.io/github/github-mcp-server:v1.6.0"
+          GITHUB_MCP_SOURCE="${{ steps.github-mcp-source.outputs.source_coordinate }}"
+          GITHUB_MCP_IMAGE="${{ steps.github-mcp-source.outputs.source_repository }}:${{ steps.github-mcp-source.outputs.source_tag }}"
           POSTGRES_IMAGE="postgres:16-alpine"
 
           docker pull "$AGENTGATEWAY_IMAGE"
           docker pull "$GOOGLE_IMAGE"
           docker pull "$GITHUB_WRAPPER_IMAGE"
-          docker pull "$GITHUB_MCP_IMAGE"
+          docker pull "$GITHUB_MCP_SOURCE"
+          docker tag "$GITHUB_MCP_SOURCE" "$GITHUB_MCP_IMAGE"
           docker pull "$POSTGRES_IMAGE"
           kind load docker-image \
             "$AGENTGATEWAY_IMAGE" \
@@ -470,6 +536,7 @@ jobs:
       [
         validate,
         kubernetes-smoke,
+        mirror-github-mcp-server,
         publish-images,
         released-kubernetes-broker-smoke,
         released-full-bundle-smoke,
@@ -525,7 +592,8 @@ jobs:
             --chart deploy/k8s/chart/Chart.yaml \
             --agentgateway-digest "$(cat dist/agentgateway.digest)" \
             --google-workspace-digest "$(cat dist/google-workspace.digest)" \
-            --github-wrapper-digest "$(cat dist/github-wrapper.digest)"
+            --github-wrapper-digest "$(cat dist/github-wrapper.digest)" \
+            --github-mcp-server-digest "$(cat dist/github-mcp-server.digest)"
 
       - name: Package and publish OCI chart
         id: chart
@@ -633,9 +701,11 @@ jobs:
       - name: Verify public artifact access
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER}"
+          GITHUB_MCP_MIRROR="ghcr.io/$OWNER/mcp-gw-github-mcp-server"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-agentgateway@$(cat dist/agentgateway.digest)"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)"
+          docker buildx imagetools inspect "$GITHUB_MCP_MIRROR@$(cat dist/github-mcp-server.digest)"
           helm pull "oci://ghcr.io/$OWNER/charts/mcp-gateway" \
             --version "${GITHUB_REF_NAME#v}" \
             --destination /tmp
