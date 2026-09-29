@@ -67,6 +67,25 @@ describe("release artifacts", () => {
     expect(workflow).not.toContain(":latest");
   });
 
+  test("mirrors the pinned third-party GitHub MCP Server without claiming build provenance", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const mirror = workflow.slice(
+      workflow.indexOf("  mirror-github-mcp-server:"),
+      workflow.indexOf("  build-platform-images:"),
+    );
+
+    expect(mirror).toContain("bun scripts/resolve-github-mcp-source.ts");
+    expect(mirror).toContain("oras cp --recursive");
+    expect(mirror).toContain(
+      'test "$(oras resolve "$SOURCE_REPOSITORY:$SOURCE_TAG")" = "$SOURCE_DIGEST"',
+    );
+    expect(mirror).toContain('test "$MIRROR_DIGEST" = "$SOURCE_DIGEST"');
+    expect(mirror).toContain("MIRROR_REPOSITORY");
+    expect(mirror).toContain("github-mcp-server.digest");
+    expect(mirror).not.toContain("attest-build-provenance");
+    expect(mirror).not.toContain("gh api --method PATCH");
+  });
+
   test("builds each release architecture natively before assembling the multi-platform manifest", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
 
@@ -218,8 +237,8 @@ describe("release artifacts", () => {
     const digest = `sha256:${"a".repeat(64)}`;
 
     await Promise.all(
-      ["agentgateway", "google-workspace", "github-wrapper", "helm-chart"].map((name) =>
-        writeFile(join(artifactsDirectory, `${name}.digest`), `${digest}\n`),
+      ["agentgateway", "google-workspace", "github-wrapper", "github-mcp-server", "helm-chart"].map(
+        (name) => writeFile(join(artifactsDirectory, `${name}.digest`), `${digest}\n`),
       ),
     );
 
@@ -235,6 +254,9 @@ describe("release artifacts", () => {
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-agentgateway@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-google-workspace@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-wrapper@${digest}`);
+    expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-mcp-server@${digest}`);
+    expect(handoff).toContain("ghcr.io/github/github-mcp-server@");
+    expect(handoff).toContain("digest equality");
     expect(handoff).toContain("TOKEN_STORE_DSN");
     expect(handoff).toContain("GOOGLE_OAUTH_CLIENT_SECRET");
     expect(handoff).toContain("GITHUB_OAUTH_CLIENT_SECRET");

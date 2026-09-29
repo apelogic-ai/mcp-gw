@@ -31,6 +31,9 @@ provider-neutral design proposals are welcome.
 Changes to public APIs, authentication, policy, provider lifecycle, chart values, or release
 artifacts should include corresponding contract documentation and upgrade notes.
 
+Changes to container or release inputs must keep the reproducible commands and verification paths in
+[docs/build-from-source.md](docs/build-from-source.md) current.
+
 ## Pull requests
 
 Keep one coherent change per pull request. Maintainers may ask for changes to preserve

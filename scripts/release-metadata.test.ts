@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.5.1";
+  const expectedVersion = "0.5.2";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -142,7 +142,7 @@ describe("release metadata", () => {
     expect(chart.annotations["artifacthub.io/images"]).toContain(
       `ghcr.io/apelogic-ai/mcp-gw-github-wrapper:${packageVersion}`,
     );
-    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: fixed");
+    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: changed");
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: security");
   });
 

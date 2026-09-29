@@ -86,6 +86,9 @@ Run only tests:
 bun test
 ```
 
+To rebuild every published artifact from an exact tag or verify release provenance, see
+[Build from source and verify release artifacts](docs/build-from-source.md).
+
 Copy the compose environment template and fill in local values:
 
 ```bash
@@ -145,7 +148,8 @@ secrets to this repository.
 
 Releases are SemVer Git tags with an OCI Helm chart, digest-addressable images, supply-chain evidence,
 and a generated GitHub Release handoff. Keep private deployment overlays outside the public repo. See
-[docs/releases.md](docs/releases.md) and the bundled release-agent skill at
+[docs/releases.md](docs/releases.md), [docs/build-from-source.md](docs/build-from-source.md), and the
+bundled release-agent skill at
 [skills/mcp-gw-release/SKILL.md](skills/mcp-gw-release/SKILL.md).
 
 ## License

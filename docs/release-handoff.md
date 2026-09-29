@@ -9,12 +9,19 @@ stable information an external GitOps repository can rely on.
 - OCI chart: `oci://ghcr.io/apelogic-ai/charts/mcp-gateway`, versioned with the release SemVer.
 - First-party images: the pinned agentgateway derivative, Google Workspace wrapper, and GitHub
   wrapper, each published with the release tag and deployable by digest.
+- Third-party mirror: the reviewed official GitHub MCP Server copied without rebuilding, with source
+  and mirror digest equality recorded in the generated handoff.
 - Supply-chain evidence: an SPDX JSON SBOM, JSON vulnerability report, digest file, and GitHub
   build-provenance attestation for every first-party image. The chart also receives provenance tied
   to its OCI digest.
 
-The official GitHub MCP Server is an external dependency. Operators should pin or mirror it by digest
-in private values just like any other externally maintained image.
+The official GitHub MCP Server remains an external dependency even though the release publishes a
+convenience mirror. It receives no MCP-GW build-provenance attestation. Operators should select the
+release mirror or an environment-owned mirror through private values and pin the recorded digest.
+
+Verification commands for every published artifact are in
+[Build from source and verify release artifacts](build-from-source.md). First-party images and the
+chart use `gh attestation verify`; the third-party mirror uses digest equality.
 
 The optional `dbMcp` adapter is also externally supplied. Its public default repository is a
 placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` before enabling it.

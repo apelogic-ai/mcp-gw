@@ -1,0 +1,6 @@
+{
+  "sourceRepository": "ghcr.io/github/github-mcp-server",
+  "sourceTag": "v1.6.0",
+  "sourceDigest": "sha256:2b0c48b070f61e9d3969269ead600f62d00fb237b60ac849ef3d166ee7de9ad3",
+  "mirrorRepository": "mcp-gw-github-mcp-server"
+}

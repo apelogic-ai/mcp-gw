@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveGitHubMcpSource } from "./resolve-github-mcp-source";
 
 export interface ReleaseHandoffOptions {
   artifactsDirectory: string;
@@ -15,8 +16,10 @@ export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Pr
     agentgateway: await readDigest(options.artifactsDirectory, "agentgateway"),
     googleWorkspace: await readDigest(options.artifactsDirectory, "google-workspace"),
     githubWrapper: await readDigest(options.artifactsDirectory, "github-wrapper"),
+    githubMcpServer: await readDigest(options.artifactsDirectory, "github-mcp-server"),
     chart: await readDigest(options.artifactsDirectory, "helm-chart"),
   };
+  const githubMcpSource = await resolveGitHubMcpSource();
   const registry = `ghcr.io/${options.owner}`;
   const chart = `oci://${registry}/charts/mcp-gateway`;
 
@@ -42,8 +45,17 @@ helm upgrade --install mcp-gateway ${chart} \\
 | Google Workspace wrapper | \`${registry}/mcp-gw-google-workspace@${digests.googleWorkspace}\` |
 | GitHub wrapper | \`${registry}/mcp-gw-github-wrapper@${digests.githubWrapper}\` |
 
-The chart also references the separately maintained official GitHub MCP Server image. Pin or mirror
-that image by digest in the private values overlay.
+## Mirrored Third-Party Image
+
+The release mirrors the separately maintained official GitHub MCP Server without rebuilding it.
+
+- Reviewed upstream: \`${githubMcpSource.sourceRepository}@${githubMcpSource.sourceDigest}\`
+- Release mirror: \`${registry}/${githubMcpSource.mirrorRepository}@${digests.githubMcpServer}\`
+
+The release requires digest equality between those coordinates. This mirror does not receive an
+MCP-GW build-provenance attestation because MCP-GW did not build it. Set
+\`githubMcp.image.repository\` and \`githubMcp.image.digest\` in a private values overlay to use the
+mirror.
 
 The optional \`dbMcp\` adapter is externally supplied. Set its image repository and digest in the
 private values overlay before enabling it.
@@ -153,7 +165,8 @@ client.
 
 This GitHub Release includes an SPDX JSON SBOM, a JSON vulnerability report, and a digest file for
 each first-party image. GitHub build-provenance attestations are attached to each image digest and to
-the OCI chart digest.
+the OCI chart digest. The third-party GitHub MCP Server mirror is verified by digest equality with
+the reviewed upstream pin rather than by an MCP-GW attestation.
 `;
 
   await writeFile(options.outputPath, handoff);

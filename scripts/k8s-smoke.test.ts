@@ -170,9 +170,10 @@ exit 0
     expect(workflow).toContain("servers/github-mcp/wrapper/Dockerfile");
     expect(workflow).toContain("mcp-gw-google-workspace:smoke");
     expect(workflow).toContain("mcp-gw-github-wrapper:smoke");
-    expect(workflow).toContain("ghcr.io/github/github-mcp-server:v1.6.0");
+    expect(workflow).toContain("bun scripts/resolve-github-mcp-source.ts");
+    expect(workflow).toContain('docker pull "$GITHUB_MCP_SOURCE"');
     expect(workflow).toContain(
-      "kind load docker-image ghcr.io/github/github-mcp-server:v1.6.0 --name mcp-gateway-smoke",
+      'kind load docker-image "$GITHUB_MCP_TAGGED" --name mcp-gateway-smoke',
     );
     expect(workflow).toContain("smoke-k8s-provider-runtime.sh");
     expect(smoke).toContain("oauth_schema_migrations");

@@ -5,10 +5,10 @@
  * floating tags. Run at release time, after the component images are published,
  * with the digests recorded by the publish-images job (dist/<component>.digest).
  *
- * Only the first-party `mcp-gw-*` images are repinned by digest; any other
- * entries (e.g. the upstream github-mcp-server) are left untouched. The
- * committed Chart.yaml keeps its tag-based annotation as a sane default for
- * local `helm template`; only the released package is rewritten.
+ * The first-party `mcp-gw-*` images and the reviewed upstream GitHub MCP
+ * Server are repinned by digest. The committed Chart.yaml keeps tag-based
+ * annotations as sane defaults for local `helm template`; only the released
+ * package is rewritten.
  */
 import { parseDocument, parse, Scalar } from "yaml";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -29,6 +29,7 @@ const digestByName: Record<string, string | undefined> = {
   "mcp-gw-agentgateway": arg("agentgateway-digest"),
   "mcp-gw-google-workspace": arg("google-workspace-digest"),
   "mcp-gw-github-wrapper": arg("github-wrapper-digest"),
+  "github-mcp-server": arg("github-mcp-server-digest"),
 };
 
 for (const [name, digest] of Object.entries(digestByName)) {
