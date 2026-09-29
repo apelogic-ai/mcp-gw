@@ -28,7 +28,8 @@ bun run release:check
 ```
 
 The wrapper Dockerfiles pin their Bun and Ubuntu bases by digest, install only production root
-dependencies, and pin direct apt packages by version. The Google Workspace image also validates an
+dependencies, and use a dated Ubuntu snapshot plus direct package versions so the complete apt
+dependency closure remains available and fixed. The Google Workspace image also validates an
 architecture-specific SHA-256 checksum before installing the pinned `gws` binary. AgentGateway and
 the third-party GitHub MCP Server have their own immutable source records under `.release/`.
 
@@ -121,6 +122,7 @@ GitHub CLI:
 TAG=vX.Y.Z
 VERSION="${TAG#v}"
 ARTIFACTS="$(mktemp -d)"
+SIGNER="https://github.com/apelogic-ai/mcp-gw/.github/workflows/release.yml@refs/tags/$TAG"
 
 gh release download "$TAG" \
   --repo apelogic-ai/mcp-gw \
@@ -129,19 +131,19 @@ gh release download "$TAG" \
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/mcp-gw-agentgateway@$(cat "$ARTIFACTS/agentgateway.digest")" \
-  --owner apelogic-ai
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/mcp-gw-google-workspace@$(cat "$ARTIFACTS/google-workspace.digest")" \
-  --owner apelogic-ai
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/mcp-gw-github-wrapper@$(cat "$ARTIFACTS/github-wrapper.digest")" \
-  --owner apelogic-ai
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/charts/mcp-gateway@$(cat "$ARTIFACTS/helm-chart.digest")" \
-  --owner apelogic-ai
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 ```
 
 The mirrored GitHub MCP Server does not have an MCP-GW build-provenance attestation because this
@@ -151,13 +153,23 @@ digest file, and both registry coordinates:
 ```bash
 EXPECTED="$(jq -r .sourceDigest .release/github-mcp-source.json)"
 UPSTREAM="$(jq -r .sourceRepository .release/github-mcp-source.json)"
+GITHUB_MCP_SOURCE_TAG="$(jq -r .sourceTag .release/github-mcp-source.json)"
 MIRROR=ghcr.io/apelogic-ai/mcp-gw-github-mcp-server
 RELEASED="$(cat "$ARTIFACTS/github-mcp-server.digest")"
+
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity "https://github.com/github/github-mcp-server/.github/workflows/docker-publish.yml@refs/tags/$GITHUB_MCP_SOURCE_TAG" \
+  "$UPSTREAM@$EXPECTED"
 
 test "$RELEASED" = "$EXPECTED"
 test "$(oras resolve "$UPSTREAM@$EXPECTED")" = "$EXPECTED"
 test "$(oras resolve "$MIRROR@$RELEASED")" = "$EXPECTED"
 ```
+
+The Cosign signature belongs to GitHub's upstream coordinate. The digest-preserving MCP-GW mirror
+does not copy Cosign's legacy signature tag, so verify the upstream signature first and then prove
+that the upstream and mirror resolve to the same reviewed digest.
 
 Finally, prove the recorded artifacts are anonymously fetchable:
 

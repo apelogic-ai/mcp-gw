@@ -57,6 +57,15 @@ MCP-GW build-provenance attestation because MCP-GW did not build it. Set
 \`githubMcp.image.repository\` and \`githubMcp.image.digest\` in a private values overlay to use the
 mirror.
 
+Verify GitHub's upstream keyless signature before relying on the digest-preserving mirror:
+
+\`\`\`bash
+cosign verify \\
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+  --certificate-identity "https://github.com/github/github-mcp-server/.github/workflows/docker-publish.yml@refs/tags/${githubMcpSource.sourceTag}" \\
+  "${githubMcpSource.sourceRepository}@${githubMcpSource.sourceDigest}"
+\`\`\`
+
 The optional \`dbMcp\` adapter is externally supplied. Set its image repository and digest in the
 private values overlay before enabling it.
 

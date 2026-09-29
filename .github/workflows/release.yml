@@ -169,6 +169,11 @@ jobs:
         id: github-mcp-source
         run: bun scripts/resolve-github-mcp-source.ts --github-output "$GITHUB_OUTPUT"
 
+      - name: Set up Cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5
+        with:
+          cosign-release: v2.6.0
+
       - name: Set up ORAS
         uses: oras-project/setup-oras@4fb5323ce5e4debde6f8fe277e461b0815a75992
         with:
@@ -192,6 +197,10 @@ jobs:
           set -euo pipefail
           TARGET="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${MIRROR_REPOSITORY}"
           test "$(oras resolve "$SOURCE_REPOSITORY:$SOURCE_TAG")" = "$SOURCE_DIGEST"
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "https://github.com/github/github-mcp-server/.github/workflows/docker-publish.yml@refs/tags/$SOURCE_TAG" \
+            "$SOURCE_COORDINATE"
           oras cp --recursive "$SOURCE_COORDINATE" "$TARGET:$SOURCE_TAG"
           MIRROR_DIGEST="$(oras resolve "$TARGET:$SOURCE_TAG")"
           test "$MIRROR_DIGEST" = "$SOURCE_DIGEST"
@@ -717,19 +726,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER}"
+          SIGNER="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${GITHUB_REF_NAME}"
           mkdir -p "$RUNNER_TEMP/public-attestations"
           gh attestation verify \
             "oci://ghcr.io/$OWNER/mcp-gw-agentgateway@$(cat dist/agentgateway.digest)" \
-            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/agentgateway.json"
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/agentgateway.json"
           gh attestation verify \
             "oci://ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)" \
-            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/google-workspace.json"
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/google-workspace.json"
           gh attestation verify \
             "oci://ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)" \
-            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/github-wrapper.json"
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/github-wrapper.json"
           gh attestation verify \
             "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
-            --owner "$OWNER" --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
           bun scripts/check-public-release-evidence.ts \
             --artifacts dist \
             --subject "ghcr.io/$OWNER/mcp-gw-agentgateway" \

@@ -13,8 +13,10 @@ describe("wrapper container build inputs", () => {
     for (const dockerfile of dockerfiles) {
       expect(dockerfile).toMatch(new RegExp(`FROM oven/bun:1\\.2\\.21@${digest} AS bun`));
       expect(dockerfile).toMatch(new RegExp(`FROM ubuntu:24\\.04@${digest}`));
+      expect(dockerfile).toMatch(/ARG UBUNTU_SNAPSHOT=\d{8}T\d{6}Z/);
+      expect(dockerfile).toContain('apt-get update --snapshot "$UBUNTU_SNAPSHOT"');
       expect(dockerfile).toMatch(/ca-certificates=[^\s\\]+/);
-      expect(dockerfile).toMatch(/nodejs=[^\s\\]+/);
+      expect(dockerfile).not.toMatch(/\bnodejs=/);
       expect(dockerfile).toContain("bun install --frozen-lockfile --production");
       expect(dockerfile).not.toContain("bun add");
     }

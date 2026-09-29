@@ -30,11 +30,14 @@ describe("build-from-source and artifact verification documentation", () => {
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/mcp-gw-google-workspace@");
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/mcp-gw-github-wrapper@");
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/charts/mcp-gateway@");
-    expect(guide).toContain("--owner apelogic-ai");
+    expect(guide).toContain("--repo apelogic-ai/mcp-gw");
+    expect(guide).toContain("--cert-identity");
     expect(guide).toMatch(/do not use `cosign verify`/i);
     expect(guide).toMatch(/404/);
     expect(guide).toContain("mcp-gw-github-mcp-server");
     expect(guide).toMatch(/digest equality/i);
+    expect(guide).toContain("cosign verify \\");
+    expect(guide).toContain("github/github-mcp-server/.github/workflows/docker-publish.yml");
     expect(guide).toMatch(/does not have an MCP-GW build-provenance attestation/i);
   });
 });

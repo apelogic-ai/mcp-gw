@@ -2,10 +2,10 @@ FROM oven/bun:1.2.21@sha256:5a2011bf09364b9af658ac1e66f60d08092f4291aeefbff448d5
 
 FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 
-RUN apt-get update \
+ARG UBUNTU_SNAPSHOT=20260928T000000Z
+RUN apt-get update --snapshot "$UBUNTU_SNAPSHOT" \
   && apt-get install -y --no-install-recommends \
     ca-certificates=20260601~24.04.1 \
-    nodejs=18.19.1+dfsg-6ubuntu5 \
   && groupadd --gid 10001 mcp-gateway \
   && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin mcp-gateway \
   && rm -rf /var/lib/apt/lists/*

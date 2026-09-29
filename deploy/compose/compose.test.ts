@@ -65,7 +65,8 @@ describe("Docker Compose deployment skeleton", () => {
 
     expect(dockerfile).toContain("FROM ubuntu:24.04");
     expect(dockerfile).toContain("COPY --from=bun");
-    expect(dockerfile).toContain("nodejs");
+    expect(dockerfile).toContain("apt-get update --snapshot");
+    expect(dockerfile).not.toContain("nodejs");
     expect(dockerfile).toContain("bun install");
     expect(dockerfile).toContain("releases/download/v0.22.5");
     expect(dockerfile).toContain("sha256sum --check --strict");

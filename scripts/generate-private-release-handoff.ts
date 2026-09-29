@@ -61,7 +61,8 @@ public release digest. Verify provenance against the public GHCR source coordina
 \`\`\`bash
 gh attestation verify \\
   "oci://ghcr.io/<owner>/mcp-gw-agentgateway@${agentgatewayDigest}" \\
-  --owner <owner>
+  --repo <owner>/mcp-gw \\
+  --cert-identity "https://github.com/<owner>/mcp-gw/.github/workflows/release.yml@refs/tags/v${options.version}"
 \`\`\`
 
 Configure GitOps with the chart version and chart digest above. Configure
