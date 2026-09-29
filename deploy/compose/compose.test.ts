@@ -67,7 +67,8 @@ describe("Docker Compose deployment skeleton", () => {
     expect(dockerfile).toContain("COPY --from=bun");
     expect(dockerfile).toContain("nodejs");
     expect(dockerfile).toContain("bun install");
-    expect(dockerfile).toContain("@googleworkspace/cli@0.22.5");
+    expect(dockerfile).toContain("releases/download/v0.22.5");
+    expect(dockerfile).toContain("sha256sum --check --strict");
     expect(dockerfile).toContain("servers/google-workspace/wrapper/src/main.ts");
   });
 
