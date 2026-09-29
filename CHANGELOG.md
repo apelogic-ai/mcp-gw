@@ -8,6 +8,43 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-28
+
+### Added
+
+- Add a complete build-from-source guide for every published image and the Helm chart, including
+  artifact-specific verification commands and the explicit boundary for the externally supplied
+  `dbMcp` adapter.
+- Mirror the reviewed official GitHub MCP Server image into the public MCP-GW release namespace
+  without rebuilding it, record both immutable coordinates in the generated handoff, and require
+  source/mirror digest equality before publication.
+
+### Changed
+
+- Pin wrapper Bun and Ubuntu base images by digest, direct apt packages by exact version, and
+  production dependency installation to the checked-in lockfile.
+- Install the architecture-specific Google Workspace CLI during the image build after validating
+  its committed SHA-256 checksum, rather than mutating dependencies or downloading into a
+  read-only runtime filesystem on first use.
+
+### Security
+
+- Document and test GitHub Attestations verification for MCP-GW-built OCI artifacts, while keeping
+  the third-party mirror on a digest-equality trust path that does not claim MCP-GW build
+  provenance.
+
+### Upgrade Notes
+
+- No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
+  value rename, or new required value is introduced.
+- Existing GitHub MCP image overrides and the chart's upstream default remain valid. Operators may
+  opt into the release mirror by setting `githubMcp.image.repository` and the mirror digest from the
+  release handoff.
+- Wrapper entrypoints, ports, environment contracts, and runtime users are unchanged. The Google
+  Workspace CLI is now present before startup and works with the existing read-only root filesystem.
+- Verify first-party release images and the chart with `gh attestation verify`, not `cosign verify`;
+  verify the mirrored third-party image by matching its source and mirror digests.
+
 ## [0.5.1] - 2026-09-28
 
 ### Added
@@ -611,7 +648,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.11...v0.5.0
 [0.4.11]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.10...v0.4.11

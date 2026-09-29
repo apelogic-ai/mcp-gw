@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.5.1
-appVersion: "0.5.1"
+version: 0.5.2
+appVersion: "0.5.2"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,11 +21,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.1
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.2
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.1
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.2
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.1
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.2
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -34,8 +34,8 @@ annotations:
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
-      description: Add configurable AgentGateway CORS and backend failure behavior, production resource guidance, chart notes, and Google-only or GitHub-only production profiles.
-    - kind: fixed
-      description: Use one immutable AgentGateway fork pin in CI and release, publish truthful source metadata, and reconcile release and lifecycle documentation.
+      description: Add complete build-from-source and artifact verification guidance plus a digest-preserving public mirror of the reviewed GitHub MCP Server image.
+    - kind: changed
+      description: Pin wrapper base images, apt packages, production dependencies, and the checksummed Google Workspace CLI build input.
     - kind: security
-      description: Keep private registry coordinates out of public attestations, scope internal NetworkPolicy peers to one release, and remove personal chart contact metadata.
+      description: Document GitHub Attestations for MCP-GW-built artifacts and digest equality for the third-party mirror without claiming false provenance.

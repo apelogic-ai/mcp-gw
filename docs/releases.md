@@ -19,7 +19,20 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.1`.
+The current public release line is `v0.5.2`.
+
+### 0.5.2 upgrade notes
+
+- No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
+  value rename, or new required value is introduced.
+- Existing GitHub MCP image overrides and the chart's upstream default remain valid. To use the new
+  public release mirror, set `githubMcp.image.repository` and the exact mirror digest recorded in the
+  release handoff.
+- Wrapper entrypoints, ports, environment contracts, and runtime users are unchanged. Their bases,
+  direct apt packages, and production dependencies are now pinned, and the Google Workspace CLI is
+  installed during the image build so startup does not write to the read-only root filesystem.
+- Verify MCP-GW-built images and the chart with GitHub Attestations. The third-party GitHub MCP
+  Server mirror has no MCP-GW build attestation and is verified by source/mirror digest equality.
 
 ### 0.5.1 upgrade notes
 
