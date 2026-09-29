@@ -262,6 +262,13 @@ an introspection credential is selected from an existing Secret through
 `(issuer, subject)` must be presented to the lifecycle routes and later MCP
 tool calls.
 
+For GitHub consent, the issuer's resolved `emailClaim` must case-insensitively
+match one of the user's verified GitHub email addresses. A mismatch consumes
+the one-time OAuth state, revokes or queues cleanup of any issued credential,
+does not activate a connection, and is reported as `identity_mismatch`. Align
+the governing-platform login email with a verified GitHub email before
+restarting consent.
+
 Set `policy.opaUrl` for the shared OPA-compatible decision endpoint and
 `githubWrapper.oauth.redirectAfterAllowedOrigins` for exact post-consent UI
 origins. The chart rejects simultaneous typed and free-form versions of those

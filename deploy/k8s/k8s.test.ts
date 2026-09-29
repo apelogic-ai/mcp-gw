@@ -2352,6 +2352,9 @@ describe("Kubernetes production chart", () => {
       expect(content).toContain("githubWrapper.oauth.redirectAfterAllowedOrigins");
       expect(content).toContain("connectionLifecycle.allowedCallers");
       expect(content).toContain("introspection.credentialSecretKeyRef");
+      expect(content).toMatch(/verified GitHub email/i);
+      expect(content).toMatch(/case-insensitive/i);
+      expect(content).toContain("identity_mismatch");
     }
     expect(guide).toContain("provider + hop1_issuer + hop1_subject");
     expect(guide).toContain("mcp-gateway-workload");

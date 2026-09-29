@@ -46,6 +46,16 @@ The governing platform must therefore present the same stable `(iss, sub)` for
 provider authorization, status, disconnect, and later MCP tool calls. Changing
 either claim selects a different provider connection.
 
+For GitHub connections, the resolved `emailClaim` value must case-insensitively
+match one of the user's verified GitHub email addresses. This is an identity
+binding, not merely display metadata: GitHub OAuth consent cannot connect a
+different account to the governing principal. On a mismatch, MCP-GW consumes
+the one-time OAuth state, revokes the issued credential (or retains it for
+cleanup retry), activates no connection, and reports the `identity_mismatch`
+diagnostic category. Operators should correct the governing-platform login
+email or add and verify that address in GitHub before starting a new consent
+flow.
+
 ## External policy endpoint
 
 Set the chart-wide typed value `policy.opaUrl` to one OPA-compatible decision
