@@ -121,7 +121,13 @@ exit 0
     );
     expect(smoke).toContain("--invalid-token-directory");
     expect(smoke).toContain("--reuse-values");
-    expect(smoke).toContain("broker-ready=verified");
+    expect(smoke).toContain("resource became available after a previous fetch failure");
+    expect(smoke).toContain("local-hop1-rotated");
+    expect(smoke).toContain("expected initial unknown-kid 401");
+    expect(smoke).toContain("rotated JWKS accepted without AgentGateway restart");
+    expect(smoke).toContain('authorization: "Bearer " + token');
+    expect(smoke).not.toContain("authorization: `Bearer");
+    expect(smoke).toContain("AGENTGATEWAY_RECOVERY_POD_UID");
     expect(smoke).toContain("initContainers:");
     expect(smoke).toContain("name: wait-for-agentgateway");
     expect(smoke).toContain("GATEWAY_URL");
@@ -135,6 +141,7 @@ exit 0
     expect(values).toContain("githubMcp:");
     expect(values).toContain("enabled: true");
     expect(hop1Fixture).toContain('key_ops: ["sign"]');
+    expect(hop1Fixture).toContain('kid: values.get("kid") ?? "local-hop1"');
 
     const releasedSmokeStart = workflow.indexOf("  released-kubernetes-broker-smoke:");
     const publishChartStart = workflow.indexOf("  publish-chart:");

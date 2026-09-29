@@ -21,7 +21,8 @@ release mirror or an environment-owned mirror through private values and pin the
 
 Verification commands for every published artifact are in
 [Build from source and verify release artifacts](build-from-source.md). First-party images and the
-chart use `gh attestation verify`; the third-party mirror uses digest equality.
+chart use workflow-bound `gh attestation verify`; the third-party mirror requires the upstream
+Cosign signature plus source/mirror digest equality.
 
 The optional `dbMcp` adapter is also externally supplied. Its public default repository is a
 placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` before enabling it.

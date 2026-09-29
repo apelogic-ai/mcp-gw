@@ -128,6 +128,10 @@ GITHUB_UID="$(kubectl exec "deployment/$RELEASE_NAME-github-wrapper" --namespace
 [[ "$GOOGLE_UID" == "10001" ]]
 [[ "$GITHUB_UID" == "10001" ]]
 
+GWS_VERSION="$(kubectl exec "deployment/$RELEASE_NAME-google-workspace" \
+  --namespace "$NAMESPACE" -- sh -c '"$GWS_BINARY_PATH" --version')"
+[[ "$GWS_VERSION" == "gws 0.22.5" ]]
+
 GITHUB_MCP_UID="$(kubectl get deployment "$RELEASE_NAME-github-mcp" \
   --namespace "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].securityContext.runAsUser}')"

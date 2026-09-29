@@ -14,6 +14,7 @@ interface Args {
   email: string;
   emailClaim: string;
   subjectClaim: string;
+  kid: string;
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -23,7 +24,7 @@ const invalidKeyPair = await generateKeyPair("RS256");
 const publicJwk = await exportJWK(keyPair.publicKey);
 const privateJwk = await exportJWK(keyPair.privateKey);
 const wrongAlgorithmPublicJwk = await exportJWK(wrongAlgorithmKeyPair.publicKey);
-const kid = "local-hop1";
+const kid = args.kid;
 const jwks = {
   keys: [
     {
@@ -164,6 +165,7 @@ function parseArgs(argv: string[]): Args {
     email: values.get("email") ?? "local.user@example.com",
     emailClaim: values.get("email-claim") ?? "email",
     subjectClaim: values.get("subject-claim") ?? "sub",
+    kid: values.get("kid") ?? "local-hop1",
   };
 }
 

@@ -213,18 +213,45 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_ARCHIVE" \
   --wait \
   --timeout 5m
 
-# The pinned AgentGateway snapshots remote JWKS when it loads configuration.
-# Stage that load after the broker is Ready so this fanout regression isolates
-# the published-key contract under test instead of depending on pod start order.
+# Prove startup recovery with the issuer unavailable. Recreate only the
+# AgentGateway pod while the broker is down, then bring the broker back and
+# require the same AgentGateway pod to recover its remote JWKS without a
+# deployment restart.
+kubectl scale "deployment/$RELEASE_NAME-google-workspace" \
+  --namespace "$NAMESPACE" \
+  --replicas=0
 kubectl rollout status "deployment/$RELEASE_NAME-google-workspace" \
   --namespace "$NAMESPACE" \
   --timeout=120s
-helm upgrade "$RELEASE_NAME" "$CHART_ARCHIVE" \
+kubectl delete pod \
   --namespace "$NAMESPACE" \
-  --reuse-values \
-  --set-string "agentgateway.podAnnotations.mcp-gateway\.apelogic\.io/broker-ready=verified" \
-  --wait \
-  --timeout 5m
+  --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
+  --wait=true
+kubectl rollout status "deployment/$RELEASE_NAME-agentgateway" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+AGENTGATEWAY_RECOVERY_POD_UID="$(kubectl get pod \
+  --namespace "$NAMESPACE" \
+  --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
+  -o jsonpath='{.items[0].metadata.uid}')"
+kubectl scale "deployment/$RELEASE_NAME-google-workspace" \
+  --namespace "$NAMESPACE" \
+  --replicas=1
+kubectl rollout status "deployment/$RELEASE_NAME-google-workspace" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+
+JWKS_RECOVERED=false
+for _ in {1..60}; do
+  if kubectl logs "deployment/$RELEASE_NAME-agentgateway" \
+    --namespace "$NAMESPACE" \
+    --tail=200 | grep -q "resource became available after a previous fetch failure"; then
+    JWKS_RECOVERED=true
+    break
+  fi
+  sleep 1
+done
+[[ "$JWKS_RECOVERED" == "true" ]]
 
 kubectl create configmap broker-journey-client \
   --namespace "$NAMESPACE" \
@@ -324,6 +351,130 @@ for _ in {1..180}; do
 done
 [[ "$client_phase" == "Succeeded" ]]
 kubectl logs broker-smoke-client --namespace "$NAMESPACE"
+
+# Rotate to a new signing kid. The first request must miss the cached key and
+# trigger a bounded refresh; a later request must succeed without replacing
+# the AgentGateway pod.
+mkdir -p "$WORK_DIR/rotation"
+bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
+  --port 39093 \
+  --issuer https://mcp.example.com/oauth \
+  --audience https://mcp.example.com/mcp \
+  --kid local-hop1-rotated \
+  --token-file "$WORK_DIR/rotation/broker.jwt" \
+  --signing-jwks-file "$WORK_DIR/rotation/signing-jwks.json" \
+  >"$WORK_DIR/rotation/hop1-fixture.log" 2>&1 &
+FIXTURE_PID=$!
+for _ in {1..30}; do
+  if [[ -s "$WORK_DIR/rotation/signing-jwks.json" ]] && [[ -s "$WORK_DIR/rotation/broker.jwt" ]]; then
+    break
+  fi
+  sleep 1
+done
+[[ -s "$WORK_DIR/rotation/signing-jwks.json" ]]
+[[ -s "$WORK_DIR/rotation/broker.jwt" ]]
+kill "$FIXTURE_PID" >/dev/null 2>&1 || true
+wait "$FIXTURE_PID" >/dev/null 2>&1 || true
+FIXTURE_PID=""
+
+kubectl create secret generic broker-signing-keyring \
+  --namespace "$NAMESPACE" \
+  --from-file="signing-jwks.json=$WORK_DIR/rotation/signing-jwks.json" \
+  --dry-run=client \
+  -o yaml | kubectl apply -f - >/dev/null
+kubectl create secret generic broker-rotated-token \
+  --namespace "$NAMESPACE" \
+  --from-file="token=$WORK_DIR/rotation/broker.jwt"
+
+helm upgrade "$RELEASE_NAME" "$CHART_ARCHIVE" \
+  --namespace "$NAMESPACE" \
+  --reuse-values \
+  --set-string "googleWorkspace.authorizationBroker.activeSigningKid=local-hop1-rotated" \
+  --wait \
+  --timeout 5m
+
+CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
+  --namespace "$NAMESPACE" \
+  --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
+  -o jsonpath='{.items[0].metadata.uid}')"
+[[ "$CURRENT_AGENTGATEWAY_POD_UID" == "$AGENTGATEWAY_RECOVERY_POD_UID" ]]
+
+kubectl apply --namespace "$NAMESPACE" -f - <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: broker-rotation-client
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+  containers:
+    - name: client
+      image: $GOOGLE_REPOSITORY:$IMAGE_TAG
+      imagePullPolicy: Never
+      command: ["bun", "-e"]
+      args:
+        - |
+          const token = (await Bun.file("/var/run/secrets/mcp-gateway/rotated/token").text()).trim();
+          const url = "http://$RELEASE_NAME-agentgateway:8080/mcp";
+          async function initialize() {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                accept: "application/json, text/event-stream",
+                authorization: "Bearer " + token,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: {
+                  protocolVersion: "2025-06-18",
+                  capabilities: {},
+                  clientInfo: { name: "jwks-rotation-smoke", version: "1.0.0" },
+                },
+              }),
+              signal: AbortSignal.timeout(2_000),
+            });
+            await response.body?.cancel();
+            return response.status;
+          }
+          const first = await initialize();
+          if (first !== 401) throw new Error("expected initial unknown-kid 401, received " + first);
+          const deadline = Date.now() + 30_000;
+          while (Date.now() < deadline) {
+            await Bun.sleep(500);
+            if ((await initialize()) === 200) {
+              console.log("rotated JWKS accepted without AgentGateway restart");
+              process.exit(0);
+            }
+          }
+          throw new Error("rotated JWKS was not accepted before the deadline");
+      volumeMounts:
+        - name: rotated-token
+          mountPath: /var/run/secrets/mcp-gateway/rotated
+          readOnly: true
+  volumes:
+    - name: rotated-token
+      secret:
+        secretName: broker-rotated-token
+YAML
+
+kubectl wait \
+  --namespace "$NAMESPACE" \
+  --for=jsonpath='{.status.phase}'=Succeeded \
+  pod/broker-rotation-client \
+  --timeout=60s
+kubectl logs broker-rotation-client --namespace "$NAMESPACE"
+
+CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
+  --namespace "$NAMESPACE" \
+  --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
+  -o jsonpath='{.items[0].metadata.uid}')"
+[[ "$CURRENT_AGENTGATEWAY_POD_UID" == "$AGENTGATEWAY_RECOVERY_POD_UID" ]]
 
 for component in agentgateway google-workspace github-wrapper; do
   actual_image="$(kubectl get deployment "$RELEASE_NAME-$component" --namespace "$NAMESPACE" \

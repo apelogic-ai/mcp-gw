@@ -8,7 +8,7 @@ describe("Docker Compose deployment skeleton", () => {
 
     expect(compose).toContain("agentgateway:");
     expect(compose).toContain(
-      "image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.2}",
+      "image: ${AGENTGATEWAY_IMAGE:-ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.3}",
     );
     expect(compose).toContain("google-workspace:");
     expect(compose).toContain("token-store:");
@@ -29,7 +29,7 @@ describe("Docker Compose deployment skeleton", () => {
     expect(compose).toContain("GOOGLE_WORKSPACE_GOVERNANCE_CATALOG:");
     expect(compose).toContain("AUDIT_LOG_PATH:");
     expect(compose).toContain("/docker-entrypoint-initdb.d/001-oauth-schema.sql:ro");
-    expect(compose).toContain("GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/app/node_modules/.bin/gws}");
+    expect(compose).toContain("GWS_BINARY_PATH: ${GWS_BINARY_PATH:-/usr/local/bin/gws}");
   });
 
   test("provides an environment-neutral local Compose template", async () => {
@@ -37,7 +37,7 @@ describe("Docker Compose deployment skeleton", () => {
 
     expect(envExample).toContain("GOOGLE_OAUTH_CLIENT_ID=");
     expect(envExample).toContain(
-      "AGENTGATEWAY_IMAGE=ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.2",
+      "AGENTGATEWAY_IMAGE=ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.3",
     );
     expect(envExample).toContain("GOOGLE_TOKEN_ENCRYPTION_KEY=");
     expect(envExample).toContain("HOP1_PROFILE=");
@@ -65,7 +65,9 @@ describe("Docker Compose deployment skeleton", () => {
 
     expect(dockerfile).toContain("FROM ubuntu:24.04");
     expect(dockerfile).toContain("COPY --from=bun");
-    expect(dockerfile).toContain("nodejs");
+    expect(dockerfile).toContain("https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/");
+    expect(dockerfile).toContain("apt-get update --error-on=any");
+    expect(dockerfile).not.toContain("nodejs");
     expect(dockerfile).toContain("bun install");
     expect(dockerfile).toContain("releases/download/v0.22.5");
     expect(dockerfile).toContain("sha256sum --check --strict");

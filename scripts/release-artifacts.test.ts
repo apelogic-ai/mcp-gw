@@ -76,6 +76,8 @@ describe("release artifacts", () => {
 
     expect(mirror).toContain("bun scripts/resolve-github-mcp-source.ts");
     expect(mirror).toContain("oras cp --recursive");
+    expect(mirror).toContain("cosign verify");
+    expect(mirror).toContain("github/github-mcp-server/.github/workflows/docker-publish.yml");
     expect(mirror).toContain(
       'test "$(oras resolve "$SOURCE_REPOSITORY:$SOURCE_TAG")" = "$SOURCE_DIGEST"',
     );
@@ -140,6 +142,8 @@ describe("release artifacts", () => {
     expect(release).toContain("Verify public release evidence");
     expect(release).toContain("check-public-release-evidence.ts");
     expect(release).toContain("gh attestation verify");
+    expect(release).toContain('--repo "$GITHUB_REPOSITORY"');
+    expect(release).toContain("--cert-identity");
     expect(release).toContain("ghcr.io/$OWNER/mcp-gw-agentgateway");
     expect(release).toContain("ghcr.io/$OWNER/mcp-gw-google-workspace");
     expect(release).toContain("ghcr.io/$OWNER/mcp-gw-github-wrapper");
@@ -221,6 +225,9 @@ describe("release artifacts", () => {
     expect(handoff).toContain("github-wrapper.vulnerabilities.json");
     expect(handoff).toContain("helm-chart.spdx.json");
     expect(handoff).toContain("helm-chart.vulnerabilities.json");
+    expect(handoff).toContain("--repo <owner>/mcp-gw");
+    expect(handoff).toContain("--cert-identity");
+    expect(handoff).toContain("release.yml@refs/tags/v1.2.3");
   });
 
   test("defaults the chart to release-owned images without mutable tags", async () => {
@@ -257,6 +264,8 @@ describe("release artifacts", () => {
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-mcp-server@${digest}`);
     expect(handoff).toContain("ghcr.io/github/github-mcp-server@");
     expect(handoff).toContain("digest equality");
+    expect(handoff).toContain("cosign verify");
+    expect(handoff).toContain("github/github-mcp-server/.github/workflows/docker-publish.yml");
     expect(handoff).toContain("TOKEN_STORE_DSN");
     expect(handoff).toContain("GOOGLE_OAUTH_CLIENT_SECRET");
     expect(handoff).toContain("GITHUB_OAUTH_CLIENT_SECRET");

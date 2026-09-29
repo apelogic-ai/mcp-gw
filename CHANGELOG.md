@@ -8,7 +8,50 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-29
+
+### Fixed
+
+- Align every Helm, Compose, and integration default with the image's
+  `GWS_BINARY_PATH=/usr/local/bin/gws`, reject a non-executable CLI path at wrapper startup, and run
+  the real pinned CLI in the Kubernetes provider smoke.
+- Retry remote AgentGateway JWKS sources that are unavailable during startup and perform a bounded
+  on-demand refresh when a JWT uses an unknown key ID, allowing issuer recovery and signing-key
+  rotation without restarting AgentGateway.
+
+### Changed
+
+- Document that GitHub consent requires the HOP-1 email claim to case-insensitively match a verified
+  GitHub email and describe the fail-closed mismatch behavior.
+- Pin wrapper apt resolution to a dated Ubuntu snapshot and remove the unused Node.js runtime.
+
+### Security
+
+- Bind GitHub Attestation verification to this repository's tagged release workflow, verify the
+  official GitHub MCP Server's upstream Cosign signature before mirroring it, and document the
+  upstream-signature plus digest-equality trust chain.
+
+### Upgrade Notes
+
+- Before upgrading, change or remove any existing Compose `.env` or Helm values override that sets
+  `GWS_BINARY_PATH=/app/node_modules/.bin/gws`; the wrapper now refuses to start when the path is not
+  an executable file. Set it to `GWS_BINARY_PATH=/usr/local/bin/gws` if an explicit override is
+  required. The 0.5.2 workaround already uses that new default and may remain or be removed.
+- AgentGateway now recovers a remote issuer JWKS that was unavailable at startup and refreshes an
+  unknown signing key without a restart.
+- No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
+  value rename, or new required value is introduced.
+- Deployments using GitHub OAuth must ensure the configured HOP-1 `emailClaim` resolves to one of
+  each user's verified GitHub email addresses; this documents and exposes the existing binding.
+
 ## [0.5.2] - 2026-09-28
+
+### Known Issue
+
+- The 0.5.2 chart and Compose defaults override the image with the obsolete
+  `GWS_BINARY_PATH=/app/node_modules/.bin/gws`, so Google Workspace tool calls fail even though the
+  Pod may report Ready. Override the value with `/usr/local/bin/gws`, or remain on 0.5.1 until
+  upgrading to 0.5.3. No database migration or OAuth reconnection is required.
 
 ### Added
 
@@ -40,8 +83,9 @@ records the human-maintained compatibility summary.
 - Existing GitHub MCP image overrides and the chart's upstream default remain valid. Operators may
   opt into the release mirror by setting `githubMcp.image.repository` and the mirror digest from the
   release handoff.
-- Wrapper entrypoints, ports, environment contracts, and runtime users are unchanged. The Google
-  Workspace CLI is now present before startup and works with the existing read-only root filesystem.
+- Wrapper entrypoints, ports, and runtime users are unchanged. The Google Workspace CLI is present
+  before startup, but the 0.5.2 chart and Compose defaults must be overridden to
+  `GWS_BINARY_PATH=/usr/local/bin/gws` as described in the known issue above.
 - Verify first-party release images and the chart with `gh attestation verify`, not `cosign verify`;
   verify the mirrored third-party image by matching its source and mirror digests.
 
@@ -648,7 +692,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.4.11...v0.5.0

@@ -1,6 +1,40 @@
 import { describe, expect, test } from "bun:test";
 
-import { loadMainConfig } from "./main";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assertGwsBinaryExecutable, loadMainConfig } from "./main";
+
+test("requires GWS_BINARY_PATH to name an executable file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mcp-gw-gws-binary-"));
+  const binary = join(directory, "gws");
+  try {
+    await writeFile(binary, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+    expect(await executableError(binary)).toBe(
+      `GWS_BINARY_PATH is not an executable file: ${binary}`,
+    );
+
+    await chmod(binary, 0o755);
+    await assertGwsBinaryExecutable(binary);
+    expect(await executableError(directory)).toBe(
+      `GWS_BINARY_PATH is not an executable file: ${directory}`,
+    );
+    expect(await executableError(join(directory, "missing"))).toContain(
+      "GWS_BINARY_PATH is not an executable file",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+async function executableError(path: string): Promise<string> {
+  try {
+    await assertGwsBinaryExecutable(path);
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
 
 describe("wrapper main config", () => {
   test("requires a JWKS URL for runtime auth", () => {

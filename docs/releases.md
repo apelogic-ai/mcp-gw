@@ -19,18 +19,45 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.2`.
+The current public release line is `v0.5.3`.
+
+### 0.5.3 upgrade notes
+
+- Before upgrading, change or remove any existing Compose `.env` or Helm values override that sets
+  `GWS_BINARY_PATH=/app/node_modules/.bin/gws`; the wrapper now refuses to start when the path is not
+  an executable file. Set it to `GWS_BINARY_PATH=/usr/local/bin/gws` if an explicit override is
+  required. The 0.5.2 workaround already uses that new default and may remain or be removed.
+- No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
+  value rename, or new required value is introduced.
+- AgentGateway now retries a remote JWKS source that is unavailable at startup and performs a
+  rate-limited refresh for an unknown signing key, so issuer recovery and normal key rotation do
+  not require an AgentGateway restart.
+- GitHub OAuth requires the resolved HOP-1 `emailClaim` to case-insensitively match one of the
+  user's verified GitHub email addresses. A mismatch consumes the one-time state, cleans up the
+  issued credential, activates no connection, and reports `identity_mismatch`.
+- Wrapper images resolve their apt dependency closure from a dated Ubuntu snapshot and no longer
+  include the unused Node.js runtime. A digest-pinned CA bundle bootstraps snapshot TLS, the arm64
+  source is normalized from the ports archive to the snapshot-backed Ubuntu archive, and image
+  builds fail if APT does not resolve from the selected snapshot. First-party attestations are
+  verified against the tagged release workflow; the third-party GitHub MCP mirror is verified from
+  GitHub's upstream Cosign signature plus source/mirror digest equality.
 
 ### 0.5.2 upgrade notes
+
+> **Known issue:** 0.5.2 sets an obsolete Google Workspace CLI path in the chart and Compose
+> defaults. Set `googleWorkspace.env.GWS_BINARY_PATH=/usr/local/bin/gws` in Helm or
+> `GWS_BINARY_PATH=/usr/local/bin/gws` in Compose, or remain on 0.5.1 until upgrading to 0.5.3.
+> This does not require a database migration or OAuth reconnection.
 
 - No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart
   value rename, or new required value is introduced.
 - Existing GitHub MCP image overrides and the chart's upstream default remain valid. To use the new
   public release mirror, set `githubMcp.image.repository` and the exact mirror digest recorded in the
   release handoff.
-- Wrapper entrypoints, ports, environment contracts, and runtime users are unchanged. Their bases,
-  direct apt packages, and production dependencies are now pinned, and the Google Workspace CLI is
-  installed during the image build so startup does not write to the read-only root filesystem.
+- Wrapper entrypoints, ports, and runtime users are unchanged. Their bases, direct apt packages,
+  and production dependencies are now pinned, and the Google Workspace CLI is installed during the
+  image build. Apply the CLI-path workaround above because the 0.5.2 deployment defaults override
+  the image's correct path.
 - Verify MCP-GW-built images and the chart with GitHub Attestations. The third-party GitHub MCP
   Server mirror has no MCP-GW build attestation and is verified by source/mirror digest equality.
 

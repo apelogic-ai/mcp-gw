@@ -1846,7 +1846,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.2");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.3");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
@@ -2352,6 +2352,9 @@ describe("Kubernetes production chart", () => {
       expect(content).toContain("githubWrapper.oauth.redirectAfterAllowedOrigins");
       expect(content).toContain("connectionLifecycle.allowedCallers");
       expect(content).toContain("introspection.credentialSecretKeyRef");
+      expect(content).toMatch(/verified GitHub email/i);
+      expect(content).toMatch(/case-insensitive/i);
+      expect(content).toContain("identity_mismatch");
     }
     expect(guide).toContain("provider + hop1_issuer + hop1_subject");
     expect(guide).toContain("mcp-gateway-workload");
