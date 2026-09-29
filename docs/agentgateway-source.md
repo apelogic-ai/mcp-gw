@@ -9,7 +9,7 @@ release tag, or previously published image is not a substitute for the pin.
 
 ## Compatibility patch set
 
-The pinned fork carries five MCP-GW compatibility changes beyond its upstream
+The pinned fork carries six MCP-GW compatibility changes beyond its upstream
 base:
 
 1. [multi-provider MCP authentication](https://github.com/apelogic-ai/agentgateway/pull/1);
@@ -18,7 +18,9 @@ base:
 4. [failure isolation between provider JWKS sources](https://github.com/apelogic-ai/agentgateway/pull/4);
    and
 5. [generic HOP-1 issuer profiles](https://github.com/apelogic-ai/agentgateway/pull/5),
-   including algorithm allowlists and optional token introspection.
+   including algorithm allowlists and optional token introspection; and
+6. [remote JWKS recovery and rotation refetch](https://github.com/apelogic-ai/agentgateway/pull/6),
+   including startup-failure retries and bounded unknown-key refreshes.
 
 These patches are required by the generated AgentGateway configuration and the
 authentication contract documented in this repository. Do not update the pin
