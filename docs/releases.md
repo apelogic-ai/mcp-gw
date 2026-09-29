@@ -51,6 +51,7 @@ Each tagged release provides:
 - an annotated Git tag named `vX.Y.Z`;
 - an OCI Helm chart at `oci://ghcr.io/apelogic-ai/charts/mcp-gateway`;
 - immutable, digest-addressable agentgateway, Google Workspace wrapper, and GitHub wrapper images;
+- a digest-preserving mirror of the reviewed official GitHub MCP Server image;
 - an SPDX JSON SBOM and JSON vulnerability report for every first-party image;
 - GitHub build provenance attestations for image and chart digests;
 - a generated release handoff recording exact coordinates, digests, ports, probes, and Secret keys;
@@ -64,8 +65,10 @@ registry hosts, account identifiers, role ARNs, or derived repository names thro
 repository's Actions variables, logs, outputs, or workflow artifacts. Public provenance remains
 attached only to the GHCR source artifacts. Older public transparency-log entries are append-only
 and cannot be deleted; historical workflow logs and artifacts should be handled separately by a
-repository administrator. The third-party official GitHub MCP image is not mirrored by this
-repository; deployment configuration owns its reviewed mirror.
+repository administrator. The third-party official GitHub MCP image is mirrored without rebuilding
+it. Its source and mirror must resolve to the same reviewed digest, and the mirror intentionally has
+no MCP-GW build attestation. Deployment configuration may use the public release mirror or copy that
+exact digest into an environment-owned registry.
 Registry locations and IAM role identifiers are deployment configuration and are never committed
 to this repository.
 
@@ -73,6 +76,11 @@ Release tags are convenient selectors. Production overlays should pin the image 
 the release handoff, or mirror those exact digests into an approved private registry. The release
 workflow also verifies that the chart and first-party images can be fetched anonymously before it
 creates the GitHub Release. A critical vulnerability in any first-party artifact blocks release.
+
+See [Build from source and verify release artifacts](build-from-source.md) for exact local build and
+mirror commands and for the distinction between MCP-GW's GitHub Attestations verification and the
+digest-equality check used for the third-party mirror. Using a Cosign verification command against
+an MCP-GW artifact checks the wrong evidence layout and can produce a misleading registry 404.
 
 The release-owned `mcp-gw-agentgateway` image is built from the exact compatible source revision
 declared once in [`.release/agentgateway-source.json`](../.release/agentgateway-source.json). Pull
