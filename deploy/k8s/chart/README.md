@@ -19,7 +19,7 @@ the install fails schema validation.
 ```bash
 helm install mcp-gateway \
   oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.5.3 \
+  --version 0.5.4 \
   -f my-values.yaml
 ```
 
@@ -43,7 +43,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.5.3"
+    tag: "0.5.4"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp
@@ -61,7 +61,7 @@ googleWorkspace:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-google-workspace
-    tag: "0.5.3"
+    tag: "0.5.4"
   # Existing Secret supplying GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
   # GOOGLE_OAUTH_REDIRECT_URI, GOOGLE_TOKEN_ENCRYPTION_KEY, and TOKEN_STORE_DSN.
   secretRef:
@@ -72,13 +72,13 @@ Or override the same knobs inline:
 
 ```bash
 helm install mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.5.3 \
+  --version 0.5.4 \
   --set agentgateway.enabled=true \
-  --set agentgateway.image.tag=0.5.3 \
+  --set agentgateway.image.tag=0.5.4 \
   --set-string agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp \
   --set-json 'agentgateway.backends=[{"name":"google-workspace","enabled":true,"serviceName":"google-workspace","port":8080,"path":"/mcp"}]' \
   --set googleWorkspace.enabled=true \
-  --set googleWorkspace.image.tag=0.5.3 \
+  --set googleWorkspace.image.tag=0.5.4 \
   --set googleWorkspace.secretRef.name=mcp-provider-runtime \
   --set-json 'hop1.issuers=[{"name":"workforce","issuer":"https://identity.example.com","audiences":["https://mcp.example.com/mcp"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"],"emailClaim":"email","subjectClaim":"sub"}]'
 ```
@@ -334,7 +334,7 @@ helm upgrade mcp-gateway \
   -f my-values.yaml
 ```
 
-When upgrading to 0.5.3, change or remove an existing
+When upgrading to 0.5.4, change or remove an existing
 `googleWorkspace.env.GWS_BINARY_PATH=/app/node_modules/.bin/gws` override. The image and chart now
 default to `/usr/local/bin/gws`, and the wrapper refuses to start when an explicit path is not an
 executable file. An existing `/usr/local/bin/gws` workaround may remain or be removed.

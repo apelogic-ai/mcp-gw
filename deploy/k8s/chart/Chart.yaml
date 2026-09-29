@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.5.3
-appVersion: "0.5.3"
+version: 0.5.4
+appVersion: "0.5.4"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,11 +21,11 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.3
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.4
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.3
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.4
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.3
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.4
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance

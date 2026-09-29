@@ -8,6 +8,23 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-29
+
+### Fixed
+
+- Accept the Google Workspace CLI's informational disclaimer while still requiring the exact
+  pinned version on the first output line of the Kubernetes release smoke. This repairs the
+  publication gate that stopped the `v0.5.3` workflow before it published images, the chart, or a
+  GitHub Release.
+
+### Upgrade Notes
+
+- Use 0.5.4 instead of the unpublished 0.5.3 artifact set. This release includes all 0.5.3 changes
+  and its `GWS_BINARY_PATH` upgrade requirement.
+- No additional database migration, Secret-format change, OAuth reconnect, provider
+  reauthorization, chart value rename, or new required value is introduced beyond the documented
+  0.5.3 changes.
+
 ## [0.5.3] - 2026-09-29
 
 ### Fixed
@@ -51,7 +68,7 @@ records the human-maintained compatibility summary.
 - The 0.5.2 chart and Compose defaults override the image with the obsolete
   `GWS_BINARY_PATH=/app/node_modules/.bin/gws`, so Google Workspace tool calls fail even though the
   Pod may report Ready. Override the value with `/usr/local/bin/gws`, or remain on 0.5.1 until
-  upgrading to 0.5.3. No database migration or OAuth reconnection is required.
+  upgrading to 0.5.4. No database migration or OAuth reconnection is required.
 
 ### Added
 
@@ -692,7 +709,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.0...v0.5.1

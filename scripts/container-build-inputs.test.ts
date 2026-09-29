@@ -67,5 +67,8 @@ describe("wrapper container build inputs", () => {
 
     expect(smoke).toContain("$GWS_BINARY_PATH");
     expect(smoke).toContain("gws 0.22.5");
+    expect(smoke).toContain("GWS_VERSION_OUTPUT");
+    expect(smoke).toContain("GWS_VERSION_OUTPUT%%");
+    expect(smoke).toContain("Unexpected Google Workspace CLI version");
   });
 });
