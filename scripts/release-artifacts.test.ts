@@ -76,6 +76,9 @@ describe("release artifacts", () => {
 
     expect(mirror).toContain("bun scripts/resolve-github-mcp-source.ts");
     expect(mirror).toContain("oras cp --recursive");
+    expect(mirror).toContain(
+      'test "$(oras resolve "$SOURCE_REPOSITORY:$SOURCE_TAG")" = "$SOURCE_DIGEST"',
+    );
     expect(mirror).toContain('test "$MIRROR_DIGEST" = "$SOURCE_DIGEST"');
     expect(mirror).toContain("MIRROR_REPOSITORY");
     expect(mirror).toContain("github-mcp-server.digest");

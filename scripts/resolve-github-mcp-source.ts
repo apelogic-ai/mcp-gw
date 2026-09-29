@@ -23,7 +23,7 @@ export async function resolveGitHubMcpSource(
     throw new Error(`${path}: sourceRepository must be a registry repository without a tag`);
   }
   if (!value.sourceTag || !tagPattern.test(value.sourceTag)) {
-    throw new Error(`${path}: sourceTag must be an immutable-looking vX.Y.Z release tag`);
+    throw new Error(`${path}: sourceTag must be a vX.Y.Z release tag`);
   }
   if (!value.sourceDigest || !digestPattern.test(value.sourceDigest)) {
     throw new Error(`${path}: sourceDigest must be a lowercase sha256 digest`);

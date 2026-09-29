@@ -186,10 +186,12 @@ jobs:
           MIRROR_REPOSITORY: ${{ steps.github-mcp-source.outputs.mirror_repository }}
           SOURCE_COORDINATE: ${{ steps.github-mcp-source.outputs.source_coordinate }}
           SOURCE_DIGEST: ${{ steps.github-mcp-source.outputs.source_digest }}
+          SOURCE_REPOSITORY: ${{ steps.github-mcp-source.outputs.source_repository }}
           SOURCE_TAG: ${{ steps.github-mcp-source.outputs.source_tag }}
         run: |
           set -euo pipefail
           TARGET="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${MIRROR_REPOSITORY}"
+          test "$(oras resolve "$SOURCE_REPOSITORY:$SOURCE_TAG")" = "$SOURCE_DIGEST"
           oras cp --recursive "$SOURCE_COORDINATE" "$TARGET:$SOURCE_TAG"
           MIRROR_DIGEST="$(oras resolve "$TARGET:$SOURCE_TAG")"
           test "$MIRROR_DIGEST" = "$SOURCE_DIGEST"
