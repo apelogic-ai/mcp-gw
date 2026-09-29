@@ -19,7 +19,16 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.3`.
+The current public release line is `v0.5.4`.
+
+### 0.5.4 upgrade notes
+
+- Use 0.5.4 instead of the unpublished 0.5.3 artifact set. The `v0.5.3` workflow stopped at its
+  Kubernetes release gate before publishing images, the chart, or a GitHub Release. Version 0.5.4
+  includes all 0.5.3 changes and the upgrade notes below.
+- No additional database migration, Secret-format change, OAuth reconnect, provider
+  reauthorization, chart value rename, or new required value is introduced beyond the documented
+  0.5.3 changes.
 
 ### 0.5.3 upgrade notes
 
@@ -46,7 +55,7 @@ The current public release line is `v0.5.3`.
 
 > **Known issue:** 0.5.2 sets an obsolete Google Workspace CLI path in the chart and Compose
 > defaults. Set `googleWorkspace.env.GWS_BINARY_PATH=/usr/local/bin/gws` in Helm or
-> `GWS_BINARY_PATH=/usr/local/bin/gws` in Compose, or remain on 0.5.1 until upgrading to 0.5.3.
+> `GWS_BINARY_PATH=/usr/local/bin/gws` in Compose, or remain on 0.5.1 until upgrading to 0.5.4.
 > This does not require a database migration or OAuth reconnection.
 
 - No database migration, Secret-format change, OAuth reconnect, provider reauthorization, chart

@@ -128,9 +128,13 @@ GITHUB_UID="$(kubectl exec "deployment/$RELEASE_NAME-github-wrapper" --namespace
 [[ "$GOOGLE_UID" == "10001" ]]
 [[ "$GITHUB_UID" == "10001" ]]
 
-GWS_VERSION="$(kubectl exec "deployment/$RELEASE_NAME-google-workspace" \
+GWS_VERSION_OUTPUT="$(kubectl exec "deployment/$RELEASE_NAME-google-workspace" \
   --namespace "$NAMESPACE" -- sh -c '"$GWS_BINARY_PATH" --version')"
-[[ "$GWS_VERSION" == "gws 0.22.5" ]]
+GWS_VERSION="${GWS_VERSION_OUTPUT%%$'\n'*}"
+if [[ "$GWS_VERSION" != "gws 0.22.5" ]]; then
+  echo "Unexpected Google Workspace CLI version: expected 'gws 0.22.5', got '$GWS_VERSION'" >&2
+  exit 1
+fi
 
 GITHUB_MCP_UID="$(kubectl get deployment "$RELEASE_NAME-github-mcp" \
   --namespace "$NAMESPACE" \
