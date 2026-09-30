@@ -31,7 +31,18 @@ diagnose() {
   kubectl logs "deployment/$RELEASE_NAME-google-workspace" --namespace "$NAMESPACE" --tail=120 >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --tail=120 >&2 || true
   kubectl logs deployment/google-oidc-fixture --namespace "$NAMESPACE" --tail=120 >&2 || true
-  kubectl logs broker-smoke-client --namespace "$NAMESPACE" --tail=120 >&2 || true
+  if kubectl get pod broker-smoke-client --namespace "$NAMESPACE" >/dev/null 2>&1; then
+    kubectl logs broker-smoke-client --namespace "$NAMESPACE" --tail=120 >&2 || true
+  fi
+}
+
+wait_for_release_deployments() {
+  local component
+  for component in agentgateway google-workspace github-wrapper github-mcp; do
+    kubectl rollout status "deployment/$RELEASE_NAME-$component" \
+      --namespace "$NAMESPACE" \
+      --timeout=180s
+  done
 }
 
 finish() {
@@ -210,8 +221,12 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_ARCHIVE" \
   --set-string "githubWrapper.image.tag=$IMAGE_TAG" \
   --set-string "googleWorkspace.authorizationBroker.ingressControllerPeer.namespaceSelector.matchLabels.kubernetes\\.io/metadata\\.name=$NAMESPACE" \
   --set-string "googleWorkspace.authorizationBroker.ingressControllerPeer.podSelector.matchLabels.app\\.kubernetes\\.io/component=broker-smoke-client" \
-  --wait \
   --timeout 5m
+
+# Helm waits for the pre-install migration hook before returning. Workload
+# readiness is checked explicitly because Helm's watcher can report a newly
+# created Deployment as terminally unavailable while it is still progressing.
+wait_for_release_deployments
 
 # Prove startup recovery with the issuer unavailable. Recreate only the
 # AgentGateway pod while the broker is down, then bring the broker back and
@@ -390,8 +405,9 @@ helm upgrade "$RELEASE_NAME" "$CHART_ARCHIVE" \
   --namespace "$NAMESPACE" \
   --reuse-values \
   --set-string "googleWorkspace.authorizationBroker.activeSigningKid=local-hop1-rotated" \
-  --wait \
   --timeout 5m
+
+wait_for_release_deployments
 
 CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
   --namespace "$NAMESPACE" \
