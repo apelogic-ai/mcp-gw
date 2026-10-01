@@ -7,7 +7,12 @@ import {
   type GithubMcpToolsetName,
 } from "./github-mcp-toolsets.generated";
 
-export { GITHUB_MCP_DEFAULT_TOOLSETS, GITHUB_MCP_STABLE_TOOLS };
+export {
+  GITHUB_MCP_DEFAULT_TOOLSETS,
+  GITHUB_MCP_STABLE_TOOLS,
+  GITHUB_MCP_TOOLSET_NAMES,
+  GITHUB_MCP_TOOLSET_TOOL_NAMES,
+};
 export type { GithubMcpToolsetName } from "./github-mcp-toolsets.generated";
 
 /** The toolsets enabled by the shipped Compose and Helm bundle defaults. */

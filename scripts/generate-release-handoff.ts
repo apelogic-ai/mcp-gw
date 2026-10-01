@@ -18,6 +18,10 @@ export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Pr
     githubWrapper: await readDigest(options.artifactsDirectory, "github-wrapper"),
     githubMcpServer: await readDigest(options.artifactsDirectory, "github-mcp-server"),
     chart: await readDigest(options.artifactsDirectory, "helm-chart"),
+    githubGovernanceCatalog: await readDigest(
+      options.artifactsDirectory,
+      "github-governance-catalog",
+    ),
   };
   const githubMcpSource = await resolveGitHubMcpSource();
   const registry = `ghcr.io/${options.owner}`;
@@ -68,6 +72,24 @@ cosign verify \\
 
 The optional \`dbMcp\` adapter is externally supplied. Set its image repository and digest in the
 private values overlay before enabling it.
+
+## GitHub Governance Catalog
+
+- Release asset: \`github-governance-catalog.json\`
+- Schema: \`mcp-gw.github-governance-catalog/v1\`
+- Catalog: \`github-mcp-server@${githubMcpSource.sourceTag.replace(/^v/, "")}\`
+- Catalog digest: \`${digests.githubGovernanceCatalog}\`
+- Pinned source: \`${githubMcpSource.sourceRepository}@${githubMcpSource.sourceDigest}\`
+
+The catalog records every pinned tool and selectable grant tuple, its toolset memberships,
+read/write/destructive access class, upstream read-only hint, and chart-default enablement. Verify
+the downloaded release asset against this repository's tagged release workflow:
+
+\`\`\`bash
+gh attestation verify github-governance-catalog.json \\
+  --repo ${options.owner}/mcp-gw \\
+  --cert-identity "https://github.com/${options.owner}/mcp-gw/.github/workflows/release.yml@refs/tags/v${options.version}"
+\`\`\`
 
 ## Runtime Contract
 

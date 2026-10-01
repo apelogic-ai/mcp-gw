@@ -14,6 +14,10 @@ stable information an external GitOps repository can rely on.
 - Supply-chain evidence: an SPDX JSON SBOM, JSON vulnerability report, digest file, and GitHub
   build-provenance attestation for every first-party image. The chart also receives provenance tied
   to its OCI digest.
+- GitHub governance catalog: `github-governance-catalog.json`, its SHA-256 digest file, and a
+  workflow-bound GitHub Attestation. The generated catalog records every pinned GitHub tool and
+  grant tuple plus chart-default membership; see
+  [GitHub Governance Catalog](github-governance-catalog.md).
 
 The official GitHub MCP Server remains an external dependency even though the release publishes a
 convenience mirror. It receives no MCP-GW build-provenance attestation. Operators should select the

@@ -8,6 +8,14 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Added
+
+- Publish an attested `github-governance-catalog.json` release asset generated from the pinned
+  GitHub wrapper catalog, including all 84 tools, 92 grant tuples, access classes, toolset
+  memberships, upstream read-only hints, and chart-default enablement.
+- Document deterministic projection of all-read or chart-default-read tuples into a versioned
+  capability catalog without widening the Mint authority claim.
+
 ## [0.5.6] - 2026-09-30
 
 ### Added
