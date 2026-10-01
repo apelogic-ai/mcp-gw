@@ -449,6 +449,22 @@ describe("GitHub OAuth routes", () => {
       account: { provider: "github", id: "123456", login: "octocat" },
     });
 
+    const compatibilityRefresh = await handler(
+      new Request("https://mcp.example.com/oauth/github/refresh", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    const compatibilityRefreshBody = (await compatibilityRefresh.json()) as {
+      result?: unknown;
+      status?: { version?: unknown; account?: unknown };
+    };
+    expect(compatibilityRefreshBody.result).toBe("refresh_not_supported");
+    expect(compatibilityRefreshBody.status?.version).toBe("1");
+    expect(compatibilityRefreshBody.status?.account).toEqual({
+      displayName: "user@example.com",
+    });
+
     const disconnect = await handler(
       new Request("https://mcp.example.com/oauth/github/disconnect", {
         method: "POST",

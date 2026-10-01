@@ -33,7 +33,7 @@ GitHub `GET /user`, persists the numeric ID and current login with a generation-
 compare-and-swap, and emits a bounded backfill audit event. Later status reads remain datastore-only.
 Concurrent reads single-flight the lookup per connection and replica. A lookup or persistence
 failure leaves status available without `account.id`, emits `github.account_identity_backfill_failed`
-with a bounded error category, and retries after a bounded per-replica delay. A refresh or
+with a bounded error category, and retries after 30 seconds per connection and replica. A refresh or
 reauthorization that resolves a different numeric account ID creates the next connection generation
 and emits `github.account_rebound`; provider IDs and logins are not written to either audit event.
 

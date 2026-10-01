@@ -15,6 +15,7 @@ import { ProviderLifecycleError } from "../../../../shared/oauth/connection-type
 import {
   acceptsConnectionStatusV2,
   githubOAuthCompatibilityStatus,
+  negotiatedRefreshResult,
 } from "../../../../shared/oauth/connection-status";
 import {
   createConnectionRouteHandler,
@@ -210,7 +211,9 @@ export function createGitHubOAuthRouteHandler(
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/refresh") {
-      return json(await lifecycle.refresh(identity, options.scopes));
+      return json(
+        negotiatedRefreshResult(request, await lifecycle.refresh(identity, options.scopes)),
+      );
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {
