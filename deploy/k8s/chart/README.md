@@ -276,6 +276,23 @@ environment variables; legacy `env` configuration remains compatible while
 the typed value is empty. Use `connectionLifecycle.allowedCallers` for private
 ClusterIP reachability, and `trustBundle` when private HTTPS roots are needed.
 
+Configure every browser UI that can receive a GitHub post-consent return by its
+exact public origin—scheme, host, and optional port, without a path:
+
+```yaml
+githubWrapper:
+  oauth:
+    redirectAfterAllowedOrigins:
+      - https://portal.example.com
+```
+
+This allowlist is required even when the lifecycle caller reaches the wrapper
+through its private Service. A missing or non-matching origin returns HTTP 400
+with `code: oauth_redirect_target_not_allowed`; the wrapper logs only the
+rejected origin, never the path, query, OAuth state, or full return URL. See
+[`docs/provider-connection-lifecycle.md`](../../../docs/provider-connection-lifecycle.md)
+for the complete stable error-code contract.
+
 ## Private connection lifecycle access
 
 An internal control plane can use the canonical authenticated

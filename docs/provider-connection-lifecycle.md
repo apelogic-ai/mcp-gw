@@ -43,6 +43,39 @@ compatibility aliases through the complete 0.6.x release line. Their earliest po
 canonical `/connections/{provider}/authorize|status|refresh|disconnect` routes now; the support
 window exists so deployed control planes can migrate without a flag day.
 
+Error responses retain their existing sanitized `error` field and also carry a stable, machine-readable
+`code`. Integrations must branch on `code`; prose in `error` is not a compatibility contract. The
+canonical connection routes use these codes for every mapped failure, and the GitHub compatibility
+routes use the same names plus the callback-specific entries below.
+
+| Stable `code`                        | HTTP | Meaning                                                     |
+| ------------------------------------ | ---: | ----------------------------------------------------------- |
+| `oauth_invalid_request`              |  400 | The JSON request body is malformed.                         |
+| `oauth_unauthorized`                 |  401 | HOP-1 authentication is absent or invalid.                  |
+| `oauth_route_not_found`              |  404 | The requested provider lifecycle route is not defined.      |
+| `oauth_authorization_denied`         |  400 | The provider or lifecycle denied authorization.             |
+| `oauth_redirect_target_not_allowed`  |  400 | `redirectAfter` is not a permitted exact origin.            |
+| `oauth_callback_parameters_missing`  |  400 | The provider callback omitted its required state or code.   |
+| `oauth_state_invalid`                |  400 | OAuth state is absent, expired, stale, or already consumed. |
+| `oauth_identity_mismatch`            |  400 | Provider and authenticated identities do not match.         |
+| `oauth_generation_conflict`          |  409 | A newer connection transition won the generation guard.     |
+| `oauth_invalid_active_credential`    |  409 | The active credential is permanently unusable.              |
+| `oauth_invalid_renewal_credential`   |  409 | The renewal credential is permanently unusable.             |
+| `oauth_renewal_expired`              |  409 | The renewal credential expired.                             |
+| `oauth_insufficient_scope`           |  409 | The connection lacks a required configured scope.           |
+| `oauth_provider_unavailable`         |  503 | A transient provider failure prevents the operation.        |
+| `oauth_provider_configuration_error` |  503 | Provider configuration prevents the operation.              |
+| `oauth_provider_response_malformed`  |  503 | The provider returned an unusable response.                 |
+| `oauth_callback_failed`              |  502 | GitHub callback completion failed after state validation.   |
+| `oauth_persistence_failure`          |  503 | Durable lifecycle state is temporarily unavailable.         |
+
+The GitHub wrapper writes exactly one `warn` line for every 4xx or 5xx response under
+`/oauth/github/*` and `/connections/github/*`. It records the stable code, status, path-only route,
+and a SHA-256 correlation hash over the HOP-1 issuer and subject when an authenticated or state-bound
+principal is available. It never logs bearer tokens, provider codes, OAuth state, emails, full return
+URLs, or arbitrary exception text. For a rejected `redirectAfter`, the only target metadata logged is
+its normalized origin.
+
 Authorization state records are bound to one provider and capture the observed generation,
 local-disable flag, and durable connection update time. Activation requires the complete snapshot and
 compares it under the connection lock. States written by a pre-lifecycle replica without the guard are

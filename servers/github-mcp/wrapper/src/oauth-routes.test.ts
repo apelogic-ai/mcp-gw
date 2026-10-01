@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import type { AuditEvent } from "../../../../shared/audit/audit";
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
@@ -94,16 +94,235 @@ describe("GitHub OAuth routes", () => {
       redirectAfterAllowedOrigins: ["https://admin.example.com"],
     });
 
-    const response = await handler(
-      new Request(
-        "https://mcp.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fevil.example.com%2Fcallback",
-        { headers: { authorization: "Bearer hop1" } },
-      ),
-    );
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const response = await handler(
+        new Request(
+          "https://mcp.example.com/oauth/github/start?redirect_after=https%3A%2F%2Fevil.example.com%2Fcallback",
+          { headers: { authorization: "Bearer hop1" } },
+        ),
+      );
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "OAuth redirect target is not allowed" });
-    expect(stateStore.saveCalls).toBe(0);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "OAuth redirect target is not allowed",
+        code: "oauth_redirect_target_not_allowed",
+      });
+      expect(stateStore.saveCalls).toBe(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]?.[0]);
+      expect(line).toContain("github_oauth_request_failed");
+      expect(line).toContain("code=oauth_redirect_target_not_allowed");
+      expect(line).toContain("status=400");
+      expect(line).toContain("route=/oauth/github/start");
+      expect(line).toMatch(/subject_hash=[0-9a-f]{64}/);
+      expect(line).toContain('redirect_origin="https://evil.example.com"');
+      expect(line).not.toContain("/callback");
+      expect(line).not.toContain(identity.subject);
+      expect(line).not.toContain(identity.email);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("returns and logs stable codes for every compatibility-route 4xx branch", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const denied = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+      tokenStore,
+    });
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: (token) =>
+        token === "hop1" ? Promise.resolve(identity) : Promise.reject(new Error("bad bearer")),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore,
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const cases = [
+        {
+          request: new Request(
+            "https://mcp.example.com/oauth/github/callback?state=present-but-no-code",
+          ),
+          status: 400,
+          code: "oauth_callback_parameters_missing",
+        },
+        {
+          request: new Request("https://mcp.example.com/oauth/github/callback"),
+          status: 400,
+          code: "oauth_callback_parameters_missing",
+        },
+        {
+          request: new Request(
+            `https://mcp.example.com/oauth/github/callback?state=${denied.state}&error=access_denied`,
+          ),
+          status: 400,
+          code: "oauth_authorization_denied",
+        },
+        {
+          request: new Request(
+            "https://mcp.example.com/oauth/github/callback?state=unknown&code=code",
+          ),
+          status: 400,
+          code: "oauth_state_invalid",
+        },
+        {
+          request: new Request("https://mcp.example.com/oauth/github/status"),
+          status: 401,
+          code: "oauth_unauthorized",
+        },
+        {
+          request: new Request("https://mcp.example.com/oauth/github/private-token-123", {
+            headers: { authorization: "Bearer hop1" },
+          }),
+          status: 404,
+          code: "oauth_route_not_found",
+        },
+      ] as const;
+
+      for (const item of cases) {
+        const response = await handler(item.request);
+        expect(response.status).toBe(item.status);
+        expect(await response.json()).toMatchObject({ code: item.code });
+      }
+
+      expect(warn).toHaveBeenCalledTimes(cases.length);
+      for (const [index, item] of cases.entries()) {
+        expect(String(warn.mock.calls[index]?.[0])).toContain(`code=${item.code}`);
+      }
+      const unknownRouteLine = String(warn.mock.calls.at(-1)?.[0]);
+      expect(unknownRouteLine).toContain("route=/oauth/github/<unknown>");
+      expect(unknownRouteLine).not.toContain("private-token-123");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("returns and logs stable codes for connection-route failures", async () => {
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+      redirectAfterAllowedOrigins: ["https://admin.example.com"],
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const response = await handler(
+        new Request("https://mcp.example.com/connections/github/authorize", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer hop1",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ redirectAfter: "https://evil.example.com/private/path" }),
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "authorization_denied",
+        code: "oauth_redirect_target_not_allowed",
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]?.[0]);
+      expect(line).toContain("route=/connections/github/authorize");
+      expect(line).toContain("code=oauth_redirect_target_not_allowed");
+      expect(line).toContain('redirect_origin="https://evil.example.com"');
+      expect(line).not.toContain("/private/path");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("classifies and logs malformed connection JSON without exposing its body", async () => {
+    const privateBody = '{"redirectAfter":"https://private.example/path","secret":"value"';
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.resolve(identity),
+      config,
+      scopes: ["repo"],
+      stateStore: new InMemoryOAuthStateStore(),
+      tokenStore: new InMemoryOAuthTokenStore(),
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const response = await handler(
+        new Request("https://mcp.example.com/connections/github/authorize", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer hop1",
+            "content-type": "application/json",
+          },
+          body: privateBody,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "invalid_request",
+        code: "oauth_invalid_request",
+      });
+      const line = String(warn.mock.calls[0]?.[0]);
+      expect(line).toContain("code=oauth_invalid_request");
+      expect(line).not.toContain("private.example");
+      expect(line).not.toContain("secret");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("classifies and logs a sanitized callback completion failure", async () => {
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const started = await startGithubOAuth({
+      identity,
+      scopes: ["repo"],
+      config,
+      stateStore,
+      tokenStore,
+    });
+    const handler = createGitHubOAuthRouteHandler({
+      authenticate: () => Promise.reject(new Error("callback must use state")),
+      config,
+      scopes: ["repo"],
+      stateStore,
+      tokenStore,
+      fetch: () => Promise.resolve(Response.json({ private: "provider detail" }, { status: 500 })),
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const response = await handler(
+        new Request(
+          `https://mcp.example.com/oauth/github/callback?code=private-code&state=${started.state}`,
+        ),
+      );
+
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        error: "GitHub OAuth callback could not be completed",
+        code: "oauth_callback_failed",
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]?.[0]);
+      expect(line).toContain("code=oauth_callback_failed");
+      expect(line).toMatch(/subject_hash=[0-9a-f]{64}/);
+      expect(line).not.toContain("private-code");
+      expect(line).not.toContain(started.state);
+      expect(line).not.toContain("provider detail");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("rejects a scheme-relative or backslash-normalized redirect target", async () => {
@@ -123,7 +342,10 @@ describe("GitHub OAuth routes", () => {
         ),
       );
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: "OAuth redirect target is not allowed" });
+      expect(await response.json()).toEqual({
+        error: "OAuth redirect target is not allowed",
+        code: "oauth_redirect_target_not_allowed",
+      });
     }
   });
 
@@ -232,7 +454,10 @@ describe("GitHub OAuth routes", () => {
 
     const replay = await handler(new Request(callbackUrl));
     expect(replay.status).toBe(400);
-    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(await replay.json()).toEqual({
+      error: "OAuth state is invalid or expired",
+      code: "oauth_state_invalid",
+    });
     expect(authenticateCalls).toBe(0);
     expect(providerCalls).toBe(3);
   });
@@ -260,7 +485,10 @@ describe("GitHub OAuth routes", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(await response.json()).toEqual({
+      error: "OAuth state is invalid or expired",
+      code: "oauth_state_invalid",
+    });
     expect(authenticateCalls).toBe(0);
     expect(providerCalls).toBe(0);
   });
@@ -288,11 +516,17 @@ describe("GitHub OAuth routes", () => {
 
     const denied = await handler(new Request(callbackUrl));
     expect(denied.status).toBe(400);
-    expect(await denied.json()).toEqual({ error: "GitHub authorization was not completed" });
+    expect(await denied.json()).toEqual({
+      error: "GitHub authorization was not completed",
+      code: "oauth_authorization_denied",
+    });
 
     const replay = await handler(new Request(callbackUrl));
     expect(replay.status).toBe(400);
-    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(await replay.json()).toEqual({
+      error: "OAuth state is invalid or expired",
+      code: "oauth_state_invalid",
+    });
   });
 
   test("rejects an OAuth callback for a different GitHub email without persisting it", async () => {
@@ -329,13 +563,17 @@ describe("GitHub OAuth routes", () => {
     expect(callback.status).toBe(400);
     expect(await callback.json()).toEqual({
       error: "GitHub account identity does not match authenticated user",
+      code: "oauth_identity_mismatch",
     });
     expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).toBeNull();
     expect(audit.events).toHaveLength(0);
 
     const replay = await handler(new Request(callbackUrl));
     expect(replay.status).toBe(400);
-    expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
+    expect(await replay.json()).toEqual({
+      error: "OAuth state is invalid or expired",
+      code: "oauth_state_invalid",
+    });
   });
 
   test("renders a success page when callback has no stored redirect target", async () => {
@@ -582,6 +820,7 @@ describe("GitHub OAuth routes", () => {
     const responseBody = await response.json();
     expect(responseBody).toEqual({
       error: "persistence_failure",
+      code: "oauth_persistence_failure",
     });
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]).toMatchObject({
@@ -607,7 +846,10 @@ describe("GitHub OAuth routes", () => {
     const response = await handler(new Request("https://mcp.example.com/oauth/github/status"));
 
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    expect(await response.json()).toEqual({
+      error: "Unauthorized",
+      code: "oauth_unauthorized",
+    });
   });
 
   test("maps datastore failures on compatibility connection routes", async () => {
@@ -634,7 +876,10 @@ describe("GitHub OAuth routes", () => {
         }),
       );
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "persistence_failure" });
+      expect(await response.json()).toEqual({
+        error: "persistence_failure",
+        code: "oauth_persistence_failure",
+      });
     }
   });
 });
