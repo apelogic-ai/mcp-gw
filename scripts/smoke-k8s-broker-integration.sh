@@ -31,9 +31,12 @@ diagnose() {
   kubectl logs "deployment/$RELEASE_NAME-google-workspace" --namespace "$NAMESPACE" --tail=120 >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --tail=120 >&2 || true
   kubectl logs deployment/google-oidc-fixture --namespace "$NAMESPACE" --tail=120 >&2 || true
-  if kubectl get pod broker-smoke-client --namespace "$NAMESPACE" >/dev/null 2>&1; then
-    kubectl logs broker-smoke-client --namespace "$NAMESPACE" --tail=120 >&2 || true
-  fi
+  local client
+  for client in broker-recovery-client broker-smoke-client broker-rotation-client; do
+    if kubectl get pod "$client" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+      kubectl logs "$client" --namespace "$NAMESPACE" --all-containers --tail=120 >&2 || true
+    fi
+  done
 }
 
 wait_for_release_deployments() {
@@ -202,6 +205,9 @@ kubectl create secret generic broker-invalid-tokens \
   --from-file="wrong-audience.jwt=$WORK_DIR/broker.jwt.wrong-audience" \
   --from-file="invalid-signature.jwt=$WORK_DIR/broker.jwt.invalid-signature" \
   --from-file="expired.jwt=$WORK_DIR/broker.jwt.expired"
+kubectl create secret generic broker-recovery-token \
+  --namespace "$NAMESPACE" \
+  --from-file="token=$WORK_DIR/broker.jwt"
 
 helm package "$CHART_DIR" --destination "$WORK_DIR/chart" >/dev/null
 CHART_ARCHIVE="$WORK_DIR/chart/mcp-gateway-$(sed -n 's/^version: //p' "$CHART_DIR/Chart.yaml").tgz"
@@ -256,17 +262,105 @@ kubectl rollout status "deployment/$RELEASE_NAME-google-workspace" \
   --namespace "$NAMESPACE" \
   --timeout=120s
 
-JWKS_RECOVERED=false
-for _ in {1..60}; do
-  if kubectl logs "deployment/$RELEASE_NAME-agentgateway" \
-    --namespace "$NAMESPACE" \
-    --tail=200 | grep -q "resource became available after a previous fetch failure"; then
-    JWKS_RECOVERED=true
-    break
-  fi
+# Exercise authentication to trigger on-demand JWKS retrieval. Waiting for an
+# implementation-specific recovery log can deadlock the smoke when the gateway
+# defers its retry until the next authenticated request.
+kubectl apply --namespace "$NAMESPACE" -f - <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: broker-recovery-client
+  labels:
+    app.kubernetes.io/component: broker-smoke-client
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+  containers:
+    - name: client
+      image: $GOOGLE_REPOSITORY:$IMAGE_TAG
+      imagePullPolicy: Never
+      command: ["bun", "-e"]
+      args:
+        - |
+          const token = (await Bun.file("/var/run/secrets/mcp-gateway/recovery/token").text()).trim();
+          const url = "http://$RELEASE_NAME-agentgateway:8080/mcp";
+          const deadline = Date.now() + 60_000;
+          let lastError;
+          let lastStatus;
+          while (Date.now() < deadline) {
+            try {
+              const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                  accept: "application/json, text/event-stream",
+                  authorization: "Bearer " + token,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "initialize",
+                  params: {
+                    protocolVersion: "2025-06-18",
+                    capabilities: {},
+                    clientInfo: { name: "jwks-recovery-smoke", version: "1.0.0" },
+                  },
+                }),
+                signal: AbortSignal.timeout(2_000),
+              });
+              lastStatus = response.status;
+              await response.body?.cancel();
+              if (lastStatus === 200) {
+                console.log("JWKS recovery probe succeeded without AgentGateway restart");
+                process.exit(0);
+              }
+            } catch (error) {
+              lastError = error;
+            }
+            await Bun.sleep(500);
+          }
+          console.error("JWKS recovery probe did not succeed", {
+            lastStatus,
+            lastError: String(lastError ?? "none"),
+          });
+          process.exit(1);
+      volumeMounts:
+        - name: recovery-token
+          mountPath: /var/run/secrets/mcp-gateway/recovery
+          readOnly: true
+  volumes:
+    - name: recovery-token
+      secret:
+        secretName: broker-recovery-token
+YAML
+
+recovery_phase=""
+for _ in {1..90}; do
+  recovery_phase="$(kubectl get pod broker-recovery-client --namespace "$NAMESPACE" \
+    -o jsonpath='{.status.phase}')"
+  case "$recovery_phase" in
+    Succeeded) break ;;
+    Failed)
+      echo "JWKS recovery probe did not succeed" >&2
+      exit 1
+      ;;
+  esac
   sleep 1
 done
-[[ "$JWKS_RECOVERED" == "true" ]]
+if [[ "$recovery_phase" != "Succeeded" ]]; then
+  echo "JWKS recovery probe did not succeed before the deadline" >&2
+  exit 1
+fi
+kubectl logs broker-recovery-client --namespace "$NAMESPACE"
+
+CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
+  --namespace "$NAMESPACE" \
+  --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
+  -o jsonpath='{.items[0].metadata.uid}')"
+[[ "$CURRENT_AGENTGATEWAY_POD_UID" == "$AGENTGATEWAY_RECOVERY_POD_UID" ]]
 
 kubectl create configmap broker-journey-client \
   --namespace "$NAMESPACE" \
@@ -460,7 +554,10 @@ spec:
           }
           const first = await initialize();
           if (first !== 401) throw new Error("expected initial unknown-kid 401, received " + first);
-          const deadline = Date.now() + 30_000;
+          // The startup-recovery probe may have refreshed this same JWKS less
+          // than a minute ago. Allow the gateway's bounded refresh cooldown to
+          // elapse before declaring the rotated key unavailable.
+          const deadline = Date.now() + 90_000;
           while (Date.now() < deadline) {
             await Bun.sleep(500);
             if ((await initialize()) === 200) {
@@ -479,11 +576,20 @@ spec:
         secretName: broker-rotated-token
 YAML
 
-kubectl wait \
-  --namespace "$NAMESPACE" \
-  --for=jsonpath='{.status.phase}'=Succeeded \
-  pod/broker-rotation-client \
-  --timeout=60s
+rotation_phase=""
+for _ in {1..120}; do
+  rotation_phase="$(kubectl get pod broker-rotation-client --namespace "$NAMESPACE" \
+    -o jsonpath='{.status.phase}')"
+  case "$rotation_phase" in
+    Succeeded) break ;;
+    Failed)
+      kubectl logs broker-rotation-client --namespace "$NAMESPACE" >&2 || true
+      exit 1
+      ;;
+  esac
+  sleep 1
+done
+[[ "$rotation_phase" == "Succeeded" ]]
 kubectl logs broker-rotation-client --namespace "$NAMESPACE"
 
 CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \

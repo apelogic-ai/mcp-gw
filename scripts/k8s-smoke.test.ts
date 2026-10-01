@@ -121,7 +121,10 @@ exit 0
     );
     expect(smoke).toContain("--invalid-token-directory");
     expect(smoke).toContain("--reuse-values");
-    expect(smoke).toContain("resource became available after a previous fetch failure");
+    expect(smoke).toContain("name: broker-recovery-client");
+    expect(smoke).toContain("secretName: broker-recovery-token");
+    expect(smoke).toContain("JWKS recovery probe did not succeed");
+    expect(smoke).not.toContain("resource became available after a previous fetch failure");
     expect(smoke).toContain("local-hop1-rotated");
     expect(smoke).toContain("expected initial unknown-kid 401");
     expect(smoke).toContain("rotated JWKS accepted without AgentGateway restart");
@@ -133,11 +136,15 @@ exit 0
     expect(smoke).toContain("GATEWAY_URL");
     expect(smoke).toContain("fetch(process.env.GATEWAY_URL");
     expect(smoke).toContain("Date.now() + 30_000");
+    expect(smoke).toContain("Date.now() + 90_000");
     expect(smoke).toContain('[[ "$client_phase" == "Succeeded" ]]');
+    expect(smoke).toContain('[[ "$rotation_phase" == "Succeeded" ]]');
     expect(smoke).toContain("wait_for_release_deployments()");
     expect(smoke).toContain('kubectl rollout status "deployment/$RELEASE_NAME-$component"');
     expect(smoke).not.toContain("  --wait \\\n  --timeout 5m");
-    expect(smoke).toContain("if kubectl get pod broker-smoke-client");
+    expect(smoke).toContain(
+      "for client in broker-recovery-client broker-smoke-client broker-rotation-client",
+    );
     expect(smoke).not.toContain("rollout restart");
     expect(values).toContain("fixture-enterprise");
     expect(values).toContain("authorizationBroker:");
