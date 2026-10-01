@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import type { AuditEvent, AuditSink } from "../../../../shared/audit/audit";
 import {
@@ -11,15 +13,17 @@ import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
-import { ProviderLifecycleError } from "../../../../shared/oauth/connection-types";
 import {
   acceptsConnectionStatusV2,
   githubOAuthCompatibilityStatus,
   negotiatedRefreshResult,
 } from "../../../../shared/oauth/connection-status";
 import {
+  ConnectionRouteError,
+  connectionErrorDetails,
   createConnectionRouteHandler,
-  withConnectionErrorMapping,
+  type ConnectionRouteErrorCode,
+  type ConnectionRouteFailure,
 } from "../../../../shared/oauth/connection-routes";
 import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 
@@ -43,6 +47,31 @@ const JSON_HEADERS = {
   "content-type": "application/json",
 };
 
+const GITHUB_ROUTE_LOG_LABELS = new Set([
+  "/oauth/github/callback",
+  "/oauth/github/start",
+  "/oauth/github/status",
+  "/oauth/github/refresh",
+  "/oauth/github/disconnect",
+  "/connections/github/authorize",
+  "/connections/github/status",
+  "/connections/github/refresh",
+  "/connections/github/disconnect",
+]);
+
+type GitHubHttpErrorCode =
+  | ConnectionRouteErrorCode
+  | "oauth_callback_parameters_missing"
+  | "oauth_state_invalid"
+  | "oauth_callback_failed";
+
+interface GitHubHttpErrorDetails {
+  status: number;
+  error: string;
+  code: GitHubHttpErrorCode;
+  details?: Readonly<Record<string, string>>;
+}
+
 export function createGitHubOAuthRouteHandler(
   options: CreateGitHubOAuthRouteHandlerOptions,
 ): (request: Request) => Promise<Response> {
@@ -65,9 +94,11 @@ export function createGitHubOAuthRouteHandler(
         options.redirectAfterAllowedOrigins ?? [],
       );
       if (validated instanceof OAuthRedirectTargetError) {
-        throw new ProviderLifecycleError(
+        throw new ConnectionRouteError(
           "OAuth redirect target is not allowed",
           "authorization_denied",
+          "oauth_redirect_target_not_allowed",
+          { redirectOrigin: rejectedRedirectOrigin(redirectAfter) },
         );
       }
       return startGithubOAuth({
@@ -79,155 +110,211 @@ export function createGitHubOAuthRouteHandler(
         redirectAfter: validated,
       });
     },
+    reportFailure: reportGitHubRouteFailure,
   });
 
   const handler = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/connections/github/")) return connectionRoutes(request);
 
-    if (request.method === "GET" && url.pathname === "/oauth/github/callback") {
-      const code = url.searchParams.get("code");
-      const state = url.searchParams.get("state");
-      if (!state) {
-        return json({ error: "Missing OAuth code or state" }, 400);
-      }
+    let identity: Hop1Identity | undefined;
+    try {
+      if (request.method === "GET" && url.pathname === "/oauth/github/callback") {
+        const code = url.searchParams.get("code");
+        const state = url.searchParams.get("state");
+        if (!state) {
+          return githubErrorResponse(request, undefined, {
+            status: 400,
+            error: "Missing OAuth code or state",
+            code: "oauth_callback_parameters_missing",
+          });
+        }
 
-      if (url.searchParams.has("error")) {
+        if (url.searchParams.has("error")) {
+          try {
+            identity = await cancelGithubOAuth({
+              state,
+              stateStore: options.stateStore,
+              tokenStore: options.tokenStore,
+            });
+            await emitAuditSafely(options.audit, {
+              ts: new Date().toISOString(),
+              category: "oauth",
+              principal: identity.email,
+              event: "github.connect",
+              status: "deny",
+              error: "github_authorization_denied",
+            });
+          } catch (error) {
+            if (error instanceof GitHubOAuthError && error.code === "invalid_state") {
+              return githubErrorResponse(request, undefined, {
+                status: 400,
+                error: "OAuth state is invalid or expired",
+                code: "oauth_state_invalid",
+              });
+            }
+            throw error;
+          }
+          return githubErrorResponse(request, identity, {
+            status: 400,
+            error: "GitHub authorization was not completed",
+            code: "oauth_authorization_denied",
+          });
+        }
+
+        if (!code) {
+          return githubErrorResponse(request, undefined, {
+            status: 400,
+            error: "Missing OAuth code or state",
+            code: "oauth_callback_parameters_missing",
+          });
+        }
+
+        let completed;
         try {
-          const identity = await cancelGithubOAuth({
+          completed = await completeGithubOAuth({
+            identity: await authenticateRequest(request, authenticate),
+            code,
             state,
+            config: options.config,
             stateStore: options.stateStore,
             tokenStore: options.tokenStore,
-          });
-          await emitAuditSafely(options.audit, {
-            ts: new Date().toISOString(),
-            category: "oauth",
-            principal: identity.email,
-            event: "github.connect",
-            status: "deny",
-            error: "github_authorization_denied",
+            fetch: options.fetch,
           });
         } catch (error) {
+          if (error instanceof GitHubOAuthError && error.code === "email_mismatch") {
+            return githubErrorResponse(request, error.principal ?? identity, {
+              status: 400,
+              error: "GitHub account identity does not match authenticated user",
+              code: "oauth_identity_mismatch",
+            });
+          }
           if (error instanceof GitHubOAuthError && error.code === "invalid_state") {
-            return json({ error: "OAuth state is invalid or expired" }, 400);
+            return githubErrorResponse(request, error.principal ?? identity, {
+              status: 400,
+              error: "OAuth state is invalid or expired",
+              code: "oauth_state_invalid",
+            });
+          }
+          if (error instanceof GitHubOAuthError) {
+            return githubErrorResponse(request, error.principal ?? identity, {
+              status: 502,
+              error: "GitHub OAuth callback could not be completed",
+              code: "oauth_callback_failed",
+            });
           }
           throw error;
         }
-        return json({ error: "GitHub authorization was not completed" }, 400);
+        await emitAuditSafely(options.audit, {
+          ts: new Date().toISOString(),
+          category: "oauth",
+          principal: completed.identity.email,
+          event: "github.connect",
+          status: "allow",
+        });
+
+        return completed.redirectAfter
+          ? redirect(completed.redirectAfter)
+          : oauthSuccessPage({ provider: "GitHub" });
       }
 
-      if (!code) {
-        return json({ error: "Missing OAuth code or state" }, 400);
+      identity = await authenticateRequest(request, authenticate);
+      if (!identity) {
+        return githubErrorResponse(request, undefined, {
+          status: 401,
+          error: "Unauthorized",
+          code: "oauth_unauthorized",
+        });
       }
 
-      let completed;
-      try {
-        completed = await completeGithubOAuth({
-          identity: await authenticateRequest(request, authenticate),
-          code,
-          state,
+      if (request.method === "GET" && url.pathname === "/oauth/github/start") {
+        const requestedRedirect = url.searchParams.get("redirect_after") ?? undefined;
+        const redirectAfter = validateRedirectAfter(
+          requestedRedirect,
+          options.redirectAfterAllowedOrigins ?? [],
+        );
+        if (redirectAfter instanceof OAuthRedirectTargetError) {
+          return githubErrorResponse(request, identity, {
+            status: 400,
+            error: "OAuth redirect target is not allowed",
+            code: "oauth_redirect_target_not_allowed",
+            details: { redirectOrigin: rejectedRedirectOrigin(requestedRedirect) },
+          });
+        }
+        const started = await startGithubOAuth({
+          identity,
+          scopes: options.scopes,
           config: options.config,
           stateStore: options.stateStore,
           tokenStore: options.tokenStore,
-          fetch: options.fetch,
+          redirectAfter,
         });
-      } catch (error) {
-        if (error instanceof GitHubOAuthError && error.code === "email_mismatch") {
-          return json({ error: "GitHub account identity does not match authenticated user" }, 400);
+
+        return redirect(started.authorizationUrl);
+      }
+
+      if (request.method === "POST" && url.pathname === "/oauth/github/start") {
+        const body = await readJsonObject(request);
+        const requestedRedirect =
+          typeof body.redirectAfter === "string" && body.redirectAfter.length > 0
+            ? body.redirectAfter
+            : undefined;
+        const redirectAfter = validateRedirectAfter(
+          requestedRedirect,
+          options.redirectAfterAllowedOrigins ?? [],
+        );
+        if (redirectAfter instanceof OAuthRedirectTargetError) {
+          return githubErrorResponse(request, identity, {
+            status: 400,
+            error: "OAuth redirect target is not allowed",
+            code: "oauth_redirect_target_not_allowed",
+            details: { redirectOrigin: rejectedRedirectOrigin(requestedRedirect) },
+          });
         }
-        if (error instanceof GitHubOAuthError && error.code === "invalid_state") {
-          return json({ error: "OAuth state is invalid or expired" }, 400);
+        const started = await startGithubOAuth({
+          identity,
+          scopes: options.scopes,
+          config: options.config,
+          stateStore: options.stateStore,
+          tokenStore: options.tokenStore,
+          redirectAfter,
+        });
+
+        return json({ authorizationUrl: started.authorizationUrl });
+      }
+
+      if (request.method === "GET" && url.pathname === "/oauth/github/status") {
+        const status = await lifecycle.status(identity, options.scopes);
+        if (status.phase === "disconnected") return json({ connected: false });
+        return json(githubOAuthCompatibilityStatus(status, acceptsConnectionStatusV2(request)));
+      }
+
+      if (request.method === "POST" && url.pathname === "/oauth/github/refresh") {
+        return json(
+          negotiatedRefreshResult(request, await lifecycle.refresh(identity, options.scopes)),
+        );
+      }
+
+      if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {
+        try {
+          await lifecycle.disconnect(identity, options.scopes);
+        } finally {
+          await invalidateAuthorizationSafely(options.stateStore, identity);
         }
-        if (error instanceof GitHubOAuthError) {
-          return json({ error: "GitHub OAuth callback could not be completed" }, 502);
-        }
-        throw error;
+        return new Response(null, { status: 204 });
       }
-      await emitAuditSafely(options.audit, {
-        ts: new Date().toISOString(),
-        category: "oauth",
-        principal: completed.identity.email,
-        event: "github.connect",
-        status: "allow",
+
+      return githubErrorResponse(request, identity, {
+        status: 404,
+        error: "Not found",
+        code: "oauth_route_not_found",
       });
-
-      return completed.redirectAfter
-        ? redirect(completed.redirectAfter)
-        : oauthSuccessPage({ provider: "GitHub" });
+    } catch (error) {
+      const details = connectionErrorDetails(error);
+      return githubErrorResponse(request, identity, details);
     }
-
-    const identity = await authenticateRequest(request, authenticate);
-    if (!identity) {
-      return json({ error: "Unauthorized" }, 401);
-    }
-
-    if (request.method === "GET" && url.pathname === "/oauth/github/start") {
-      const redirectAfter = validateRedirectAfter(
-        url.searchParams.get("redirect_after") ?? undefined,
-        options.redirectAfterAllowedOrigins ?? [],
-      );
-      if (redirectAfter instanceof OAuthRedirectTargetError) {
-        return json({ error: "OAuth redirect target is not allowed" }, 400);
-      }
-      const started = await startGithubOAuth({
-        identity,
-        scopes: options.scopes,
-        config: options.config,
-        stateStore: options.stateStore,
-        tokenStore: options.tokenStore,
-        redirectAfter,
-      });
-
-      return redirect(started.authorizationUrl);
-    }
-
-    if (request.method === "POST" && url.pathname === "/oauth/github/start") {
-      const body = await readJsonObject(request);
-      const redirectAfter = validateRedirectAfter(
-        typeof body.redirectAfter === "string" && body.redirectAfter.length > 0
-          ? body.redirectAfter
-          : undefined,
-        options.redirectAfterAllowedOrigins ?? [],
-      );
-      if (redirectAfter instanceof OAuthRedirectTargetError) {
-        return json({ error: "OAuth redirect target is not allowed" }, 400);
-      }
-      const started = await startGithubOAuth({
-        identity,
-        scopes: options.scopes,
-        config: options.config,
-        stateStore: options.stateStore,
-        tokenStore: options.tokenStore,
-        redirectAfter,
-      });
-
-      return json({ authorizationUrl: started.authorizationUrl });
-    }
-
-    if (request.method === "GET" && url.pathname === "/oauth/github/status") {
-      const status = await lifecycle.status(identity, options.scopes);
-      if (status.phase === "disconnected") return json({ connected: false });
-      return json(githubOAuthCompatibilityStatus(status, acceptsConnectionStatusV2(request)));
-    }
-
-    if (request.method === "POST" && url.pathname === "/oauth/github/refresh") {
-      return json(
-        negotiatedRefreshResult(request, await lifecycle.refresh(identity, options.scopes)),
-      );
-    }
-
-    if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {
-      try {
-        await lifecycle.disconnect(identity, options.scopes);
-      } finally {
-        await invalidateAuthorizationSafely(options.stateStore, identity);
-      }
-      return new Response(null, { status: 204 });
-    }
-
-    return json({ error: "Not found" }, 404);
   };
-  return withConnectionErrorMapping(handler);
+  return handler;
 }
 
 async function invalidateAuthorizationSafely(
@@ -291,6 +378,74 @@ function validateRedirectAfter(
   }
 
   return target.toString();
+}
+
+function rejectedRedirectOrigin(redirectAfter: string | undefined): string {
+  if (!redirectAfter) return "invalid";
+  try {
+    const target = new URL(redirectAfter, "https://mcp-gw.invalid");
+    return target.origin === "null" ? "invalid" : target.origin;
+  } catch {
+    return "invalid";
+  }
+}
+
+function reportGitHubRouteFailure(failure: ConnectionRouteFailure): void {
+  reportGitHubHttpFailure(
+    failure.request,
+    failure.identity,
+    failure.status,
+    failure.code,
+    failure.details,
+  );
+}
+
+function githubErrorResponse(
+  request: Request,
+  identity: Pick<Hop1Identity, "issuer" | "subject"> | undefined,
+  failure: GitHubHttpErrorDetails,
+): Response {
+  try {
+    reportGitHubHttpFailure(request, identity, failure.status, failure.code, failure.details);
+  } catch {
+    // Diagnostics must never replace the stable, sanitized HTTP response.
+  }
+  return json({ error: failure.error, code: failure.code }, failure.status);
+}
+
+function reportGitHubHttpFailure(
+  request: Request,
+  identity: Pick<Hop1Identity, "issuer" | "subject"> | undefined,
+  status: number,
+  code: GitHubHttpErrorCode,
+  details?: Readonly<Record<string, string>>,
+): void {
+  const rawPath = new URL(request.url).pathname;
+  const route = boundedGitHubRoute(rawPath);
+  const subjectHash = identity
+    ? createHash("sha256")
+        .update(identity.issuer)
+        .update("\0")
+        .update(identity.subject)
+        .digest("hex")
+    : "unavailable";
+  const fields = [
+    "github_oauth_request_failed",
+    `code=${code}`,
+    `status=${String(status)}`,
+    `route=${route}`,
+    `subject_hash=${subjectHash}`,
+  ];
+  if (details?.redirectOrigin) {
+    fields.push(`redirect_origin=${JSON.stringify(details.redirectOrigin)}`);
+  }
+  console.warn(fields.join(" "));
+}
+
+function boundedGitHubRoute(pathname: string): string {
+  if (GITHUB_ROUTE_LOG_LABELS.has(pathname)) return pathname;
+  if (pathname.startsWith("/connections/github")) return "/connections/github/<unknown>";
+  return "/oauth/github/<unknown>";
 }
 
 async function authenticateRequest(

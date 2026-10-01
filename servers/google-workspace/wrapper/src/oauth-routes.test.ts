@@ -393,7 +393,10 @@ describe("OAuth route handler", () => {
         }),
       );
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "persistence_failure" });
+      expect(await response.json()).toEqual({
+        error: "persistence_failure",
+        code: "oauth_persistence_failure",
+      });
     }
   });
 });

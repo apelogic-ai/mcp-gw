@@ -191,6 +191,13 @@ githubWrapper:
       - https://admin.example.com
 ```
 
+List the exact public origin of every UI that supplies `redirectAfter` (scheme,
+host, and optional port, with no path). Private Service reachability does not
+bypass this browser-return allowlist. A mismatch returns HTTP 400 with stable
+`code: oauth_redirect_target_not_allowed`; callers should surface that code to
+operators rather than treating it as a missing request. The wrapper's warning
+contains the rejected origin only, never the full return URL.
+
 An external policy decision endpoint is similarly configured once for both
 wrappers through `policy.opaUrl`. See
 [External Governing Platform Integration](external-platform-issuer.md) for the

@@ -39,6 +39,7 @@ describe("client integration documentation", () => {
       chartReadme,
       quickstart,
       providerFlows,
+      lifecycle,
       runbook,
       releaseHandoff,
     ] = await Promise.all([
@@ -48,6 +49,7 @@ describe("client integration documentation", () => {
       readFile("deploy/k8s/chart/README.md", "utf8"),
       readFile("docs/quickstart.md", "utf8"),
       readFile("docs/provider-connection-flows.md", "utf8"),
+      readFile("docs/provider-connection-lifecycle.md", "utf8"),
       readFile("docs/client-integration-runbook.md", "utf8"),
       readFile("docs/release-handoff.md", "utf8"),
     ]);
@@ -65,6 +67,11 @@ describe("client integration documentation", () => {
     expect(directClient).toMatch(/Provider\s+callback routes are not compatibility aliases/);
     expect(chartReadme).toContain("An AgentGateway deployment additionally requires");
     expect(chartReadme).toMatch(/at\s+least one enabled backend/);
+    expect(chartReadme).toContain("oauth_redirect_target_not_allowed");
+    expect(chartReadme).toContain("githubWrapper.oauth.redirectAfterAllowedOrigins");
+    expect(lifecycle).toContain("Stable `code`");
+    expect(lifecycle).toContain("oauth_persistence_failure");
+    expect(lifecycle).toContain("SHA-256 correlation hash");
     for (const document of [quickstart, providerFlows, directClient]) {
       expect(document).not.toContain("/oauth/{provider}/*");
     }

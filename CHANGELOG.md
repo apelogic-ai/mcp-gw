@@ -8,6 +8,20 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Added
+
+- Return documented stable `code` values from provider connection lifecycle failures so control
+  planes can surface actionable causes without parsing prose.
+- Emit one sanitized GitHub wrapper warning for every OAuth or connection-lifecycle 4xx/5xx,
+  including a bounded route and HOP-1 subject hash; rejected browser returns record only their
+  normalized origin.
+
+### Upgrade Notes
+
+- Browser UIs that pass `redirectAfter` to GitHub authorization must list their exact public origin
+  in `githubWrapper.oauth.redirectAfterAllowedOrigins`. Rejections now return
+  `oauth_redirect_target_not_allowed`; no new required chart value or database migration is added.
+
 ## [0.5.5] - 2026-09-30
 
 ### Added

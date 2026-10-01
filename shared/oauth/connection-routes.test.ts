@@ -2,12 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../identity/hop1";
 import { ConnectionLifecycle } from "./connection-lifecycle";
-import { createConnectionRouteHandler } from "./connection-routes";
-import type {
-  DecryptedCredentialGeneration,
-  DownstreamConnectionAdapter,
-  RenewedCredentialGeneration,
-  ValidatedProviderIdentity,
+import {
+  ConnectionRouteError,
+  connectionErrorResponse,
+  createConnectionRouteHandler,
+} from "./connection-routes";
+import {
+  ProviderLifecycleError,
+  type DecryptedCredentialGeneration,
+  type DownstreamConnectionAdapter,
+  type RenewedCredentialGeneration,
+  type ValidatedProviderIdentity,
 } from "./connection-types";
 import { InMemoryOAuthTokenStore } from "./memory-store";
 
@@ -61,6 +66,40 @@ class RouteAdapter implements DownstreamConnectionAdapter {
 }
 
 describe("generic connection routes", () => {
+  test("maps every lifecycle category to a stable response code", async () => {
+    const cases = [
+      ["authorization_denied", 400, "oauth_authorization_denied"],
+      ["identity_mismatch", 400, "oauth_identity_mismatch"],
+      ["generation_conflict", 409, "oauth_generation_conflict"],
+      ["invalid_active_credential", 409, "oauth_invalid_active_credential"],
+      ["invalid_renewal_credential", 409, "oauth_invalid_renewal_credential"],
+      ["renewal_expired", 409, "oauth_renewal_expired"],
+      ["insufficient_scope", 409, "oauth_insufficient_scope"],
+      ["transient_provider_failure", 503, "oauth_provider_unavailable"],
+      ["provider_configuration_error", 503, "oauth_provider_configuration_error"],
+      ["malformed_provider_response", 503, "oauth_provider_response_malformed"],
+      ["persistence_failure", 503, "oauth_persistence_failure"],
+    ] as const;
+
+    for (const [category, status, code] of cases) {
+      const response = connectionErrorResponse(new ProviderLifecycleError("private", category));
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ error: category, code });
+    }
+
+    const override = connectionErrorResponse(
+      new ConnectionRouteError(
+        "private",
+        "authorization_denied",
+        "oauth_redirect_target_not_allowed",
+      ),
+    );
+    expect(await override.json()).toEqual({
+      error: "authorization_denied",
+      code: "oauth_redirect_target_not_allowed",
+    });
+  });
+
   test("supports status, refresh, reauthorization while connected, and disconnect", async () => {
     const lifecycle = new ConnectionLifecycle({
       adapter: new RouteAdapter(),
@@ -188,7 +227,10 @@ describe("generic connection routes", () => {
     });
     const response = await handler(new Request("https://mcp.example/connections/github/status"));
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    expect(await response.json()).toEqual({
+      error: "Unauthorized",
+      code: "oauth_unauthorized",
+    });
   });
 
   test("reports authorizing for a disconnected principal after authorization starts", async () => {
@@ -295,7 +337,10 @@ describe("generic connection routes", () => {
       );
 
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "persistence_failure" });
+      expect(await response.json()).toEqual({
+        error: "persistence_failure",
+        code: "oauth_persistence_failure",
+      });
     }
   });
 });

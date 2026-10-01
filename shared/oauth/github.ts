@@ -29,6 +29,8 @@ export class GitHubOAuthError extends Error {
   constructor(
     message: string,
     public readonly code: GitHubOAuthErrorCode,
+    /** Minimal principal binding recovered from consumed state for sanitized correlation. */
+    public readonly principal?: Pick<Hop1Identity, "issuer" | "subject">,
   ) {
     super(message);
     this.name = "GitHubOAuthError";
@@ -146,7 +148,9 @@ export async function completeGithubOAuth(
   if (!stateRecord) {
     throw new GitHubOAuthError("OAuth state is invalid or expired", "invalid_state");
   }
-  const identity = options.identity ?? identityFromStateRecord(stateRecord);
+  const stateIdentity = identityFromStateRecord(stateRecord);
+  const identity = options.identity ?? stateIdentity;
+  const statePrincipal = principalBinding(stateIdentity);
   if (
     identity.issuer !== stateRecord.hop1Issuer ||
     identity.subject !== stateRecord.hop1Subject ||
@@ -157,7 +161,11 @@ export async function completeGithubOAuth(
       stateRecord.hop1Issuer,
       stateRecord.hop1Subject,
     );
-    throw new GitHubOAuthError("OAuth state does not match authenticated user", "email_mismatch");
+    throw new GitHubOAuthError(
+      "OAuth state does not match authenticated user",
+      "email_mismatch",
+      statePrincipal,
+    );
   }
   if (
     stateRecord.provider !== "github" ||
@@ -172,7 +180,7 @@ export async function completeGithubOAuth(
       stateRecord.hop1Issuer,
       stateRecord.hop1Subject,
     );
-    throw new GitHubOAuthError("OAuth state is stale", "invalid_state");
+    throw new GitHubOAuthError("OAuth state is stale", "invalid_state", statePrincipal);
   }
 
   const fetchImpl = options.fetch ?? fetch;
@@ -193,11 +201,13 @@ export async function completeGithubOAuth(
       throw new GitHubOAuthError(
         "GitHub account identity does not match authenticated user",
         "email_mismatch",
+        statePrincipal,
       );
     }
     throw new GitHubOAuthError(
       "GitHub OAuth callback could not be completed",
       "token_exchange_failed",
+      statePrincipal,
     );
   }
   try {
@@ -217,12 +227,13 @@ export async function completeGithubOAuth(
       stateRecord.hop1Subject,
     );
     if (error instanceof ProviderLifecycleError && error.category === "generation_conflict") {
-      throw new GitHubOAuthError("OAuth state is stale", "invalid_state");
+      throw new GitHubOAuthError("OAuth state is stale", "invalid_state", statePrincipal);
     }
     if (error instanceof ProviderLifecycleError && error.category === "identity_mismatch") {
       throw new GitHubOAuthError(
         "GitHub account identity does not match authenticated user",
         "email_mismatch",
+        statePrincipal,
       );
     }
     throw error;
@@ -295,6 +306,10 @@ function identityFromStateRecord(stateRecord: {
     email: stateRecord.email,
     claims: {},
   };
+}
+
+function principalBinding(identity: Hop1Identity): Pick<Hop1Identity, "issuer" | "subject"> {
+  return { issuer: identity.issuer, subject: identity.subject };
 }
 
 function emailsEqual(left: string, right: string): boolean {
