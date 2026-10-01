@@ -180,6 +180,36 @@ set and upstream sync procedure.
    publishes and attests the OCI artifacts, verifies anonymous access, and creates the GitHub
    Release.
 
+### Resuming publication for an immutable tag
+
+If a tagged run publishes every image but a post-publish smoke prevents the chart and GitHub
+Release from being created, do not move the tag or mint a new patch version solely to retry
+publication. Fix the orchestration on `main`, verify the already-published images, and invoke the
+manual `Resume Release Publication` workflow with the existing tag and failed Release run ID:
+
+```bash
+gh workflow run resume-release-publication.yml \
+  --ref main \
+  -f release_tag=vX.Y.Z \
+  -f source_run_id=<release-run-id>
+```
+
+The recovery workflow fails closed unless the source run belongs to the exact immutable tag, all
+image publication and released-image bundle jobs succeeded, and the expected non-expired evidence
+artifacts exist. It checks out the tag separately for chart packaging and release metadata, while
+using the repaired `main` orchestration only to rerun the broker smoke against those published image
+tags. It does not rebuild, retag, or replace images.
+
+The resumed chart receives a GitHub build-provenance attestation from
+`resume-release-publication.yml@refs/heads/main`; image attestations remain bound to
+`release.yml@refs/tags/vX.Y.Z`. The workflow verifies both identities before creating the GitHub
+Release. After it completes, verify the release and chart explicitly:
+
+```bash
+gh release view vX.Y.Z
+helm show chart oci://ghcr.io/apelogic-ai/charts/mcp-gateway --version X.Y.Z
+```
+
 ## GitOps Consumption
 
 External GitOps repositories should reference the OCI Helm chart version and maintain a private

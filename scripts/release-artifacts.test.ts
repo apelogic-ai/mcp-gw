@@ -166,6 +166,26 @@ describe("release artifacts", () => {
     expect(release).not.toContain("promote-ecr");
   });
 
+  test("can safely resume chart and GitHub release publication for an immutable tag", async () => {
+    const workflow = await readFile(".github/workflows/resume-release-publication.yml", "utf8");
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("release_tag:");
+    expect(workflow).toContain("source_run_id:");
+    expect(workflow).toContain("path: release-source");
+    expect(workflow).toContain('MCP_GW_BROKER_SMOKE_ROOT_DIR="$GITHUB_WORKSPACE/release-source"');
+    expect(workflow).toContain("actions/runs/$SOURCE_RUN_ID");
+    expect(workflow).toContain("bash scripts/smoke-k8s-broker-integration.sh");
+    expect(workflow).toContain("run-id: ${{ inputs.source_run_id }}");
+    expect(workflow).toContain("ref: ${{ inputs.release_tag }}");
+    expect(workflow).toContain("Attest chart provenance");
+    expect(workflow).toContain('gh release create "$RELEASE_TAG"');
+    expect(workflow).toContain("release.yml@refs/tags/$RELEASE_TAG");
+    expect(workflow).toContain("resume-release-publication.yml@refs/heads/main");
+    expect(workflow).not.toContain("docker/build-push-action@");
+    expect(workflow).not.toContain("docker buildx imagetools create");
+  });
+
   test("publishes chart SBOM and vulnerability evidence", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const publishChart = workflow.slice(

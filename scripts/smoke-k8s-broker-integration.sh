@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${MCP_GW_BROKER_SMOKE_ROOT_DIR:-$DEFAULT_ROOT_DIR}"
 CHART_DIR="$ROOT_DIR/deploy/k8s/chart"
 VALUES_FILE="$ROOT_DIR/deploy/k8s/examples/values-k8s-broker-smoke.yaml"
 RELEASE_NAME="mcp-broker-smoke"

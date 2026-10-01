@@ -116,6 +116,7 @@ exit 0
     expect(smoke).toContain("K8S_BROKER_SMOKE_AGENTGATEWAY_REPOSITORY");
     expect(smoke).toContain("K8S_BROKER_SMOKE_GOOGLE_REPOSITORY");
     expect(smoke).toContain("K8S_BROKER_SMOKE_GITHUB_WRAPPER_REPOSITORY");
+    expect(smoke).toContain("MCP_GW_BROKER_SMOKE_ROOT_DIR");
     expect(smoke).toContain(
       "google_oauth_start,google_oauth_status,github_oauth_start,github_oauth_status",
     );

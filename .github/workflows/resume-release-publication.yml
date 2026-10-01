@@ -1,0 +1,408 @@
+name: Resume Release Publication
+
+run-name: Resume ${{ inputs.release_tag }} from run ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable release tag (for example, v0.5.5)
+        required: true
+        type: string
+      source_run_id:
+        description: Failed Release workflow run whose image jobs and artifacts succeeded
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: resume-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - name: Check out recovery orchestration
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Verify immutable tag and source release run
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+
+          TAG_SHA="$(git rev-list -n 1 "$RELEASE_TAG")"
+          test -n "$TAG_SHA"
+          VERSION="${RELEASE_TAG#v}"
+          TAG_VERSION="$(git show "$RELEASE_TAG:package.json" | jq -r .version)"
+          test "$TAG_VERSION" = "$VERSION"
+
+          RUN_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          test "$(jq -r .event <<<"$RUN_JSON")" = "push"
+          test "$(jq -r .path <<<"$RUN_JSON")" = ".github/workflows/release.yml"
+          test "$(jq -r .head_sha <<<"$RUN_JSON")" = "$TAG_SHA"
+
+          JOBS_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100")"
+          for prefix in \
+            "publish-images (agentgateway," \
+            "publish-images (google-workspace," \
+            "publish-images (github-wrapper," \
+            "released-full-bundle-smoke"; do
+            jq -e --arg prefix "$prefix" \
+              '[.jobs[] | select(.name | startswith($prefix)) | .conclusion] | index("success") != null' \
+              <<<"$JOBS_JSON" >/dev/null
+          done
+
+          ARTIFACTS_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts")"
+          for artifact in \
+            release-agentgateway \
+            release-google-workspace \
+            release-github-wrapper \
+            release-github-mcp-server; do
+            jq -e --arg artifact "$artifact" \
+              '.artifacts | any(.name == $artifact and .expired == false)' \
+              <<<"$ARTIFACTS_JSON" >/dev/null
+          done
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+
+  released-kubernetes-broker-smoke:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out repaired recovery orchestration
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Check out immutable release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.release_tag }}
+          path: release-source
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Resolve pinned GitHub MCP Server source
+        id: github-mcp-source
+        working-directory: release-source
+        run: bun scripts/resolve-github-mcp-source.ts --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+
+      - name: Create Kubernetes cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          cluster_name: mcp-gateway-broker-resume-smoke
+
+      - name: Install immutable release dependencies
+        working-directory: release-source
+        run: bun install --frozen-lockfile
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load published release images into Kubernetes
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          AGENTGATEWAY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-agentgateway:$VERSION"
+          GOOGLE_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-google-workspace:$VERSION"
+          GITHUB_WRAPPER_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/mcp-gw-github-wrapper:$VERSION"
+          GITHUB_MCP_SOURCE="${{ steps.github-mcp-source.outputs.source_coordinate }}"
+          GITHUB_MCP_IMAGE="${{ steps.github-mcp-source.outputs.source_repository }}:${{ steps.github-mcp-source.outputs.source_tag }}"
+          POSTGRES_IMAGE="postgres:16-alpine"
+
+          docker pull "$AGENTGATEWAY_IMAGE"
+          docker pull "$GOOGLE_IMAGE"
+          docker pull "$GITHUB_WRAPPER_IMAGE"
+          docker pull "$GITHUB_MCP_SOURCE"
+          docker tag "$GITHUB_MCP_SOURCE" "$GITHUB_MCP_IMAGE"
+          docker pull "$POSTGRES_IMAGE"
+          kind load docker-image \
+            "$AGENTGATEWAY_IMAGE" \
+            "$GOOGLE_IMAGE" \
+            "$GITHUB_WRAPPER_IMAGE" \
+            "$GITHUB_MCP_IMAGE" \
+            "$POSTGRES_IMAGE" \
+            --name mcp-gateway-broker-resume-smoke
+
+      - name: Test broker-authenticated Kubernetes fanout
+        env:
+          K8S_BROKER_SMOKE_AGENTGATEWAY_REPOSITORY: ghcr.io/${{ github.repository_owner }}/mcp-gw-agentgateway
+          K8S_BROKER_SMOKE_GITHUB_WRAPPER_REPOSITORY: ghcr.io/${{ github.repository_owner }}/mcp-gw-github-wrapper
+          K8S_BROKER_SMOKE_GOOGLE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/mcp-gw-google-workspace
+          K8S_BROKER_SMOKE_IMAGE_TAG: ${{ needs.validate.outputs.version }}
+        run: |
+          MCP_GW_BROKER_SMOKE_ROOT_DIR="$GITHUB_WORKSPACE/release-source" \
+            bash scripts/smoke-k8s-broker-integration.sh
+
+  publish-chart:
+    needs: [validate, released-kubernetes-broker-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.release_tag }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@4fb5323ce5e4debde6f8fe277e461b0815a75992
+        with:
+          version: 1.3.3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download source-run image evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Log in to GHCR for Helm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Log in to GHCR for provenance
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pin Artifact Hub images to published digests
+        run: |
+          bun scripts/set-artifacthub-images.ts \
+            --chart deploy/k8s/chart/Chart.yaml \
+            --agentgateway-digest "$(cat dist/agentgateway.digest)" \
+            --google-workspace-digest "$(cat dist/google-workspace.digest)" \
+            --github-wrapper-digest "$(cat dist/github-wrapper.digest)" \
+            --github-mcp-server-digest "$(cat dist/github-mcp-server.digest)"
+
+      - name: Package and publish OCI chart
+        id: chart
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          mkdir -p dist
+          helm package deploy/k8s/chart --destination dist --version "$VERSION" --app-version "$VERSION"
+          mkdir -p "$RUNNER_TEMP/chart-scan"
+          tar -xzf "dist/mcp-gateway-$VERSION.tgz" -C "$RUNNER_TEMP/chart-scan"
+          PUSH_OUTPUT="$(helm push "dist/mcp-gateway-$VERSION.tgz" 'oci://ghcr.io/${{ github.repository_owner }}/charts')"
+          printf '%s\n' "$PUSH_OUTPUT"
+          DIGEST="$(printf '%s\n' "$PUSH_OUTPUT" | awk '$1 == "Digest:" {print $2}')"
+          test -n "$DIGEST"
+          printf '%s\n' "$DIGEST" > dist/helm-chart.digest
+          printf 'digest=%s\n' "$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Artifact Hub repository metadata
+        env:
+          METADATA_FILE: deploy/k8s/chart/artifacthub-repo.yml
+          METADATA_REF: oci://ghcr.io/${{ github.repository_owner }}/charts/mcp-gateway
+        run: |
+          test -f "$METADATA_FILE"
+          oras push "${METADATA_REF#oci://}:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "$METADATA_FILE:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
+
+      - name: Generate chart SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          path: ${{ runner.temp }}/chart-scan
+          format: spdx-json
+          output-file: dist/helm-chart.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate chart vulnerability report
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scan-ref: ${{ runner.temp }}/chart-scan
+          format: json
+          output: dist/helm-chart.vulnerabilities.json
+          exit-code: "0"
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+      - name: Enforce zero critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scan-ref: ${{ runner.temp }}/chart-scan
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
+      - name: Attest chart provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/charts/mcp-gateway
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true
+
+      - name: Upload chart release evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-helm-chart
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [validate, publish-chart]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+      packages: read
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.release_tag }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Set up Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+
+      - name: Download source-run image evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download resumed chart evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-helm-chart
+          path: dist
+
+      - name: Generate release handoff
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          bun scripts/generate-release-handoff.ts \
+            --version "$VERSION" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --artifacts dist \
+            --output dist/release-handoff.md
+
+      - name: Verify public artifact access
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          OWNER="$GITHUB_REPOSITORY_OWNER"
+          GITHUB_MCP_MIRROR="ghcr.io/$OWNER/mcp-gw-github-mcp-server"
+          docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-agentgateway@$(cat dist/agentgateway.digest)"
+          docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)"
+          docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)"
+          docker buildx imagetools inspect "$GITHUB_MCP_MIRROR@$(cat dist/github-mcp-server.digest)"
+          helm pull "oci://ghcr.io/$OWNER/charts/mcp-gateway" \
+            --version "$VERSION" \
+            --destination /tmp
+
+      - name: Verify public release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          OWNER="$GITHUB_REPOSITORY_OWNER"
+          IMAGE_SIGNER="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/$RELEASE_TAG"
+          CHART_SIGNER="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/resume-release-publication.yml@refs/heads/main"
+          mkdir -p "$RUNNER_TEMP/public-attestations"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-agentgateway@$(cat dist/agentgateway.digest)" \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$IMAGE_SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/agentgateway.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)" \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$IMAGE_SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/google-workspace.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)" \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$IMAGE_SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/github-wrapper.json"
+          gh attestation verify \
+            "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$CHART_SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
+          bun scripts/check-public-release-evidence.ts \
+            --artifacts dist \
+            --subject "ghcr.io/$OWNER/mcp-gw-agentgateway" \
+            --subject "ghcr.io/$OWNER/mcp-gw-google-workspace" \
+            --subject "ghcr.io/$OWNER/mcp-gw-github-wrapper" \
+            --subject "ghcr.io/$OWNER/charts/mcp-gateway" \
+            --attestation "$RUNNER_TEMP/public-attestations/agentgateway.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/google-workspace.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/github-wrapper.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* \
+            --verify-tag \
+            --notes-file dist/release-handoff.md
