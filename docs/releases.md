@@ -19,7 +19,20 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.5`.
+The current public release line is `v0.5.6`.
+
+### 0.5.6 upgrade notes
+
+- Use 0.5.6 instead of the incomplete 0.5.5 publication. The v0.5.5 workflow published container
+  images but stopped before publishing the Helm chart or GitHub Release. Version 0.5.6 contains all
+  0.5.5 changes and the migration and compatibility notes below.
+- Browser UIs that pass `redirectAfter` to GitHub authorization must list their exact public origin
+  in `githubWrapper.oauth.redirectAfterAllowedOrigins`. A rejected origin now returns the stable
+  `oauth_redirect_target_not_allowed` code. Other GitHub OAuth and connection-lifecycle failures
+  likewise return documented stable codes and emit one sanitized warning.
+- No additional database migration, OAuth reconnect, provider reauthorization, Secret-format
+  change, chart value rename, or new required value is introduced beyond the documented 0.5.5
+  requirements.
 
 ### 0.5.5 upgrade notes
 

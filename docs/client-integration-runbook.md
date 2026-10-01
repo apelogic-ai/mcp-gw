@@ -366,7 +366,7 @@ Render the released chart with a private values file:
 
 ```bash
 helm template mcp-gateway oci://ghcr.io/apelogic-ai/charts/mcp-gateway \
-  --version 0.5.5 \
+  --version 0.5.6 \
   --values private-values.yaml
 ```
 

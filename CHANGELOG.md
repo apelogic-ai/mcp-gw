@@ -8,6 +8,8 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-09-30
+
 ### Added
 
 - Return documented stable `code` values from provider connection lifecycle failures so control
@@ -16,11 +18,22 @@ records the human-maintained compatibility summary.
   including a bounded route and HOP-1 subject hash; rejected browser returns record only their
   normalized origin.
 
+### Fixed
+
+- Actively verify broker signing-key recovery in the released Kubernetes smoke so publication
+  cannot pass on pod readiness before the broker has recovered from a missing JWKS mount.
+
 ### Upgrade Notes
 
+- Use 0.5.6 instead of the incomplete 0.5.5 publication. The v0.5.5 workflow published container
+  images but stopped before publishing the Helm chart or GitHub Release; 0.5.6 includes all 0.5.5
+  changes and its migration and compatibility notes below.
 - Browser UIs that pass `redirectAfter` to GitHub authorization must list their exact public origin
   in `githubWrapper.oauth.redirectAfterAllowedOrigins`. Rejections now return
-  `oauth_redirect_target_not_allowed`; no new required chart value or database migration is added.
+  `oauth_redirect_target_not_allowed`.
+- No additional database migration, OAuth reconnect, provider reauthorization, Secret-format
+  change, chart value rename, or new required value is introduced beyond the documented 0.5.5
+  requirements.
 
 ## [0.5.5] - 2026-09-30
 
@@ -756,7 +769,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.2...v0.5.3
