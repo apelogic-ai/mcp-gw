@@ -101,13 +101,26 @@ Example response:
 
 ```json
 {
+  "version": "2",
+  "provider": "github",
+  "phase": "connected",
   "connected": true,
-  "email": "user@example.com",
-  "scopesRequired": ["repo", "read:org", "workflow", "notifications", "user:email"],
-  "scopesGranted": ["repo", "read:org", "workflow", "notifications", "user:email"],
+  "account": {
+    "provider": "github",
+    "id": "123456",
+    "login": "octocat",
+    "displayName": "user@example.com"
+  },
+  "requiredScopes": ["repo", "read:org", "workflow", "notifications", "user:email"],
+  "grantedScopes": ["repo", "read:org", "workflow", "notifications", "user:email"],
   "missingScopes": []
 }
 ```
+
+For GitHub, `account.id` is the immutable numeric user ID returned by `GET /user`. Identity bridges
+must match on that field only. `account.login` and `account.displayName` are mutable display metadata
+and are not identity keys. An existing connection created before status contract version 2 is
+backfilled lazily on its next status read or refresh; the user does not need to reconnect.
 
 Disconnect:
 
@@ -120,7 +133,7 @@ Expected response:
 
 ```json
 {
-  "version": "1",
+  "version": "2",
   "provider": "github",
   "phase": "disconnected",
   "connected": false

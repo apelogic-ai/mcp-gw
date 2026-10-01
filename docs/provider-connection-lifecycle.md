@@ -9,17 +9,28 @@ status, renewal, local disablement, cleanup retries, auditing, and response sani
 All operations require the HOP-1 bearer identity except the provider callback, which consumes its exact
 one-time authorization state.
 
-| Operation                | Route                                     | Meaning                                                               |
-| ------------------------ | ----------------------------------------- | --------------------------------------------------------------------- |
-| Status                   | `GET /connections/{provider}/status`      | One datastore read; never decrypts credentials or calls the provider. |
-| Refresh now              | `POST /connections/{provider}/refresh`    | Uses the same distributed renewal path as brokerage.                  |
-| Authorize or reauthorize | `POST /connections/{provider}/authorize`  | Starts a state-bound interactive flow, including while connected.     |
-| Disconnect               | `POST /connections/{provider}/disconnect` | Disables locally before any optional provider cleanup.                |
+| Operation                | Route                                     | Meaning                                                                        |
+| ------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------ |
+| Status                   | `GET /connections/{provider}/status`      | Reads durable status; a legacy GitHub row may perform one account-ID backfill. |
+| Refresh now              | `POST /connections/{provider}/refresh`    | Uses the same distributed renewal path as brokerage.                           |
+| Authorize or reauthorize | `POST /connections/{provider}/authorize`  | Starts a state-bound interactive flow, including while connected.              |
+| Disconnect               | `POST /connections/{provider}/disconnect` | Disables locally before any optional provider cleanup.                         |
 
-The normalized response contract is version `1`. It includes `phase`, the compatibility boolean
-`connected`, account display identity, required/granted/missing scopes, nullable active and renewal
-expiry, authorization/renewal/validation timestamps, and declared adapter capabilities. It never
-contains provider credential material.
+The normalized response contract is version `2`. It includes `phase`, the compatibility boolean
+`connected`, provider account metadata, required/granted/missing scopes, nullable active and renewal
+expiry, authorization/renewal/validation timestamps, and declared adapter capabilities. GitHub
+status reports `account.id` as the immutable numeric GitHub user ID, plus mutable `login` and
+`displayName` fields for display only. Consumers that bind identities must compare `account.id` and
+must never match on login, email, or display name. The response never contains provider credential
+material.
+
+Connections created before version 2 have no stored GitHub account ID. The first status read with a
+usable active credential, or the next refresh using its newly issued credential, validates against
+GitHub `GET /user`, persists the numeric ID and current login with a generation-and-timestamp
+compare-and-swap, and emits a bounded backfill audit event. Later status reads remain datastore-only.
+A refresh or reauthorization that resolves a
+different numeric account ID creates the next connection generation and emits
+`github.account_rebound`; provider IDs and logins are not written to that audit event.
 
 The `/oauth/google/*` and `/oauth/github/*` start, status, disconnect, and refresh routes remain
 compatibility aliases through the complete 0.6.x release line. Their earliest possible removal is
@@ -73,8 +84,10 @@ compatibility queue and is migrated into the custody ledger.
 
 ## Rolling migration and retirement
 
-Migrations `005_provider_connection_lifecycle.sql`, `006_provider_state_and_cleanup.sql`, and
-`007_credential_generation_custody.sql` are forward-only and must run before the new binaries.
+Migrations `005_provider_connection_lifecycle.sql`, `006_provider_state_and_cleanup.sql`,
+`007_credential_generation_custody.sql`, and `008_provider_account_identity.sql` are forward-only
+and must run before the new binaries. Migration `008` adds nullable durable provider-account ID and
+display-login columns; existing rows require no eager data migration or OAuth reconnect.
 Migration `007` adds the custody ledger, invalidates unbound legacy state, and installs a temporary
 database fence that prevents an old writer from clearing `revoked_at` without advancing the
 generation. The base Docker Compose stack runs the migration service after
@@ -92,7 +105,7 @@ for one compatibility window:
 Retire the legacy column only in a later release after all replicas run the normalized model, pending
 cleanup is empty, and telemetry confirms no legacy-only reads. That later release must first stop
 dual-writing, then use a new migration to drop `encrypted_refresh_token`; applied migrations,
-including `001`, `005`, `006`, and `007`, must never be edited after application.
+including `001`, `005`, `006`, `007`, and `008`, must never be edited after application.
 
 ## Adding a provider
 
@@ -110,6 +123,7 @@ covers status latency and phase, renewal outcome and lock wait, reauthorization-
 disconnect requests, pending-cleanup age, and cleanup retry outcomes. Sink failures are isolated from
 credential behavior.
 
-Sanitized OAuth audit events cover authorization, refresh, local disconnect, and deferred provider
-cleanup. Existing JSONL audit configuration remains the production sink; no provider response body or
-credential material is included.
+Sanitized OAuth audit events cover authorization, refresh, local disconnect, deferred provider
+cleanup, lazy provider-account backfill, and provider-account rebinding. Existing JSONL audit
+configuration remains the production sink; no provider response body, provider account identifier,
+login, or credential material is included.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { InMemoryAuditSink } from "../audit/audit";
 import type { Hop1Identity } from "../identity/hop1";
 import { ConnectionLifecycle } from "./connection-lifecycle";
 import { InMemoryConnectionLifecycleMetricSink } from "./connection-metrics";
@@ -103,6 +104,140 @@ describe("provider-neutral connection lifecycle", () => {
     });
   });
 
+  test("lazily backfills stable provider account identity on a legacy status read", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    let validationCalls = 0;
+    const lifecycle = fixtureLifecycle(store, adapter);
+    await authorize(lifecycle, "active-1", "renewal-1");
+    Object.assign(adapter.capabilities, { accountIdentityReporting: true });
+    adapter.validation = (_credential, expected) => {
+      validationCalls += 1;
+      return Promise.resolve({
+        displayAccountIdentity: expected.email,
+        providerAccount: { id: "123456", login: "octocat" },
+      });
+    };
+
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      version: "2",
+      account: {
+        provider: "github",
+        id: "123456",
+        login: "octocat",
+        displayName: identity.email,
+      },
+    });
+    expect(validationCalls).toBe(1);
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      account: { id: "123456", login: "octocat" },
+    });
+    expect(validationCalls).toBe(1);
+  });
+
+  test("records a stable account rebinding when reauthorization changes provider account", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    Object.assign(adapter.capabilities, { accountIdentityReporting: true });
+    const audit = new InMemoryAuditSink();
+    let providerAccount = { id: "123456", login: "octocat" };
+    adapter.validation = (_credential, expected) =>
+      Promise.resolve({ displayAccountIdentity: expected.email, providerAccount });
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      audit,
+    });
+
+    await lifecycle.activateAuthorizedGeneration(identity, scopes, {
+      credential: { activeCredential: "active-1", renewalCredential: "renewal-1" },
+      displayAccountIdentity: identity.email,
+      grantedScopes: scopes,
+    });
+    providerAccount = { id: "789012", login: "hubot" };
+    await lifecycle.activateAuthorizedGeneration(identity, scopes, {
+      credential: { activeCredential: "active-2", renewalCredential: "renewal-2" },
+      displayAccountIdentity: identity.email,
+      grantedScopes: scopes,
+    });
+
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      account: { id: "789012", login: "hubot" },
+    });
+    expect(await store.getConnection("github", identity.issuer, identity.subject)).toMatchObject({
+      generation: 2,
+      providerAccountId: "789012",
+    });
+    expect(
+      audit.events.some(
+        (event) => event.event === "github.account_rebound" && event.status === "allow",
+      ),
+    ).toBeTrue();
+    expect(JSON.stringify(audit.events)).not.toContain("123456");
+    expect(JSON.stringify(audit.events)).not.toContain("789012");
+  });
+
+  test("validates refreshed credentials and records provider account rebinding", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    Object.assign(adapter.capabilities, { accountIdentityReporting: true });
+    const audit = new InMemoryAuditSink();
+    let providerAccount = { id: "123456", login: "octocat" };
+    adapter.validation = (_credential, expected) =>
+      Promise.resolve({ displayAccountIdentity: expected.email, providerAccount });
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      audit,
+    });
+    await lifecycle.activateAuthorizedGeneration(identity, scopes, {
+      credential: { activeCredential: "active-1", renewalCredential: "renewal-1" },
+      displayAccountIdentity: identity.email,
+      grantedScopes: scopes,
+      activeCredentialExpiresAt: new Date(Date.now() - 1),
+    });
+    providerAccount = { id: "789012", login: "hubot" };
+
+    expect(await lifecycle.refresh(identity, scopes)).toMatchObject({
+      result: "refreshed",
+      status: { account: { id: "789012", login: "hubot" } },
+    });
+    expect(
+      audit.events.some(
+        (event) => event.event === "github.account_rebound" && event.status === "allow",
+      ),
+    ).toBeTrue();
+  });
+
+  test("backfills an expired legacy connection from the newly renewed credential", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    const lifecycle = fixtureLifecycle(store, adapter);
+    await lifecycle.activateAuthorizedGeneration(identity, scopes, {
+      credential: { activeCredential: "expired-active", renewalCredential: "renewal-1" },
+      displayAccountIdentity: identity.email,
+      grantedScopes: scopes,
+      activeCredentialExpiresAt: new Date(Date.now() - 1),
+      validatedAt: new Date(),
+    });
+    Object.assign(adapter.capabilities, { accountIdentityReporting: true });
+    adapter.validation = (credential, expected) => {
+      expect(credential.credential.activeCredential).toBe("active-1");
+      return Promise.resolve({
+        displayAccountIdentity: expected.email,
+        providerAccount: { id: "123456", login: "octocat" },
+      });
+    };
+
+    expect(await lifecycle.refresh(identity, scopes)).toMatchObject({
+      result: "refreshed",
+      status: { account: { id: "123456", login: "octocat" } },
+    });
+    expect(adapter.renewCalls).toBe(1);
+  });
+
   test("repairs only a legacy tool-scope-poisoned row with a complete consent grant", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
@@ -179,7 +314,7 @@ describe("provider-neutral connection lifecycle", () => {
 
     const status = await lifecycle.status(identity, scopes);
     expect(status).toMatchObject({
-      version: "1",
+      version: "2",
       provider: "github",
       phase: "connected",
       connected: true,

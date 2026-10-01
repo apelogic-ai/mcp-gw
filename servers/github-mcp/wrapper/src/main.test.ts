@@ -119,6 +119,7 @@ describe("GitHub MCP wrapper main config", () => {
       ...baseEnv,
       GITHUB_OAUTH_AUTHORIZATION_URL: "http://provider-fixture:8090/github/authorize",
       GITHUB_OAUTH_TOKEN_URL: "http://provider-fixture:8090/github/token",
+      GITHUB_OAUTH_USER_URL: "http://provider-fixture:8090/github/user",
       GITHUB_OAUTH_USER_EMAILS_URL: "http://provider-fixture:8090/github/emails",
       GITHUB_OAUTH_TOKEN_REVOCATION_URL:
         "http://provider-fixture:8090/github/applications/github-client/token",
@@ -127,6 +128,7 @@ describe("GitHub MCP wrapper main config", () => {
     expect(config.githubOAuth).toMatchObject({
       authorizationUrl: "http://provider-fixture:8090/github/authorize",
       tokenUrl: "http://provider-fixture:8090/github/token",
+      userUrl: "http://provider-fixture:8090/github/user",
       userEmailsUrl: "http://provider-fixture:8090/github/emails",
       tokenRevocationUrl: "http://provider-fixture:8090/github/applications/github-client/token",
     });

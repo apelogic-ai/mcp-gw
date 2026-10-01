@@ -71,15 +71,19 @@ INSERT INTO oauth_accounts (
   encrypted_refresh_token,
   created_at,
   updated_at,
-  revoked_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  revoked_at,
+  provider_account_id,
+  provider_account_login
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (provider, hop1_issuer, hop1_subject)
 DO UPDATE SET
   email = EXCLUDED.email,
   scopes_granted = EXCLUDED.scopes_granted,
   encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
   updated_at = EXCLUDED.updated_at,
-  revoked_at = EXCLUDED.revoked_at
+  revoked_at = EXCLUDED.revoked_at,
+  provider_account_id = COALESCE(EXCLUDED.provider_account_id, oauth_accounts.provider_account_id),
+  provider_account_login = COALESCE(EXCLUDED.provider_account_login, oauth_accounts.provider_account_login)
 `,
       [
         record.provider,
@@ -91,6 +95,8 @@ DO UPDATE SET
         record.createdAt,
         record.updatedAt,
         record.revokedAt ?? null,
+        record.providerAccountId ?? null,
+        record.providerAccountLogin ?? null,
       ],
     );
   }
@@ -109,6 +115,8 @@ SELECT
   email,
   scopes_granted,
   encrypted_refresh_token,
+  provider_account_id,
+  provider_account_login,
   created_at,
   updated_at,
   revoked_at
@@ -156,6 +164,8 @@ SELECT
   hop1_issuer,
   hop1_subject,
   email,
+  provider_account_id,
+  provider_account_login,
   scopes_granted,
   encrypted_refresh_token,
   credential_envelope,
@@ -186,6 +196,8 @@ FROM (
     hop1_issuer,
     hop1_subject,
     email,
+    provider_account_id,
+    provider_account_login,
     scopes_granted,
     encrypted_refresh_token,
     credential_envelope,
@@ -229,6 +241,8 @@ FROM (
     authz.hop1_issuer,
     authz.hop1_subject,
     COALESCE(account.email, '') AS email,
+    account.provider_account_id,
+    account.provider_account_login,
     COALESCE(account.scopes_granted, ARRAY[]::TEXT[]) AS scopes_granted,
     COALESCE(account.encrypted_refresh_token, '') AS encrypted_refresh_token,
     account.credential_envelope,
@@ -284,11 +298,12 @@ INSERT INTO oauth_accounts (
   renewal_credential_expires_at, last_authorized_at, last_renewed_at,
   last_validated_at, local_disabled_at, lifecycle_phase, revocation_state,
   revocation_started_at, revocation_completed_at, lifecycle_error_category,
-  lifecycle_updated_at, created_at, updated_at, revoked_at, credential_generation_id
+  lifecycle_updated_at, created_at, updated_at, revoked_at, credential_generation_id,
+  provider_account_id, provider_account_login
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $25,
-  $24, $25, $18, $30
+  $24, $25, $18, $30, $31, $32
 )
 ON CONFLICT (provider, hop1_issuer, hop1_subject)
 DO UPDATE SET
@@ -315,7 +330,9 @@ DO UPDATE SET
   lifecycle_updated_at = EXCLUDED.lifecycle_updated_at,
   updated_at = EXCLUDED.updated_at,
   revoked_at = EXCLUDED.revoked_at,
-  credential_generation_id = EXCLUDED.credential_generation_id
+  credential_generation_id = EXCLUDED.credential_generation_id,
+  provider_account_id = EXCLUDED.provider_account_id,
+  provider_account_login = EXCLUDED.provider_account_login
 WHERE $26 = TRUE
   AND oauth_accounts.connection_generation = $27
   AND oauth_accounts.updated_at = $28
@@ -353,6 +370,8 @@ RETURNING connection_generation
         guard.updatedAt ?? null,
         guard.revokedAt ?? null,
         record.credentialGenerationId ?? null,
+        record.providerAccountId ?? null,
+        record.providerAccountLogin ?? null,
       ],
     );
     return result.rows.length === 1;
@@ -372,7 +391,8 @@ SELECT
   renewal_credential_expires_at, last_authorized_at, last_renewed_at,
   last_validated_at, local_disabled_at, lifecycle_phase, revocation_state,
   revocation_started_at, revocation_completed_at, lifecycle_error_category,
-  lifecycle_updated_at, created_at, updated_at, revoked_at, credential_generation_id
+  lifecycle_updated_at, created_at, updated_at, revoked_at, credential_generation_id,
+  provider_account_id, provider_account_login
 FROM oauth_accounts
 WHERE provider = $1
   AND revocation_state = 'pending'
@@ -723,6 +743,8 @@ function rowToAccount(row: Record<string, unknown>): OAuthAccountRecord {
     hop1Issuer: stringField(row, "hop1_issuer"),
     hop1Subject: stringField(row, "hop1_subject"),
     email: stringField(row, "email"),
+    providerAccountId: optionalStringField(row, "provider_account_id"),
+    providerAccountLogin: optionalStringField(row, "provider_account_login"),
     scopesGranted: stringArrayField(row, "scopes_granted"),
     encryptedRefreshToken: stringField(row, "encrypted_refresh_token"),
     createdAt: dateField(row, "created_at"),
@@ -744,6 +766,8 @@ function rowToConnection(row: Record<string, unknown>): ConnectionRecord {
     hop1Issuer: stringField(row, "hop1_issuer"),
     hop1Subject: stringField(row, "hop1_subject"),
     displayAccountIdentity: stringField(row, "email"),
+    providerAccountId: optionalStringField(row, "provider_account_id"),
+    providerAccountLogin: optionalStringField(row, "provider_account_login"),
     encryptedCredentialEnvelope: normalizedCurrent
       ? optionalStringField(row, "credential_envelope")
       : undefined,

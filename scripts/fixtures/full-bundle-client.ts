@@ -151,9 +151,22 @@ async function assertGithubGrantStatus(sessionId: string, connected: boolean): P
   if (!isRecord(text) || typeof text.text !== "string") {
     throw new Error("github_oauth_status returned no text result");
   }
-  const status = JSON.parse(text.text) as { connected?: unknown };
+  const status = JSON.parse(text.text) as {
+    version?: unknown;
+    connected?: unknown;
+    account?: { provider?: unknown; id?: unknown; login?: unknown };
+  };
   if (status.connected !== connected) {
     throw new Error(`Expected GitHub connected=${String(connected)}`);
+  }
+  if (
+    connected &&
+    (status.version !== "2" ||
+      status.account?.provider !== "github" ||
+      status.account.id !== "123456" ||
+      status.account.login !== "fixture-user")
+  ) {
+    throw new Error(`Connected GitHub status did not expose the stable fixture account identity`);
   }
 }
 

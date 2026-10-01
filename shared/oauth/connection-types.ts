@@ -47,6 +47,8 @@ export interface ProviderConnectionCapabilities {
   providerRevocation: boolean;
   scopeReporting: boolean;
   identityVerification: boolean;
+  /** The adapter can resolve an immutable provider account ID for status and rebinding checks. */
+  accountIdentityReporting?: boolean;
   /** Omitted/false for providers whose authorization may legitimately issue a static token. */
   authorizationRequiresRenewalCredential?: boolean;
 }
@@ -74,6 +76,7 @@ export interface IssuedCredentialGeneration {
   activeCredentialExpiresAt?: Date;
   renewalCredentialExpiresAt?: Date;
   validatedAt?: Date;
+  providerAccount?: ProviderAccountIdentity;
 }
 
 export interface RenewedCredentialGeneration {
@@ -83,6 +86,7 @@ export interface RenewedCredentialGeneration {
   activeCredentialExpiresAt?: Date;
   renewalCredentialExpiresAt?: Date;
   validatedAt?: Date;
+  providerAccount?: ProviderAccountIdentity;
 }
 
 export type CredentialGenerationState =
@@ -116,8 +120,16 @@ export interface CredentialGenerationRecord {
   updatedAt: Date;
 }
 
+export interface ProviderAccountIdentity {
+  /** Immutable provider-owned identifier. Serialized as a string even when the provider returns a number. */
+  id: string;
+  /** Mutable provider login. Display only; never use it for identity matching. */
+  login?: string;
+}
+
 export interface ValidatedProviderIdentity {
   displayAccountIdentity: string;
+  providerAccount?: ProviderAccountIdentity;
 }
 
 export interface StartAuthorizationRequest {
@@ -189,6 +201,8 @@ export interface ConnectionRecord {
   hop1Issuer: string;
   hop1Subject: string;
   displayAccountIdentity: string;
+  providerAccountId?: string;
+  providerAccountLogin?: string;
   encryptedCredentialEnvelope?: string;
   credentialSchemaVersion?: number;
   credentialGenerationId?: string;
@@ -231,12 +245,19 @@ export interface PendingCredentialCleanupRecord {
   updatedAt: Date;
 }
 
-export interface ConnectionStatusV1 {
-  version: "1";
+export interface ConnectionStatusV2 {
+  version: "2";
   provider: OAuthProvider;
   phase: ConnectionPhase;
   connected: boolean;
-  account?: { displayName: string };
+  account?: {
+    provider: OAuthProvider;
+    displayName?: string;
+    /** Immutable identity key for provider-account matching. */
+    id?: string;
+    /** Mutable display-only provider login. */
+    login?: string;
+  };
   requiredScopes: string[];
   grantedScopes: string[];
   missingScopes: string[];
@@ -254,5 +275,5 @@ export interface ConnectionStatusV1 {
 
 export interface RefreshConnectionResult {
   result: "refreshed" | "already_fresh" | "refresh_not_supported" | "reauthorization_required";
-  status: ConnectionStatusV1;
+  status: ConnectionStatusV2;
 }

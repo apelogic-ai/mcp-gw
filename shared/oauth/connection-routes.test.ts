@@ -76,7 +76,7 @@ describe("generic connection routes", () => {
       new Request("https://mcp.example/connections/github/status", { headers }),
     );
     expect(await status.json()).toMatchObject({
-      version: "1",
+      version: "2",
       provider: "github",
       phase: "connected",
       connected: true,

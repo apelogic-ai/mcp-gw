@@ -42,6 +42,7 @@ export interface GitHubOAuthConfig {
   tokenEncryptionKey: string;
   authorizationUrl?: string;
   tokenUrl?: string;
+  userUrl?: string;
   userEmailsUrl?: string;
   tokenRevocationUrl?: string;
 }

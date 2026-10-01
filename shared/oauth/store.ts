@@ -69,6 +69,8 @@ export interface OAuthAccountRecord {
   hop1Issuer: string;
   hop1Subject: string;
   email: string;
+  providerAccountId?: string;
+  providerAccountLogin?: string;
   scopesGranted: string[];
   encryptedRefreshToken: string;
   createdAt: Date;

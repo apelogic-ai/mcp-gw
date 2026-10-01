@@ -146,12 +146,18 @@ https://mcp-gw.example.com/oauth/github/callback
 
 The start/status/refresh/disconnect routes require a HOP-1 bearer token. The callback
 recovers identity from the OAuth state record, so browser redirects from GitHub
-do not need to carry the bearer token. The callback stores a credential only
-when any GitHub `/user/emails` entry with `verified=true` case-insensitively matches the HOP-1 email
-captured in that single-use state record. On mismatch, the wrapper attempts to
-revoke only the newly issued token and stores nothing. Self-hosted or isolated
-GitHub API deployments can override the token-revocation endpoint with
-`GITHUB_OAUTH_TOKEN_REVOCATION_URL`.
+do not need to carry the bearer token. The callback stores a credential only after GitHub
+`GET /user` returns a positive numeric account ID and any `/user/emails` entry with
+`verified=true` case-insensitively matches the HOP-1 email captured in that single-use state record.
+Status contract version 2 exposes the immutable ID as `account.id`; `account.login` and the
+email-backed display name are display-only and must never be used for identity matching. Existing
+connections backfill the ID lazily on their next status read or refresh without requiring OAuth
+reconnection. If a refresh or reauthorization resolves a different numeric ID, the wrapper advances
+the credential generation and emits `github.account_rebound` without placing either account ID in
+the audit record. On email mismatch, the wrapper attempts to revoke only the newly issued token and
+stores nothing. Self-hosted or isolated GitHub API deployments can override the token-revocation
+endpoint with `GITHUB_OAUTH_TOKEN_REVOCATION_URL`; isolated tests may similarly override
+`GET /user` with `GITHUB_OAUTH_USER_URL`.
 
 `redirect_after` is never an implicit open redirect. Relative paths remain on
 the wrapper origin. A browser UI on a separate origin must be listed exactly in

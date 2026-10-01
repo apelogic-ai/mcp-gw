@@ -28,6 +28,7 @@ const config = {
   tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
   authorizationUrl: "https://github.example.com/login/oauth/authorize",
   tokenUrl: "https://github.example.com/login/oauth/access_token",
+  userUrl: "https://api.github.example.com/user",
   userEmailsUrl: "https://api.github.example.com/user/emails",
   tokenRevocationUrl: "https://api.github.example.com/applications/github-client/token",
 };
@@ -84,7 +85,9 @@ describe("GitHub OAuth flow", () => {
         Promise.resolve(
           url === config.tokenUrl
             ? Response.json({ access_token: "active", scope: "repo" })
-            : Response.json([{ email: identity.email, primary: true, verified: true }]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([{ email: identity.email, primary: true, verified: true }]),
         ),
     });
     expect(
@@ -131,7 +134,7 @@ describe("GitHub OAuth flow", () => {
     expect(await tokenStore.getConnection("github", identity.issuer, identity.subject)).toBeNull();
   });
 
-  test("exchanges code, verifies GitHub email, and stores encrypted bearer token", async () => {
+  test("exchanges code, verifies GitHub account, and stores stable account identity", async () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
     const started = await startGithubOAuth({
@@ -161,6 +164,10 @@ describe("GitHub OAuth flow", () => {
           );
         }
 
+        if (url === config.userUrl) {
+          return Promise.resolve(Response.json({ id: 123456, login: "octocat" }));
+        }
+
         return Promise.resolve(
           Response.json([
             {
@@ -178,7 +185,13 @@ describe("GitHub OAuth flow", () => {
       accept: "application/json",
       "content-type": "application/x-www-form-urlencoded",
     });
+    expect(seenRequests[1]?.url).toBe(config.userUrl);
     expect(seenRequests[1]?.init?.headers).toEqual({
+      accept: "application/vnd.github+json",
+      authorization: "Bearer github-user-token",
+    });
+    expect(seenRequests[2]?.url).toBe(config.userEmailsUrl);
+    expect(seenRequests[2]?.init?.headers).toEqual({
       accept: "application/vnd.github+json",
       authorization: "Bearer github-user-token",
     });
@@ -188,6 +201,11 @@ describe("GitHub OAuth flow", () => {
     expect(stored?.email).toBe(identity.email);
     expect(stored?.scopesGranted).toEqual(["repo", "read:org"]);
     expect(stored?.encryptedRefreshToken).not.toBe("github-user-token");
+    const connection = await tokenStore.getConnection("github", identity.issuer, identity.subject);
+    expect(connection).toMatchObject({
+      providerAccountId: "123456",
+      providerAccountLogin: "octocat",
+    });
   });
 
   test("retains a refresh-only authorization response for operator recovery", async () => {
@@ -245,10 +263,12 @@ describe("GitHub OAuth flow", () => {
         Promise.resolve(
           url === config.tokenUrl
             ? Response.json({ access_token: "github-user-token", scope: "repo,user:email" })
-            : Response.json([
-                { email: "primary@example.net", primary: true, verified: true },
-                { email: "USER@example.com", primary: false, verified: true },
-              ]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([
+                  { email: "primary@example.net", primary: true, verified: true },
+                  { email: "USER@example.com", primary: false, verified: true },
+                ]),
         ),
     });
 
@@ -283,7 +303,9 @@ describe("GitHub OAuth flow", () => {
           return Promise.resolve(
             url === config.tokenUrl
               ? Response.json({ access_token: "github-user-token", scope: "repo,user:email" })
-              : Response.json([{ email: "user@example.com", primary: false, verified: false }]),
+              : url === config.userUrl
+                ? Response.json({ id: 123456, login: "octocat" })
+                : Response.json([{ email: "user@example.com", primary: false, verified: false }]),
           );
         },
       });
@@ -328,6 +350,9 @@ describe("GitHub OAuth flow", () => {
           if (url === config.tokenRevocationUrl) {
             return Promise.reject(new Error("revocation unavailable"));
           }
+          if (url === config.userUrl) {
+            return Promise.resolve(Response.json({ id: 123456, login: "octocat" }));
+          }
 
           return Promise.resolve(
             Response.json([{ email: "other@example.com", primary: true, verified: true }]),
@@ -342,7 +367,7 @@ describe("GitHub OAuth flow", () => {
     expect(error).toBeInstanceOf(GitHubOAuthError);
     expect((error as GitHubOAuthError).code).toBe("email_mismatch");
     expect(stored).toBeNull();
-    const revocationRequest = seenRequests[2];
+    const revocationRequest = seenRequests[3];
     expect(revocationRequest?.url).toBe(config.tokenRevocationUrl);
     expect(revocationRequest?.init?.method).toBe("DELETE");
     expect(revocationRequest?.init?.headers).toEqual({
@@ -380,7 +405,9 @@ describe("GitHub OAuth flow", () => {
         Promise.resolve(
           url === config.tokenUrl
             ? Response.json({ access_token: "github-user-token", scope: "repo" })
-            : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
         ),
     });
 
@@ -458,7 +485,9 @@ describe("GitHub OAuth flow", () => {
           Promise.resolve(
             url === config.tokenUrl
               ? Response.json({ access_token: "github-user-token", scope: "repo" })
-              : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+              : url === config.userUrl
+                ? Response.json({ id: 123456, login: "octocat" })
+                : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
           ),
       });
 
@@ -497,7 +526,9 @@ describe("GitHub token broker", () => {
         Promise.resolve(
           url === config.tokenUrl
             ? Response.json({ access_token: "github-user-token", scope: "repo" })
-            : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([{ email: "user@example.com", primary: true, verified: true }]),
         ),
     });
 
@@ -533,7 +564,9 @@ describe("GitHub token broker", () => {
                 refresh_token_expires_in: 7200,
                 scope: "repo",
               })
-            : Response.json([{ email: identity.email, verified: true }]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([{ email: identity.email, verified: true }]),
         ),
     });
     const current = await tokenStore.getConnection("github", identity.issuer, identity.subject);
@@ -547,7 +580,13 @@ describe("GitHub token broker", () => {
     const broker = new GitHubTokenBroker({
       config,
       tokenStore,
-      fetch: (_url, init) => {
+      fetch: (url, init) => {
+        if (url === config.userUrl) {
+          return Promise.resolve(Response.json({ id: 123456, login: "octocat" }));
+        }
+        if (url === config.userEmailsUrl) {
+          return Promise.resolve(Response.json([{ email: identity.email, verified: true }]));
+        }
         renewals += 1;
         refreshBody =
           init?.body instanceof URLSearchParams
@@ -607,7 +646,9 @@ describe("GitHub token broker", () => {
                 refresh_token_expires_in: 7200,
                 scope: "repo",
               })
-            : Response.json([{ email: identity.email, verified: true }]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([{ email: identity.email, verified: true }]),
         ),
     });
     const current = await tokenStore.getConnection("github", identity.issuer, identity.subject);
@@ -690,7 +731,9 @@ describe("GitHub token broker", () => {
                 refresh_token_expires_in: 7200,
                 scope: "repo",
               })
-            : Response.json([{ email: identity.email, verified: true }]),
+            : url === config.userUrl
+              ? Response.json({ id: 123456, login: "octocat" })
+              : Response.json([{ email: identity.email, verified: true }]),
         ),
     });
     const expired = await tokenStore.getConnection("github", identity.issuer, identity.subject);
