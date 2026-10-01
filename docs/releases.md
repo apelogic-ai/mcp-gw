@@ -19,7 +19,19 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.6`.
+The current public release line is `v0.5.7`.
+
+### 0.5.7 upgrade notes
+
+- The GitHub Release adds `github-governance-catalog.json` and
+  `github-governance-catalog.digest`. The generated catalog records the exact pinned GitHub tools,
+  grant tuples, access classes, toolset memberships, upstream read-only hints, and chart-default
+  enablement. Verify the JSON against the tagged release workflow's GitHub Attestation before
+  consuming it.
+- The release contains 54 read tuples across all pinned toolsets and 40 read tuples in the shipped
+  chart-default surface. Consumers selecting the latter must filter on `chartDefaultEnabled`.
+- No database migration, OAuth reconnect, provider reauthorization, Secret-format change, chart
+  value rename, or new required value is introduced.
 
 ### 0.5.6 upgrade notes
 

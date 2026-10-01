@@ -8,6 +8,8 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-10-01
+
 ### Added
 
 - Publish an attested `github-governance-catalog.json` release asset generated from the pinned
@@ -15,6 +17,14 @@ records the human-maintained compatibility summary.
   memberships, upstream read-only hints, and chart-default enablement.
 - Document deterministic projection of all-read or chart-default-read tuples into a versioned
   capability catalog without widening the Mint authority claim.
+
+### Upgrade Notes
+
+- Download `github-governance-catalog.json` and its digest from the GitHub Release when a control
+  plane needs the wrapper's exact pinned tools, grant tuples, access classes, toolset memberships,
+  or chart-default surface. Verify the JSON with the tagged release workflow's GitHub Attestation.
+- No database migration, OAuth reconnect, provider reauthorization, Secret-format change, chart
+  value rename, or new required value is introduced.
 
 ## [0.5.6] - 2026-09-30
 
@@ -777,7 +787,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.6...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.7...HEAD
+[0.5.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.3...v0.5.4
