@@ -214,6 +214,47 @@ jobs:
           path: dist/github-mcp-server.digest
           if-no-files-found: error
 
+  publish-github-governance-catalog:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.2.21"
+
+      - name: Generate GitHub governance catalog
+        id: catalog
+        run: |
+          mkdir -p dist
+          bun scripts/generate-github-governance-catalog.ts \
+            --output dist/github-governance-catalog.json
+          DIGEST="sha256:$(sha256sum dist/github-governance-catalog.json | awk '{print $1}')"
+          printf '%s\n' "$DIGEST" > dist/github-governance-catalog.digest
+          printf 'digest=%s\n' "$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Attest GitHub governance catalog
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-name: github-governance-catalog.json
+          subject-digest: ${{ steps.catalog.outputs.digest }}
+
+      - name: Upload GitHub governance catalog release evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-github-governance-catalog
+          path: |
+            dist/github-governance-catalog.json
+            dist/github-governance-catalog.digest
+          if-no-files-found: error
+
   build-platform-images:
     needs: [validate, kubernetes-smoke]
     runs-on: ${{ matrix.runner }}
@@ -674,7 +715,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [publish-images, publish-chart]
+    needs: [publish-images, publish-chart, publish-github-governance-catalog]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -744,16 +785,24 @@ jobs:
             "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
             --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
             --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
+          gh attestation verify \
+            dist/github-governance-catalog.json \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/github-governance-catalog.json"
+          test "$(cat dist/github-governance-catalog.digest)" = \
+            "sha256:$(sha256sum dist/github-governance-catalog.json | awk '{print $1}')"
           bun scripts/check-public-release-evidence.ts \
             --artifacts dist \
             --subject "ghcr.io/$OWNER/mcp-gw-agentgateway" \
             --subject "ghcr.io/$OWNER/mcp-gw-google-workspace" \
             --subject "ghcr.io/$OWNER/mcp-gw-github-wrapper" \
             --subject "ghcr.io/$OWNER/charts/mcp-gateway" \
+            --subject "github-governance-catalog.json" \
             --attestation "$RUNNER_TEMP/public-attestations/agentgateway.json" \
             --attestation "$RUNNER_TEMP/public-attestations/google-workspace.json" \
             --attestation "$RUNNER_TEMP/public-attestations/github-wrapper.json" \
-            --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json"
+            --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/github-governance-catalog.json"
 
       - name: Create GitHub Release
         env:

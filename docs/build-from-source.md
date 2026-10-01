@@ -119,6 +119,10 @@ publish standalone Cosign signature objects. Do not use `cosign verify` for thes
 the registry for a different signature layout and can return a confusing `404` even when the GitHub
 attestation is present and valid.
 
+The generated `github-governance-catalog.json` release asset uses the same workflow-bound GitHub
+Attestation model. It is generated from the pinned wrapper catalog rather than built into an OCI
+image.
+
 Download the digest files from the GitHub Release, then verify each first-party OCI subject with
 GitHub CLI:
 
@@ -131,6 +135,7 @@ SIGNER="https://github.com/apelogic-ai/mcp-gw/.github/workflows/release.yml@refs
 gh release download "$TAG" \
   --repo apelogic-ai/mcp-gw \
   --pattern '*.digest' \
+  --pattern 'github-governance-catalog.json' \
   --dir "$ARTIFACTS"
 
 gh attestation verify \
@@ -147,6 +152,10 @@ gh attestation verify \
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/charts/mcp-gateway@$(cat "$ARTIFACTS/helm-chart.digest")" \
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
+
+gh attestation verify \
+  "$ARTIFACTS/github-governance-catalog.json" \
   --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 ```
 

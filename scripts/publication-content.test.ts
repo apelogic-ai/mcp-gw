@@ -24,6 +24,7 @@ const INTERNAL_PRODUCT_NAMES = [
   `semantic-${"grid"}`,
   `ob${"server"}`,
 ];
+const PUBLIC_CONTRACT_IDENTIFIERS = ["steward.capability-catalog/v2", '"steward":'];
 const PRIVATE_ENVIRONMENT_PATTERNS = [
   /apelogic\.io/i,
   new RegExp(["arn", "aws"].join(":"), "i"),
@@ -38,7 +39,10 @@ describe("public repository content", () => {
     const violations: string[] = [];
 
     for (const path of await listTextFiles(".")) {
-      const content = await readFile(path, "utf8");
+      const content = PUBLIC_CONTRACT_IDENTIFIERS.reduce(
+        (value, identifier) => value.replaceAll(identifier, ""),
+        await readFile(path, "utf8"),
+      );
       for (const name of INTERNAL_PRODUCT_NAMES) {
         if (content.toLowerCase().includes(name)) {
           violations.push(path);

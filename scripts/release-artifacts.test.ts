@@ -67,11 +67,32 @@ describe("release artifacts", () => {
     expect(workflow).not.toContain(":latest");
   });
 
+  test("publishes and attests the generated GitHub governance catalog", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const catalogJob = workflow.slice(
+      workflow.indexOf("  publish-github-governance-catalog:"),
+      workflow.indexOf("  build-platform-images:"),
+    );
+    const release = workflow.slice(workflow.indexOf("  release:"));
+
+    expect(catalogJob).toContain("bun scripts/generate-github-governance-catalog.ts");
+    expect(catalogJob).toContain("github-governance-catalog.json");
+    expect(catalogJob).toContain("github-governance-catalog.digest");
+    expect(catalogJob).toContain("actions/attest-build-provenance@");
+    expect(catalogJob).toContain("subject-name: github-governance-catalog.json");
+    expect(catalogJob).toContain("release-github-governance-catalog");
+    expect(release).toContain("publish-github-governance-catalog");
+    expect(release).toContain("dist/github-governance-catalog.json");
+    expect(release).toContain('--subject "github-governance-catalog.json"');
+    expect(release).toContain("cat dist/github-governance-catalog.digest");
+    expect(release).toContain("sha256sum dist/github-governance-catalog.json");
+  });
+
   test("mirrors the pinned third-party GitHub MCP Server without claiming build provenance", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const mirror = workflow.slice(
       workflow.indexOf("  mirror-github-mcp-server:"),
-      workflow.indexOf("  build-platform-images:"),
+      workflow.indexOf("  publish-github-governance-catalog:"),
     );
 
     expect(mirror).toContain("bun scripts/resolve-github-mcp-source.ts");
@@ -162,7 +183,9 @@ describe("release artifacts", () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const release = workflow.slice(workflow.indexOf("  release:"));
 
-    expect(release).toContain("needs: [publish-images, publish-chart]");
+    expect(release).toContain(
+      "needs: [publish-images, publish-chart, publish-github-governance-catalog]",
+    );
     expect(release).not.toContain("promote-ecr");
   });
 
@@ -244,9 +267,14 @@ describe("release artifacts", () => {
     const digest = `sha256:${"a".repeat(64)}`;
 
     await Promise.all(
-      ["agentgateway", "google-workspace", "github-wrapper", "github-mcp-server", "helm-chart"].map(
-        (name) => writeFile(join(artifactsDirectory, `${name}.digest`), `${digest}\n`),
-      ),
+      [
+        "agentgateway",
+        "google-workspace",
+        "github-wrapper",
+        "github-mcp-server",
+        "helm-chart",
+        "github-governance-catalog",
+      ].map((name) => writeFile(join(artifactsDirectory, `${name}.digest`), `${digest}\n`)),
     );
 
     await generateReleaseHandoff({
@@ -266,6 +294,10 @@ describe("release artifacts", () => {
     expect(handoff).toContain("digest equality");
     expect(handoff).toContain("cosign verify");
     expect(handoff).toContain("github/github-mcp-server/.github/workflows/docker-publish.yml");
+    expect(handoff).toContain("github-governance-catalog.json");
+    expect(handoff).toContain(`Catalog digest: \`${digest}\``);
+    expect(handoff).toContain("mcp-gw.github-governance-catalog/v1");
+    expect(handoff).toContain("gh attestation verify");
     expect(handoff).toContain("TOKEN_STORE_DSN");
     expect(handoff).toContain("GOOGLE_OAUTH_CLIENT_SECRET");
     expect(handoff).toContain("GITHUB_OAUTH_CLIENT_SECRET");
@@ -318,5 +350,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("Every successful refresh rotates that credential");
     expect(handoff).toContain("persists only its SHA-256");
     expect(handoff).toContain("Dynamic registrations persist by default");
+    expect(handoff).toContain("github-governance-catalog.json");
+    expect(handoff).toContain("GitHub Governance Catalog");
   });
 });
