@@ -29,6 +29,7 @@ import { connectionWriteGuard, type OAuthConnectionStore } from "./store";
 const CREDENTIAL_SCHEMA_VERSION = 1;
 const DEFAULT_RENEWAL_SAFETY_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_TRANSIENT_RETRIES = 1;
+const DEFAULT_ACCOUNT_IDENTITY_BACKFILL_RETRY_MS = 30_000;
 
 export interface AuthorizationActivationGuard {
   generation?: number;
@@ -78,6 +79,8 @@ export interface ConnectionLifecycleOptions {
   now?: () => Date;
   renewalSafetyWindowMs?: number;
   transientRetries?: number;
+  /** Per-replica retry delay after a best-effort legacy account identity lookup fails. */
+  accountIdentityBackfillRetryMs?: number;
 }
 
 type RenewalResult = RefreshConnectionResult["result"];
@@ -99,11 +102,16 @@ export class ConnectionLifecycle {
   private readonly now: () => Date;
   private readonly renewalSafetyWindowMs: number;
   private readonly transientRetries: number;
+  private readonly accountIdentityBackfillRetryMs: number;
+  private readonly accountIdentityBackfills = new Map<string, Promise<ConnectionRecord | null>>();
+  private readonly accountIdentityBackfillRetryAt = new Map<string, number>();
 
   constructor(private readonly options: ConnectionLifecycleOptions) {
     this.now = options.now ?? (() => new Date());
     this.renewalSafetyWindowMs = options.renewalSafetyWindowMs ?? DEFAULT_RENEWAL_SAFETY_WINDOW_MS;
     this.transientRetries = options.transientRetries ?? DEFAULT_TRANSIENT_RETRIES;
+    this.accountIdentityBackfillRetryMs =
+      options.accountIdentityBackfillRetryMs ?? DEFAULT_ACCOUNT_IDENTITY_BACKFILL_RETRY_MS;
   }
 
   get providerId() {
@@ -349,7 +357,6 @@ export class ConnectionLifecycle {
   private async backfillProviderAccountIdentity(
     identity: Hop1Identity,
     initial: ConnectionRecord | null,
-    attempt = 0,
   ): Promise<ConnectionRecord | null> {
     if (
       !this.options.adapter.capabilities.accountIdentityReporting ||
@@ -363,6 +370,41 @@ export class ConnectionLifecycle {
     ) {
       return initial;
     }
+    const key = `${this.providerId}\u0000${identity.issuer}\u0000${identity.subject}`;
+    const inFlight = this.accountIdentityBackfills.get(key);
+    if (inFlight) return inFlight;
+    if ((this.accountIdentityBackfillRetryAt.get(key) ?? 0) > this.now().getTime()) return initial;
+
+    const pending = this.performProviderAccountIdentityBackfill(identity, initial)
+      .then((record) => {
+        this.accountIdentityBackfillRetryAt.delete(key);
+        return record;
+      })
+      .catch(async (error: unknown) => {
+        this.accountIdentityBackfillRetryAt.set(
+          key,
+          this.now().getTime() + this.accountIdentityBackfillRetryMs,
+        );
+        await this.emit(
+          identity,
+          "account_identity_backfill_failed",
+          "error",
+          lifecycleCategory(error) ?? "persistence_failure",
+        );
+        return initial;
+      })
+      .finally(() => {
+        this.accountIdentityBackfills.delete(key);
+      });
+    this.accountIdentityBackfills.set(key, pending);
+    return pending;
+  }
+
+  private async performProviderAccountIdentityBackfill(
+    identity: Hop1Identity,
+    initial: ConnectionRecord,
+    attempt = 0,
+  ): Promise<ConnectionRecord | null> {
     if (!this.options.adapter.validateIdentity) {
       throw new ProviderLifecycleError(
         "Provider account identity resolver is unavailable",
@@ -422,7 +464,7 @@ export class ConnectionLifecycle {
     const resolved = result.record;
     if (result.backfilled) await this.emit(identity, "account_identity_backfilled", "allow");
     if (resolved && !resolved.providerAccountId && attempt === 0) {
-      return this.backfillProviderAccountIdentity(identity, resolved, 1);
+      return this.performProviderAccountIdentityBackfill(identity, resolved, 1);
     }
     return resolved;
   }

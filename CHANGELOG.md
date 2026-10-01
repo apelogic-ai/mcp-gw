@@ -33,6 +33,13 @@ records the human-maintained compatibility summary.
   performs one provider identity lookup and persists the missing account ID.
 - Identity consumers must match GitHub connections on `account.id` only. `account.login`, email, and
   display name are mutable display metadata.
+- Connection status remains byte-compatible version 1 by default for existing consumers. Request
+  version 2 explicitly with `Accept: application/vnd.apelogic.connection-status.v2+json`; legacy
+  OAuth status tools and routes retain their 0.5.4 response shape unless the HTTP route negotiates
+  version 2.
+- Legacy GitHub account-ID backfill is best-effort, single-flight per connection and replica, and
+  retried with bounded backoff. A provider lookup failure leaves status available without `account.id`
+  and emits only a bounded failure category.
 
 ## [0.5.4] - 2026-09-29
 

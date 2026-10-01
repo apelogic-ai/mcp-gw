@@ -12,7 +12,10 @@ import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import { ProviderLifecycleError } from "../../../../shared/oauth/connection-types";
-import { githubOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
+import {
+  acceptsConnectionStatusV2,
+  githubOAuthCompatibilityStatus,
+} from "../../../../shared/oauth/connection-status";
 import {
   createConnectionRouteHandler,
   withConnectionErrorMapping,
@@ -203,7 +206,7 @@ export function createGitHubOAuthRouteHandler(
     if (request.method === "GET" && url.pathname === "/oauth/github/status") {
       const status = await lifecycle.status(identity, options.scopes);
       if (status.phase === "disconnected") return json({ connected: false });
-      return json(githubOAuthCompatibilityStatus(status));
+      return json(githubOAuthCompatibilityStatus(status, acceptsConnectionStatusV2(request)));
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/refresh") {

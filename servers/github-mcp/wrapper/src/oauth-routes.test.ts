@@ -401,13 +401,6 @@ describe("GitHub OAuth routes", () => {
       }),
     );
     expect(await connected.json()).toEqual({
-      version: "2",
-      account: {
-        provider: "github",
-        id: "123456",
-        login: "octocat",
-        displayName: "user@example.com",
-      },
       connected: true,
       email: "user@example.com",
       scopesRequired: ["repo", "read:org"],
@@ -421,8 +414,37 @@ describe("GitHub OAuth routes", () => {
       }),
     );
     expect(await canonical.json()).toMatchObject({
+      version: "1",
+      provider: "github",
+      connected: true,
+      account: { displayName: "user@example.com" },
+    });
+
+    const canonicalV2 = await handler(
+      new Request("https://mcp.example.com/connections/github/status", {
+        headers: {
+          authorization: "Bearer hop1",
+          accept: "application/vnd.apelogic.connection-status.v2+json",
+        },
+      }),
+    );
+    expect(await canonicalV2.json()).toMatchObject({
       version: "2",
       provider: "github",
+      connected: true,
+      account: { provider: "github", id: "123456", login: "octocat" },
+    });
+
+    const compatibilityV2 = await handler(
+      new Request("https://mcp.example.com/oauth/github/status", {
+        headers: {
+          authorization: "Bearer hop1",
+          accept: "application/vnd.apelogic.connection-status.v2+json",
+        },
+      }),
+    );
+    expect(await compatibilityV2.json()).toMatchObject({
+      version: "2",
       connected: true,
       account: { provider: "github", id: "123456", login: "octocat" },
     });

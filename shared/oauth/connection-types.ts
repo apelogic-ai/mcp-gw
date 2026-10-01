@@ -245,7 +245,28 @@ export interface PendingCredentialCleanupRecord {
   updatedAt: Date;
 }
 
-export interface ConnectionStatusV2 {
+export interface ConnectionStatusV1 {
+  version: "1";
+  provider: OAuthProvider;
+  phase: ConnectionPhase;
+  connected: boolean;
+  account?: { displayName: string };
+  requiredScopes: string[];
+  grantedScopes: string[];
+  missingScopes: string[];
+  activeCredentialPresent: boolean;
+  renewalCredentialPresent: boolean;
+  activeCredentialExpiresAt: string | null;
+  renewalCredentialExpiresAt: string | null;
+  lastAuthorizedAt: string | null;
+  lastRenewedAt: string | null;
+  lastValidatedAt: string | null;
+  statusUpdatedAt: string | null;
+  capabilities: ProviderConnectionCapabilities;
+  errorCategory?: LifecycleErrorCategory;
+}
+
+export interface ConnectionStatusV2 extends Omit<ConnectionStatusV1, "version" | "account"> {
   version: "2";
   provider: OAuthProvider;
   phase: ConnectionPhase;
@@ -272,6 +293,8 @@ export interface ConnectionStatusV2 {
   capabilities: ProviderConnectionCapabilities;
   errorCategory?: LifecycleErrorCategory;
 }
+
+export type ConnectionStatus = ConnectionStatusV1 | ConnectionStatusV2;
 
 export interface RefreshConnectionResult {
   result: "refreshed" | "already_fresh" | "refresh_not_supported" | "reauthorization_required";

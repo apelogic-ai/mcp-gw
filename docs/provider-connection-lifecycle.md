@@ -16,21 +16,26 @@ one-time authorization state.
 | Authorize or reauthorize | `POST /connections/{provider}/authorize`  | Starts a state-bound interactive flow, including while connected.              |
 | Disconnect               | `POST /connections/{provider}/disconnect` | Disables locally before any optional provider cleanup.                         |
 
-The normalized response contract is version `2`. It includes `phase`, the compatibility boolean
-`connected`, provider account metadata, required/granted/missing scopes, nullable active and renewal
-expiry, authorization/renewal/validation timestamps, and declared adapter capabilities. GitHub
-status reports `account.id` as the immutable numeric GitHub user ID, plus mutable `login` and
-`displayName` fields for display only. Consumers that bind identities must compare `account.id` and
-must never match on login, email, or display name. The response never contains provider credential
-material.
+The normalized response contract remains byte-compatible version `1` by default. Canonical
+connection routes return version `2` only when the caller sends
+`Accept: application/vnd.apelogic.connection-status.v2+json`; the same negotiation applies to the
+status embedded by refresh and to disconnect responses. Legacy OAuth status tools and routes retain
+their 0.5.4 shape by default. Version 2 includes `phase`, the compatibility boolean `connected`,
+provider account metadata, required/granted/missing scopes, nullable active and renewal expiry,
+authorization/renewal/validation timestamps, and declared adapter capabilities. GitHub status
+reports `account.id` as the immutable numeric GitHub user ID, plus mutable `login` and `displayName`
+fields for display only. Consumers that bind identities must compare `account.id` and must never
+match on login, email, or display name. Neither version contains provider credential material.
 
 Connections created before version 2 have no stored GitHub account ID. The first status read with a
 usable active credential, or the next refresh using its newly issued credential, validates against
 GitHub `GET /user`, persists the numeric ID and current login with a generation-and-timestamp
 compare-and-swap, and emits a bounded backfill audit event. Later status reads remain datastore-only.
-A refresh or reauthorization that resolves a
-different numeric account ID creates the next connection generation and emits
-`github.account_rebound`; provider IDs and logins are not written to that audit event.
+Concurrent reads single-flight the lookup per connection and replica. A lookup or persistence
+failure leaves status available without `account.id`, emits `github.account_identity_backfill_failed`
+with a bounded error category, and retries after a bounded per-replica delay. A refresh or
+reauthorization that resolves a different numeric account ID creates the next connection generation
+and emits `github.account_rebound`; provider IDs and logins are not written to either audit event.
 
 The `/oauth/google/*` and `/oauth/github/*` start, status, disconnect, and refresh routes remain
 compatibility aliases through the complete 0.6.x release line. Their earliest possible removal is

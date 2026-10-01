@@ -135,6 +135,77 @@ describe("provider-neutral connection lifecycle", () => {
     expect(validationCalls).toBe(1);
   });
 
+  test("keeps legacy status available and backs off a failed single-flight identity backfill", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const adapter = new FixtureAdapter();
+    const audit = new InMemoryAuditSink();
+    let now = new Date();
+    let validationCalls = 0;
+    let rejectFirst!: (error: Error) => void;
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const lifecycle = new ConnectionLifecycle({
+      adapter,
+      store,
+      credentialEncryptionKey: key,
+      audit,
+      now: () => now,
+      accountIdentityBackfillRetryMs: 1_000,
+    });
+    await authorize(lifecycle, "active-1", "renewal-1");
+    Object.assign(adapter.capabilities, { accountIdentityReporting: true });
+    adapter.validation = (_credential, expected) => {
+      validationCalls += 1;
+      if (validationCalls === 1) {
+        signalStarted();
+        return new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        });
+      }
+      return Promise.resolve({
+        displayAccountIdentity: expected.email,
+        providerAccount: { id: "123456", login: "octocat" },
+      });
+    };
+
+    const first = lifecycle.status(identity, scopes);
+    await started;
+    const second = lifecycle.status(identity, scopes);
+    await Promise.resolve();
+    expect(validationCalls).toBe(1);
+    rejectFirst(new ProviderLifecycleError("rate limited", "transient_provider_failure"));
+
+    for (const status of await Promise.all([first, second])) {
+      expect(status).toMatchObject({
+        version: "2",
+        connected: true,
+        account: { displayName: identity.email },
+      });
+      expect(status.account?.id).toBeUndefined();
+    }
+    const failures = audit.events.filter(
+      (event) => event.event === "github.account_identity_backfill_failed",
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.status).toBe("error");
+    expect(failures[0]?.error).toBe("transient_provider_failure");
+
+    expect((await lifecycle.status(identity, scopes)).account?.id).toBeUndefined();
+    expect(validationCalls).toBe(1);
+
+    now = new Date(now.getTime() + 1_001);
+    expect(await lifecycle.status(identity, scopes)).toMatchObject({
+      account: { id: "123456", login: "octocat" },
+    });
+    expect(validationCalls).toBe(2);
+    expect(await store.getConnection("github", identity.issuer, identity.subject)).toMatchObject({
+      providerAccountId: "123456",
+      providerAccountLogin: "octocat",
+    });
+  });
+
   test("records a stable account rebinding when reauthorization changes provider account", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();

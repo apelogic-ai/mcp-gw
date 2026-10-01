@@ -95,6 +95,7 @@ Connection status:
 ```http
 GET http://<provider-wrapper-service>/connections/<provider>/status
 Authorization: Bearer <hop1-user-token>
+Accept: application/vnd.apelogic.connection-status.v2+json
 ```
 
 Example response:
@@ -120,13 +121,17 @@ Example response:
 For GitHub, `account.id` is the immutable numeric user ID returned by `GET /user`. Identity bridges
 must match on that field only. `account.login` and `account.displayName` are mutable display metadata
 and are not identity keys. An existing connection created before status contract version 2 is
-backfilled lazily on its next status read or refresh; the user does not need to reconnect.
+backfilled lazily on its next status read or refresh; the user does not need to reconnect. Without
+the explicit version-2 `Accept` media type, the canonical routes return the byte-compatible version-1
+contract and the compatibility OAuth status routes/tools retain their 0.5.4 shape. A failed legacy
+backfill does not fail status: it is retried with bounded per-replica backoff.
 
 Disconnect:
 
 ```http
 POST http://<provider-wrapper-service>/connections/<provider>/disconnect
 Authorization: Bearer <hop1-user-token>
+Accept: application/vnd.apelogic.connection-status.v2+json
 ```
 
 Expected response:

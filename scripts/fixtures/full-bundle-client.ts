@@ -45,6 +45,7 @@ await completeOAuth(args.githubCallbackUrl, githubAuthorizationUrl);
 // A client that caches the initial tools/list keeps using the same session and
 // tool handles. No second tools/list, reconnect, or new MCP session is needed.
 await assertGithubGrantStatus(initial.sessionId, true);
+await assertGithubCanonicalStatusV2(args.githubCallbackUrl, token);
 await assertEmptyResourceDiscovery(initial.sessionId);
 
 const googleResult = await callTool(initial.sessionId, "google_drive_files_list", {});
@@ -154,19 +155,40 @@ async function assertGithubGrantStatus(sessionId: string, connected: boolean): P
   const status = JSON.parse(text.text) as {
     version?: unknown;
     connected?: unknown;
-    account?: { provider?: unknown; id?: unknown; login?: unknown };
+    account?: unknown;
   };
   if (status.connected !== connected) {
     throw new Error(`Expected GitHub connected=${String(connected)}`);
   }
+  if (status.version !== undefined || status.account !== undefined) {
+    throw new Error("github_oauth_status compatibility shape changed without v2 negotiation");
+  }
+}
+
+async function assertGithubCanonicalStatusV2(callbackUrl: string, bearer: string): Promise<void> {
+  const statusUrl = new URL("/connections/github/status", callbackUrl);
+  const response = await fetch(statusUrl, {
+    headers: {
+      authorization: `Bearer ${bearer}`,
+      accept: "application/vnd.apelogic.connection-status.v2+json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub canonical status failed (${String(response.status)})`);
+  }
+  const status = (await response.json()) as {
+    version?: unknown;
+    connected?: unknown;
+    account?: { provider?: unknown; id?: unknown; login?: unknown };
+  };
   if (
-    connected &&
-    (status.version !== "2" ||
-      status.account?.provider !== "github" ||
-      status.account.id !== "123456" ||
-      status.account.login !== "fixture-user")
+    status.version !== "2" ||
+    status.connected !== true ||
+    status.account?.provider !== "github" ||
+    status.account.id !== "123456" ||
+    status.account.login !== "fixture-user"
   ) {
-    throw new Error(`Connected GitHub status did not expose the stable fixture account identity`);
+    throw new Error("GitHub status v2 did not expose the stable fixture account identity");
   }
 }
 
