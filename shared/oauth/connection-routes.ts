@@ -1,5 +1,6 @@
 import type { Hop1Identity } from "../identity/hop1";
 import { ConnectionLifecycle } from "./connection-lifecycle";
+import { negotiatedConnectionStatus, negotiatedRefreshResult } from "./connection-status";
 import { ProviderLifecycleError } from "./connection-types";
 
 export interface CreateConnectionRouteHandlerOptions {
@@ -25,14 +26,29 @@ export function createConnectionRouteHandler(
     const pathname = new URL(request.url).pathname;
     try {
       if (request.method === "GET" && pathname === `${prefix}/status`) {
-        return json(await options.lifecycle.status(identity, options.requiredScopes));
+        return json(
+          negotiatedConnectionStatus(
+            request,
+            await options.lifecycle.status(identity, options.requiredScopes),
+          ),
+        );
       }
       if (request.method === "POST" && pathname === `${prefix}/refresh`) {
-        return json(await options.lifecycle.refresh(identity, options.requiredScopes));
+        return json(
+          negotiatedRefreshResult(
+            request,
+            await options.lifecycle.refresh(identity, options.requiredScopes),
+          ),
+        );
       }
       if (request.method === "POST" && pathname === `${prefix}/disconnect`) {
         try {
-          return json(await options.lifecycle.disconnect(identity, options.requiredScopes));
+          return json(
+            negotiatedConnectionStatus(
+              request,
+              await options.lifecycle.disconnect(identity, options.requiredScopes),
+            ),
+          );
         } finally {
           await cancelAuthorizationSafely(options, identity);
         }

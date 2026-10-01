@@ -8,6 +8,39 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-30
+
+### Added
+
+- Expose the connected GitHub account's immutable numeric user ID in connection status contract
+  version 2, retain the mutable login as display-only metadata, and lazily backfill existing
+  connections without requiring OAuth reconnection.
+- Record bounded audit events when a GitHub connection is backfilled or rebound to a different
+  numeric account ID; account identifiers and logins are never included in those events.
+
+### Changed
+
+- Validate GitHub account identity through both `GET /user` and `/user/emails` when authorizing or
+  rotating credentials. A different numeric account advances the durable credential generation
+  before the replacement becomes active.
+
+### Upgrade Notes
+
+- Run the new forward-only `008_provider_account_identity.sql` migration before starting 0.5.5
+  wrappers. The bundled Helm and Compose migration paths run it automatically.
+- No OAuth reconnect, provider reauthorization, Secret-format change, chart value rename, or new
+  required value is introduced. The first status read or refresh for a pre-0.5.5 GitHub connection
+  performs one provider identity lookup and persists the missing account ID.
+- Identity consumers must match GitHub connections on `account.id` only. `account.login`, email, and
+  display name are mutable display metadata.
+- Connection status remains byte-compatible version 1 by default for existing consumers. Request
+  version 2 explicitly with `Accept: application/vnd.apelogic.connection-status.v2+json`; legacy
+  OAuth status tools and routes retain their 0.5.4 response shape unless the HTTP route negotiates
+  version 2.
+- Legacy GitHub account-ID backfill is best-effort, single-flight per connection and replica, and
+  retried with bounded backoff. A provider lookup failure leaves status available without `account.id`
+  and emits only a bounded failure category.
+
 ## [0.5.4] - 2026-09-29
 
 ### Fixed
@@ -709,7 +742,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.1...v0.5.2

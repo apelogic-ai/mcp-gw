@@ -45,7 +45,7 @@ export function defineProviderLifecycleConformance(
       await harness.authorize();
       const status = await harness.lifecycle.status(harness.identity, harness.requiredScopes);
       expect(status).toMatchObject({
-        version: "1",
+        version: "2",
         provider: harness.adapter.providerId,
         phase: "connected",
         connected: true,

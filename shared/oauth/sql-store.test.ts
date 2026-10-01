@@ -20,6 +20,8 @@ const account: OAuthAccountRecord = {
   hop1Issuer: "https://accounts.google.com",
   hop1Subject: "google-subject",
   email: "user@example.com",
+  providerAccountId: "12345",
+  providerAccountLogin: "fixture-user",
   scopesGranted: ["scope-a", "scope-b"],
   encryptedRefreshToken: "encrypted",
   createdAt: new Date("2026-07-03T00:00:00.000Z"),
@@ -42,6 +44,8 @@ const connection: ConnectionRecord = {
   hop1Issuer: "https://issuer.example.com",
   hop1Subject: "subject",
   displayAccountIdentity: "user@example.com",
+  providerAccountId: "12345",
+  providerAccountLogin: "fixture-user",
   encryptedCredentialEnvelope: "encrypted-envelope",
   credentialSchemaVersion: 1,
   generation: 2,
@@ -103,6 +107,7 @@ describe("SQL OAuth token store", () => {
       lifecycleMigration,
       providerStateMigration,
       credentialCustodyMigration,
+      providerAccountIdentityMigration,
     ] = await Promise.all([
       readFile("servers/google-workspace/config/oauth-schema.sql", "utf8"),
       readFile("shared/oauth/migrations/001_oauth_accounts.sql", "utf8"),
@@ -112,6 +117,7 @@ describe("SQL OAuth token store", () => {
       readFile("shared/oauth/migrations/005_provider_connection_lifecycle.sql", "utf8"),
       readFile("shared/oauth/migrations/006_provider_state_and_cleanup.sql", "utf8"),
       readFile("shared/oauth/migrations/007_credential_generation_custody.sql", "utf8"),
+      readFile("shared/oauth/migrations/008_provider_account_identity.sql", "utf8"),
     ]);
 
     expect(migration.replaceAll(/\s+/g, " ").trim()).toBe(
@@ -125,7 +131,7 @@ describe("SQL OAuth token store", () => {
       "ALTER TABLE oauth_dcr_clients\n  ALTER COLUMN expires_at DROP NOT NULL;",
     );
     expect(schema.replaceAll(/\s+/g, " ").trim()).toBe(
-      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}\n\n${lifecycleMigration.trim()}\n\n${providerStateMigration.trim()}\n\n${credentialCustodyMigration.trim()}`
+      `${migration.trim()}\n\n${consolidatedBrokerMigration.trim()}\n\n${refreshMigration.trim()}\n\n${lifecycleMigration.trim()}\n\n${providerStateMigration.trim()}\n\n${credentialCustodyMigration.trim()}\n\n${providerAccountIdentityMigration.trim()}`
         .replaceAll(/\s+/g, " ")
         .trim(),
     );
@@ -139,6 +145,9 @@ describe("SQL OAuth token store", () => {
 
     expect(client.calls).toHaveLength(1);
     expect(client.calls[0]?.sql).toContain("INSERT INTO oauth_accounts");
+    expect(client.calls[0]?.sql).toContain(
+      "provider_account_id = COALESCE(EXCLUDED.provider_account_id, oauth_accounts.provider_account_id)",
+    );
     expect(client.calls[0]?.params).toEqual([
       "google",
       "https://accounts.google.com",
@@ -149,6 +158,8 @@ describe("SQL OAuth token store", () => {
       account.createdAt,
       account.updatedAt,
       null,
+      "12345",
+      "fixture-user",
     ]);
   });
 
@@ -161,6 +172,8 @@ describe("SQL OAuth token store", () => {
         email: "user@example.com",
         scopes_granted: ["scope-a"],
         encrypted_refresh_token: "encrypted",
+        provider_account_id: "12345",
+        provider_account_login: "fixture-user",
         created_at: new Date("2026-07-03T00:00:00.000Z"),
         updated_at: new Date("2026-07-03T00:00:01.000Z"),
         revoked_at: null,
@@ -175,6 +188,8 @@ describe("SQL OAuth token store", () => {
       hop1Issuer: "https://accounts.google.com",
       hop1Subject: "google-subject",
       email: "user@example.com",
+      providerAccountId: "12345",
+      providerAccountLogin: "fixture-user",
       scopesGranted: ["scope-a"],
       encryptedRefreshToken: "encrypted",
       createdAt: new Date("2026-07-03T00:00:00.000Z"),
@@ -207,6 +222,8 @@ describe("SQL OAuth token store", () => {
       hop1Issuer: "https://issuer.example.com",
       hop1Subject: "subject",
       email: "user@example.com",
+      providerAccountId: undefined,
+      providerAccountLogin: undefined,
       scopesGranted: ["repo"],
       encryptedRefreshToken: "encrypted-github-token",
       createdAt: new Date("2026-07-03T00:00:00.000Z"),
@@ -295,6 +312,8 @@ describe("SQL OAuth token store", () => {
       connection.updatedAt,
       null,
       null,
+      connection.providerAccountId,
+      connection.providerAccountLogin,
     ]);
   });
 

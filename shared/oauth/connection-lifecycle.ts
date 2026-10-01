@@ -9,7 +9,7 @@ import type {
 } from "./connection-metrics";
 import type {
   ConnectionRecord,
-  ConnectionStatusV1,
+  ConnectionStatusV2,
   CredentialGenerationRecord,
   DecryptedCredentialGeneration,
   DownstreamConnectionAdapter,
@@ -21,6 +21,7 @@ import type {
   RefreshConnectionResult,
   RenewedCredentialGeneration,
   ScopeRequirementInput,
+  ValidatedProviderIdentity,
 } from "./connection-types";
 import { ProviderLifecycleError, ProviderToolScopeError } from "./connection-types";
 import { connectionWriteGuard, type OAuthConnectionStore } from "./store";
@@ -28,6 +29,7 @@ import { connectionWriteGuard, type OAuthConnectionStore } from "./store";
 const CREDENTIAL_SCHEMA_VERSION = 1;
 const DEFAULT_RENEWAL_SAFETY_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_TRANSIENT_RETRIES = 1;
+const DEFAULT_ACCOUNT_IDENTITY_BACKFILL_RETRY_MS = 30_000;
 
 export interface AuthorizationActivationGuard {
   generation?: number;
@@ -77,6 +79,8 @@ export interface ConnectionLifecycleOptions {
   now?: () => Date;
   renewalSafetyWindowMs?: number;
   transientRetries?: number;
+  /** Per-replica retry delay after a best-effort legacy account identity lookup fails. */
+  accountIdentityBackfillRetryMs?: number;
 }
 
 type RenewalResult = RefreshConnectionResult["result"];
@@ -91,17 +95,23 @@ type RenewalPreparation =
       renewed: RenewedCredentialGeneration;
       candidate: CredentialGenerationRecord;
       fresh: boolean;
+      validatedIdentity?: ValidatedProviderIdentity;
     };
 
 export class ConnectionLifecycle {
   private readonly now: () => Date;
   private readonly renewalSafetyWindowMs: number;
   private readonly transientRetries: number;
+  private readonly accountIdentityBackfillRetryMs: number;
+  private readonly accountIdentityBackfills = new Map<string, Promise<ConnectionRecord | null>>();
+  private readonly accountIdentityBackfillRetryAt = new Map<string, number>();
 
   constructor(private readonly options: ConnectionLifecycleOptions) {
     this.now = options.now ?? (() => new Date());
     this.renewalSafetyWindowMs = options.renewalSafetyWindowMs ?? DEFAULT_RENEWAL_SAFETY_WINDOW_MS;
     this.transientRetries = options.transientRetries ?? DEFAULT_TRANSIENT_RETRIES;
+    this.accountIdentityBackfillRetryMs =
+      options.accountIdentityBackfillRetryMs ?? DEFAULT_ACCOUNT_IDENTITY_BACKFILL_RETRY_MS;
   }
 
   get providerId() {
@@ -131,7 +141,7 @@ export class ConnectionLifecycle {
     requiredScopes: string[],
     issued: IssuedCredentialGeneration,
     guard?: AuthorizationActivationGuard,
-  ): Promise<ConnectionStatusV1> {
+  ): Promise<ConnectionStatusV2> {
     const provider = this.providerId;
     const candidate = this.credentialCustodyRecord(identity, {
       provider,
@@ -143,6 +153,7 @@ export class ConnectionLifecycle {
     });
     await this.acquireCredentialCustody(identity, candidate);
     let activationTransactionStarted = false;
+    let accountRebound = false;
     try {
       if (!issued.credential.activeCredential) {
         throw new ProviderLifecycleError(
@@ -161,24 +172,37 @@ export class ConnectionLifecycle {
       }
       requireScopes(this.options.adapter, issued.grantedScopes, requiredScopes);
       let displayAccountIdentity = issued.displayAccountIdentity;
+      let providerAccount = issued.providerAccount;
       let validatedAt = issued.validatedAt;
-      if (this.options.adapter.capabilities.identityVerification && !validatedAt) {
+      if (
+        (this.options.adapter.capabilities.identityVerification && !validatedAt) ||
+        (this.options.adapter.capabilities.accountIdentityReporting && !providerAccount)
+      ) {
         if (this.options.adapter.validateIdentity) {
           const validated = await this.options.adapter.validateIdentity(
             decryptCredentialCustody(candidate, this.options.credentialEncryptionKey),
             identity,
           );
           displayAccountIdentity = validated.displayAccountIdentity;
+          providerAccount = validated.providerAccount;
           validatedAt = this.now();
         } else {
           throw new ProviderLifecycleError(
             "Provider identity validation attestation is missing",
-            "identity_mismatch",
+            this.options.adapter.capabilities.accountIdentityReporting
+              ? "provider_configuration_error"
+              : "identity_mismatch",
           );
         }
       }
+      if (this.options.adapter.capabilities.accountIdentityReporting && !providerAccount) {
+        throw new ProviderLifecycleError(
+          "Provider account identity is absent",
+          "malformed_provider_response",
+        );
+      }
       activationTransactionStarted = true;
-      await this.options.store.withConnectionLock(
+      accountRebound = await this.options.store.withConnectionLock(
         provider,
         identity.issuer,
         identity.subject,
@@ -222,6 +246,11 @@ export class ConnectionLifecycle {
           }
           const now = this.now();
           const generation = (current?.generation ?? 0) + 1;
+          const rebound = Boolean(
+            current?.providerAccountId &&
+            providerAccount?.id &&
+            current.providerAccountId !== providerAccount.id,
+          );
           const activeCandidate: CredentialGenerationRecord = {
             ...candidate,
             generation,
@@ -237,6 +266,8 @@ export class ConnectionLifecycle {
             hop1Issuer: identity.issuer,
             hop1Subject: identity.subject,
             displayAccountIdentity,
+            providerAccountId: providerAccount?.id ?? current?.providerAccountId,
+            providerAccountLogin: providerAccount?.login ?? current?.providerAccountLogin,
             encryptedCredentialEnvelope: encryptEnvelope(
               issued.credential,
               this.options.credentialEncryptionKey,
@@ -264,6 +295,7 @@ export class ConnectionLifecycle {
           };
           const saved = await store.saveConnection(record, connectionWriteGuard(current));
           if (!saved) throw generationConflict();
+          return rebound;
         },
       );
     } catch (error) {
@@ -289,6 +321,7 @@ export class ConnectionLifecycle {
       }
       if (current.localDisabledAt) throw generationConflict();
     }
+    if (accountRebound) await this.emit(identity, "account_rebound", "allow");
     try {
       await this.options.store.clearAuthorizing(provider, identity.issuer, identity.subject);
     } catch {
@@ -298,13 +331,14 @@ export class ConnectionLifecycle {
     return this.status(identity, requiredScopes);
   }
 
-  async status(identity: Hop1Identity, requiredScopes: string[]): Promise<ConnectionStatusV1> {
+  async status(identity: Hop1Identity, requiredScopes: string[]): Promise<ConnectionStatusV2> {
     const startedAt = performance.now();
-    const record = await this.options.store.getConnection(
+    let record = await this.options.store.getConnection(
       this.providerId,
       identity.issuer,
       identity.subject,
     );
+    record = await this.backfillProviderAccountIdentity(identity, record);
     const status = statusFromRecord(record, requiredScopes, this.options.adapter, this.now());
     this.metric({
       name: "status_latency_ms",
@@ -318,6 +352,121 @@ export class ConnectionLifecycle {
       value: 1,
     });
     return status;
+  }
+
+  private async backfillProviderAccountIdentity(
+    identity: Hop1Identity,
+    initial: ConnectionRecord | null,
+  ): Promise<ConnectionRecord | null> {
+    if (
+      !this.options.adapter.capabilities.accountIdentityReporting ||
+      !initial ||
+      initial.providerAccountId ||
+      initial.localDisabledAt ||
+      initial.phase === "authorizing" ||
+      !initial.activeCredentialPresent ||
+      (initial.activeCredentialExpiresAt &&
+        initial.activeCredentialExpiresAt.getTime() <= this.now().getTime())
+    ) {
+      return initial;
+    }
+    const key = `${this.providerId}\u0000${identity.issuer}\u0000${identity.subject}`;
+    const inFlight = this.accountIdentityBackfills.get(key);
+    if (inFlight) return inFlight;
+    if ((this.accountIdentityBackfillRetryAt.get(key) ?? 0) > this.now().getTime()) return initial;
+
+    const pending = this.performProviderAccountIdentityBackfill(identity, initial)
+      .then((record) => {
+        this.accountIdentityBackfillRetryAt.delete(key);
+        return record;
+      })
+      .catch(async (error: unknown) => {
+        this.accountIdentityBackfillRetryAt.set(
+          key,
+          this.now().getTime() + this.accountIdentityBackfillRetryMs,
+        );
+        await this.emit(
+          identity,
+          "account_identity_backfill_failed",
+          "error",
+          lifecycleCategory(error) ?? "persistence_failure",
+        );
+        return initial;
+      })
+      .finally(() => {
+        this.accountIdentityBackfills.delete(key);
+      });
+    this.accountIdentityBackfills.set(key, pending);
+    return pending;
+  }
+
+  private async performProviderAccountIdentityBackfill(
+    identity: Hop1Identity,
+    initial: ConnectionRecord,
+    attempt = 0,
+  ): Promise<ConnectionRecord | null> {
+    if (!this.options.adapter.validateIdentity) {
+      throw new ProviderLifecycleError(
+        "Provider account identity resolver is unavailable",
+        "provider_configuration_error",
+      );
+    }
+
+    const validated = await this.options.adapter.validateIdentity(
+      decryptGeneration(initial, this.options.credentialEncryptionKey),
+      identity,
+    );
+    const providerAccount = validated.providerAccount;
+    if (!providerAccount) {
+      throw new ProviderLifecycleError(
+        "Provider account identity is absent",
+        "malformed_provider_response",
+      );
+    }
+
+    const result = await this.options.store.withConnectionLock(
+      this.providerId,
+      identity.issuer,
+      identity.subject,
+      async (store) => {
+        const current = await store.getConnection(
+          this.providerId,
+          identity.issuer,
+          identity.subject,
+        );
+        if (!current || current.providerAccountId || current.localDisabledAt) {
+          return { record: current, backfilled: false };
+        }
+        if (
+          current.generation !== initial.generation ||
+          current.updatedAt.getTime() !== initial.updatedAt.getTime()
+        ) {
+          return { record: current, backfilled: false };
+        }
+        const next: ConnectionRecord = {
+          ...current,
+          displayAccountIdentity: validated.displayAccountIdentity,
+          providerAccountId: providerAccount.id,
+          providerAccountLogin: providerAccount.login,
+          lastValidatedAt: this.now(),
+          // Account metadata must not invalidate an in-flight authorization guard.
+          updatedAt: current.updatedAt,
+        };
+        if (!(await store.saveConnection(next, connectionWriteGuard(current)))) {
+          return {
+            record: await store.getConnection(this.providerId, identity.issuer, identity.subject),
+            backfilled: false,
+          };
+        }
+        return { record: next, backfilled: true };
+      },
+    );
+    const resolved = result.record;
+    if (result.backfilled) await this.emit(identity, "account_identity_backfilled", "allow");
+    if (resolved && !resolved.providerAccountId && attempt === 0) {
+      return this.performProviderAccountIdentityBackfill(identity, resolved, 1);
+    }
+    return resolved;
   }
 
   async getActiveCredential(
@@ -488,7 +637,7 @@ export class ConnectionLifecycle {
       .activeCredential;
   }
 
-  async disconnect(identity: Hop1Identity, requiredScopes: string[]): Promise<ConnectionStatusV1> {
+  async disconnect(identity: Hop1Identity, requiredScopes: string[]): Promise<ConnectionStatusV2> {
     this.metric({ name: "disconnect_request", provider: this.providerId, value: 1 });
     let disabled: DecryptedCredentialGeneration | null;
     let disabledCustodyId: string | undefined;
@@ -860,13 +1009,16 @@ export class ConnectionLifecycle {
       );
 
       let result: RenewalResult;
+      let accountRebound = false;
       if (preparation.kind === "result") {
         result = preparation.result;
       } else if (preparation.kind === "wait") {
         result = await this.awaitConcurrentRenewal(identity, preparation, requiredScopes, manual);
       } else {
-        this.validateRenewedGeneration(preparation, requiredScopes, manual);
-        result = await this.activateRenewedGeneration(identity, preparation);
+        await this.validateRenewedGeneration(identity, preparation, requiredScopes, manual);
+        const activation = await this.activateRenewedGeneration(identity, preparation);
+        result = activation.result;
+        accountRebound = activation.accountRebound;
         if (result === "refreshed") {
           issuedPreparation = undefined;
         } else {
@@ -891,6 +1043,7 @@ export class ConnectionLifecycle {
         });
         await this.emit(identity, "reauthorization_required", "deny");
       }
+      if (accountRebound) await this.emit(identity, "account_rebound", "allow");
       await this.emit(
         identity,
         `renewal.${operation}`,
@@ -945,11 +1098,12 @@ export class ConnectionLifecycle {
     }
   }
 
-  private validateRenewedGeneration(
+  private async validateRenewedGeneration(
+    identity: Hop1Identity,
     preparation: Extract<RenewalPreparation, { kind: "candidate" }>,
     requiredScopes: ScopeRequirementInput,
     manual: boolean,
-  ): void {
+  ): Promise<void> {
     const { renewed } = preparation;
     if (!renewed.credential.activeCredential) {
       throw new ProviderLifecycleError(
@@ -973,12 +1127,44 @@ export class ConnectionLifecycle {
         requiredScopes,
       );
     }
+    if (this.options.adapter.capabilities.accountIdentityReporting) {
+      if (!this.options.adapter.validateIdentity) {
+        throw new ProviderLifecycleError(
+          "Provider account identity resolver is unavailable",
+          "provider_configuration_error",
+        );
+      }
+      const nextCredential = mergeRotatedCredential(
+        preparation.decrypted.credential,
+        renewed.credential,
+      );
+      const validated = await this.options.adapter.validateIdentity(
+        {
+          provider: this.providerId,
+          generation: preparation.current.generation + 1,
+          credential: nextCredential,
+          activeCredentialExpiresAt: renewed.activeCredentialExpiresAt,
+          renewalCredentialExpiresAt:
+            renewed.renewalCredentialExpiresAt ?? preparation.decrypted.renewalCredentialExpiresAt,
+          grantedScopes: renewed.grantedScopes ?? preparation.current.grantedScopes,
+        },
+        identity,
+      );
+      if (!validated.providerAccount) {
+        throw new ProviderLifecycleError(
+          "Provider account identity is absent",
+          "malformed_provider_response",
+        );
+      }
+      preparation.validatedIdentity = validated;
+      preparation.renewed.validatedAt = this.now();
+    }
   }
 
   private activateRenewedGeneration(
     identity: Hop1Identity,
     preparation: Extract<RenewalPreparation, { kind: "candidate" }>,
-  ): Promise<RenewalResult> {
+  ): Promise<{ result: RenewalResult; accountRebound: boolean }> {
     return this.options.store.withConnectionLock(
       this.providerId,
       identity.issuer,
@@ -989,7 +1175,9 @@ export class ConnectionLifecycle {
           identity.issuer,
           identity.subject,
         );
-        if (current?.generation !== preparation.current.generation) return "already_fresh";
+        if (current?.generation !== preparation.current.generation) {
+          return { result: "already_fresh", accountRebound: false };
+        }
         if (
           current.localDisabledAt ||
           current.updatedAt.getTime() !== preparation.current.updatedAt.getTime()
@@ -1000,6 +1188,12 @@ export class ConnectionLifecycle {
         const nextCredential = mergeRotatedCredential(
           preparation.decrypted.credential,
           preparation.renewed.credential,
+        );
+        const providerAccount = preparation.validatedIdentity?.providerAccount;
+        const accountRebound = Boolean(
+          current.providerAccountId &&
+          providerAccount?.id &&
+          current.providerAccountId !== providerAccount.id,
         );
         const activeCustody: CredentialGenerationRecord = {
           ...preparation.candidate,
@@ -1015,6 +1209,10 @@ export class ConnectionLifecycle {
         }
         const next: ConnectionRecord = {
           ...current,
+          displayAccountIdentity:
+            preparation.validatedIdentity?.displayAccountIdentity ?? current.displayAccountIdentity,
+          providerAccountId: providerAccount?.id ?? current.providerAccountId,
+          providerAccountLogin: providerAccount?.login ?? current.providerAccountLogin,
           encryptedCredentialEnvelope: encryptEnvelope(
             nextCredential,
             this.options.credentialEncryptionKey,
@@ -1041,7 +1239,7 @@ export class ConnectionLifecycle {
         };
         const saved = await store.saveConnection(next, connectionWriteGuard(preparation.current));
         if (!saved) throw generationConflict();
-        return "refreshed";
+        return { result: "refreshed", accountRebound };
       },
     );
   }
@@ -1634,7 +1832,7 @@ function statusFromRecord(
   requiredScopes: string[],
   adapter: DownstreamConnectionAdapter,
   now: Date,
-): ConnectionStatusV1 {
+): ConnectionStatusV2 {
   if (!record) return disconnectedStatus(adapter, requiredScopes);
   const missingScopes = requiredScopes.filter(
     (scope) => !scopesSatisfied(adapter, record.grantedScopes, [scope]),
@@ -1675,12 +1873,21 @@ function statusFromRecord(
   }
   const connected = !record.localDisabledAt && phase === "connected" && missingScopes.length === 0;
   return {
-    version: "1",
+    version: "2",
     provider: adapter.providerId,
     phase,
     connected,
-    ...(record.displayAccountIdentity
-      ? { account: { displayName: record.displayAccountIdentity } }
+    ...(record.displayAccountIdentity || record.providerAccountId || record.providerAccountLogin
+      ? {
+          account: {
+            provider: record.provider,
+            ...(record.displayAccountIdentity
+              ? { displayName: record.displayAccountIdentity }
+              : {}),
+            ...(record.providerAccountId ? { id: record.providerAccountId } : {}),
+            ...(record.providerAccountLogin ? { login: record.providerAccountLogin } : {}),
+          },
+        }
       : {}),
     requiredScopes: [...requiredScopes],
     grantedScopes: [...record.grantedScopes],
@@ -1701,9 +1908,9 @@ function statusFromRecord(
 function disconnectedStatus(
   adapter: DownstreamConnectionAdapter,
   requiredScopes: string[],
-): ConnectionStatusV1 {
+): ConnectionStatusV2 {
   return {
-    version: "1",
+    version: "2",
     provider: adapter.providerId,
     phase: "disconnected",
     connected: false,

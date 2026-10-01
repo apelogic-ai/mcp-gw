@@ -81,10 +81,17 @@ defineProviderLifecycleConformance("GitHub", () => {
       redirectUri: "https://mcp.example/oauth/github/callback",
       tokenEncryptionKey: key,
       tokenUrl: "https://provider.example/github/token",
+      userUrl: "https://provider.example/github/user",
       userEmailsUrl: "https://provider.example/github/emails",
       tokenRevocationUrl: "https://provider.example/github/revoke",
     },
-    (_url, init) => {
+    (url, init) => {
+      if (url.endsWith("/user")) {
+        return Promise.resolve(Response.json({ id: 123456, login: "fixture-user" }));
+      }
+      if (url.endsWith("/emails")) {
+        return Promise.resolve(Response.json([{ email: identity.email, verified: true }]));
+      }
       calls += 1;
       return Promise.resolve(
         init?.method === "DELETE"
@@ -120,6 +127,7 @@ defineProviderLifecycleConformance("GitHub", () => {
             renewalCredential: "renewal-old",
           },
           displayAccountIdentity: identity.email,
+          providerAccount: { id: "123456", login: "fixture-user" },
           grantedScopes: ["repo", "read:org"],
           activeCredentialExpiresAt: new Date(Date.now() + (expired ? -1 : 3_600_000)),
           renewalCredentialExpiresAt: new Date(Date.now() + 7_200_000),

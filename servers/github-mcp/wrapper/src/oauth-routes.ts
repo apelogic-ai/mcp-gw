@@ -13,6 +13,11 @@ import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import { ProviderLifecycleError } from "../../../../shared/oauth/connection-types";
 import {
+  acceptsConnectionStatusV2,
+  githubOAuthCompatibilityStatus,
+  negotiatedRefreshResult,
+} from "../../../../shared/oauth/connection-status";
+import {
   createConnectionRouteHandler,
   withConnectionErrorMapping,
 } from "../../../../shared/oauth/connection-routes";
@@ -202,17 +207,13 @@ export function createGitHubOAuthRouteHandler(
     if (request.method === "GET" && url.pathname === "/oauth/github/status") {
       const status = await lifecycle.status(identity, options.scopes);
       if (status.phase === "disconnected") return json({ connected: false });
-      return json({
-        connected: status.connected,
-        ...(status.account ? { email: status.account.displayName } : {}),
-        scopesRequired: status.requiredScopes,
-        scopesGranted: status.grantedScopes,
-        missingScopes: status.missingScopes,
-      });
+      return json(githubOAuthCompatibilityStatus(status, acceptsConnectionStatusV2(request)));
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/refresh") {
-      return json(await lifecycle.refresh(identity, options.scopes));
+      return json(
+        negotiatedRefreshResult(request, await lifecycle.refresh(identity, options.scopes)),
+      );
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/github/disconnect") {

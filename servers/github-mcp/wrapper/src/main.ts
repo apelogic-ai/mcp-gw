@@ -20,6 +20,7 @@ import {
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
 import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
+import { githubOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import { createRevocationWorker } from "../../../../shared/oauth/revocation-worker";
 import {
   CompositePolicy,
@@ -83,6 +84,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
       tokenEncryptionKey: requiredEnv(env, "GITHUB_TOKEN_ENCRYPTION_KEY"),
       authorizationUrl: optionalEnv(env, "GITHUB_OAUTH_AUTHORIZATION_URL"),
       tokenUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_URL"),
+      userUrl: optionalEnv(env, "GITHUB_OAUTH_USER_URL"),
       userEmailsUrl: optionalEnv(env, "GITHUB_OAUTH_USER_EMAILS_URL"),
       tokenRevocationUrl: optionalEnv(env, "GITHUB_OAUTH_TOKEN_REVOCATION_URL"),
     },
@@ -166,13 +168,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
       ),
     getOAuthStatus: async (identity) => {
       const status = await connectionLifecycle.status(identity, config.githubScopes);
-      return {
-        connected: status.connected,
-        ...(status.account ? { email: status.account.displayName } : {}),
-        scopesRequired: status.requiredScopes,
-        scopesGranted: status.grantedScopes,
-        missingScopes: status.missingScopes,
-      };
+      return githubOAuthCompatibilityStatus(status);
     },
     startOAuth: async (identity, redirectAfter) =>
       startGithubOAuth({

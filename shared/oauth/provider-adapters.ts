@@ -22,6 +22,7 @@ const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 const GOOGLE_REVOCATION_URL = "https://oauth2.googleapis.com/revoke";
 const GITHUB_AUTHORIZATION_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
+const GITHUB_USER_URL = "https://api.github.com/user";
 const GITHUB_EMAILS_URL = "https://api.github.com/user/emails";
 const GITHUB_APPLICATIONS_URL = "https://api.github.com/applications";
 const PROVIDER_TIMEOUT_MS = 5_000;
@@ -49,6 +50,7 @@ export const GITHUB_CONNECTION_CAPABILITIES: ProviderConnectionCapabilities = {
   providerRevocation: true,
   scopeReporting: true,
   identityVerification: true,
+  accountIdentityReporting: true,
 };
 
 export class GoogleConnectionAdapter implements DownstreamConnectionAdapter {
@@ -297,15 +299,24 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
     const active = credential.credential.activeCredential;
     if (!active)
       throw new ProviderLifecycleError("Active credential is absent", "invalid_active_credential");
+    const headers = {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${active}`,
+    };
+    const accountResponse = await providerFetch(
+      this.fetchImpl,
+      this.config.userUrl ?? GITHUB_USER_URL,
+      { headers },
+    );
+    const account = await jsonObject(accountResponse);
+    const accountId = positiveIntegerString(account.id);
+    if (!accountResponse.ok || !accountId || typeof account.login !== "string" || !account.login) {
+      throw accountResponse.ok ? malformedResponse() : providerResponseError(accountResponse);
+    }
     const response = await providerFetch(
       this.fetchImpl,
       this.config.userEmailsUrl ?? GITHUB_EMAILS_URL,
-      {
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${active}`,
-        },
-      },
+      { headers },
     );
     const body = await responseJson(response);
     if (!response.ok || !Array.isArray(body)) throw providerResponseError(response);
@@ -319,7 +330,10 @@ export class GitHubConnectionAdapter implements DownstreamConnectionAdapter {
     if (!matching) {
       throw new ProviderLifecycleError("Provider identity does not match", "identity_mismatch");
     }
-    return { displayAccountIdentity: expectedPrincipal.email };
+    return {
+      displayAccountIdentity: expectedPrincipal.email,
+      providerAccount: { id: accountId, login: account.login },
+    };
   }
 
   async revoke(credential: DecryptedCredentialGeneration): Promise<ProviderRevocationResult> {
@@ -417,6 +431,12 @@ function malformedResponse(): ProviderLifecycleError {
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function positiveIntegerString(value: unknown): string | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? String(value)
+    : undefined;
 }
 
 function splitScopes(value: string): string[] {

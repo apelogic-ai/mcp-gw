@@ -19,7 +19,24 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.4`.
+The current public release line is `v0.5.5`.
+
+### 0.5.5 upgrade notes
+
+- Run the new forward-only `008_provider_account_identity.sql` migration before starting 0.5.5
+  wrappers. The bundled Helm and Compose migration paths run it automatically, including for reused
+  PostgreSQL volumes.
+- Connection status remains byte-compatible version 1 by default. Send
+  `Accept: application/vnd.apelogic.connection-status.v2+json` to canonical connection routes to
+  request version 2, which exposes the immutable numeric GitHub user ID as `account.id`. Consumers
+  must match on that field only; login, email, and display name remain mutable display metadata.
+- Existing GitHub connections need no OAuth reconnect. Their first status read or refresh performs
+  one `GET /user` lookup and persists the missing ID. A later authorization or refresh that resolves
+  another numeric ID advances the credential generation and emits a bounded rebinding audit event.
+- Legacy ID lookup is best-effort and single-flight per connection and replica. Provider failures
+  leave status readable without `account.id` and are retried after a bounded delay.
+- No provider reauthorization, Secret-format change, chart value rename, or new required value is
+  introduced.
 
 ### 0.5.4 upgrade notes
 

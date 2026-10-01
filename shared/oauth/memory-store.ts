@@ -76,14 +76,19 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
 
   saveAccount(record: OAuthAccountRecord): Promise<void> {
     const key = accountKey(record.provider, record.hop1Issuer, record.hop1Subject);
+    const existingAccount = this.accounts.get(key);
     this.accounts.set(key, {
       ...record,
+      providerAccountId: record.providerAccountId ?? existingAccount?.providerAccountId,
+      providerAccountLogin: record.providerAccountLogin ?? existingAccount?.providerAccountLogin,
     });
     const connection = this.connections.get(key);
     if (connection) {
       this.connections.set(key, {
         ...connection,
         displayAccountIdentity: record.email,
+        providerAccountId: record.providerAccountId ?? connection.providerAccountId,
+        providerAccountLogin: record.providerAccountLogin ?? connection.providerAccountLogin,
         grantedScopes: [...record.scopesGranted],
         encryptedLegacyCredential: record.encryptedRefreshToken,
         encryptedCredentialEnvelope: undefined,
@@ -211,6 +216,8 @@ export class InMemoryOAuthTokenStore implements OAuthTokenStore {
       hop1Issuer: record.hop1Issuer,
       hop1Subject: record.hop1Subject,
       email: record.displayAccountIdentity,
+      providerAccountId: record.providerAccountId,
+      providerAccountLogin: record.providerAccountLogin,
       scopesGranted: [...record.grantedScopes],
       encryptedRefreshToken: record.encryptedLegacyCredential,
       createdAt: record.createdAt,
@@ -410,6 +417,8 @@ function connectionFromLegacy(legacy: OAuthAccountRecord): ConnectionRecord {
     hop1Issuer: legacy.hop1Issuer,
     hop1Subject: legacy.hop1Subject,
     displayAccountIdentity: legacy.email,
+    providerAccountId: legacy.providerAccountId,
+    providerAccountLogin: legacy.providerAccountLogin,
     generation: 1,
     requiredScopes: [],
     grantedScopes: [...legacy.scopesGranted],

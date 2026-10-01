@@ -3,7 +3,12 @@ import { describe, expect, test } from "bun:test";
 import type { Hop1Identity } from "../identity/hop1";
 import { ConnectionLifecycle } from "./connection-lifecycle";
 import { createConnectionRouteHandler } from "./connection-routes";
-import type { DownstreamConnectionAdapter, RenewedCredentialGeneration } from "./connection-types";
+import type {
+  DecryptedCredentialGeneration,
+  DownstreamConnectionAdapter,
+  RenewedCredentialGeneration,
+  ValidatedProviderIdentity,
+} from "./connection-types";
 import { InMemoryOAuthTokenStore } from "./memory-store";
 
 const key = Buffer.alloc(32, 9).toString("base64");
@@ -27,6 +32,7 @@ class RouteAdapter implements DownstreamConnectionAdapter {
     providerRevocation: true,
     scopeReporting: true,
     identityVerification: true,
+    accountIdentityReporting: true,
   };
   renewCalls = 0;
 
@@ -41,6 +47,16 @@ class RouteAdapter implements DownstreamConnectionAdapter {
 
   revoke(): Promise<"revoked"> {
     return Promise.resolve("revoked");
+  }
+
+  validateIdentity(
+    _credential: DecryptedCredentialGeneration,
+    expected: Hop1Identity,
+  ): Promise<ValidatedProviderIdentity> {
+    return Promise.resolve({
+      displayAccountIdentity: expected.email,
+      providerAccount: { id: "123456", login: "octocat" },
+    });
   }
 }
 
@@ -75,11 +91,48 @@ describe("generic connection routes", () => {
     const status = await handler(
       new Request("https://mcp.example/connections/github/status", { headers }),
     );
-    expect(await status.json()).toMatchObject({
+    const statusBody = (await status.json()) as Record<string, unknown>;
+    expect(typeof statusBody.activeCredentialExpiresAt).toBe("string");
+    expect(typeof statusBody.lastAuthorizedAt).toBe("string");
+    expect(typeof statusBody.lastValidatedAt).toBe("string");
+    expect(typeof statusBody.statusUpdatedAt).toBe("string");
+    expect(statusBody).toEqual({
       version: "1",
       provider: "github",
       phase: "connected",
       connected: true,
+      account: { displayName: identity.email },
+      requiredScopes: ["repo"],
+      grantedScopes: ["repo"],
+      missingScopes: [],
+      activeCredentialPresent: true,
+      renewalCredentialPresent: true,
+      activeCredentialExpiresAt: statusBody.activeCredentialExpiresAt,
+      renewalCredentialExpiresAt: null,
+      lastAuthorizedAt: statusBody.lastAuthorizedAt,
+      lastRenewedAt: null,
+      lastValidatedAt: statusBody.lastValidatedAt,
+      statusUpdatedAt: statusBody.statusUpdatedAt,
+      capabilities: new RouteAdapter().capabilities,
+    });
+
+    const statusV2 = await handler(
+      new Request("https://mcp.example/connections/github/status", {
+        headers: {
+          ...headers,
+          accept: "application/vnd.apelogic.connection-status.v2+json",
+        },
+      }),
+    );
+    expect(await statusV2.json()).toMatchObject({
+      version: "2",
+      provider: "github",
+      account: {
+        provider: "github",
+        displayName: identity.email,
+        id: "123456",
+        login: "octocat",
+      },
     });
 
     const authorize = await handler(
@@ -103,7 +156,12 @@ describe("generic connection routes", () => {
     );
     expect(await refresh.json()).toMatchObject({
       result: "refreshed",
-      status: { phase: "connected", connected: true },
+      status: {
+        version: "1",
+        phase: "connected",
+        connected: true,
+        account: { displayName: identity.email },
+      },
     });
     expect(await lifecycle.getActiveCredential(identity, ["repo"])).toBe("active-2");
 

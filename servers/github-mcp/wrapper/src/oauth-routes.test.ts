@@ -26,6 +26,7 @@ const config = {
   tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
   authorizationUrl: "https://github.example.com/login/oauth/authorize",
   tokenUrl: "https://github.example.com/login/oauth/access_token",
+  userUrl: "https://api.github.example.com/user",
   userEmailsUrl: "https://api.github.example.com/user/emails",
 };
 
@@ -215,7 +216,9 @@ describe("GitHub OAuth routes", () => {
         return Promise.resolve(
           url.includes("/login/oauth/access_token")
             ? jsonResponse({ access_token: "gho_access", scope: "repo" })
-            : jsonResponse([{ email: identity.email, verified: true }]),
+            : url.endsWith("/user")
+              ? jsonResponse({ id: 123456, login: "octocat" })
+              : jsonResponse([{ email: identity.email, verified: true }]),
         );
       },
     });
@@ -224,14 +227,14 @@ describe("GitHub OAuth routes", () => {
     const callback = await handler(new Request(callbackUrl));
     expect(callback.status).toBe(200);
     expect(authenticateCalls).toBe(0);
-    expect(providerCalls).toBe(2);
+    expect(providerCalls).toBe(3);
     expect(await tokenStore.getAccount(identity.issuer, identity.subject, "github")).not.toBeNull();
 
     const replay = await handler(new Request(callbackUrl));
     expect(replay.status).toBe(400);
     expect(await replay.json()).toEqual({ error: "OAuth state is invalid or expired" });
     expect(authenticateCalls).toBe(0);
-    expect(providerCalls).toBe(2);
+    expect(providerCalls).toBe(3);
   });
 
   test("rejects an unknown callback state without authenticating or contacting GitHub", async () => {
@@ -307,7 +310,9 @@ describe("GitHub OAuth routes", () => {
         Promise.resolve(
           url.includes("/login/oauth/access_token")
             ? jsonResponse({ access_token: "gho_access", scope: "repo" })
-            : jsonResponse([{ email: "different@example.com", primary: true, verified: true }]),
+            : url.endsWith("/user")
+              ? jsonResponse({ id: 123456, login: "octocat" })
+              : jsonResponse([{ email: "different@example.com", primary: true, verified: true }]),
         ),
     });
 
@@ -401,6 +406,63 @@ describe("GitHub OAuth routes", () => {
       scopesRequired: ["repo", "read:org"],
       scopesGranted: ["repo", "read:org"],
       missingScopes: [],
+    });
+
+    const canonical = await handler(
+      new Request("https://mcp.example.com/connections/github/status", {
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    expect(await canonical.json()).toMatchObject({
+      version: "1",
+      provider: "github",
+      connected: true,
+      account: { displayName: "user@example.com" },
+    });
+
+    const canonicalV2 = await handler(
+      new Request("https://mcp.example.com/connections/github/status", {
+        headers: {
+          authorization: "Bearer hop1",
+          accept: "application/vnd.apelogic.connection-status.v2+json",
+        },
+      }),
+    );
+    expect(await canonicalV2.json()).toMatchObject({
+      version: "2",
+      provider: "github",
+      connected: true,
+      account: { provider: "github", id: "123456", login: "octocat" },
+    });
+
+    const compatibilityV2 = await handler(
+      new Request("https://mcp.example.com/oauth/github/status", {
+        headers: {
+          authorization: "Bearer hop1",
+          accept: "application/vnd.apelogic.connection-status.v2+json",
+        },
+      }),
+    );
+    expect(await compatibilityV2.json()).toMatchObject({
+      version: "2",
+      connected: true,
+      account: { provider: "github", id: "123456", login: "octocat" },
+    });
+
+    const compatibilityRefresh = await handler(
+      new Request("https://mcp.example.com/oauth/github/refresh", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1" },
+      }),
+    );
+    const compatibilityRefreshBody = (await compatibilityRefresh.json()) as {
+      result?: unknown;
+      status?: { version?: unknown; account?: unknown };
+    };
+    expect(compatibilityRefreshBody.result).toBe("refresh_not_supported");
+    expect(compatibilityRefreshBody.status?.version).toBe("1");
+    expect(compatibilityRefreshBody.status?.account).toEqual({
+      displayName: "user@example.com",
     });
 
     const disconnect = await handler(
@@ -586,6 +648,10 @@ function githubOAuthFetch(): OAuthFetch {
           scope: "repo,read:org",
         }),
       );
+    }
+
+    if (url.endsWith("/user")) {
+      return Promise.resolve(jsonResponse({ id: 123456, login: "octocat" }));
     }
 
     if (url.includes("/user/emails")) {

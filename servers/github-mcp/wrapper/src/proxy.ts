@@ -50,8 +50,15 @@ export interface CreateGithubMcpProxyHandlerOptions {
 export type GithubMcpProxyFetch = (request: Request) => Promise<Response>;
 
 export interface GithubOAuthStatus {
+  version?: "2";
   connected: boolean;
   email?: string;
+  account?: {
+    provider: "github";
+    displayName?: string;
+    id?: string;
+    login?: string;
+  };
   scopesRequired: string[];
   scopesGranted: string[];
   missingScopes: string[];

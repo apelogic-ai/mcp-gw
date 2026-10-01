@@ -30,6 +30,11 @@ const rollbackIdentity: Hop1Identity = {
   subject: `${suffix}-rollback`,
   email: `custody-rollback-${suffix}@example.com`,
 };
+const accountBackfillIdentity: Hop1Identity = {
+  ...identity,
+  subject: `${suffix}-account-backfill`,
+  email: `account-backfill-${suffix}@example.com`,
+};
 const scopes = ["repo"];
 const encryptionKey = Buffer.alloc(32, 29).toString("base64");
 const adapter: DownstreamConnectionAdapter = {
@@ -107,7 +112,14 @@ WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
   rollbackStore.withConnectionLock = (provider, issuer, subject, operation) =>
     locked(provider, issuer, subject, async (transaction) => {
       const result = await operation(transaction);
-      if (result === "refreshed") throw new Error("forced activation rollback");
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "result" in result &&
+        result.result === "refreshed"
+      ) {
+        throw new Error("forced activation rollback");
+      }
       return result;
     });
   const rollbackLifecycle = new ConnectionLifecycle({
@@ -155,9 +167,54 @@ WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
   assert.equal(rolledBack.rows.length, 1);
   assert.equal(rolledBack.rows[0]?.custody_state, "cleanup_permanent_failure");
   assert.equal(typeof rolledBack.rows[0]?.credential_envelope, "string");
+
+  // Simulate a row written before provider-account metadata existed, then prove
+  // the real SQL CAS path backfills it once without requiring reauthorization.
+  await lifecycle.activateAuthorizedGeneration(accountBackfillIdentity, scopes, {
+    credential: { activeCredential: "postgres-backfill-active" },
+    displayAccountIdentity: accountBackfillIdentity.email,
+    grantedScopes: scopes,
+    validatedAt: new Date(),
+  });
+  let identityValidations = 0;
+  const accountLifecycle = new ConnectionLifecycle({
+    adapter: {
+      ...adapter,
+      capabilities: { ...adapter.capabilities, accountIdentityReporting: true },
+      validateIdentity: (_generation, expected) => {
+        identityValidations += 1;
+        return Promise.resolve({
+          displayAccountIdentity: expected.email,
+          providerAccount: { id: "123456", login: "fixture-user" },
+        });
+      },
+    },
+    store,
+    credentialEncryptionKey: encryptionKey,
+  });
+  assert.deepEqual((await accountLifecycle.status(accountBackfillIdentity, scopes)).account, {
+    provider: "github",
+    displayName: accountBackfillIdentity.email,
+    id: "123456",
+    login: "fixture-user",
+  });
+  assert.equal(identityValidations, 1);
+  await accountLifecycle.status(accountBackfillIdentity, scopes);
+  assert.equal(identityValidations, 1);
+  const backfilled = await pool.query(
+    `
+SELECT provider_account_id, provider_account_login
+FROM oauth_accounts
+WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
+`,
+    ["github", accountBackfillIdentity.issuer, accountBackfillIdentity.subject],
+  );
+  assert.deepEqual(backfilled.rows, [
+    { provider_account_id: "123456", provider_account_login: "fixture-user" },
+  ]);
   process.stdout.write("PostgreSQL credential custody regression passed.\n");
 } finally {
-  for (const principal of [identity, rollbackIdentity]) {
+  for (const principal of [identity, rollbackIdentity, accountBackfillIdentity]) {
     await pool.query(
       "DELETE FROM oauth_accounts WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3",
       ["github", principal.issuer, principal.subject],

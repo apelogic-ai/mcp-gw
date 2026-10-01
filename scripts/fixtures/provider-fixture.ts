@@ -59,6 +59,12 @@ Bun.serve({
       });
     }
 
+    if (request.method === "GET" && url.pathname === "/github/user") {
+      return requireProviderToken(request, GITHUB_ACCESS_TOKEN, () =>
+        Response.json({ id: 123456, login: "fixture-user" }),
+      );
+    }
+
     if (request.method === "GET" && url.pathname === "/github/emails") {
       return requireProviderToken(request, GITHUB_ACCESS_TOKEN, () =>
         Response.json([{ email: fixtureEmail, primary: true, verified: true }]),

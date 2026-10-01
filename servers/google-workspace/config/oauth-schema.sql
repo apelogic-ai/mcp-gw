@@ -289,3 +289,13 @@ FOR EACH ROW EXECUTE FUNCTION oauth_prevent_legacy_disconnect_reversal();
 
 COMMENT ON TABLE oauth_credential_generations IS
   'Durable custody ledger for every provider-issued credential generation.';
+
+ALTER TABLE oauth_accounts
+  ADD COLUMN IF NOT EXISTS provider_account_id TEXT,
+  ADD COLUMN IF NOT EXISTS provider_account_login TEXT;
+
+COMMENT ON COLUMN oauth_accounts.provider_account_id IS
+  'Immutable provider-owned account identifier. Consumers must match on this field, never login or email.';
+
+COMMENT ON COLUMN oauth_accounts.provider_account_login IS
+  'Mutable provider login retained for display only.';
