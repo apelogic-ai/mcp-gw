@@ -1,5 +1,11 @@
 # MCP Backend Registry
 
+This page is the source-tree descriptor reference. External developers and
+operators should start with the broader
+[Adding MCP servers to MCP-GW](adding-mcp-servers.md) guide, which
+covers direct HTTP targets, externally deployed images, hosted services,
+CLI/stdio wrappers, credential boundaries, and compatibility testing.
+
 The repository keeps each MCP backend in a small server-owned directory and
 derives gateway target config from backend descriptors. This avoids hand-editing
 every gateway config when adding another backend.

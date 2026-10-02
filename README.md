@@ -117,7 +117,9 @@ checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are exampl
 Deployment templates set `prefixMode: never`, so each backend wrapper must expose globally unique,
 provider-prefixed tool names and agentgateway forwards those names unchanged. Additional MCP servers
 can be added by appending a target in an overlay. See
-[docs/backend-registry.md](docs/backend-registry.md).
+[the external integrator guide](docs/adding-mcp-servers.md) for direct HTTP targets, external images,
+hosted services, CLI/stdio wrappers, credential bridges, and compatibility requirements. The
+source-tree descriptor format is documented in [docs/backend-registry.md](docs/backend-registry.md).
 
 The optional GitHub MCP bundle uses the official
 `ghcr.io/github/github-mcp-server:v1.6.0` Streamable HTTP server. It is packaged as an MCP runtime
