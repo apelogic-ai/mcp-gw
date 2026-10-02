@@ -10,6 +10,12 @@ workload is disabled by default and enabled explicitly.
 
 The chart supports Kubernetes `1.32` and newer (`kubeVersion: >=1.32.0-0`).
 
+To attach a custom backend, see the public
+[Adding MCP servers to MCP-GW](https://github.com/apelogic-ai/mcp-gw/blob/main/docs/adding-mcp-servers.md)
+guide. It explains which servers can be routed directly, when an HTTP or
+credential wrapper is required, and the authentication and compatibility
+contract behind `agentgateway.backends`.
+
 ## Install
 
 The chart is published as an OCI artifact. Enabling `agentgateway` or any

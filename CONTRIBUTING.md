@@ -34,6 +34,10 @@ artifacts should include corresponding contract documentation and upgrade notes.
 Changes to container or release inputs must keep the reproducible commands and verification paths in
 [docs/build-from-source.md](docs/build-from-source.md) current.
 
+New MCP backend integrations must follow the transport, identity, tool namespace, policy, testing,
+and packaging contract in [docs/adding-mcp-servers.md](docs/adding-mcp-servers.md). A private Helm
+backend target does not require a source-tree descriptor; a first-party backend contribution does.
+
 ## Pull requests
 
 Keep one coherent change per pull request. Maintainers may ask for changes to preserve
