@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { parseAllDocuments } from "yaml";
 
 import {
@@ -27,6 +28,17 @@ type BoundedProcessResult = {
 };
 
 describe("Kubernetes production chart", () => {
+  test("keeps the existing production-bundle manifest byte-identical", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+
+    expect(createHash("sha256").update(rendered).digest("hex")).toBe(
+      "9534eb6711bf8c3f089f80b205d30cbee18b3cb2855a66d557804c3f9369f9a3",
+    );
+  });
+
   test("declares Kubernetes 1.32 as the minimum supported version", () => {
     const unsupported = helmTemplateResult(["--kube-version", "1.31.9"]);
 
