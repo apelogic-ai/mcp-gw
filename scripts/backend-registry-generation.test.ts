@@ -70,6 +70,12 @@ describe("backend registry config generation", () => {
     expect(guide).toContain("Externally hosted MCP server");
     expect(guide).toContain("External container image");
     expect(guide).toContain("Credential or policy wrapper");
+    expect(guide).toContain("Wrapper SDK status");
+    expect(guide).toContain("does not currently publish a supported wrapper SDK");
+    expect(guide).toContain("servers/github-mcp/wrapper/src/proxy.ts");
+    expect(guide).toContain("servers/google-workspace/wrapper/src/runtime.ts");
+    expect(guide).toContain("internal source modules rather than stable external APIs");
+    expect(guide).toContain("conformance test kit");
     expect(guide).toContain("agentgateway.backends");
     expect(guide).toContain("backendAuth.passthrough");
     expect(guide).toContain("HOP-1");

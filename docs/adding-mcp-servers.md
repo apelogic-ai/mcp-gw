@@ -338,6 +338,45 @@ and route only those required public callback paths. Do not expose a broad
 configured under `googleWorkspace.authorizationBroker`; enabling it does not
 automatically add direct-client OAuth for a custom backend.
 
+## Wrapper SDK status
+
+MCP-GW does not currently publish a supported wrapper SDK, npm package, or
+code-generator. The repository contains reusable TypeScript building blocks,
+but they are internal source modules rather than stable external APIs. Their
+import paths and interfaces may change with MCP-GW itself.
+
+The closest reference implementations are:
+
+- [`servers/github-mcp/wrapper/src/proxy.ts`](../servers/github-mcp/wrapper/src/proxy.ts),
+  an HTTP-to-HTTP MCP credential bridge; and
+- [`servers/google-workspace/wrapper/src/runtime.ts`](../servers/google-workspace/wrapper/src/runtime.ts),
+  together with its MCP HTTP handler and executor, for an authenticated
+  CLI-backed wrapper.
+
+Supporting internal modules include HOP-1 identity handling under
+[`shared/identity`](../shared/identity), tool policy under
+[`shared/policy`](../shared/policy), audit support under
+[`shared/audit`](../shared/audit), and provider credential lifecycle under
+[`shared/oauth`](../shared/oauth). External integrations may study or vendor
+these patterns, but should pin the copied code to a reviewed MCP-GW release and
+own its compatibility rather than importing repository-relative modules as an
+SDK.
+
+Until a supported SDK exists, a wrapper implementation must explicitly provide:
+
+1. HOP-1 validation and stable principal resolution;
+2. upstream credential resolution or exchange;
+3. tool classification, policy, and audit where required;
+4. replacement of HOP-1 with HOP-2 on upstream requests;
+5. deliberate MCP protocol/session header forwarding;
+6. sanitized errors and secret-safe logging; and
+7. protocol, authentication, policy, concurrency, and failure tests.
+
+A future SDK should package these responsibilities behind stable helpers such
+as an authenticator, credential bridge, policy chain, MCP proxy handler, and a
+conformance test kit. Unless such a package is named in MCP-GW release notes,
+integrators should assume it is not available.
+
 ## Helm behavior and limitations
 
 Every enabled deployment still needs the normal public MCP contract:
