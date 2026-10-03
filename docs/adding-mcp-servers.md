@@ -811,6 +811,18 @@ the shared in-repository conformance suite using the chart-rendered descriptor
 and catalog. Operators must still run the URL profile against their chosen
 digest because its upstream implementation remains external.
 
+### Built-in GitHub upstream topology
+
+The built-in GitHub integration can optionally run its official upstream in
+the GitHub wrapper Pod by setting `githubMcp.topology: sidecar`. This is a
+deployment optimization for that governed integration, not a generic way to
+attach arbitrary containers. The upstream binds to loopback, the standalone
+GitHub MCP workload and Service are omitted, and the wrapper continues to own
+HOP-1 authentication, per-user GitHub credential replacement, policy, audit,
+the stable catalog, and MCP sessions. The default remains `separate` for full
+backward compatibility. See the chart README for switching, rollback, and
+which Pod-level controls move to `githubWrapper`.
+
 ## Docker Compose and source-tree registration
 
 The repository's Compose setup mounts a generated AgentGateway config. A

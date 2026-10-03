@@ -379,6 +379,51 @@ When upgrading to 0.5.4, change or remove an existing
 default to `/usr/local/bin/gws`, and the wrapper refuses to start when an explicit path is not an
 executable file. An existing `/usr/local/bin/gws` workaround may remain or be removed.
 
+### GitHub upstream topology
+
+The official GitHub MCP upstream remains a separate Deployment and ClusterIP
+Service by default. Opt in to the loopback-only topology with both workloads
+enabled:
+
+```yaml
+githubWrapper:
+  enabled: true
+
+githubMcp:
+  enabled: true
+  topology: sidecar
+```
+
+In `sidecar` mode, the chart adds the official upstream container to the
+GitHub wrapper Pod, binds it to `127.0.0.1:<githubMcp.port>`, and points the
+wrapper at that address. It does not render the standalone GitHub MCP
+Deployment, Service, ServiceAccount, NetworkPolicy, HPA, or PDB. The upstream
+therefore cannot be addressed over the Pod or cluster network. Do not set
+`githubWrapper.env.GITHUB_MCP_UPSTREAM_URL` in this mode; the chart owns the
+loopback URL.
+
+Container-level `githubMcp` settings keep their existing names and apply to
+the sidecar: `image`, `port`, `securityContext`, `resources`, `probes`, `env`,
+`extraEnv`, `extraVolumeMounts`, and `extraVolumes`. Pod-level settings come
+from `githubWrapper`, because the containers now share one Pod. This includes
+replicas, HPA, PDB, ServiceAccount, Pod annotations, Pod security context, node
+selection, affinity, tolerations, and topology spread constraints. Configure
+those controls under `githubWrapper`; the chart rejects an enabled
+`githubMcp.hpa` or `githubMcp.pdb` in sidecar mode.
+
+Network probe enablement, timing, and thresholds remain the `githubMcp.probes`
+contract; the chart executes those checks inside the upstream container so
+they can reach its loopback-only listener.
+
+Switching from `separate` to `sidecar` is an ordinary `helm upgrade`. The
+wrapper Service, public routes, tool names, status APIs, error codes, catalog,
+and PostgreSQL credential records do not change, so existing users do not
+re-consent and no token-store migration is required. Roll back by setting
+`githubMcp.topology: separate`; Helm recreates the standalone upstream objects
+and removes the sidecar. Test both transitions with the deployment's normal
+availability budget because the two containers scale and roll together in
+sidecar mode.
+
 ## Uninstall
 
 ```bash
@@ -420,6 +465,7 @@ and are left in place.
 | `githubWrapper.enabled`                                           | `false`                                             | Deploy the GitHub MCP credential wrapper.                                                                               |
 | `githubWrapper.secretRef.envKeys`                                 | `[]`                                                | Optional runtime-key allowlist for the GitHub wrapper Secret.                                                           |
 | `githubMcp.enabled`                                               | `false`                                             | Deploy the bundled official GitHub MCP server backend.                                                                  |
+| `githubMcp.topology`                                              | `separate`                                          | Keep the upstream in its own workload, or opt in to a loopback-only `sidecar` in the GitHub wrapper Pod.                |
 | `dbMcp.enabled`                                                   | `false`                                             | Deploy the database MCP backend.                                                                                        |
 | `dbMcp.wrapper.enabled`                                           | `false`                                             | Opt in to the generic-wrapper sidecar for db-mcp HOP-1, catalog, policy, audit, and session governance.                 |
 | `dbMcp.wrapper.catalog`                                           | empty                                               | Exact db-mcp tool catalog exposed by the opt-in sidecar; required when the wrapper is enabled.                          |

@@ -39,7 +39,11 @@ To enable the bundled official GitHub MCP server, use
 server expects a GitHub bearer token in the inbound `Authorization` header in
 HTTP mode, so production deployments still need a credential bridge that maps
 the authenticated HOP-1 principal to the user's GitHub credential before
-forwarding.
+forwarding. The example keeps the historical separate Deployment and Service.
+Set `githubMcp.topology: sidecar` to opt in to a loopback-only upstream inside
+the GitHub wrapper Pod. In that mode, use `githubWrapper` for Pod-level scaling,
+placement, and availability controls; see the chart README for migration and
+rollback details.
 
 To enforce Google Workspace tool policy without running an external policy
 service, enable `googleWorkspace.policy` and provide YAML policy content in a
