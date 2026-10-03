@@ -157,6 +157,83 @@ describe("Kubernetes production chart", () => {
     );
   });
 
+  test("keeps db-mcp direct by default and renders its wrapper only when explicitly enabled", () => {
+    const direct = helmTemplate(dbMcpArgs());
+    const directDeployment = renderedResource(direct, "Deployment", "mcp-gateway-db-mcp");
+    const directService = renderedResource(direct, "Service", "mcp-gateway-db-mcp");
+    expect(directDeployment).not.toContain("name: generic-wrapper");
+    expect(direct).not.toContain("mcp-gateway-db-mcp-wrapper-config");
+    expect(directService).toContain("targetPort: http");
+
+    const wrapped = helmTemplate(dbMcpWrappedArgs());
+    const deployment = renderedResource(wrapped, "Deployment", "mcp-gateway-db-mcp");
+    const service = renderedResource(wrapped, "Service", "mcp-gateway-db-mcp");
+    const networkPolicy = renderedResource(wrapped, "NetworkPolicy", "mcp-gateway-db-mcp");
+    const config = renderedResource(wrapped, "ConfigMap", "mcp-gateway-db-mcp-wrapper-config");
+    const configObject = parseAllDocuments(wrapped)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "ConfigMap" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-db-mcp-wrapper-config",
+      );
+    const data = configObject?.data as Record<string, string> | undefined;
+    const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
+    const catalog = parseGenericToolCatalog(
+      parse(data?.["catalog.yaml"] ?? ""),
+      descriptor.toolPrefix,
+    );
+
+    expect(config).toContain("mcp-gateway.generic-wrapper/v1");
+    expect(descriptor.upstream).toEqual({
+      transport: "http",
+      url: "http://127.0.0.1:8080/mcp",
+    });
+    expect(descriptor.credential).toEqual({ mode: "none" });
+    expect(catalog.tools.map((tool) => tool.exposedName)).toEqual(["db_protocol"]);
+    expect(deployment).toContain("name: generic-wrapper");
+    expect(deployment).toContain("GENERIC_WRAPPER_DESCRIPTOR_PATH");
+    expect(deployment).toContain("containerPort: 8081");
+    expect(deployment).toContain(
+      `ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@sha256:${"c".repeat(64)}`,
+    );
+    expect(service).toContain("targetPort: wrapper-http");
+    expect(networkPolicy).toContain("port: 8081");
+    expect(networkPolicy).not.toContain("port: 8080");
+  });
+
+  test("rejects incomplete or ambiguous db-mcp wrapper configurations", () => {
+    const wrapper = dbMcpWrapper();
+    const cases = [
+      {
+        label: "unpinned image",
+        wrapper: { ...wrapper, image: { repository: "example.com/generic-wrapper" } },
+        expected: /digest/,
+      },
+      {
+        label: "empty catalog",
+        wrapper: { ...wrapper, catalog: { catalogId: "", tools: [] } },
+        expected: /catalog/,
+      },
+      {
+        label: "colliding port",
+        wrapper: { ...wrapper, port: 8080 },
+        expected: /port/,
+      },
+    ];
+
+    for (const fixture of cases) {
+      const result = helmTemplateResult([
+        ...dbMcpArgs(),
+        "--set-json",
+        `dbMcp.wrapper=${JSON.stringify(fixture.wrapper)}`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), fixture.label).toMatch(fixture.expected);
+    }
+  });
+
   test("renders the public generic wrapper example", () => {
     const rendered = helmTemplate([
       "--values",
@@ -2966,6 +3043,50 @@ function genericWrapperArgs(): string[] {
     "--set-json",
     `wrappers=${JSON.stringify(genericWrappers())}`,
   ];
+}
+
+function dbMcpArgs(): string[] {
+  return [
+    ...genericWrapperBaseArgs(),
+    "--set",
+    "dbMcp.enabled=true",
+    "--set-string",
+    "dbMcp.image.repository=registry.example.com/mcp/db-mcp",
+    "--set-string",
+    `dbMcp.image.digest=sha256:${"d".repeat(64)}`,
+    "--set-json",
+    'agentgateway.backends=[{"name":"db-mcp","enabled":true,"serviceName":"db-mcp","port":8080,"path":"/mcp"}]',
+  ];
+}
+
+function dbMcpWrappedArgs(): string[] {
+  return [...dbMcpArgs(), "--set-json", `dbMcp.wrapper=${JSON.stringify(dbMcpWrapper())}`];
+}
+
+function dbMcpWrapper(): Record<string, unknown> {
+  return {
+    enabled: true,
+    image: {
+      repository: "ghcr.io/apelogic-ai/mcp-gw-generic-wrapper",
+      digest: `sha256:${"c".repeat(64)}`,
+    },
+    port: 8081,
+    toolPrefix: "db",
+    serverInfo: { name: "db-mcp-wrapper", version: "1.0.0" },
+    sessions: { maxTotal: 64, maxPerPrincipal: 4, idleTtlMs: 1_800_000 },
+    catalog: {
+      catalogId: "db-mcp-query@1",
+      tools: [
+        {
+          name: "protocol",
+          description: "Read the db-mcp operating protocol.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          annotations: { readOnlyHint: true },
+          grants: { actionClass: "read", operation: "db.protocol", scopes: [] },
+        },
+      ],
+    },
+  };
 }
 
 function genericWrapperBaseArgs(): string[] {
