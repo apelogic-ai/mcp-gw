@@ -46,6 +46,24 @@ exit 0
     }
   });
 
+  test("compares every existing Helm example against the pull-request base", async () => {
+    const [workflow, compatibility] = await Promise.all([
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile("scripts/check-helm-manifest-compatibility.sh", "utf8"),
+    ]);
+
+    expect(workflow).toContain("fetch-depth: 0");
+    expect(workflow).toContain("bun run helm:compat:check");
+    expect(workflow).toContain("HELM_COMPAT_BASE_REF: origin/${{ github.base_ref }}");
+    expect(compatibility).toContain("values-*.yaml");
+    expect(compatibility).toContain("oauth-broker-with-gateway-api");
+    expect(compatibility).toContain("values-oauth-broker.example.yaml");
+    expect(compatibility).toContain("values-gateway-api-broker.example.yaml");
+    expect(compatibility).toContain("<line>:<column>");
+    expect(compatibility).toContain("diff -u");
+    expect(compatibility).toContain("--kube-version 1.32.0");
+  });
+
   test("installs the chart and verifies unavailable issuers fail closed", async () => {
     await access("scripts/smoke-k8s.sh", constants.X_OK);
     const smoke = await readFile("scripts/smoke-k8s.sh", "utf8");

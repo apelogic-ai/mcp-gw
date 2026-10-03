@@ -71,6 +71,7 @@ describe("authenticated MCP HTTP handler", () => {
     const response = await handler(request({ jsonrpc: "2.0", id: 1, method: "tools/list" }));
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe("Bearer");
     expect(diagnostics).toEqual(["missing_bearer"]);
     expect(await response.json()).toEqual({
       jsonrpc: "2.0",
@@ -102,6 +103,7 @@ describe("authenticated MCP HTTP handler", () => {
     );
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe('Bearer error="invalid_token"');
     expect(diagnostics).toEqual(["invalid_audience"]);
     expect(await response.json()).toEqual({
       jsonrpc: "2.0",

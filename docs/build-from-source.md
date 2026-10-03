@@ -53,6 +53,10 @@ docker buildx build --platform "$PLATFORM" --load \
 docker buildx build --platform "$PLATFORM" --load \
   --file servers/github-mcp/wrapper/Dockerfile \
   --tag "mcp-gw-github-wrapper:$VERSION" .
+
+docker buildx build --platform "$PLATFORM" --load \
+  --file servers/generic-wrapper/Dockerfile \
+  --tag "mcp-gw-generic-wrapper:$VERSION" .
 ```
 
 The release-owned AgentGateway image is built from the compatibility fork and exact commit in
@@ -151,6 +155,10 @@ gh attestation verify \
   --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 
 gh attestation verify \
+  "oci://ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@$(cat "$ARTIFACTS/generic-wrapper.digest")" \
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
+
+gh attestation verify \
   "oci://ghcr.io/apelogic-ai/charts/mcp-gateway@$(cat "$ARTIFACTS/helm-chart.digest")" \
   --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 
@@ -193,6 +201,8 @@ docker buildx imagetools inspect \
   "ghcr.io/apelogic-ai/mcp-gw-google-workspace@$(cat "$ARTIFACTS/google-workspace.digest")"
 docker buildx imagetools inspect \
   "ghcr.io/apelogic-ai/mcp-gw-github-wrapper@$(cat "$ARTIFACTS/github-wrapper.digest")"
+docker buildx imagetools inspect \
+  "ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@$(cat "$ARTIFACTS/generic-wrapper.digest")"
 docker buildx imagetools inspect \
   "ghcr.io/apelogic-ai/mcp-gw-github-mcp-server@$(cat "$ARTIFACTS/github-mcp-server.digest")"
 helm pull oci://ghcr.io/apelogic-ai/charts/mcp-gateway \

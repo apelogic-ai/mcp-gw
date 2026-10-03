@@ -1,0 +1,100 @@
+hop1:
+  issuers:
+    - name: workforce
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      emailClaim: email
+      subjectClaim: sub
+
+agentgateway:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: "0.5.7"
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+  backends: []
+
+# Replace both placeholder digests with the generic-wrapper digest from the
+# matching MCP-GW release handoff. The Secret named below must already exist.
+wrappers:
+  - name: public-reference
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    toolPrefix: public_reference
+    lifecycleRoutes: false
+    upstream:
+      transport: http
+      url: https://mcp.example.com/reference
+    credential:
+      mode: none
+    serverInfo:
+      name: public-reference-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: public-reference@1
+      tools:
+        - name: echo
+          description: Echo a message through the reference server.
+          inputSchema:
+            type: object
+            properties:
+              message:
+                type: string
+            required:
+              - message
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: reference.echo
+            scopes: []
+
+  - name: hosted-search
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    toolPrefix: hosted_search
+    lifecycleRoutes: false
+    upstream:
+      transport: http
+      url: https://search.example.com/mcp
+    credential:
+      mode: static_secret
+      env: HOSTED_SEARCH_API_KEY
+      header: x-api-key
+    secretRef:
+      name: hosted-search-credentials
+      envKeys:
+        - HOSTED_SEARCH_API_KEY
+    serverInfo:
+      name: hosted-search-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: hosted-search@1
+      tools:
+        - name: query
+          description: Search indexed documents.
+          inputSchema:
+            type: object
+            properties:
+              query:
+                type: string
+            required:
+              - query
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: search.query
+            scopes: []

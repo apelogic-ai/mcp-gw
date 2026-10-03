@@ -158,6 +158,11 @@
     "postgresql": { "$ref": "#/$defs/postgresql" },
     "oauthMigrations": { "$ref": "#/$defs/oauthMigrations" },
     "agentgateway": { "$ref": "#/$defs/agentgateway" },
+    "wrappers": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/genericWrapper" }
+    },
     "googleWorkspace": { "$ref": "#/$defs/googleWorkspace" },
     "dbMcp": { "$ref": "#/$defs/backend" },
     "githubWrapper": { "$ref": "#/$defs/githubWrapper" },
@@ -178,6 +183,380 @@
           }
         }
       ]
+    },
+    "pinnedImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "maxLength": 0 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-fA-F0-9]{64}$" }
+      }
+    },
+    "genericWrapper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "enabled",
+        "image",
+        "toolPrefix",
+        "lifecycleRoutes",
+        "upstream",
+        "credential",
+        "serverInfo",
+        "catalog"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "credential": {
+                "properties": { "mode": { "const": "per_user_oauth" } },
+                "required": ["mode"]
+              }
+            }
+          },
+          "then": { "properties": { "lifecycleRoutes": { "const": true } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "upstream": {
+                "properties": { "transport": { "const": "stdio" } },
+                "required": ["transport"]
+              }
+            }
+          },
+          "then": { "properties": { "replicas": { "maximum": 1 } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "upstream": {
+                "properties": { "transport": { "const": "stdio" } },
+                "required": ["transport"]
+              },
+              "credential": {
+                "properties": { "mode": { "not": { "const": "none" } } },
+                "required": ["mode"]
+              }
+            },
+            "required": ["upstream", "credential"]
+          },
+          "then": {
+            "properties": { "upstream": { "required": ["credentialEnv"] } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "serviceAccount": {
+                "properties": { "create": { "const": false } },
+                "required": ["create"]
+              }
+            },
+            "required": ["serviceAccount"]
+          },
+          "then": {
+            "properties": {
+              "serviceAccount": {
+                "required": ["name"],
+                "properties": { "name": { "minLength": 1 } }
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 36,
+          "pattern": "^[a-z](?:[-a-z0-9]*[a-z0-9])$"
+        },
+        "enabled": { "type": "boolean" },
+        "image": { "$ref": "#/$defs/pinnedImage" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "toolPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "lifecycleRoutes": { "type": "boolean" },
+        "upstream": { "$ref": "#/$defs/genericUpstream" },
+        "credential": { "$ref": "#/$defs/genericCredential" },
+        "serverInfo": { "$ref": "#/$defs/genericServerInfo" },
+        "sessions": { "$ref": "#/$defs/genericSessions" },
+        "catalog": { "$ref": "#/$defs/genericCatalog" },
+        "secretRef": { "$ref": "#/$defs/genericSecretRef" },
+        "policy": { "$ref": "#/$defs/genericPolicy" },
+        "audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["jsonlPath"],
+          "properties": { "jsonlPath": { "type": "string", "pattern": "^/" } }
+        },
+        "serviceAccount": { "$ref": "#/$defs/serviceAccount" },
+        "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "podSecurityContext": { "type": "object" },
+        "securityContext": { "type": "object" },
+        "resources": { "type": "object" },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "liveness": { "$ref": "#/$defs/probe" },
+            "readiness": { "$ref": "#/$defs/probe" }
+          }
+        },
+        "extraEnv": { "$ref": "#/$defs/extraEnv" },
+        "extraVolumeMounts": { "$ref": "#/$defs/extraVolumeMounts" },
+        "extraVolumes": { "$ref": "#/$defs/extraVolumes" }
+      }
+    },
+    "genericUpstream": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transport", "url"],
+          "properties": {
+            "transport": { "const": "http" },
+            "url": { "type": "string", "pattern": "^https?://[^#]+$" },
+            "timeoutMs": { "type": "integer", "minimum": 1 },
+            "sidecar": { "$ref": "#/$defs/genericSidecar" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transport", "command"],
+          "properties": {
+            "transport": { "const": "stdio" },
+            "command": { "type": "string", "pattern": "^/" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "envAllowlist": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }
+            },
+            "credentialEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "timeoutMs": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "genericSidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "port"],
+      "properties": {
+        "image": { "$ref": "#/$defs/pinnedImage" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "$ref": "#/$defs/extraEnv" }
+      }
+    },
+    "genericCredential": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "none" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "env", "header"],
+          "properties": {
+            "mode": { "const": "static_secret" },
+            "env": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "header": { "type": "string", "minLength": 1 },
+            "scheme": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "endpoint"],
+          "anyOf": [{ "required": ["audience"] }, { "required": ["resource"] }],
+          "allOf": [
+            {
+              "if": { "required": ["clientIdEnv"] },
+              "then": { "required": ["clientSecretEnv"] }
+            },
+            {
+              "if": { "required": ["clientSecretEnv"] },
+              "then": { "required": ["clientIdEnv"] }
+            }
+          ],
+          "properties": {
+            "mode": { "const": "token_exchange" },
+            "endpoint": { "type": "string", "pattern": "^https://[^#]+$" },
+            "audience": { "type": "string", "minLength": 1 },
+            "resource": { "type": "string", "minLength": 1 },
+            "scopes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "clientIdEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "clientSecretEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "header": { "type": "string", "minLength": 1 },
+            "scheme": { "type": "string", "minLength": 1 },
+            "timeoutMs": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "providerId",
+            "authorizationUrl",
+            "tokenUrl",
+            "userInfoUrl",
+            "redirectUri",
+            "scopes",
+            "clientIdEnv",
+            "clientSecretEnv",
+            "encryptionKeyEnv",
+            "tokenStoreDsnEnv",
+            "identity"
+          ],
+          "properties": {
+            "mode": { "const": "per_user_oauth" },
+            "providerId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$" },
+            "authorizationUrl": { "type": "string", "pattern": "^https://[^#]+$" },
+            "tokenUrl": { "type": "string", "pattern": "^https://[^#]+$" },
+            "userInfoUrl": { "type": "string", "pattern": "^https://[^#]+$" },
+            "revocationUrl": { "type": "string", "pattern": "^https://[^#]+$" },
+            "redirectUri": { "type": "string", "pattern": "^https://[^#]+$" },
+            "scopes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "clientIdEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "clientSecretEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "encryptionKeyEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "tokenStoreDsnEnv": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" },
+            "header": { "type": "string", "minLength": 1 },
+            "scheme": { "type": "string", "minLength": 1 },
+            "identity": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["idField", "emailField", "emailVerifiedField"],
+              "properties": {
+                "idField": { "type": "string", "minLength": 1 },
+                "emailField": { "type": "string", "minLength": 1 },
+                "loginField": { "type": "string", "minLength": 1 },
+                "emailVerifiedField": { "type": "string", "minLength": 1 }
+              }
+            },
+            "authorizationParams": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "tokenEndpointAuthMethod": { "enum": ["client_secret_basic", "client_secret_post"] },
+            "timeoutMs": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "genericServerInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "genericSessions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxTotal": { "type": "integer", "minimum": 1 },
+        "maxPerPrincipal": { "type": "integer", "minimum": 1 },
+        "idleTtlMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "genericCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogId", "tools"],
+      "properties": {
+        "catalogId": { "type": "string", "minLength": 1 },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/genericCatalogTool" }
+        }
+      }
+    },
+    "genericCatalogTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "inputSchema", "annotations", "grants"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "description": { "type": "string", "minLength": 1 },
+        "inputSchema": { "type": "object" },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["readOnlyHint"],
+          "properties": {
+            "readOnlyHint": { "type": "boolean" },
+            "destructiveHint": { "type": "boolean" }
+          }
+        },
+        "grants": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actionClass", "scopes"],
+          "properties": {
+            "actionClass": { "enum": ["read", "write", "destructive"] },
+            "operation": { "type": "string", "minLength": 3 },
+            "scopes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "genericSecretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "envKeys"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "envKeys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }
+        }
+      }
+    },
+    "genericPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opaUrl": { "type": "string", "pattern": "^https?://[^#]+$" },
+        "yaml": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [{ "required": ["opaUrl"] }, { "required": ["yaml"] }]
     },
     "secretKeyRef": {
       "type": "object",

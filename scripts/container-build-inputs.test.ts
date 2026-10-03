@@ -8,6 +8,7 @@ describe("wrapper container build inputs", () => {
     const dockerfiles = await Promise.all([
       readFile("servers/google-workspace/wrapper/Dockerfile", "utf8"),
       readFile("servers/github-mcp/wrapper/Dockerfile", "utf8"),
+      readFile("servers/generic-wrapper/Dockerfile", "utf8"),
     ]);
 
     for (const dockerfile of dockerfiles) {

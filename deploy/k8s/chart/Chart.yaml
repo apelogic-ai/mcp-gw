@@ -26,6 +26,8 @@ annotations:
       image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.7
     - name: mcp-gw-github-wrapper
       image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.7
+    - name: mcp-gw-generic-wrapper
+      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.5.7
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -33,6 +35,8 @@ annotations:
   # artifacthub.io/signKey annotation requires a PGP fingerprint and key URL,
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
+    - kind: added
+      description: Add the opt-in descriptor-driven generic wrapper for HTTP and stdio MCP integrations.
     - kind: fixed
       description: Align the Google Workspace CLI path across the image, chart, Compose, and runtime validation.
     - kind: fixed

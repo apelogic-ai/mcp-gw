@@ -86,6 +86,9 @@ describe("release metadata", () => {
     expect(ciWorkflow).toContain("docker/build-push-action@");
     expect(ciWorkflow).toContain("docker/setup-buildx-action@");
     expect(ciWorkflow).toContain("mcp-gw-agentgateway:ci");
+    expect(ciWorkflow).toContain("mcp-gw-generic-wrapper:ci");
+    expect(ciWorkflow).toContain("bun run integration:generic");
+    expect(ciWorkflow).toContain("GENERIC_WRAPPER_IMAGE: mcp-gw-generic-wrapper:ci");
     expect(ciWorkflow).not.toContain("arm64-inputs:");
     expect(ciWorkflow).not.toContain("arm64-image-build:");
     expect(ciWorkflow).not.toContain("helm/kind-action@");
@@ -147,6 +150,9 @@ describe("release metadata", () => {
     );
     expect(chart.annotations["artifacthub.io/images"]).toContain(
       `ghcr.io/apelogic-ai/mcp-gw-github-wrapper:${packageVersion}`,
+    );
+    expect(chart.annotations["artifacthub.io/images"]).toContain(
+      `ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:${packageVersion}`,
     );
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: changed");
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: security");

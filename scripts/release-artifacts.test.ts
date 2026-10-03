@@ -14,6 +14,9 @@ describe("release artifacts", () => {
     );
 
     expect(kubernetesSmoke).toContain("Build pinned agentgateway candidate");
+    expect(kubernetesSmoke).toContain("Build generic wrapper candidate");
+    expect(kubernetesSmoke).toContain("bun run integration:generic");
+    expect(kubernetesSmoke).toContain("GENERIC_WRAPPER_IMAGE: mcp-gw-generic-wrapper:smoke");
     expect(kubernetesSmoke).toContain("bun run integration:local");
     expect(kubernetesSmoke).toContain('LOCAL_INCLUDE_GITHUB: "1"');
     expect(kubernetesSmoke).toContain(
@@ -51,6 +54,7 @@ describe("release artifacts", () => {
     expect(workflow).toContain("mcp-gw-agentgateway");
     expect(workflow).toContain("mcp-gw-google-workspace");
     expect(workflow).toContain("mcp-gw-github-wrapper");
+    expect(workflow).toContain("mcp-gw-generic-wrapper");
     expect(workflow).toContain("docker/build-push-action@");
     expect(workflow).toContain("actions/attest-build-provenance@");
     expect(workflow).toContain("anchore/sbom-action@");
@@ -168,6 +172,7 @@ describe("release artifacts", () => {
     expect(release).toContain("ghcr.io/$OWNER/mcp-gw-agentgateway");
     expect(release).toContain("ghcr.io/$OWNER/mcp-gw-google-workspace");
     expect(release).toContain("ghcr.io/$OWNER/mcp-gw-github-wrapper");
+    expect(release).toContain("ghcr.io/$OWNER/mcp-gw-generic-wrapper");
     expect(release).toContain("ghcr.io/$OWNER/charts/mcp-gateway");
   });
 
@@ -271,6 +276,7 @@ describe("release artifacts", () => {
         "agentgateway",
         "google-workspace",
         "github-wrapper",
+        "generic-wrapper",
         "github-mcp-server",
         "helm-chart",
         "github-governance-catalog",
@@ -289,6 +295,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-agentgateway@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-google-workspace@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-wrapper@${digest}`);
+    expect(handoff).toContain(`ghcr.io/example/mcp-gw-generic-wrapper@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-mcp-server@${digest}`);
     expect(handoff).toContain("ghcr.io/github/github-mcp-server@");
     expect(handoff).toContain("digest equality");

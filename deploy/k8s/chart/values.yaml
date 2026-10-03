@@ -196,6 +196,10 @@ agentgateway:
     enabled: false
     minAvailable: 1
 
+# Optional descriptor-driven wrappers. List entries are fully opt-in; the
+# empty default renders no additional Kubernetes objects or gateway targets.
+wrappers: []
+
 googleWorkspace:
   enabled: false
   image:

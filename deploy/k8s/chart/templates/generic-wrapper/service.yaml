@@ -1,0 +1,21 @@
+{{- range .Values.wrappers }}
+{{- if .enabled }}
+{{- $component := printf "generic-wrapper-%s" .name }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" $ "component" $component) }}
+  labels:
+    {{- include "mcp-gateway.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" $component) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .port | default 8080 }}
+      targetPort: http
+---
+{{- end }}
+{{- end }}

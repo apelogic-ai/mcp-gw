@@ -16,6 +16,7 @@ export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Pr
     agentgateway: await readDigest(options.artifactsDirectory, "agentgateway"),
     googleWorkspace: await readDigest(options.artifactsDirectory, "google-workspace"),
     githubWrapper: await readDigest(options.artifactsDirectory, "github-wrapper"),
+    genericWrapper: await readDigest(options.artifactsDirectory, "generic-wrapper"),
     githubMcpServer: await readDigest(options.artifactsDirectory, "github-mcp-server"),
     chart: await readDigest(options.artifactsDirectory, "helm-chart"),
     githubGovernanceCatalog: await readDigest(
@@ -48,6 +49,7 @@ helm upgrade --install mcp-gateway ${chart} \\
 | agentgateway | \`${registry}/mcp-gw-agentgateway@${digests.agentgateway}\` |
 | Google Workspace wrapper | \`${registry}/mcp-gw-google-workspace@${digests.googleWorkspace}\` |
 | GitHub wrapper | \`${registry}/mcp-gw-github-wrapper@${digests.githubWrapper}\` |
+| Generic wrapper | \`${registry}/mcp-gw-generic-wrapper@${digests.genericWrapper}\` |
 
 ## Mirrored Third-Party Image
 
@@ -96,6 +98,7 @@ gh attestation verify github-governance-catalog.json \\
 - agentgateway: TCP \`8080\`, public MCP path \`/mcp\`.
 - Google Workspace wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
 - GitHub wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
+- Generic wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
 - Official GitHub MCP Server: TCP \`8082\`, internal MCP path \`/mcp\`.
 - Default Kubernetes Services are \`ClusterIP\`; ingress is opt-in.
 - Every workload has configurable liveness and readiness probes under its \`probes\` values.
@@ -111,6 +114,10 @@ existing Kubernetes Secret containing these environment-variable keys:
 - GitHub: \`TOKEN_STORE_DSN\`, \`GITHUB_OAUTH_CLIENT_ID\`,
   \`GITHUB_OAUTH_CLIENT_SECRET\`, \`GITHUB_OAUTH_REDIRECT_URI\`,
   \`GITHUB_TOKEN_ENCRYPTION_KEY\`.
+- Generic wrappers: the exact environment key names declared by each descriptor under
+  \`credential\`; import them explicitly through \`wrappers[].secretRef.envKeys\`. Per-user OAuth
+  descriptors require a client ID, client secret, 32-byte base64 encryption key, and token-store
+  DSN. Static credentials require only their declared key.
 - Issuer introspection credentials: any key selected by each
   \`hop1.issuers[].introspection.credentialSecretKeyRef\`.
 

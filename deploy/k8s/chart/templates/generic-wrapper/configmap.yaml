@@ -1,0 +1,54 @@
+{{- range .Values.wrappers }}
+{{- if .enabled }}
+{{- $component := printf "generic-wrapper-%s" .name }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" $ "component" (printf "%s-config" $component)) }}
+  labels:
+    {{- include "mcp-gateway.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+data:
+  descriptor.yaml: |
+    schemaVersion: mcp-gateway.generic-wrapper/v1
+    name: {{ .name | quote }}
+    toolPrefix: {{ .toolPrefix | quote }}
+    catalogPath: /etc/mcp-gw/catalog.yaml
+    lifecycleRoutes: {{ .lifecycleRoutes }}
+    upstream:
+{{ omit .upstream "sidecar" | toYaml | nindent 6 }}
+    credential:
+{{ .credential | toYaml | nindent 6 }}
+    serverInfo:
+{{ .serverInfo | toYaml | nindent 6 }}
+    {{- with .sessions }}
+    sessions:
+{{ . | toYaml | nindent 6 }}
+    {{- end }}
+    {{- with .policy }}
+    policy:
+      {{- with .opaUrl }}
+      opaUrl: {{ . | quote }}
+      {{- end }}
+      {{- with .yaml }}
+      yamlFile: /etc/mcp-gw/policy.yaml
+      {{- end }}
+    {{- end }}
+    {{- with .audit }}
+    audit:
+{{ . | toYaml | nindent 6 }}
+    {{- end }}
+  catalog.yaml: |
+    schemaVersion: mcp-gateway.generic-catalog/v1
+    catalogId: {{ .catalog.catalogId | quote }}
+    tools:
+{{ .catalog.tools | toYaml | nindent 6 }}
+  {{- with .policy }}
+  {{- with .yaml }}
+  policy.yaml: |
+{{ . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}

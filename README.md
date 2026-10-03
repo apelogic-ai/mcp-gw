@@ -12,6 +12,7 @@ The project currently packages:
 
 - an `agentgateway` front door for remote MCP traffic and OAuth protected-resource metadata;
 - a Bun/TypeScript Google Workspace MCP wrapper;
+- an optional descriptor-driven generic wrapper for governed HTTP and stdio integrations;
 - an optional official GitHub MCP server backend for federated deployments;
 - per-user Google OAuth token storage with encrypted refresh tokens;
 - provider-owned OAuth helpers and stable catalogs with per-call provider authorization;
@@ -104,7 +105,8 @@ Deployment assets are provided for:
 - local Docker Compose under [deploy/compose](deploy/compose);
 - Kubernetes/Helm under [deploy/k8s](deploy/k8s).
 
-Tagged releases publish a compatible `mcp-gw-agentgateway` image alongside the provider wrappers.
+Tagged releases publish compatible `mcp-gw-agentgateway`, provider-wrapper, and generic-wrapper
+images.
 Production overlays should pin the exact image digests recorded in the release handoff.
 
 The Kubernetes chart is intended for chart-plus-private-values enterprise deployments. Put
@@ -112,7 +114,8 @@ organization-specific hostnames, image digests, identity annotations, existing S
 and scheduling policy in a private values overlay. Flux, Argo CD, and private overlay examples are
 in [deploy/k8s/examples](deploy/k8s/examples).
 
-Agentgateway backend targets are configured through `agentgateway.backends` in Helm values. The
+Direct Agentgateway backend targets are configured through `agentgateway.backends` in Helm values;
+governed custom integrations can use the optional `wrappers[]` list. The
 checked-in Google Workspace, db-mcp, and optional GitHub MCP backends are examples of the pattern.
 Deployment templates set `prefixMode: never`, so each backend wrapper must expose globally unique,
 provider-prefixed tool names and agentgateway forwards those names unchanged. Additional MCP servers
