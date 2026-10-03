@@ -188,9 +188,7 @@ async function exerciseCandidateImage(
   ]);
   const containerName = `mcp-gw-generic-${randomUUID()}`;
   const hostGatewayArgs =
-    process.platform === "linux"
-      ? ["--add-host", "host.docker.internal:host-gateway"]
-      : [];
+    process.platform === "linux" ? ["--add-host", "host.docker.internal:host-gateway"] : [];
   const containerArgs = [
     "docker",
     "run",
