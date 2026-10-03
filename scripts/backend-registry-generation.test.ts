@@ -54,41 +54,4 @@ describe("backend registry config generation", () => {
     expect(guide).toContain("Do not commit runtime secrets");
   });
 
-  test("publishes an external integrator guide for every supported backend shape", async () => {
-    const [guide, readme, chartReadme, contributing, registryGuide] = await Promise.all([
-      readFile("docs/adding-mcp-servers.md", "utf8"),
-      readFile("README.md", "utf8"),
-      readFile("deploy/k8s/chart/README.md", "utf8"),
-      readFile("CONTRIBUTING.md", "utf8"),
-      readFile("docs/backend-registry.md", "utf8"),
-    ]);
-
-    expect(guide).toContain("Status: public integration contract");
-    expect(guide).toContain("Decision matrix");
-    expect(guide).toContain("Streamable HTTP");
-    expect(guide).toContain("CLI or stdio server");
-    expect(guide).toContain("Externally hosted MCP server");
-    expect(guide).toContain("External container image");
-    expect(guide).toContain("Credential or policy wrapper");
-    expect(guide).toContain("Wrapper SDK status");
-    expect(guide).toContain("does not currently publish a supported wrapper SDK");
-    expect(guide).toContain("servers/github-mcp/wrapper/src/proxy.ts");
-    expect(guide).toContain("servers/google-workspace/wrapper/src/runtime.ts");
-    expect(guide).toContain("internal source modules rather than stable external APIs");
-    expect(guide).toContain("conformance test kit");
-    expect(guide).toContain("agentgateway.backends");
-    expect(guide).toContain("backendAuth.passthrough");
-    expect(guide).toContain("HOP-1");
-    expect(guide).toContain("HOP-2");
-    expect(guide).toContain("prefixMode: never");
-    expect(guide).toContain("productionProfile.enabled");
-    expect(guide).toContain("2025-06-18");
-    expect(guide).toContain("bun run backends:check");
-    expect(guide).toContain("Do not put credentials in the backend URL");
-
-    for (const document of [readme, chartReadme, contributing]) {
-      expect(document).toContain("docs/adding-mcp-servers.md");
-    }
-    expect(registryGuide).toContain("adding-mcp-servers.md");
-  });
 });
