@@ -10,13 +10,13 @@ import {
 } from "../../../../shared/oauth/google";
 import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
-import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
-import { googleOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import {
+  ConnectionLifecycle,
   createConnectionRouteHandler,
+  googleOAuthCompatibilityStatus,
   withConnectionErrorMapping,
-} from "../../../../shared/oauth/connection-routes";
+} from "../../../../packages/wrapper-kit/src/lifecycle";
 import { GoogleConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 
 export interface CreateOAuthRouteHandlerOptions {

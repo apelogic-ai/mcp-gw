@@ -10,6 +10,8 @@ import type { AuditSink } from "../../../../shared/audit/audit";
 import type { ConnectionLifecycleMetricSink } from "../../../../shared/oauth/connection-metrics";
 import type { GoogleOAuthConfig } from "../../../../shared/oauth/google";
 import type { ToolPolicy } from "../../../../shared/policy/policy";
+import { createCredentialBridge } from "../../../../packages/wrapper-kit/src/credential-bridge";
+import { createAuthenticatedMcpHttpHandler } from "../../../../packages/wrapper-kit/src/mcp/authenticated-http";
 import {
   GOOGLE_WORKSPACE_CATALOG_ID,
   type GoogleWorkspaceCatalogId,
@@ -20,7 +22,6 @@ import type {
   WorkspaceToolExecutor,
 } from "./google-workspace/registry";
 import { createGoogleWorkspaceRegistry } from "./google-workspace/registry";
-import { createAuthenticatedMcpHttpHandler } from "./mcp/authenticated-http";
 
 interface ServerInfo {
   name: string;
@@ -74,6 +75,23 @@ export function createGoogleWorkspaceWrapperHandler(
   options: CreateGoogleWorkspaceWrapperHandlerOptions,
 ): (request: Request) => Promise<Response> {
   const startOAuth = options.startOAuth;
+  const credentialBridge = createCredentialBridge({
+    mode: "per_user_oauth",
+    resolve: (
+      identity: Hop1Identity,
+      requirement: {
+        scopes: Parameters<AccessTokenBroker["getAccessToken"]>[1];
+        diagnosticId?: string;
+        expectedGrantedScopes?: readonly string[];
+      },
+    ) =>
+      options.tokenBroker.getAccessToken(
+        identity,
+        requirement.scopes,
+        requirement.diagnosticId,
+        requirement.expectedGrantedScopes,
+      ),
+  });
   return createAuthenticatedMcpHttpHandler({
     serverInfo: options.serverInfo,
     authenticate: (token) => options.authenticate(token),
@@ -89,12 +107,11 @@ export function createGoogleWorkspaceWrapperHandler(
           getGrantedScopes: (requestIdentity) =>
             options.tokenBroker.getGrantedScopes(requestIdentity),
           getAccessToken: (requestIdentity, scopes, diagnosticId, expectedGrantedScopes) =>
-            options.tokenBroker.getAccessToken(
-              requestIdentity,
+            credentialBridge.resolve(requestIdentity, {
               scopes,
-              diagnosticId,
-              expectedGrantedScopes,
-            ),
+              ...(diagnosticId ? { diagnosticId } : {}),
+              ...(expectedGrantedScopes ? { expectedGrantedScopes } : {}),
+            }),
         },
         oauth:
           oauthStatus && startOAuth

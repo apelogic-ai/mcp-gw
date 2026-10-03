@@ -8,7 +8,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"{src,servers,shared,test}/**/*.ts\"",
+    "lint": "eslint \"{src,servers,shared,packages,test}/**/*.ts\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "backends:check": "bun scripts/generate-agentgateway-config.ts --check",

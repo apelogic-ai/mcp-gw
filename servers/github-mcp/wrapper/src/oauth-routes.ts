@@ -12,19 +12,17 @@ import {
 import type { OAuthFetch } from "../../../../shared/oauth/google";
 import { oauthSuccessPage } from "../../../../shared/oauth/success-page";
 import type { OAuthStateStore, OAuthTokenStore } from "../../../../shared/oauth/store";
-import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import {
   acceptsConnectionStatusV2,
   githubOAuthCompatibilityStatus,
   negotiatedRefreshResult,
-} from "../../../../shared/oauth/connection-status";
-import {
+  ConnectionLifecycle,
   ConnectionRouteError,
   connectionErrorDetails,
   createConnectionRouteHandler,
   type ConnectionRouteErrorCode,
   type ConnectionRouteFailure,
-} from "../../../../shared/oauth/connection-routes";
+} from "../../../../packages/wrapper-kit/src/lifecycle";
 import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
 
 export interface CreateGitHubOAuthRouteHandlerOptions {

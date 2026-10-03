@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
 import { Pool } from "pg";
 
-import { JsonlAuditSink, type AuditSink } from "../../../../shared/audit/audit";
 import {
   HOP1_SUPPORTED_ALGORITHMS,
   type Hop1Algorithm,
@@ -18,20 +16,20 @@ import {
   createPostgresQueryClient,
 } from "../../../../shared/oauth/postgres-client";
 import { SqlOAuthStateStore, SqlOAuthTokenStore } from "../../../../shared/oauth/sql-store";
-import { ConnectionLifecycle } from "../../../../shared/oauth/connection-lifecycle";
 import { GitHubConnectionAdapter } from "../../../../shared/oauth/provider-adapters";
-import { githubOAuthCompatibilityStatus } from "../../../../shared/oauth/connection-status";
 import { createRevocationWorker } from "../../../../shared/oauth/revocation-worker";
 import {
-  CompositePolicy,
-  createOpaPolicyFromUrl,
-  createYamlPolicyFromString,
-  type ToolPolicy,
-} from "../../../../shared/policy/policy";
-import {
-  createRuntimeAuthenticator,
+  createAuthenticator,
   createRemoteJwksProvider,
-} from "../../../google-workspace/wrapper/src/runtime";
+} from "../../../../packages/wrapper-kit/src/authenticator";
+import {
+  createWrapperAuditSink,
+  createWrapperPolicy,
+} from "../../../../packages/wrapper-kit/src/configuration";
+import {
+  ConnectionLifecycle,
+  githubOAuthCompatibilityStatus,
+} from "../../../../packages/wrapper-kit/src/lifecycle";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
 import {
   GITHUB_MCP_CATALOG_ID,
@@ -131,7 +129,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
           }
         : undefined,
   }));
-  const audit = createAuditSink(config);
+  const audit = createWrapperAuditSink(config.audit?.jsonlPath);
   const tokenBroker = new GitHubTokenBroker({
     config: config.githubOAuth,
     tokenStore,
@@ -144,7 +142,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     audit,
   });
   createRevocationWorker([connectionLifecycle]).start();
-  const authenticate = createRuntimeAuthenticator({ issuers: hop1Issuers });
+  const authenticate = createAuthenticator({ issuers: hop1Issuers });
   const oauthRoutes = createGitHubOAuthRouteHandler({
     authenticate,
     config: config.githubOAuth,
@@ -182,7 +180,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     githubScopes: config.githubScopes,
     aliases: config.aliases,
     audit,
-    policy: createPolicy(config),
+    policy: createWrapperPolicy({ config: config.policy }),
   });
 
   return (request) => {
@@ -241,27 +239,6 @@ function invalidGithubRedirectAfterAllowedOrigins(): Error {
   return new Error(
     "GITHUB_OAUTH_REDIRECT_AFTER_ALLOWED_ORIGINS must contain canonical HTTPS origins or explicit loopback HTTP origins",
   );
-}
-
-function createAuditSink(config: MainConfig): AuditSink | undefined {
-  return config.audit?.jsonlPath ? new JsonlAuditSink(config.audit.jsonlPath) : undefined;
-}
-
-function createPolicy(config: MainConfig): ToolPolicy | undefined {
-  const policies: ToolPolicy[] = [];
-
-  if (config.policy?.yamlFile) {
-    policies.push(createYamlPolicyFromString(readFileSync(config.policy.yamlFile, "utf8")));
-  }
-  if (config.policy?.opaUrl) {
-    policies.push(createOpaPolicyFromUrl(config.policy.opaUrl));
-  }
-
-  if (policies.length === 0) {
-    return undefined;
-  }
-
-  return policies.length === 1 ? policies[0] : new CompositePolicy(policies);
 }
 
 function loadHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerConfig[] {
