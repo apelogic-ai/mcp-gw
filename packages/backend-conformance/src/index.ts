@@ -135,7 +135,11 @@ export async function runBackendConformance(
         target,
         state,
         target.tokens.valid,
-        message("tools/list", {}, "unissued-session"),
+        message(
+          "tools/call",
+          { name: target.toolCall.name, arguments: target.toolCall.arguments },
+          "unissued-session",
+        ),
         "caller-invented-session",
       );
       requireErrorOutcome(observed, "an unissued session was accepted");
@@ -146,7 +150,11 @@ export async function runBackendConformance(
           target,
           state,
           target.tokens.otherPrincipal,
-          message("tools/list", {}, "cross-principal-session"),
+          message(
+            "tools/call",
+            { name: target.toolCall.name, arguments: target.toolCall.arguments },
+            "cross-principal-session",
+          ),
         );
         requireErrorOutcome(observed, "a session was accepted for a different principal");
       });

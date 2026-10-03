@@ -146,8 +146,6 @@ export function createGenericMcpProxyHandler(
       return new Response(null, { status: 202 });
     }
     if (message.method === "tools/list") {
-      const invalidSession = validateRequestSession(options.transport, request, identity);
-      if (invalidSession) return invalidSession;
       return mcpResult(message.id, {
         tools: [
           ...oauthToolDefinitions(options),
