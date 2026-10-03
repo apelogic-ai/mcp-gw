@@ -181,7 +181,7 @@
     "googleWorkspace": { "$ref": "#/$defs/googleWorkspace" },
     "dbMcp": { "$ref": "#/$defs/dbMcp" },
     "githubWrapper": { "$ref": "#/$defs/githubWrapper" },
-    "githubMcp": { "$ref": "#/$defs/backend" }
+    "githubMcp": { "$ref": "#/$defs/githubMcp" }
   },
   "$defs": {
     "image": {
@@ -1013,6 +1013,17 @@
                 }
               }
             }
+          }
+        }
+      ]
+    },
+    "githubMcp": {
+      "allOf": [
+        { "$ref": "#/$defs/backend" },
+        {
+          "type": "object",
+          "properties": {
+            "topology": { "enum": ["separate", "sidecar"] }
           }
         }
       ]

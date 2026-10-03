@@ -2363,6 +2363,147 @@ describe("Kubernetes production chart", () => {
     expect(githubMcpDeployment).toMatch(/name: github-mcp[\s\S]*runAsGroup: 10001/);
   });
 
+  test("keeps GitHub separate by default and renders the upstream as a loopback sidecar only when opted in", () => {
+    const base = [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+    ];
+    const separate = helmTemplate(base);
+    const sidecar = helmTemplate([...base, "--set-string", "githubMcp.topology=sidecar"]);
+    const separateWrapper = renderedResource(separate, "Deployment", "mcp-gateway-github-wrapper");
+    const sidecarWrapper = renderedResource(sidecar, "Deployment", "mcp-gateway-github-wrapper");
+
+    expect(deploymentEnvValue(separateWrapper, "GITHUB_MCP_UPSTREAM_URL")).toBe(
+      "http://mcp-gateway-github-mcp:8082/mcp",
+    );
+    expect(deploymentEnvValue(sidecarWrapper, "GITHUB_MCP_UPSTREAM_URL")).toBe(
+      "http://127.0.0.1:8082/mcp",
+    );
+    expect(sidecarWrapper).toContain("name: github-mcp");
+    expect(sidecarWrapper).toContain("--listen-host");
+    expect(sidecarWrapper).toContain("127.0.0.1");
+    expect(sidecarWrapper).toContain("containerPort: 8082");
+    expect(sidecarWrapper).toContain("runAsUser: 10001");
+    expect(sidecarWrapper).toContain("runAsGroup: 10001");
+    expect(sidecarWrapper).toContain("GITHUB_TOOLSETS");
+
+    for (const kind of [
+      "Deployment",
+      "Service",
+      "NetworkPolicy",
+      "ServiceAccount",
+      "HorizontalPodAutoscaler",
+      "PodDisruptionBudget",
+    ]) {
+      expect(findRenderedResource(sidecar, kind, "mcp-gateway-github-mcp"), kind).toBeUndefined();
+    }
+    expect(findRenderedResource(separate, "Deployment", "mcp-gateway-github-mcp")).toBeDefined();
+    expect(renderedResource(sidecar, "Service", "mcp-gateway-github-wrapper")).toBe(
+      renderedResource(separate, "Service", "mcp-gateway-github-wrapper"),
+    );
+    expect(renderedResource(sidecar, "ConfigMap", "mcp-gateway-agentgateway-config")).toBe(
+      renderedResource(separate, "ConfigMap", "mcp-gateway-agentgateway-config"),
+    );
+  });
+
+  test("preserves GitHub upstream container controls in sidecar mode", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+      "--set-string",
+      "githubMcp.topology=sidecar",
+      "--set-json",
+      'githubMcp.resources={"requests":{"cpu":"25m","memory":"64Mi"},"limits":{"cpu":"250m","memory":"256Mi"}}',
+      "--set-json",
+      'githubMcp.extraEnv=[{"name":"SIDECAR_FIXTURE","value":"enabled"}]',
+      "--set-json",
+      'githubMcp.extraVolumeMounts=[{"name":"github-config","mountPath":"/etc/github-mcp","readOnly":true}]',
+      "--set-json",
+      'githubMcp.extraVolumes=[{"name":"github-config","configMap":{"name":"github-mcp-config"}}]',
+    ]);
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+    const deploymentObject = parseAllDocuments(rendered)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "Deployment" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-github-wrapper",
+      );
+    const containers = ((
+      deploymentObject?.spec as { template?: { spec?: { containers?: unknown[] } } }
+    ).template?.spec?.containers ?? []) as Array<Record<string, unknown>>;
+    const podSpec = (deploymentObject?.spec as { template?: { spec?: Record<string, unknown> } })
+      .template?.spec;
+    const sidecar = containers.find((container) => container.name === "github-mcp");
+
+    expect(sidecar?.resources).toEqual({
+      requests: { cpu: "25m", memory: "64Mi" },
+      limits: { cpu: "250m", memory: "256Mi" },
+    });
+    expect(sidecar?.env).toContainEqual({ name: "SIDECAR_FIXTURE", value: "enabled" });
+    expect(sidecar?.volumeMounts).toContainEqual({
+      name: "github-config",
+      mountPath: "/etc/github-mcp",
+      readOnly: true,
+    });
+    expect((sidecar?.livenessProbe as { exec?: { command?: string[] } }).exec?.command).toEqual([
+      "/opt/mcp-gateway-probe/bun",
+      "-e",
+      expect.stringContaining("http://127.0.0.1:8082/mcp"),
+    ]);
+    expect((sidecar?.readinessProbe as { exec?: { command?: string[] } }).exec?.command).toEqual([
+      "/opt/mcp-gateway-probe/bun",
+      "-e",
+      expect.stringContaining("http://127.0.0.1:8082/mcp"),
+    ]);
+    expect(sidecar?.livenessProbe).toMatchObject({ initialDelaySeconds: 10, periodSeconds: 10 });
+    expect(sidecar?.readinessProbe).toMatchObject({ initialDelaySeconds: 2, periodSeconds: 5 });
+    expect(podSpec?.securityContext).toMatchObject({ runAsNonRoot: true, fsGroup: 10001 });
+    expect(podSpec?.initContainers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "github-mcp-probe-installer",
+          command: ["/bin/cp", "/usr/local/bin/bun", "/probe/bun"],
+        }),
+      ]),
+    );
+    expect(deployment).toContain("name: github-config");
+  });
+
+  test("rejects ambiguous or unsupported GitHub sidecar configurations", () => {
+    const base = [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--values",
+      "deploy/k8s/examples/values-github-mcp.example.yaml",
+      "--set-string",
+      "githubMcp.topology=sidecar",
+    ];
+    for (const [label, args, expected] of [
+      ["wrapper disabled", ["--set", "githubWrapper.enabled=false"], /githubWrapper/],
+      ["port collision", ["--set", "githubMcp.port=8080"], /port/],
+      [
+        "external override",
+        [
+          "--set-string",
+          "githubWrapper.env.GITHUB_MCP_UPSTREAM_URL=http://external.example.com/mcp",
+        ],
+        /GITHUB_MCP_UPSTREAM_URL/,
+      ],
+      ["independent HPA", ["--set", "githubMcp.hpa.enabled=true"], /githubWrapper.hpa/],
+      ["independent PDB", ["--set", "githubMcp.pdb.enabled=true"], /githubWrapper.pdb/],
+    ] as const) {
+      const result = helmTemplateResult([...base, ...args]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), label).toMatch(expected);
+    }
+  });
+
   test("derives the GitHub upstream URL from the release-scoped Service name", () => {
     for (const [releaseName, extraArgs, componentName] of [
       ["team-gateway", [], "team-gateway-github-mcp"],
@@ -2949,15 +3090,19 @@ function boundedSpawnSync(cmd: string[], timeout = HELM_PROCESS_TIMEOUT_MS): Bou
 }
 
 function renderedResource(rendered: string, kind: string, name: string): string {
-  const resource = rendered
+  const resource = findRenderedResource(rendered, kind, name);
+
+  expect(resource).toBeDefined();
+  return resource!;
+}
+
+function findRenderedResource(rendered: string, kind: string, name: string): string | undefined {
+  return rendered
     .split(/^---$/m)
     .find(
       (document) =>
         document.includes(`kind: ${kind}\n`) && document.includes(`\n  name: ${name}\n`),
     );
-
-  expect(resource).toBeDefined();
-  return resource!;
 }
 
 function deploymentEnvValue(deployment: string, name: string): string {

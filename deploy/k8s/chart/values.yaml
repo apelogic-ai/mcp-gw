@@ -468,6 +468,9 @@ githubWrapper:
 
 githubMcp:
   enabled: false
+  # "separate" preserves the historical Deployment and Service. "sidecar"
+  # runs the upstream on loopback inside the GitHub wrapper Pod.
+  topology: separate
   image:
     repository: ghcr.io/github/github-mcp-server
     tag: v1.6.0

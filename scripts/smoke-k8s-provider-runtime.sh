@@ -21,6 +21,7 @@ diagnose() {
   kubectl get events --namespace "$NAMESPACE" --sort-by=.lastTimestamp >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-google-workspace" --namespace "$NAMESPACE" --tail=200 >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --tail=200 >&2 || true
+  kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --container github-mcp --tail=200 >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" --tail=200 >&2 || true
   kubectl logs --namespace "$NAMESPACE" -l app.kubernetes.io/component=oauth-migrations --tail=200 >&2 || true
 }
@@ -144,5 +145,97 @@ GITHUB_MCP_GID="$(kubectl get deployment "$RELEASE_NAME-github-mcp" \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].securityContext.runAsGroup}')"
 [[ "$GITHUB_MCP_UID" == "10001" ]]
 [[ "$GITHUB_MCP_GID" == "10001" ]]
+
+kubectl exec -i deployment/postgres --namespace "$NAMESPACE" -- \
+  psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+INSERT INTO oauth_accounts (
+  provider,
+  hop1_issuer,
+  hop1_subject,
+  email,
+  scopes_granted,
+  encrypted_refresh_token,
+  created_at,
+  updated_at
+) VALUES (
+  'github',
+  'https://identity.example.com',
+  'github-mcp-topology-sentinel',
+  'sentinel@example.com',
+  ARRAY['repo'],
+  'fixture-encrypted-credential',
+  NOW(),
+  NOW()
+);
+SQL
+
+assert_topology_sentinel() {
+  local count
+  count="$(kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
+    psql -U postgres -tAc \
+      "SELECT count(*) FROM oauth_accounts WHERE provider = 'github' AND hop1_subject = 'github-mcp-topology-sentinel'")"
+  [[ "$count" == "1" ]]
+}
+
+upgrade_github_topology() {
+  local topology="$1"
+  helm upgrade "$RELEASE_NAME" "$CHART_DIR" \
+    --namespace "$NAMESPACE" \
+    --values "$VALUES_FILE" \
+    --set-string "global.imagePullPolicy=Never" \
+    --set-string "oauthMigrations.image.repository=$GOOGLE_IMAGE" \
+    --set-string "oauthMigrations.image.tag=$IMAGE_TAG" \
+    --set-string "googleWorkspace.image.repository=$GOOGLE_IMAGE" \
+    --set-string "googleWorkspace.image.tag=$IMAGE_TAG" \
+    --set-string "githubWrapper.image.repository=$GITHUB_IMAGE" \
+    --set-string "githubWrapper.image.tag=$IMAGE_TAG" \
+    --set-string "githubMcp.topology=$topology" \
+    --wait \
+    --timeout 3m
+}
+
+upgrade_github_topology sidecar
+kubectl rollout status \
+  "deployment/$RELEASE_NAME-github-wrapper" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+if kubectl get deployment "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+  echo "Standalone GitHub MCP Deployment still exists in sidecar topology" >&2
+  exit 1
+fi
+if kubectl get service "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+  echo "Standalone GitHub MCP Service still exists in sidecar topology" >&2
+  exit 1
+fi
+SIDECAR_LISTEN_HOST="$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
+  --namespace "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].args}')"
+[[ "$SIDECAR_LISTEN_HOST" == *"--listen-host 127.0.0.1"* ]]
+kubectl exec "deployment/$RELEASE_NAME-github-wrapper" \
+  --namespace "$NAMESPACE" \
+  --container github-wrapper -- \
+  bun -e 'const response = await fetch("http://127.0.0.1:8082/mcp"); if (response.status < 100) process.exit(1)'
+GITHUB_WRAPPER_POD_IP="$(kubectl get pod \
+  --namespace "$NAMESPACE" \
+  -l app.kubernetes.io/component=github-wrapper \
+  -o jsonpath='{.items[0].status.podIP}')"
+kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
+  sh -c 'if nc -z -w 2 "$1" 8082; then exit 1; fi' -- "$GITHUB_WRAPPER_POD_IP"
+assert_topology_sentinel
+
+upgrade_github_topology separate
+kubectl rollout status \
+  "deployment/$RELEASE_NAME-github-wrapper" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+kubectl rollout status \
+  "deployment/$RELEASE_NAME-github-mcp" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+[[ "$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
+  --namespace "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].name}')" == "" ]]
+kubectl get service "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null
+assert_topology_sentinel
 
 echo "Provider runtime Kubernetes smoke passed."

@@ -345,6 +345,34 @@
 {{- if has "GITHUB_MCP_UPSTREAM_URL" .Values.githubWrapper.secretRef.envKeys }}
 {{- fail "githubWrapper.secretRef.envKeys must not import chart-managed GITHUB_MCP_UPSTREAM_URL; use githubWrapper.env.GITHUB_MCP_UPSTREAM_URL for an explicit upstream" }}
 {{- end }}
+{{- $githubMcpSidecar := and .Values.githubMcp.enabled (eq .Values.githubMcp.topology "sidecar") }}
+{{- if $githubMcpSidecar }}
+{{- if not .Values.githubWrapper.enabled }}
+{{- fail "githubMcp.topology=sidecar requires githubWrapper.enabled=true" }}
+{{- end }}
+{{- if eq (int .Values.githubMcp.port) (int .Values.githubWrapper.port) }}
+{{- fail "githubMcp.port must differ from githubWrapper.port in sidecar topology" }}
+{{- end }}
+{{- if hasKey .Values.githubWrapper.env "GITHUB_MCP_UPSTREAM_URL" }}
+{{- fail "githubMcp.topology=sidecar owns GITHUB_MCP_UPSTREAM_URL; remove the explicit githubWrapper.env override" }}
+{{- end }}
+{{- if .Values.githubMcp.hpa.enabled }}
+{{- fail "githubMcp.hpa is unavailable in sidecar topology; configure githubWrapper.hpa because both containers scale together" }}
+{{- end }}
+{{- if .Values.githubMcp.pdb.enabled }}
+{{- fail "githubMcp.pdb is unavailable in sidecar topology; configure githubWrapper.pdb because both containers share a Pod" }}
+{{- end }}
+{{- $wrapperVolumeNames := dict "runtime-tmp" true "postgresql-ca" true "issuer-trust-bundle" true "github-mcp-probe-bin" true }}
+{{- range .Values.githubWrapper.extraVolumes }}
+{{- $_ := set $wrapperVolumeNames .name true }}
+{{- end }}
+{{- range .Values.githubMcp.extraVolumes }}
+{{- if hasKey $wrapperVolumeNames .name }}
+{{- fail (printf "githubMcp.extraVolumes name %s conflicts with a githubWrapper Pod volume in sidecar topology" .name) }}
+{{- end }}
+{{- $_ := set $wrapperVolumeNames .name true }}
+{{- end }}
+{{- end }}
 
 {{- $broker := .Values.googleWorkspace.authorizationBroker }}
 {{- $brokerIssuer := include "mcp-gateway.authorizationBrokerIssuer" . }}

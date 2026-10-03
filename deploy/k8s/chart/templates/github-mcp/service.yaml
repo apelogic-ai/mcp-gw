@@ -1,4 +1,4 @@
-{{- if .Values.githubMcp.enabled }}
+{{- if and .Values.githubMcp.enabled (eq .Values.githubMcp.topology "separate") }}
 apiVersion: v1
 kind: Service
 metadata:
