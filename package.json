@@ -15,6 +15,7 @@
     "compose:check": "bash scripts/check-compose.sh",
     "compose:smoke": "bash scripts/smoke-compose.sh",
     "k8s:check": "bash scripts/check-k8s.sh",
+    "helm:compat:check": "bash scripts/check-helm-manifest-compatibility.sh",
     "deploy:check": "bun run backends:check && bun run compose:check && bun run k8s:check",
     "integration:local": "bash scripts/smoke-local-integration.sh",
     "integration:external": "bash scripts/smoke-external-issuer-integration.sh",
