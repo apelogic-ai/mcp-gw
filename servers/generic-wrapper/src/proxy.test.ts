@@ -24,6 +24,7 @@ const descriptor: GenericWrapperDescriptor = {
   upstream: { transport: "http", url: "https://mcp.example.com/mcp" },
   credential: { mode: "none" },
   serverInfo: { name: "hosted-search-wrapper", version: "1.0.0" },
+  sessions: { maxTotal: 64, maxPerPrincipal: 4, idleTtlMs: 1_800_000 },
 };
 
 const catalog: GenericToolCatalog = {
@@ -47,6 +48,11 @@ class RecordingTransport implements GenericUpstreamTransport {
 
   issueSession(session: { id: string; principalKey: string }): void {
     this.issuedSessions.push(session);
+  }
+
+  assertSession(sessionId: string, principalKey: string): void {
+    void sessionId;
+    void principalKey;
   }
 
   send(request: GenericUpstreamRequest): Promise<Response> {
@@ -95,12 +101,13 @@ describe("generic MCP proxy", () => {
     });
     expect(credentialCalls).toBe(0);
     expect(transport.requests).toHaveLength(0);
-    expect(transport.issuedSessions).toEqual([
-      {
-        id: initialized.headers.get("mcp-session-id"),
-        principalKey: "https://identity.example.com\nsubject-1",
-      },
-    ]);
+    expect(transport.issuedSessions).toHaveLength(1);
+    expect(transport.issuedSessions[0]?.id).toBe(
+      initialized.headers.get("mcp-session-id") ?? undefined,
+    );
+    expect(transport.issuedSessions[0]?.principalKey).toBe(
+      "https://identity.example.com\nsubject-1",
+    );
 
     const notification = await proxy(mcpRequest("notifications/initialized", {}, undefined));
     expect(notification.status).toBe(202);
@@ -343,6 +350,7 @@ function mcpRequest(
       authorization: "Bearer hop1-secret",
       "content-type": "application/json",
       "mcp-protocol-version": "2025-06-18",
+      "mcp-session-id": "test-session",
     },
     body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
   });

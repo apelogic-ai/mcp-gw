@@ -155,7 +155,7 @@ export function createGithubMcpProxyHandler(
     const hop1Token = bearerToken(request);
     if (!hop1Token) {
       reportFailure("missing_bearer");
-      return unauthorized("bearer token is required");
+      return unauthorized("bearer token is required", "Bearer");
     }
 
     let identity: Hop1Identity;
@@ -163,7 +163,7 @@ export function createGithubMcpProxyHandler(
       identity = await options.authenticate(hop1Token);
     } catch (error) {
       reportFailure(classifyHop1ValidationFailure(error));
-      return unauthorized("invalid bearer token");
+      return unauthorized("invalid bearer token", 'Bearer error="invalid_token"');
     }
 
     const body = await request.text();
@@ -770,7 +770,7 @@ function mcpResult(id: JsonRpcId, result: Record<string, unknown>): Response {
   );
 }
 
-function unauthorized(message: string): Response {
+function unauthorized(message: string, challenge = 'Bearer error="invalid_token"'): Response {
   return new Response(
     JSON.stringify({
       jsonrpc: "2.0",
@@ -782,7 +782,7 @@ function unauthorized(message: string): Response {
     }),
     {
       status: 401,
-      headers: JSON_HEADERS,
+      headers: { ...JSON_HEADERS, "www-authenticate": challenge },
     },
   );
 }

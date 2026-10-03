@@ -34,7 +34,7 @@ import {
   validateGenericWrapperConfiguration,
 } from "./descriptor";
 import { createGenericOAuthRuntimeConfig, startGenericOAuth } from "./oauth";
-import { createGenericOAuthRouteHandler } from "./oauth-routes";
+import { createGenericOAuthRouteHandler, validateGenericRedirectAfter } from "./oauth-routes";
 import { createGenericMcpProxyHandler } from "./proxy";
 import { createHttpUpstreamTransport, createStdioUpstreamTransport } from "./transport";
 
@@ -85,8 +85,17 @@ export function createGenericMainHandler(
   const authenticate = createAuthenticator({ issuers });
   const transport =
     descriptor.upstream.transport === "http"
-      ? createHttpUpstreamTransport(descriptor.upstream, { serverInfo: descriptor.serverInfo })
-      : createStdioUpstreamTransport(descriptor.upstream, env, descriptor.serverInfo);
+      ? createHttpUpstreamTransport(descriptor.upstream, {
+          serverInfo: descriptor.serverInfo,
+          maxSessions: descriptor.sessions.maxTotal,
+          maxSessionsPerPrincipal: descriptor.sessions.maxPerPrincipal,
+          sessionIdleTtlMs: descriptor.sessions.idleTtlMs,
+        })
+      : createStdioUpstreamTransport(descriptor.upstream, env, descriptor.serverInfo, {
+          maxSessions: descriptor.sessions.maxTotal,
+          maxSessionsPerPrincipal: descriptor.sessions.maxPerPrincipal,
+          sessionIdleTtlMs: descriptor.sessions.idleTtlMs,
+        });
 
   let oauthRoutes: ((request: Request) => Promise<Response>) | undefined;
   let oauthHelpers:
@@ -127,15 +136,13 @@ export function createGenericMainHandler(
         ...(await lifecycle.status(identity, oauthDescriptor.scopes)),
       }),
       start: async (identity, redirectAfter) => {
-        if (redirectAfter && (!redirectAfter.startsWith("/") || redirectAfter.startsWith("//"))) {
-          throw new Error("OAuth redirect target is not allowed");
-        }
+        const safeRedirect = validateGenericRedirectAfter(redirectAfter);
         const continuation = await startGenericOAuth({
           identity,
           config: oauthRuntime,
           stateStore,
           tokenStore,
-          redirectAfter,
+          redirectAfter: safeRedirect,
         });
         return { authorizationUrl: continuation.authorizationUrl };
       },

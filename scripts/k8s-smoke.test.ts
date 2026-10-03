@@ -56,6 +56,10 @@ exit 0
     expect(workflow).toContain("bun run helm:compat:check");
     expect(workflow).toContain("HELM_COMPAT_BASE_REF: origin/${{ github.base_ref }}");
     expect(compatibility).toContain("values-*.yaml");
+    expect(compatibility).toContain("oauth-broker-with-gateway-api");
+    expect(compatibility).toContain("values-oauth-broker.example.yaml");
+    expect(compatibility).toContain("values-gateway-api-broker.example.yaml");
+    expect(compatibility).toContain("<line>:<column>");
     expect(compatibility).toContain("diff -u");
     expect(compatibility).toContain("--kube-version 1.32.0");
   });

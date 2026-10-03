@@ -11,6 +11,12 @@ export interface GenericServerInfo {
   version: string;
 }
 
+export interface GenericSessionLimits {
+  maxTotal: number;
+  maxPerPrincipal: number;
+  idleTtlMs: number;
+}
+
 export type GenericUpstreamDescriptor =
   | { transport: "http"; url: string; timeoutMs?: number }
   | {
@@ -58,7 +64,7 @@ export interface GenericOAuthCredentialDescriptor {
     idField: string;
     emailField: string;
     loginField?: string;
-    emailVerifiedField?: string;
+    emailVerifiedField: string;
   };
   authorizationParams?: Record<string, string>;
   tokenEndpointAuthMethod?: "client_secret_basic" | "client_secret_post";
@@ -74,6 +80,7 @@ export interface GenericWrapperDescriptor {
   upstream: GenericUpstreamDescriptor;
   credential: GenericCredentialDescriptor;
   serverInfo: GenericServerInfo;
+  sessions: GenericSessionLimits;
   policy?: { yamlFile?: string; opaUrl?: string };
   audit?: { jsonlPath?: string };
 }
@@ -106,6 +113,12 @@ const ENV_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const HEADER_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const FIELD_PATH_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 const OPERATION_PATTERN = /^[a-z][a-z0-9]*(?:\.[+a-z][a-zA-Z0-9]*){1,5}$/;
+const DEFAULT_SESSION_LIMITS: GenericSessionLimits = {
+  maxTotal: 64,
+  maxPerPrincipal: 4,
+  idleTtlMs: 30 * 60 * 1_000,
+};
+const RESERVED_PROVIDER_IDS = new Set(["google", "github"]);
 
 export function loadGenericWrapperDescriptor(path: string): GenericWrapperDescriptor {
   return parseGenericWrapperDescriptor(parseYaml(readFileSync(path, "utf8")));
@@ -126,6 +139,7 @@ export function parseGenericWrapperDescriptor(value: unknown): GenericWrapperDes
     "upstream",
     "credential",
     "serverInfo",
+    "sessions",
     "policy",
     "audit",
   ]);
@@ -151,6 +165,7 @@ export function parseGenericWrapperDescriptor(value: unknown): GenericWrapperDes
     upstream: parseUpstream(record.upstream),
     credential: parseCredential(credentialRecord),
     serverInfo: parseServerInfo(record.serverInfo, name),
+    sessions: parseSessions(record.sessions),
     policy: parsePolicy(record.policy),
     audit: parseAudit(record.audit),
   };
@@ -195,6 +210,9 @@ export function validateGenericWrapperConfiguration(
     throw new Error("A credentialed stdio upstream requires upstream.credentialEnv");
   }
   if (descriptor.credential.mode !== "per_user_oauth") return;
+  if (RESERVED_PROVIDER_IDS.has(descriptor.credential.providerId)) {
+    throw new Error(`OAuth providerId ${descriptor.credential.providerId} is reserved`);
+  }
   const reserved = new Set([
     `${descriptor.toolPrefix}_oauth_status`,
     `${descriptor.toolPrefix}_oauth_start`,
@@ -292,11 +310,16 @@ function parseCredential(record: Record<string, unknown>): GenericCredentialDesc
     if (Boolean(clientIdEnv) !== Boolean(clientSecretEnv)) {
       throw new Error("token exchange clientIdEnv and clientSecretEnv must be set together");
     }
+    const audience = optionalString(record.audience, "credential.audience");
+    const resource = optionalString(record.resource, "credential.resource");
+    if (!audience && !resource) {
+      throw new Error("token exchange requires credential.audience or credential.resource");
+    }
     return {
       mode,
       endpoint: httpsUrl(record.endpoint, "credential.endpoint"),
-      ...optionalStringProperty(record.audience, "credential.audience", "audience"),
-      ...optionalStringProperty(record.resource, "credential.resource", "resource"),
+      ...(audience ? { audience } : {}),
+      ...(resource ? { resource } : {}),
       ...(record.scopes === undefined
         ? {}
         : { scopes: optionalStringArray(record.scopes, "credential.scopes") }),
@@ -408,10 +431,9 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
         "loginField",
         FIELD_PATH_PATTERN,
       ),
-      ...optionalPatternProperty(
+      emailVerifiedField: patternString(
         identity.emailVerifiedField,
         "credential.identity.emailVerifiedField",
-        "emailVerifiedField",
         FIELD_PATH_PATTERN,
       ),
     },
@@ -486,6 +508,34 @@ function parseServerInfo(value: unknown, name: string): GenericServerInfo {
   return {
     name: nonEmptyString(record.name, "serverInfo.name"),
     version: nonEmptyString(record.version, "serverInfo.version"),
+  };
+}
+
+function parseSessions(value: unknown): GenericSessionLimits {
+  if (value === undefined) return { ...DEFAULT_SESSION_LIMITS };
+  const record = objectValue(value, "sessions");
+  assertAllowedFields(record, "sessions", ["maxTotal", "maxPerPrincipal", "idleTtlMs"]);
+  const maxTotal = positiveIntegerOrDefault(
+    record.maxTotal,
+    "sessions.maxTotal",
+    DEFAULT_SESSION_LIMITS.maxTotal,
+  );
+  const maxPerPrincipal = positiveIntegerOrDefault(
+    record.maxPerPrincipal,
+    "sessions.maxPerPrincipal",
+    DEFAULT_SESSION_LIMITS.maxPerPrincipal,
+  );
+  if (maxPerPrincipal > maxTotal) {
+    throw new Error("sessions.maxPerPrincipal must not exceed sessions.maxTotal");
+  }
+  return {
+    maxTotal,
+    maxPerPrincipal,
+    idleTtlMs: positiveIntegerOrDefault(
+      record.idleTtlMs,
+      "sessions.idleTtlMs",
+      DEFAULT_SESSION_LIMITS.idleTtlMs,
+    ),
   };
 }
 
@@ -648,6 +698,14 @@ function optionalPositiveIntegerProperty(
     throw new Error(`${name} must be a positive integer`);
   }
   return { [property]: value };
+}
+
+function positiveIntegerOrDefault(value: unknown, name: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
 }
 
 function stringRecord(value: unknown, name: string): Record<string, string> {

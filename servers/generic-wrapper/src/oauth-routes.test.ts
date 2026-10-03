@@ -28,7 +28,7 @@ const descriptor: GenericOAuthCredentialDescriptor = {
   clientSecretEnv: "OAUTH_CLIENT_SECRET",
   encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
   tokenStoreDsnEnv: "TOKEN_STORE_DSN",
-  identity: { idField: "sub", emailField: "email" },
+  identity: { idField: "sub", emailField: "email", emailVerifiedField: "email_verified" },
 };
 const config = createGenericOAuthRuntimeConfig(descriptor, {
   OAUTH_CLIENT_ID: "wrapper-client",
@@ -38,7 +38,7 @@ const config = createGenericOAuthRuntimeConfig(descriptor, {
 });
 
 describe("generic OAuth routes", () => {
-  test.each(["/\\\\evil.example/x", "/\t/evil.example/x"])(
+  test.each(["/\\evil.example/x", "/\t/evil.example/x"])(
     "rejects a browser-normalized cross-origin redirect target %j before creating OAuth state",
     async (redirectAfter) => {
       const stateStore = new InMemoryOAuthStateStore();

@@ -20,7 +20,13 @@ const baseDescriptor = {
 
 describe("generic wrapper descriptor", () => {
   test("parses every supported credential and upstream mode without secret values", () => {
-    expect(parseGenericWrapperDescriptor(baseDescriptor).credential).toEqual({ mode: "none" });
+    const defaultDescriptor = parseGenericWrapperDescriptor(baseDescriptor);
+    expect(defaultDescriptor.credential).toEqual({ mode: "none" });
+    expect(defaultDescriptor.sessions).toEqual({
+      maxTotal: 64,
+      maxPerPrincipal: 4,
+      idleTtlMs: 1_800_000,
+    });
     expect(
       parseGenericWrapperDescriptor({
         ...baseDescriptor,
@@ -59,7 +65,11 @@ describe("generic wrapper descriptor", () => {
           clientSecretEnv: "OAUTH_CLIENT_SECRET",
           encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
           tokenStoreDsnEnv: "TOKEN_STORE_DSN",
-          identity: { idField: "sub", emailField: "email" },
+          identity: {
+            idField: "sub",
+            emailField: "email",
+            emailVerifiedField: "email_verified",
+          },
         },
       }).credential.mode,
     ).toBe("per_user_oauth");
@@ -77,6 +87,21 @@ describe("generic wrapper descriptor", () => {
       command: "/app/bin/reference-mcp",
       args: ["--stdio"],
     });
+  });
+
+  test("parses bounded session limits and rejects an unfair quota", () => {
+    expect(
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        sessions: { maxTotal: 20, maxPerPrincipal: 3, idleTtlMs: 60_000 },
+      }).sessions,
+    ).toEqual({ maxTotal: 20, maxPerPrincipal: 3, idleTtlMs: 60_000 });
+    expect(() =>
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        sessions: { maxTotal: 2, maxPerPrincipal: 3 },
+      }),
+    ).toThrow("must not exceed");
   });
 
   test("rejects inline secrets and incomplete lifecycle configuration", () => {
@@ -100,6 +125,15 @@ describe("generic wrapper descriptor", () => {
         },
       }),
     ).toThrow("lifecycleRoutes=true");
+    expect(() =>
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        credential: {
+          mode: "token_exchange",
+          endpoint: "https://identity.example.com/oauth/token",
+        },
+      }),
+    ).toThrow("audience or credential.resource");
   });
 
   test("rejects credential-bearing URLs and a mismatched OAuth callback path", () => {
@@ -128,10 +162,34 @@ describe("generic wrapper descriptor", () => {
           clientSecretEnv: "OAUTH_CLIENT_SECRET",
           encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
           tokenStoreDsnEnv: "TOKEN_STORE_DSN",
-          identity: { idField: "sub", emailField: "email" },
+          identity: {
+            idField: "sub",
+            emailField: "email",
+            emailVerifiedField: "email_verified",
+          },
         },
       }),
     ).toThrow("/oauth/search-provider/callback");
+    expect(() =>
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        lifecycleRoutes: true,
+        credential: {
+          mode: "per_user_oauth",
+          providerId: "search-provider",
+          authorizationUrl: "https://identity.example.com/oauth/authorize",
+          tokenUrl: "https://identity.example.com/oauth/token",
+          userInfoUrl: "https://identity.example.com/oauth/userinfo",
+          redirectUri: "https://gateway.example.com/oauth/search-provider/callback",
+          scopes: ["search.read"],
+          clientIdEnv: "OAUTH_CLIENT_ID",
+          clientSecretEnv: "OAUTH_CLIENT_SECRET",
+          encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+          tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+          identity: { idField: "sub", emailField: "email" },
+        },
+      }),
+    ).toThrow("emailVerifiedField");
   });
 
   test("requires an explicit credential environment for credentialed stdio", () => {
@@ -253,7 +311,11 @@ describe("generic wrapper catalog", () => {
         clientSecretEnv: "OAUTH_CLIENT_SECRET",
         encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
         tokenStoreDsnEnv: "TOKEN_STORE_DSN",
-        identity: { idField: "sub", emailField: "email" },
+        identity: {
+          idField: "sub",
+          emailField: "email",
+          emailVerifiedField: "email_verified",
+        },
       },
     });
     const catalog = parseGenericToolCatalog(
@@ -296,5 +358,19 @@ describe("generic wrapper catalog", () => {
     expect(() => validateGenericWrapperConfiguration(descriptor, unavailableScopeCatalog)).toThrow(
       "search.write",
     );
+
+    if (descriptor.credential.mode !== "per_user_oauth") {
+      throw new Error("fixture must use per_user_oauth");
+    }
+    const oauthCredential = descriptor.credential;
+    expect(() =>
+      validateGenericWrapperConfiguration(
+        {
+          ...descriptor,
+          credential: { ...oauthCredential, providerId: "google" },
+        },
+        catalog,
+      ),
+    ).toThrow("reserved");
   });
 });

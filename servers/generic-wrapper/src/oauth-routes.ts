@@ -39,7 +39,7 @@ export function createGenericOAuthRouteHandler(
     cancelAuthorization: (identity) =>
       options.stateStore.invalidatePrincipal(provider, identity.issuer, identity.subject),
     startAuthorization: (identity, redirectAfter) => {
-      const safeRedirect = validateRedirectAfter(redirectAfter);
+      const safeRedirect = validateGenericRedirectAfter(redirectAfter);
       return startGenericOAuth({
         identity,
         config: options.config,
@@ -116,16 +116,27 @@ export function createGenericOAuthRouteHandler(
   };
 }
 
-function validateRedirectAfter(value: string | undefined): string | undefined {
+export function validateGenericRedirectAfter(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
-  if (!value.startsWith("/") || value.startsWith("//")) {
-    throw new ConnectionRouteError(
-      "OAuth redirect target is not allowed",
-      "authorization_denied",
-      "oauth_redirect_target_not_allowed",
-    );
+  const localOrigin = "https://mcp-gw.invalid";
+  let target: URL;
+  try {
+    target = new URL(value, localOrigin);
+  } catch {
+    throw redirectTargetError();
   }
-  return value;
+  if (!value.startsWith("/") || target.origin !== localOrigin) {
+    throw redirectTargetError();
+  }
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+function redirectTargetError(): ConnectionRouteError {
+  return new ConnectionRouteError(
+    "OAuth redirect target is not allowed",
+    "authorization_denied",
+    "oauth_redirect_target_not_allowed",
+  );
 }
 
 async function authenticateIfPresent(

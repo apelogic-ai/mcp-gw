@@ -108,6 +108,7 @@ export function createGenericCredentialResolver(
           method: "POST",
           headers,
           body: params.toString(),
+          redirect: "error",
           signal: AbortSignal.timeout(descriptor.timeoutMs ?? 5_000),
         });
       } catch {
@@ -115,7 +116,12 @@ export function createGenericCredentialResolver(
       }
       const body = await safeJson(response);
       if (!response.ok) throw new Error("Token exchange failed");
-      if (!isRecord(body) || typeof body.access_token !== "string" || !body.access_token) {
+      if (
+        !isRecord(body) ||
+        typeof body.access_token !== "string" ||
+        !body.access_token ||
+        body.issued_token_type !== "urn:ietf:params:oauth:token-type:access_token"
+      ) {
         throw new Error("Token exchange response is malformed");
       }
       const tokenType =

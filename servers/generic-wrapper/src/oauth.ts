@@ -205,9 +205,7 @@ export class GenericOAuthConnectionAdapter implements DownstreamConnectionAdapte
     const login = identityConfig.loginField
       ? stringAtPath(body, identityConfig.loginField)
       : undefined;
-    const verified = identityConfig.emailVerifiedField
-      ? valueAtPath(body, identityConfig.emailVerifiedField)
-      : true;
+    const verified = valueAtPath(body, identityConfig.emailVerifiedField);
     if (!id || !email || verified !== true) throw malformedResponse();
     if (email.toLowerCase() !== expectedPrincipal.email.toLowerCase()) {
       throw new ProviderLifecycleError("Provider identity does not match", "identity_mismatch");
@@ -461,6 +459,7 @@ async function providerFetch(
   try {
     return await fetchImpl(url, {
       ...init,
+      redirect: "error",
       signal: init.signal ?? AbortSignal.timeout(timeoutMs),
     });
   } catch {

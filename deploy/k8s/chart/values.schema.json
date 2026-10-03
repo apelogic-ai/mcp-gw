@@ -290,6 +290,7 @@
         "upstream": { "$ref": "#/$defs/genericUpstream" },
         "credential": { "$ref": "#/$defs/genericCredential" },
         "serverInfo": { "$ref": "#/$defs/genericServerInfo" },
+        "sessions": { "$ref": "#/$defs/genericSessions" },
         "catalog": { "$ref": "#/$defs/genericCatalog" },
         "secretRef": { "$ref": "#/$defs/genericSecretRef" },
         "policy": { "$ref": "#/$defs/genericPolicy" },
@@ -384,6 +385,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["mode", "endpoint"],
+          "anyOf": [{ "required": ["audience"] }, { "required": ["resource"] }],
           "allOf": [
             {
               "if": { "required": ["clientIdEnv"] },
@@ -451,7 +453,7 @@
             "identity": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["idField", "emailField"],
+              "required": ["idField", "emailField", "emailVerifiedField"],
               "properties": {
                 "idField": { "type": "string", "minLength": 1 },
                 "emailField": { "type": "string", "minLength": 1 },
@@ -476,6 +478,15 @@
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "genericSessions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxTotal": { "type": "integer", "minimum": 1 },
+        "maxPerPrincipal": { "type": "integer", "minimum": 1 },
+        "idleTtlMs": { "type": "integer", "minimum": 1 }
       }
     },
     "genericCatalog": {

@@ -217,6 +217,8 @@ describe("Kubernetes production chart", () => {
     const configured = {
       ...wrapper,
       serviceAccount: { create: false, name: "existing-generic-wrapper" },
+      sessions: { maxTotal: 20, maxPerPrincipal: 3, idleTtlMs: 60_000 },
+      securityContext: { readOnlyRootFilesystem: false, runAsUser: 10001 },
       probes: {
         liveness: {
           enabled: true,
@@ -245,6 +247,31 @@ describe("Kubernetes production chart", () => {
     expect(deployment).toContain("path: /health/live");
     expect(deployment).toContain("path: /health/ready");
     expect(rendered).not.toMatch(/kind: ServiceAccount[\s\S]*name: existing-generic-wrapper/);
+    const deploymentObject = parseAllDocuments(rendered)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "Deployment" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-generic-wrapper-public-search",
+      );
+    const containers = ((
+      deploymentObject?.spec as { template?: { spec?: { containers?: unknown[] } } } | undefined
+    )?.template?.spec?.containers ?? []) as Array<{ securityContext?: Record<string, unknown> }>;
+    expect(containers[0]?.securityContext).toEqual({
+      allowPrivilegeEscalation: false,
+      readOnlyRootFilesystem: false,
+      runAsUser: 10001,
+      capabilities: { drop: ["ALL"] },
+    });
+    const config = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-generic-wrapper-public-search-config",
+    );
+    expect(config).toContain("maxTotal: 20");
+    expect(config).toContain("maxPerPrincipal: 3");
+    expect(config).toContain("idleTtlMs: 60000");
   });
 
   test("rejects unsafe generic wrapper environment and session configurations", () => {
@@ -294,6 +321,14 @@ describe("Kubernetes production chart", () => {
         expected: "upstream URL must not contain credentials or a fragment",
       },
       {
+        label: "per-principal session quota exceeds global cap",
+        wrapper: {
+          ...wrapper,
+          sessions: { maxTotal: 2, maxPerPrincipal: 3 },
+        },
+        expected: "sessions.maxPerPrincipal must not exceed sessions.maxTotal",
+      },
+      {
         label: "credentialed stdio without injection target",
         wrapper: {
           ...wrapper,
@@ -318,6 +353,7 @@ describe("Kubernetes production chart", () => {
           credential: {
             mode: "token_exchange",
             endpoint: "https://identity.example.com/oauth/token",
+            audience: "https://mcp.example.com",
             clientIdEnv: "EXCHANGE_CLIENT_ID",
           },
           secretRef: { name: "exchange", envKeys: ["EXCHANGE_CLIENT_ID"] },

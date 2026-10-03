@@ -21,6 +21,10 @@ data:
 {{ .credential | toYaml | nindent 6 }}
     serverInfo:
 {{ .serverInfo | toYaml | nindent 6 }}
+    {{- with .sessions }}
+    sessions:
+{{ . | toYaml | nindent 6 }}
+    {{- end }}
     {{- with .policy }}
     policy:
       {{- with .opaUrl }}

@@ -45,6 +45,7 @@ export interface CreateGenericMcpProxyHandlerOptions {
 }
 
 const JSON_HEADERS = { "content-type": "application/json" };
+const MAX_UPSTREAM_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export function createGenericMcpProxyHandler(
   options: CreateGenericMcpProxyHandlerOptions,
@@ -58,17 +59,19 @@ export function createGenericMcpProxyHandler(
     const reportFailure = options.onAuthenticationFailure ?? reportHop1AuthenticationFailure;
     if (!hop1Token) {
       reportFailure("missing_bearer");
-      return unauthorized("bearer token is required");
+      return unauthorized("bearer token is required", "Bearer");
     }
     let identity: Hop1Identity;
     try {
       identity = await options.authenticate(hop1Token);
     } catch (error) {
       reportFailure(classifyHop1ValidationFailure(error));
-      return unauthorized("invalid bearer token");
+      return unauthorized("invalid bearer token", 'Bearer error="invalid_token"');
     }
 
     if (request.method === "DELETE") {
+      const invalidSession = validateRequestSession(options.transport, request, identity);
+      if (invalidSession) return invalidSession;
       let credential: GenericUpstreamCredential | null = null;
       try {
         credential = await options.resolveCredential({ identity, hop1Token, scopes: [] });
@@ -91,6 +94,8 @@ export function createGenericMcpProxyHandler(
       if (options.descriptor.upstream.transport !== "http") {
         return mcpError(null, -32600, "Streaming GET is unavailable for a stdio upstream", 405);
       }
+      const invalidSession = validateRequestSession(options.transport, request, identity);
+      if (invalidSession) return invalidSession;
       try {
         const credential = await options.resolveCredential({ identity, hop1Token, scopes: [] });
         if (!credential && options.requireCredential) {
@@ -114,8 +119,14 @@ export function createGenericMcpProxyHandler(
     const message = parseJsonRpcMessage(body);
     if (!message) return mcpError(null, -32700, "Parse error");
     if (message.method === "initialize") {
+      const sessionId = randomUUID();
+      try {
+        options.transport.issueSession({ id: sessionId, principalKey: principalKey(identity) });
+      } catch {
+        return mcpError(message.id, -32000, "MCP session capacity is unavailable");
+      }
       const headers = new Headers(JSON_HEADERS);
-      headers.set("mcp-session-id", randomUUID());
+      headers.set("mcp-session-id", sessionId);
       return new Response(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -130,6 +141,8 @@ export function createGenericMcpProxyHandler(
       );
     }
     if (message.method === "notifications/initialized") {
+      const invalidSession = validateRequestSession(options.transport, request, identity);
+      if (invalidSession) return invalidSession;
       return new Response(null, { status: 202 });
     }
     if (message.method === "tools/list") {
@@ -140,15 +153,27 @@ export function createGenericMcpProxyHandler(
         ],
       });
     }
+    if (message.method !== "tools/call") {
+      return mcpError(message.id, -32601, `Unsupported MCP method: ${message.method}`);
+    }
+    const invalidSession = validateRequestSession(options.transport, request, identity);
+    if (invalidSession) return invalidSession;
 
     const started = Date.now();
-    const oauthTool =
-      message.method === "tools/call" ? oauthToolKind(options, message.toolName) : undefined;
-    const tool =
-      message.method === "tools/call" && !oauthTool
-        ? toolsByName.get(message.toolName ?? "")
-        : undefined;
-    if (message.method === "tools/call" && !tool && !oauthTool) {
+    const oauthTool = oauthToolKind(options, message.toolName);
+    const tool = !oauthTool ? toolsByName.get(message.toolName ?? "") : undefined;
+    if (!tool && !oauthTool) {
+      await emitSafely(options.audit, {
+        ts: new Date().toISOString(),
+        category: "tool_call",
+        principal: identity.email,
+        status: "deny",
+        event: "unsupported_tool",
+        tool: message.toolName,
+        argDigest: digestArgs(message.arguments),
+        latencyMs: Date.now() - started,
+        error: "unsupported_tool",
+      });
       return mcpError(
         message.id,
         -32601,
@@ -266,6 +291,17 @@ export function createGenericMcpProxyHandler(
       const scopes = tool?.grants.scopes ?? [];
       const credential = await options.resolveCredential({ identity, hop1Token, scopes });
       if (!credential && options.requireCredential) {
+        await emitSafely(options.audit, {
+          ts: new Date().toISOString(),
+          category: "tool_call",
+          principal: identity.email,
+          status: "deny",
+          event: "provider_authorization_required",
+          tool: tool?.exposedName,
+          argDigest: digestArgs(message.arguments),
+          latencyMs: Date.now() - started,
+          error: "provider_oauth_required",
+        });
         return mcpResult(message.id, {
           isError: true,
           content: [
@@ -288,7 +324,7 @@ export function createGenericMcpProxyHandler(
         credential,
         principalKey: principalKey(identity),
       });
-      const responseBody = await upstream.text();
+      const responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
       if (tool) {
         await emitSafely(options.audit, {
           ts: new Date().toISOString(),
@@ -430,6 +466,24 @@ function safeStreamingResponse(response: Response): Response {
   });
 }
 
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let body = "";
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) return body + decoder.decode();
+    total += next.value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error("MCP upstream response exceeded the size limit");
+    }
+    body += decoder.decode(next.value, { stream: true });
+  }
+}
+
 function principalKey(identity: Hop1Identity): string {
   return `${identity.issuer}\n${identity.subject}`;
 }
@@ -442,8 +496,25 @@ async function emitSafely(sink: AuditSink | undefined, event: AuditEvent): Promi
   }
 }
 
-function unauthorized(message: string): Response {
-  return mcpError(null, -32001, `Unauthorized: ${message}`, 401);
+function unauthorized(message: string, challenge = 'Bearer error="invalid_token"'): Response {
+  const response = mcpError(null, -32001, `Unauthorized: ${message}`, 401);
+  response.headers.set("www-authenticate", challenge);
+  return response;
+}
+
+function validateRequestSession(
+  transport: GenericUpstreamTransport,
+  request: Request,
+  identity: Hop1Identity,
+): Response | undefined {
+  const sessionId = request.headers.get("mcp-session-id")?.trim();
+  if (!sessionId) return mcpError(null, -32000, "MCP session ID is required");
+  try {
+    transport.assertSession(sessionId, principalKey(identity));
+    return undefined;
+  } catch {
+    return mcpError(null, -32000, "MCP session is unknown or unavailable");
+  }
 }
 
 function mcpResult(id: JsonRpcId, result: unknown): Response {

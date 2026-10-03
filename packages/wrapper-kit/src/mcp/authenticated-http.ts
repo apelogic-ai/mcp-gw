@@ -31,7 +31,7 @@ export function createAuthenticatedMcpHttpHandler(
     const token = bearerToken(request);
     if (!token) {
       reportFailure("missing_bearer");
-      return unauthorized("bearer token is required");
+      return unauthorized("bearer token is required", "Bearer");
     }
 
     let identity: Hop1Identity;
@@ -39,7 +39,7 @@ export function createAuthenticatedMcpHttpHandler(
       identity = await options.authenticate(token);
     } catch (error) {
       reportFailure(classifyHop1ValidationFailure(error));
-      return unauthorized("invalid bearer token");
+      return unauthorized("invalid bearer token", 'Bearer error="invalid_token"');
     }
 
     const handler = createMcpHttpHandler({
@@ -65,7 +65,7 @@ function bearerToken(request: Request): string | undefined {
   return token;
 }
 
-function unauthorized(message: string): Response {
+function unauthorized(message: string, challenge: string): Response {
   return new Response(
     JSON.stringify({
       jsonrpc: "2.0",
@@ -77,7 +77,7 @@ function unauthorized(message: string): Response {
     }),
     {
       status: 401,
-      headers: JSON_HEADERS,
+      headers: { ...JSON_HEADERS, "www-authenticate": challenge },
     },
   );
 }

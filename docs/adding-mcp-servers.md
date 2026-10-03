@@ -355,6 +355,19 @@ catalog is authoritative: only listed tools are advertised, each upstream tool
 is exposed as `<toolPrefix>_<name>`, and each call is classified before a
 credential is resolved. Pin the generic-wrapper image digest from the matching
 MCP-GW release handoff. A configured sidecar image must also be digest-pinned.
+The wrapper issues opaque MCP session IDs, binds them to the immutable HOP-1
+principal, rejects caller-invented session IDs, and reaps idle sessions on a
+timer. Optional per-wrapper limits are explicit:
+
+```yaml
+sessions:
+  maxTotal: 64
+  maxPerPrincipal: 4
+  idleTtlMs: 1800000
+```
+
+These are the defaults. Keep the per-principal limit below the total so one
+caller cannot exhaust capacity for every other caller.
 
 The examples below assume the `hop1.issuers` and
 `agentgateway.mcpAuthentication.resourceMetadata` settings shown in the
@@ -595,9 +608,12 @@ use the authenticated routes described under
 #### Stdio server in the wrapper container
 
 Kubernetes containers cannot share stdin/stdout with a sidecar. Package a
-stdio server in the same image as the generic wrapper, or run it as an HTTP
-sidecar and select `transport: http`. This Dockerfile shape vendors the public
-MCP Everything reference server without changing MCP-GW source:
+trusted stdio server in the same image as the generic wrapper, or run it as an
+HTTP sidecar and select `transport: http`. A stdio child executes inside the
+wrapper's security boundary and can observe any credential deliberately
+injected into it, so do not package unreviewed commands. This Dockerfile shape
+vendors the public MCP Everything reference server without changing MCP-GW
+source:
 
 ```dockerfile
 FROM oven/bun:1.2.21@sha256:5a2011bf09364b9af658ac1e66f60d08092f4291aeefbff448d58b027734fdd0 AS reference
@@ -655,9 +671,11 @@ Stdio sessions are process-local, so the chart enforces one wrapper replica.
 The wrapper starts one child per authenticated MCP session, binds it to the
 HOP-1 principal, injects only explicitly allowlisted environment variables and
 the resolved provider credential, serializes calls within the session, and
-terminates the child on session deletion. Runtime bounds protect both transport
-types: HTTP keeps at most 1,024 wrapper-owned sessions, stdio keeps at most 64
-child sessions, and idle entries are reaped opportunistically after 30 minutes.
+terminates the child on session deletion, timeout, protocol mismatch, or idle
+expiry. Runtime bounds protect both transport types: by default each wrapper
+keeps at most 64 sessions globally and 4 per HOP-1 principal, and a timer reaps
+idle entries after 30 minutes. Override `sessions` only after sizing the
+wrapper's memory, file-descriptor, and child-process budgets.
 
 ## Wrapper SDK status
 

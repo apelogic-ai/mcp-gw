@@ -81,6 +81,11 @@
 {{- fail (printf "wrapper toolPrefix %s conflicts with an enabled built-in backend" $wrapper.toolPrefix) }}
 {{- end }}
 {{- $wrapperPrefixes = append $wrapperPrefixes $wrapper.toolPrefix }}
+{{- with $wrapper.sessions }}
+{{- if and .maxTotal .maxPerPrincipal (gt (int .maxPerPrincipal) (int .maxTotal)) }}
+{{- fail (printf "wrappers[%d] sessions.maxPerPrincipal must not exceed sessions.maxTotal" $index) }}
+{{- end }}
+{{- end }}
 {{- if eq $wrapper.upstream.transport "http" }}
 {{- $upstreamUrl := urlParse $wrapper.upstream.url }}
 {{- if or $upstreamUrl.userinfo $upstreamUrl.fragment }}

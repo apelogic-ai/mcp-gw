@@ -53,6 +53,7 @@ describe("generic wrapper credentials", () => {
           return Promise.resolve(
             Response.json({
               access_token: "exchanged-provider-token",
+              issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
               token_type: "Bearer",
               expires_in: 300,
             }),
@@ -81,6 +82,7 @@ describe("generic wrapper credentials", () => {
       {
         mode: "token_exchange",
         endpoint: "https://identity.example.com/oauth/token",
+        audience: "https://mcp.example.com",
       },
       {},
       {
@@ -90,6 +92,7 @@ describe("generic wrapper credentials", () => {
           return Promise.resolve(
             Response.json({
               access_token: `provider-token-${String(exchanges)}`,
+              issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
               expires_in: 300,
             }),
           );
@@ -102,5 +105,29 @@ describe("generic wrapper credentials", () => {
     await resolver.resolve({ identity, hop1Token: "hop1-one", scopes: [] });
 
     expect(exchanges).toBe(3);
+  });
+
+  test("rejects a token exchange response with the wrong issued token type", async () => {
+    const resolver = createGenericCredentialResolver(
+      {
+        mode: "token_exchange",
+        endpoint: "https://identity.example.com/oauth/token",
+        resource: "https://mcp.example.com",
+      },
+      {},
+      {
+        fetch: () =>
+          Promise.resolve(
+            Response.json({
+              access_token: "wrong-kind",
+              issued_token_type: "urn:ietf:params:oauth:token-type:refresh_token",
+            }),
+          ),
+      },
+    );
+
+    await expect(
+      resolver.resolve({ identity, hop1Token: "hop1-secret", scopes: [] }),
+    ).rejects.toThrow("malformed");
   });
 });
