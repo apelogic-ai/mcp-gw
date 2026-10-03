@@ -22,6 +22,18 @@ describe("backend registry config generation", () => {
     expect(federated).toContain("name: db");
   });
 
+  test("does not register reusable wrapper runtimes as concrete source backends", async () => {
+    const [generator, base, federated] = await Promise.all([
+      readFile("scripts/generate-agentgateway-config.ts", "utf8"),
+      readFile("gateway/agentgateway/base.yaml", "utf8"),
+      readFile("gateway/agentgateway/federated.yaml", "utf8"),
+    ]);
+
+    expect(generator).toContain('RUNTIME_ONLY_SERVER_DIRECTORIES = new Set(["generic-wrapper"])');
+    expect(base).not.toContain("name: generic-wrapper");
+    expect(federated).not.toContain("name: generic-wrapper");
+  });
+
   test("renders agentgateway multiplex controls for optional backend resilience", async () => {
     const base = await readFile("gateway/agentgateway/base.yaml", "utf8");
     const federated = await readFile("gateway/agentgateway/federated.yaml", "utf8");

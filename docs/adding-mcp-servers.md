@@ -776,6 +776,11 @@ bun scripts/generate-agentgateway-config.ts
 bun run backends:check
 ```
 
+The reusable `servers/generic-wrapper` runtime is intentionally not a concrete
+source-tree backend: it has no fixed host or tool prefix until an operator
+creates a `wrappers[]` instance. Do not add a placeholder backend descriptor
+for the runtime itself.
+
 Add a Compose overlay that starts the backend, but remember that a service
 overlay alone does not mutate the mounted gateway config. Use the generated
 federated config only when every included target is deployed, or maintain a

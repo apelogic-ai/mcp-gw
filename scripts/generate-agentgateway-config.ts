@@ -10,6 +10,9 @@ import {
 
 const CHECK_MODE = process.argv.includes("--check");
 const SERVERS_DIR = "servers";
+// Reusable runtimes are instantiated from deployment configuration and have
+// no single source-tree host or tool prefix to register.
+const RUNTIME_ONLY_SERVER_DIRECTORIES = new Set(["generic-wrapper"]);
 const BASE_CONFIG_PATH = "gateway/agentgateway/base.yaml";
 const FEDERATED_CONFIG_PATH = "gateway/agentgateway/federated.yaml";
 
@@ -45,7 +48,7 @@ if (CHECK_MODE) {
 async function loadBackendDescriptors(): Promise<BackendDescriptor[]> {
   const serverEntries = await readdir(SERVERS_DIR, { withFileTypes: true });
   const descriptorPaths = serverEntries
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !RUNTIME_ONLY_SERVER_DIRECTORIES.has(entry.name))
     .map((entry) => path.join(SERVERS_DIR, entry.name, "backend.yaml"));
 
   const descriptors = await Promise.all(
