@@ -15,9 +15,17 @@ spec:
       {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 6 }}
   template:
     metadata:
+      {{- if or .Values.dbMcp.wrapper.enabled .Values.dbMcp.podAnnotations }}
       {{- with .Values.dbMcp.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.dbMcp.wrapper.enabled (not .Values.dbMcp.podAnnotations) }}
+      annotations:
+      {{- end }}
+      {{- if .Values.dbMcp.wrapper.enabled }}
+        checksum/db-mcp-wrapper-config: {{ toJson .Values.dbMcp.wrapper | sha256sum }}
+      {{- end }}
       {{- end }}
       labels:
         {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "db-mcp") | nindent 8 }}
@@ -68,8 +76,64 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.dbMcp.extraVolumes }}
+        {{- if .Values.dbMcp.wrapper.enabled }}
+        - name: generic-wrapper
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.dbMcp.wrapper.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.dbMcp.wrapper.securityContext | nindent 12 }}
+          ports:
+            - name: wrapper-http
+              containerPort: {{ .Values.dbMcp.wrapper.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.dbMcp.wrapper.port | quote }}
+            - name: GENERIC_WRAPPER_DESCRIPTOR_PATH
+              value: /etc/mcp-gw/db-mcp-wrapper/descriptor.yaml
+            - name: HOP1_ISSUERS_JSON
+              {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+              value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}
+              {{- else }}
+              value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+              {{- end }}
+            {{- range $index, $issuer := .Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.trustBundle.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ include "mcp-gateway.trustBundlePath" . | quote }}
+            {{- end }}
+          {{- include "mcp-gateway.probes" .Values.dbMcp.wrapper | nindent 10 }}
+          volumeMounts:
+            - name: db-mcp-wrapper-config
+              mountPath: /etc/mcp-gw/db-mcp-wrapper
+              readOnly: true
+            - name: db-mcp-wrapper-tmp
+              mountPath: /tmp
+            {{- include "mcp-gateway.trustBundleVolumeMount" . | nindent 12 }}
+          {{- with .Values.dbMcp.wrapper.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- if or .Values.dbMcp.wrapper.enabled .Values.dbMcp.extraVolumes }}
       volumes:
+        {{- if .Values.dbMcp.wrapper.enabled }}
+        - name: db-mcp-wrapper-config
+          configMap:
+            name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "db-mcp-wrapper-config") }}
+        - name: db-mcp-wrapper-tmp
+          emptyDir: {}
+        {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.dbMcp.extraVolumes }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
 {{- end }}

@@ -13,5 +13,9 @@ spec:
   ports:
     - name: http
       port: {{ .Values.dbMcp.port }}
+      {{- if .Values.dbMcp.wrapper.enabled }}
+      targetPort: wrapper-http
+      {{- else }}
       targetPort: http
+      {{- end }}
 {{- end }}

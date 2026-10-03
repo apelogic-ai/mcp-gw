@@ -359,6 +359,48 @@ dbMcp:
   secretRef:
     name: ""
     envKeys: []
+  # Opt-in HOP-1, catalog, policy, and audit sidecar. Disabled preserves the
+  # historical direct AgentGateway -> db-mcp topology byte-for-byte.
+  wrapper:
+    enabled: false
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      tag: ""
+      digest: ""
+    port: 8081
+    toolPrefix: db
+    serverInfo:
+      name: db-mcp-wrapper
+      version: "1.0.0"
+    sessions:
+      maxTotal: 64
+      maxPerPrincipal: 4
+      idleTtlMs: 1800000
+    catalog:
+      catalogId: ""
+      tools: []
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+    resources: {}
+    probes:
+      liveness:
+        enabled: true
+        httpGet:
+          path: /health/live
+          port: wrapper-http
+        initialDelaySeconds: 10
+        periodSeconds: 10
+      readiness:
+        enabled: true
+        httpGet:
+          path: /health/ready
+          port: wrapper-http
+        initialDelaySeconds: 2
+        periodSeconds: 5
 
 githubWrapper:
   enabled: false

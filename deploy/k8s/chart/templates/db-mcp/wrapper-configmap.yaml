@@ -1,0 +1,49 @@
+{{- if and .Values.dbMcp.enabled .Values.dbMcp.wrapper.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "db-mcp-wrapper-config") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-mcp
+data:
+  descriptor.yaml: |
+    schemaVersion: mcp-gateway.generic-wrapper/v1
+    name: "db-mcp"
+    toolPrefix: {{ .Values.dbMcp.wrapper.toolPrefix | quote }}
+    catalogPath: /etc/mcp-gw/db-mcp-wrapper/catalog.yaml
+    lifecycleRoutes: false
+    upstream:
+      transport: http
+      url: {{ printf "http://127.0.0.1:%v%s" .Values.dbMcp.port (.Values.dbMcp.env.MCP_PATH | default "/mcp") | quote }}
+    credential:
+      mode: none
+    serverInfo:
+{{ .Values.dbMcp.wrapper.serverInfo | toYaml | nindent 6 }}
+    sessions:
+{{ .Values.dbMcp.wrapper.sessions | toYaml | nindent 6 }}
+    {{- with .Values.dbMcp.wrapper.policy }}
+    policy:
+      {{- with .opaUrl }}
+      opaUrl: {{ . | quote }}
+      {{- end }}
+      {{- with .yaml }}
+      yamlFile: /etc/mcp-gw/db-mcp-wrapper/policy.yaml
+      {{- end }}
+    {{- end }}
+    {{- with .Values.dbMcp.wrapper.audit }}
+    audit:
+{{ . | toYaml | nindent 6 }}
+    {{- end }}
+  catalog.yaml: |
+    schemaVersion: mcp-gateway.generic-catalog/v1
+    catalogId: {{ .Values.dbMcp.wrapper.catalog.catalogId | quote }}
+    tools:
+{{ .Values.dbMcp.wrapper.catalog.tools | toYaml | nindent 6 }}
+  {{- with .Values.dbMcp.wrapper.policy }}
+  {{- with .yaml }}
+  policy.yaml: |
+{{ . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

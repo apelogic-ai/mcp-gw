@@ -29,6 +29,11 @@ Secret-backed API-key HTTP wrappers. The complete guide also covers per-user
 OAuth, exact callback routing, token-store migrations, and a public stdio
 reference server packaged in the wrapper image.
 
+To retain the existing db-mcp workload while adding HOP-1 validation, a pinned
+catalog, policy/audit hooks, and wrapper-owned sessions, start from
+`values-db-mcp-wrapped.example.yaml`. The direct topology remains the default;
+the sidecar path exists only when `dbMcp.wrapper.enabled=true`.
+
 To enable the bundled official GitHub MCP server, use
 `values-github-mcp.example.yaml` as the overlay starting point. The upstream
 server expects a GitHub bearer token in the inbound `Authorization` header in

@@ -60,6 +60,21 @@
                 "properties": { "enabled": { "const": true } }
               }
             }
+          },
+          {
+            "required": ["dbMcp"],
+            "properties": {
+              "dbMcp": {
+                "required": ["enabled", "wrapper"],
+                "properties": {
+                  "enabled": { "const": true },
+                  "wrapper": {
+                    "required": ["enabled"],
+                    "properties": { "enabled": { "const": true } }
+                  }
+                }
+              }
+            }
           }
         ]
       },
@@ -164,7 +179,7 @@
       "items": { "$ref": "#/$defs/genericWrapper" }
     },
     "googleWorkspace": { "$ref": "#/$defs/googleWorkspace" },
-    "dbMcp": { "$ref": "#/$defs/backend" },
+    "dbMcp": { "$ref": "#/$defs/dbMcp" },
     "githubWrapper": { "$ref": "#/$defs/githubWrapper" },
     "githubMcp": { "$ref": "#/$defs/backend" }
   },
@@ -895,6 +910,89 @@
           }
         }
       ]
+    },
+    "dbMcp": {
+      "allOf": [
+        { "$ref": "#/$defs/backend" },
+        {
+          "type": "object",
+          "properties": {
+            "wrapper": { "$ref": "#/$defs/dbMcpWrapper" }
+          }
+        }
+      ]
+    },
+    "dbMcpWrapper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "image",
+        "port",
+        "toolPrefix",
+        "serverInfo",
+        "sessions",
+        "catalog",
+        "securityContext",
+        "resources",
+        "probes"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          },
+          "then": {
+            "properties": {
+              "image": { "$ref": "#/$defs/pinnedImage" },
+              "catalog": { "$ref": "#/$defs/genericCatalog" }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "$ref": "#/$defs/image" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "toolPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "serverInfo": { "$ref": "#/$defs/genericServerInfo" },
+        "sessions": { "$ref": "#/$defs/genericSessions" },
+        "catalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["catalogId", "tools"],
+          "properties": {
+            "catalogId": { "type": "string" },
+            "tools": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/genericCatalogTool" }
+            }
+          }
+        },
+        "policy": { "$ref": "#/$defs/genericPolicy" },
+        "audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["jsonlPath"],
+          "properties": { "jsonlPath": { "type": "string", "pattern": "^/tmp/" } }
+        },
+        "securityContext": { "type": "object" },
+        "resources": { "type": "object" },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "liveness": { "$ref": "#/$defs/probe" },
+            "readiness": { "$ref": "#/$defs/probe" }
+          }
+        }
+      }
     },
     "githubWrapper": {
       "allOf": [

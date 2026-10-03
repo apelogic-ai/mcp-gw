@@ -724,10 +724,12 @@ Until a supported SDK exists, a wrapper implementation must explicitly provide:
 7. protocol, authentication, policy, concurrency, and failure tests.
 
 A future supported SDK would version and publish these interfaces and add stable
-configuration parsing and provider extension points. It would also ship a
-conformance test kit. Unless that supported package is named in MCP-GW release
-notes, integrators should treat `packages/wrapper-kit` as implementation detail
-rather than an SDK dependency.
+configuration parsing and provider extension points. The repository now ships
+a standalone URL-driven conformance runner, described below; a future SDK would
+package its programmatic conformance test kit and fixture controls as a stable
+API. Unless that supported package is named in MCP-GW release notes,
+integrators should treat both `packages/wrapper-kit` and the in-process test
+harness as implementation details rather than SDK dependencies.
 
 ## Helm behavior and limitations
 
@@ -775,6 +777,40 @@ your own overlay. Do not disable validation by supplying a fake built-in
 backend. A proposal to make custom production profiles first-class should add
 typed schema and tests rather than weakening the existing checks.
 
+### Opt-in governed db-mcp mode
+
+`dbMcp.enabled=true` keeps its historical direct topology unless
+`dbMcp.wrapper.enabled=true` is also set. The opt-in mode adds the released
+generic-wrapper image as a sidecar, keeps the Service address and AgentGateway
+target unchanged, and redirects the Service to the sidecar. The sidecar
+validates HOP-1, owns MCP sessions, exposes only the configured catalog, applies
+optional policy/audit, and calls db-mcp over Pod loopback without forwarding
+the HOP-1 bearer.
+
+Start from
+[`values-db-mcp-wrapped.example.yaml`](../deploy/k8s/examples/values-db-mcp-wrapped.example.yaml).
+Pin both images by digest and replace the example catalog with the exact tools
+and schemas exposed by the selected db-mcp version. MCP-GW does not publish or
+pin the external db-mcp image, so catalog/version drift remains the operator's
+responsibility. Disabling `dbMcp.wrapper` restores the original Deployment,
+Service target, NetworkPolicy port, and direct request path.
+
+The conformance review records these direct-mode gaps rather than hiding them:
+
+- AgentGateway passes the HOP-1 bearer to db-mcp instead of terminating it at a
+  credential boundary;
+- MCP-GW cannot apply a pinned grant catalog, per-tool policy, or its audit
+  contract before a direct call reaches db-mcp;
+- session behavior and secret-safe error/log handling belong entirely to the
+  externally supplied db-mcp build; and
+- because MCP-GW does not publish that image, this repository cannot reproduce
+  the direct runtime in CI from its own immutable release inputs.
+
+The wrapped mode closes the first three gaps at the MCP-GW boundary and passes
+the shared in-repository conformance suite using the chart-rendered descriptor
+and catalog. Operators must still run the URL profile against their chosen
+digest because its upstream implementation remains external.
+
 ## Docker Compose and source-tree registration
 
 The repository's Compose setup mounts a generated AgentGateway config. A
@@ -816,9 +852,87 @@ External Helm users do not need to fork MCP-GW or add a descriptor. A private
 `agentgateway.backends` overlay is enough when the backend already satisfies
 the transport, identity, policy, and catalog contracts.
 
+## Backend conformance kit
+
+The repository includes a URL-driven conformance runner for direct wrapper
+endpoints and AgentGateway endpoints:
+
+```bash
+bun run conformance:backend --config ./backend-conformance.yaml
+```
+
+The configuration contains environment-variable **names**, never bearer values:
+
+```yaml
+schemaVersion: mcp-gateway.backend-conformance/v1
+name: hosted-search
+url: https://mcp.example.com/mcp
+sessionMode: required
+policyDenial: mcp_tool_error
+tokens:
+  validEnv: MCP_CONFORMANCE_VALID_TOKEN
+  expiredEnv: MCP_CONFORMANCE_EXPIRED_TOKEN
+  wrongAudienceEnv: MCP_CONFORMANCE_WRONG_AUDIENCE_TOKEN
+  otherPrincipalEnv: MCP_CONFORMANCE_OTHER_PRINCIPAL_TOKEN
+toolCall:
+  name: search_query
+  arguments:
+    query: conformance marker
+concurrency: 4
+requestTimeoutMs: 10000
+```
+
+Supply short-lived test tokens from a secret manager, then run the command in a
+test environment. The baseline profile checks missing, expired, and
+wrong-audience authentication; initialize and initialized notification;
+tools/list and one read-only tools/call; session issuance and principal binding
+when required; and concurrent catalog reads. The JSON report contains only
+check names and sanitized failure descriptions. Each request is bounded by
+`requestTimeoutMs` (10 seconds by default), so a stalled fixture fails instead
+of hanging the runner.
+
+Controlled deployments can add scenario endpoints to test policy and failure
+behavior. Each endpoint must expose the same MCP contract while its fixture is
+configured for the named condition:
+
+```yaml
+scenarios:
+  policyDenied:
+    url: https://deny.mcp.example.com/mcp
+  upstream5xx:
+    url: https://provider-5xx.mcp.example.com/mcp
+  upstreamTimeout:
+    url: https://provider-timeout.mcp.example.com/mcp
+  gatewayFailOpen:
+    url: https://fail-open.mcp.example.com/mcp
+  gatewayFailClosed:
+    url: https://fail-closed.mcp.example.com/mcp
+```
+
+The two gateway scenarios use deployments with the corresponding
+`agentgateway.backendFailureMode`. The fail-open target must still complete the
+configured healthy read when another backend is unavailable; the fail-closed
+target must reject that partial result.
+
+For secret-custody checks, capture sanitized upstream request metadata and
+wrapper logs to local files, then name both the files and secret-bearing
+environment variables under `evidence`. The runner checks that HOP-1 never
+appears upstream, the expected HOP-2 value does, and neither credential appears
+in responses or logs. Never point evidence collection at production logs or
+put literal credentials in the YAML.
+
+The in-repository suite binds this same runner to the generic, GitHub, and
+Google Workspace handlers with deterministic policy, 5xx, timeout, concurrency,
+credential-isolation, and log-capture fixtures. The portable URL profile is the
+supported starting point for an external integration; repository-relative
+test harness APIs remain internal until a versioned conformance package is
+published.
+
 ## Compatibility acceptance checklist
 
-Test the exact deployed topology, not only the backend in isolation.
+Test the exact deployed topology, not only the backend in isolation. Run the
+[backend conformance kit](#backend-conformance-kit) for the direct wrapper and
+again through AgentGateway; retain its JSON report with the deployment review.
 
 ### Protocol
 
