@@ -44,17 +44,19 @@ describe("generic wrapper credentials", () => {
         TOKEN_EXCHANGE_CLIENT_SECRET: "wrapper-secret",
       },
       {
-        fetch: async (input, init) => {
+        fetch: (input, init) => {
           requests.push(
             input instanceof Request
               ? new Request(input, init)
               : new Request(input.toString(), init),
           );
-          return Response.json({
-            access_token: "exchanged-provider-token",
-            token_type: "Bearer",
-            expires_in: 300,
-          });
+          return Promise.resolve(
+            Response.json({
+              access_token: "exchanged-provider-token",
+              token_type: "Bearer",
+              expires_in: 300,
+            }),
+          );
         },
       },
     );

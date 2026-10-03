@@ -189,7 +189,7 @@ describe("generic MCP proxy", () => {
     });
 
     const listed = await oauthHandler(mcpRequest("tools/list", {}, 4));
-    const listedBody = (await listed.json()) as { result: { tools: Array<{ name: string }> } };
+    const listedBody = (await listed.json()) as { result: { tools: { name: string }[] } };
     expect(listedBody.result.tools.map((tool) => tool.name)).toEqual([
       "search_oauth_status",
       "search_oauth_start",
@@ -198,11 +198,10 @@ describe("generic MCP proxy", () => {
     const status = await oauthHandler(
       mcpRequest("tools/call", { name: "search_oauth_status", arguments: {} }, 5),
     );
-    expect(await status.json()).toMatchObject({
-      result: {
-        content: [{ text: expect.stringContaining('"phase":"disconnected"') }],
-      },
-    });
+    const statusBody = (await status.json()) as {
+      result: { content: { text: string }[] };
+    };
+    expect(statusBody.result.content[0]?.text).toContain('"phase":"disconnected"');
     expect(transport.requests).toHaveLength(0);
   });
 

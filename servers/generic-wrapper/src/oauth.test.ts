@@ -56,12 +56,12 @@ describe("generic per-user OAuth", () => {
     const adapter = new GenericOAuthConnectionAdapter(
       createGenericOAuthRuntimeConfig(descriptor, env),
     );
-    const started = await adapter.startAuthorization?.({
+    const started = await adapter.startAuthorization({
       identity,
       scopes: descriptor.scopes,
       state: "opaque-state",
     });
-    const url = new URL(started?.authorizationUrl ?? "");
+    const url = new URL(started.authorizationUrl);
 
     expect(url.origin + url.pathname).toBe(descriptor.authorizationUrl);
     expect(url.searchParams.get("client_id")).toBe("wrapper-client");
@@ -76,27 +76,31 @@ describe("generic per-user OAuth", () => {
     const stateStore = new InMemoryOAuthStateStore();
     const tokenStore = new InMemoryOAuthTokenStore();
     const requests: Request[] = [];
-    const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       const request =
         input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
       requests.push(request);
       if (request.url === descriptor.tokenUrl) {
-        return Response.json({
-          access_token: "provider-access",
-          refresh_token: "provider-refresh",
-          token_type: "Bearer",
-          expires_in: 3600,
-          scope: "search.read",
-        });
+        return Promise.resolve(
+          Response.json({
+            access_token: "provider-access",
+            refresh_token: "provider-refresh",
+            token_type: "Bearer",
+            expires_in: 3600,
+            scope: "search.read",
+          }),
+        );
       }
       if (request.url === descriptor.userInfoUrl) {
         expect(request.headers.get("authorization")).toBe("Bearer provider-access");
-        return Response.json({
-          sub: "provider-account-1",
-          email: "user@example.com",
-          email_verified: true,
-          preferred_username: "example-user",
-        });
+        return Promise.resolve(
+          Response.json({
+            sub: "provider-account-1",
+            email: "user@example.com",
+            email_verified: true,
+            preferred_username: "example-user",
+          }),
+        );
       }
       throw new Error(`Unexpected request: ${request.url}`);
     };
@@ -135,24 +139,26 @@ describe("generic per-user OAuth", () => {
     expect(requests.filter((request) => request.url === descriptor.tokenUrl)).toHaveLength(1);
   });
 
-  test("rejects a provider identity that does not match the HOP-1 email", async () => {
+  test("rejects a provider identity that does not match the HOP-1 email", () => {
     const adapter = new GenericOAuthConnectionAdapter(
       createGenericOAuthRuntimeConfig(descriptor, env),
-      async (input) => {
-        const url = input.toString();
+      (input) => {
+        const url = input instanceof Request ? input.url : input.toString();
         if (url === descriptor.userInfoUrl) {
-          return Response.json({
-            sub: "other-account",
-            email: "other@example.com",
-            email_verified: true,
-          });
+          return Promise.resolve(
+            Response.json({
+              sub: "other-account",
+              email: "other@example.com",
+              email_verified: true,
+            }),
+          );
         }
-        return Response.json({ access_token: "provider-access" });
+        return Promise.resolve(Response.json({ access_token: "provider-access" }));
       },
     );
 
-    await expect(
-      adapter.validateIdentity?.(
+    expect(
+      adapter.validateIdentity(
         {
           provider: "search-provider",
           generation: 1,

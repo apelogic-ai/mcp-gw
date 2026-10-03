@@ -281,7 +281,9 @@ function requiredEnv(env: Record<string, string | undefined>, name: string): str
 }
 
 function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
-  return env[name]?.trim() || undefined;
+  const value = env[name]?.trim();
+  if (value === "") return undefined;
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

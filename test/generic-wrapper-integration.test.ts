@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { stringify } from "yaml";
 
 import { createGenericMainHandler } from "../servers/generic-wrapper/src/main";
@@ -71,7 +71,7 @@ beforeAll(async () => {
   });
 
   const signing = await generateKeyPair("EdDSA");
-  const publicJwk = (await exportJWK(signing.publicKey)) as JWK;
+  const publicJwk = await exportJWK(signing.publicKey);
   publicJwk.kid = "integration-key";
   identityServer = Bun.serve({
     hostname: "127.0.0.1",
@@ -94,10 +94,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  apiKeyGate?.stop(true);
-  identityServer?.stop(true);
-  referenceServer?.kill();
-  await referenceServer?.exited;
+  await apiKeyGate.stop(true);
+  await identityServer.stop(true);
+  referenceServer.kill();
+  await referenceServer.exited;
 });
 
 describe("generic wrapper reference-server integration", () => {
@@ -231,7 +231,7 @@ async function exerciseCandidateImage(
       requestInit("tools/list", {}, 2, sessionId ?? undefined),
     );
     const listedBody = (await listed.json()) as {
-      result: { tools: Array<{ name: string }> };
+      result: { tools: { name: string }[] };
     };
     expect(listedBody.result.tools.map((tool) => tool.name)).toEqual(["reference_echo"]);
     const message = `candidate ${mode}`;
@@ -245,7 +245,7 @@ async function exerciseCandidateImage(
       ),
     );
     const body = extractSseMessage(await called.text()) as {
-      result?: { content?: Array<{ type?: string; text?: string }> };
+      result?: { content?: { type?: string; text?: string }[] };
     };
     return body.result?.content?.find((item) => item.type === "text")?.text ?? "";
   } finally {
@@ -309,7 +309,7 @@ async function exerciseWrapper(options: {
     expect(await health.text()).toBe("ok");
     const listed = await handler(wrapperRequest("tools/list", {}, 1));
     const listedBody = (await listed.json()) as {
-      result: { tools: Array<{ name: string }> };
+      result: { tools: { name: string }[] };
     };
     const initialized = await handler(
       wrapperRequest(
@@ -343,7 +343,7 @@ async function exerciseWrapper(options: {
     );
     expect(called.status).toBe(200);
     const callBody = extractSseMessage(await called.text()) as {
-      result?: { content?: Array<{ type?: string; text?: string }> };
+      result?: { content?: { type?: string; text?: string }[] };
     };
     return {
       listedTools: listedBody.result.tools.map((tool) => tool.name),

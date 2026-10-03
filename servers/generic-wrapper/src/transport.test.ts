@@ -35,13 +35,16 @@ describe("generic wrapper HTTP transport", () => {
   });
 
   test("lazily initializes a stateful upstream behind a wrapper-owned session", async () => {
-    const requests: Array<{ headers: Record<string, string>; method: string; body: object }> = [];
+    const requests: { headers: Record<string, string>; method: string; body: object }[] = [];
     const transport = createHttpUpstreamTransport(
       { transport: "http", url: "https://mcp.example.com/mcp" },
       {
         serverInfo: { name: "reference-wrapper", version: "1.0.0" },
         async fetch(input, init) {
-          const observed = new Request(input.toString(), init);
+          const observed =
+            input instanceof Request
+              ? new Request(input, init)
+              : new Request(input instanceof URL ? input.href : input, init);
           const body = observed.method === "GET" ? {} : ((await observed.json()) as object);
           requests.push({
             headers: Object.fromEntries(observed.headers.entries()),
@@ -103,14 +106,14 @@ describe("generic wrapper HTTP transport", () => {
     };
     await transport.send(first);
 
-    await expect(
+    expect(
       transport.send({
         ...first,
         incomingRequest: request("initialize", 2, "session-two"),
       }),
     ).rejects.toThrow("session limit");
     now = 10;
-    await expect(
+    expect(
       transport.send({
         ...first,
         incomingRequest: request("initialize", 2, "session-two"),
@@ -173,7 +176,7 @@ describe("generic wrapper stdio transport", () => {
       },
     });
 
-    await expect(
+    expect(
       transport.send({
         incomingRequest: request("tools/call", 3, sessionId ?? undefined),
         body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call" }),
@@ -247,14 +250,14 @@ describe("generic wrapper stdio transport", () => {
       principalKey: "issuer\nsubject",
     };
     await transport.send(firstRequest);
-    await expect(
+    expect(
       transport.send({
         ...firstRequest,
         incomingRequest: request("initialize", 2, "stdio-two"),
       }),
     ).rejects.toThrow("session limit");
     now = 10;
-    await expect(
+    expect(
       transport.send({
         ...firstRequest,
         incomingRequest: request("initialize", 2, "stdio-two"),

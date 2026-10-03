@@ -12,7 +12,7 @@ export interface GenericUpstreamRequest {
 
 export interface GenericUpstreamTransport {
   send(request: GenericUpstreamRequest): Promise<Response>;
-  close?(request: GenericUpstreamRequest): Promise<Response | void>;
+  close?(request: GenericUpstreamRequest): Promise<Response | undefined>;
 }
 
 export interface CreateHttpUpstreamTransportOptions {
@@ -227,7 +227,7 @@ async function withHttpSessionLock<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const previous = session.tail;
-  let release: () => void = () => {};
+  let release!: () => void;
   session.tail = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -307,7 +307,7 @@ export function createStdioUpstreamTransport(
         if (needsInitialization) {
           await initializeStdioSession(session, request, serverInfo, timeoutMs);
         }
-        session.child.stdin.write(`${request.body}\n`);
+        await session.child.stdin.write(`${request.body}\n`);
         await session.child.stdin.flush();
         if (!message?.hasId) {
           return new Response(null, {
@@ -327,9 +327,9 @@ export function createStdioUpstreamTransport(
     },
     async close(request) {
       const sessionId = request.incomingRequest.headers.get("mcp-session-id") ?? undefined;
-      if (!sessionId) return;
+      if (!sessionId) return undefined;
       const session = sessions.get(sessionId);
-      if (!session) return;
+      if (!session) return undefined;
       if (session.principalKey !== request.principalKey) {
         throw new Error("stdio MCP session does not belong to this principal");
       }
@@ -339,6 +339,7 @@ export function createStdioUpstreamTransport(
         session.child.exited.then(() => undefined),
         timeoutMs,
       ).catch(() => undefined);
+      return undefined;
     },
   };
 }
@@ -415,7 +416,7 @@ async function initializeStdioSession(
 ): Promise<void> {
   const protocolVersion =
     request.incomingRequest.headers.get("mcp-protocol-version") ?? "2025-06-18";
-  session.child.stdin.write(
+  await session.child.stdin.write(
     `${JSON.stringify({
       jsonrpc: "2.0",
       id: `generic-wrapper-${randomUUID()}`,
@@ -425,7 +426,7 @@ async function initializeStdioSession(
   );
   await session.child.stdin.flush();
   await withTimeout(readLine(session), timeoutMs);
-  session.child.stdin.write(
+  await session.child.stdin.write(
     `${JSON.stringify({
       jsonrpc: "2.0",
       method: "notifications/initialized",
@@ -437,7 +438,7 @@ async function initializeStdioSession(
 
 async function withSessionLock<T>(session: StdioSession, operation: () => Promise<T>): Promise<T> {
   const previous = session.tail;
-  let release: () => void = () => {};
+  let release!: () => void;
   session.tail = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -450,7 +451,7 @@ async function withSessionLock<T>(session: StdioSession, operation: () => Promis
 }
 
 async function readLine(session: StdioSession): Promise<string> {
-  while (true) {
+  for (;;) {
     const newline = session.buffer.indexOf("\n");
     if (newline >= 0) {
       const line = session.buffer.slice(0, newline).trim();
@@ -487,14 +488,14 @@ function credentialDigest(credential: GenericUpstreamCredential | null): string 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("stdio MCP upstream timed out")), timeoutMs);
-    promise.then(
+    void promise.then(
       (value) => {
         clearTimeout(timer);
         resolve(value);
       },
       (error: unknown) => {
         clearTimeout(timer);
-        reject(error);
+        reject(error instanceof Error ? error : new Error("stdio MCP upstream failed"));
       },
     );
   });

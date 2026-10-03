@@ -33,7 +33,7 @@ export function createGenericOAuthRouteHandler(
   const callbackPath = `/oauth/${provider}/callback`;
   const lifecycle = options.config.lifecycle(options.tokenStore, options.fetch);
   const connectionRoutes = createConnectionRouteHandler({
-    authenticate: options.authenticate,
+    authenticate: (token) => options.authenticate(token),
     lifecycle,
     requiredScopes: options.config.descriptor.scopes,
     cancelAuthorization: (identity) =>
@@ -88,7 +88,7 @@ export function createGenericOAuthRouteHandler(
     }
     try {
       const completed = await completeGenericOAuth({
-        identity: await authenticateIfPresent(request, options.authenticate),
+        identity: await authenticateIfPresent(request, (token) => options.authenticate(token)),
         code,
         state,
         config: options.config,
