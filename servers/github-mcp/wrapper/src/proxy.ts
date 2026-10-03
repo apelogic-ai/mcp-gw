@@ -14,6 +14,15 @@ import {
   type ToolPolicy,
 } from "../../../../shared/policy/policy";
 import {
+  createCredentialBridge,
+  type CredentialBridge,
+} from "../../../../packages/wrapper-kit/src/credential-bridge";
+import {
+  forwardedMcpResponseHeaders,
+  forwardMcpRequest,
+  withUpstreamProtocolMetadata,
+} from "../../../../packages/wrapper-kit/src/mcp/proxy";
+import {
   GITHUB_MCP_CATALOG_ID,
   GITHUB_MCP_SHIPPED_TOOLSETS,
   classifyGithubToolAction,
@@ -30,10 +39,10 @@ export interface CreateGithubMcpProxyHandlerOptions {
   githubToolsets?: readonly GithubMcpToolsetName[];
   authenticate(token: string): Promise<Hop1Identity>;
   resolveGithubToken(identity: Hop1Identity): Promise<string | undefined>;
-  recoverGithubToken?(
+  recoverGithubToken?: (
     identity: Hop1Identity,
     rejectedActiveCredential: string,
-  ): Promise<string | undefined>;
+  ) => Promise<string | undefined>;
   getOAuthStatus?(identity: Hop1Identity): Promise<GithubOAuthStatus>;
   startOAuth?(
     identity: Hop1Identity,
@@ -79,8 +88,6 @@ const JSON_HEADERS = {
   "content-type": "application/json",
 };
 
-const FORWARDED_REQUEST_HEADERS = ["content-type", "mcp-protocol-version"];
-const FORWARDED_RESPONSE_HEADERS = ["content-type", "mcp-session-id"];
 const LOCAL_TOOLS = [
   {
     name: "github_oauth_status",
@@ -120,6 +127,17 @@ export function createGithubMcpProxyHandler(
   options: CreateGithubMcpProxyHandlerOptions,
 ): (request: Request) => Promise<Response> {
   const fetchImpl = options.fetch ?? fetch;
+  const recoverGithubToken = options.recoverGithubToken;
+  const credentialBridge = createCredentialBridge<Hop1Identity, undefined, string | undefined>({
+    mode: "per_user_oauth",
+    resolve: (identity) => options.resolveGithubToken(identity),
+    recover: recoverGithubToken
+      ? (identity, _requirement, rejectedCredential) =>
+          rejectedCredential
+            ? recoverGithubToken(identity, rejectedCredential)
+            : Promise.resolve(undefined)
+      : undefined,
+  });
   const policy = options.policy ?? new AllowAllPolicy();
   const oauthCatalog = options.getOAuthStatus
     ? listStableGithubTools(
@@ -168,7 +186,15 @@ export function createGithubMcpProxyHandler(
           tools: [...LOCAL_TOOLS, ...(oauthCatalog ?? [])],
         });
       }
-      return handleToolsList(request, body, identity, method.id, options, fetchImpl);
+      return handleToolsList(
+        request,
+        body,
+        identity,
+        method.id,
+        options,
+        fetchImpl,
+        credentialBridge,
+      );
     }
 
     let resourceDiscoveryToken: string | undefined;
@@ -177,7 +203,7 @@ export function createGithubMcpProxyHandler(
       isResourceDiscoveryMethod(method.method) &&
       isValidResourceDiscoveryRequest(request, body)
     ) {
-      resourceDiscoveryToken = await resolveGithubTokenOrUndefined(options, identity);
+      resourceDiscoveryToken = await resolveGithubTokenOrUndefined(credentialBridge, identity);
       if (!resourceDiscoveryToken) {
         return mcpResult(
           method.id,
@@ -242,7 +268,7 @@ export function createGithubMcpProxyHandler(
     }
 
     const githubToken =
-      resourceDiscoveryToken ?? (await resolveGithubTokenOrUndefined(options, identity));
+      resourceDiscoveryToken ?? (await resolveGithubTokenOrUndefined(credentialBridge, identity));
     if (!githubToken) {
       if (toolCall) {
         return providerOAuthRequired(toolCall.id);
@@ -251,24 +277,28 @@ export function createGithubMcpProxyHandler(
     }
 
     try {
-      const upstreamBody = withUpstreamProtocolMeta(request, toolCall?.body ?? body);
-      let upstreamResponse = await fetchUpstream(
-        fetchImpl,
-        options.upstreamUrl,
+      const upstreamBody = withUpstreamProtocolMetadata(
         request,
-        githubToken,
-        upstreamBody,
+        toolCall?.body ?? body,
+        SERVER_INFO,
       );
-      if (upstreamResponse.status === 401 && options.recoverGithubToken) {
-        const replacement = await options.recoverGithubToken(identity, githubToken);
+      let upstreamResponse = await forwardMcpRequest({
+        fetch: fetchImpl,
+        upstreamUrl: options.upstreamUrl,
+        request,
+        credential: githubToken,
+        body: upstreamBody,
+      });
+      if (upstreamResponse.status === 401 && credentialBridge.recover) {
+        const replacement = await credentialBridge.recover(identity, undefined, githubToken);
         if (replacement) {
-          upstreamResponse = await fetchUpstream(
-            fetchImpl,
-            options.upstreamUrl,
+          upstreamResponse = await forwardMcpRequest({
+            fetch: fetchImpl,
+            upstreamUrl: options.upstreamUrl,
             request,
-            replacement,
-            upstreamBody,
-          );
+            credential: replacement,
+            body: upstreamBody,
+          });
         }
       }
       const responseBody = await upstreamResponse.text();
@@ -290,7 +320,7 @@ export function createGithubMcpProxyHandler(
       return new Response(responseBody, {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
-        headers: responseHeaders(upstreamResponse),
+        headers: forwardedMcpResponseHeaders(upstreamResponse),
       });
     } catch (error) {
       if (toolCall) {
@@ -309,22 +339,6 @@ export function createGithubMcpProxyHandler(
       return mcpError(toolCall?.id ?? null, -32000, "GitHub MCP upstream request failed");
     }
   };
-}
-
-function fetchUpstream(
-  fetchImpl: GithubMcpProxyFetch,
-  upstreamUrl: string,
-  request: Request,
-  githubToken: string,
-  body: string,
-): Promise<Response> {
-  return fetchImpl(
-    new Request(upstreamUrl, {
-      method: request.method,
-      headers: upstreamHeaders(request, githubToken, body),
-      body,
-    }),
-  );
 }
 
 function isLocalTool(toolName: string): boolean {
@@ -400,20 +414,21 @@ async function handleToolsList(
   id: JsonRpcId,
   options: CreateGithubMcpProxyHandlerOptions,
   fetchImpl: GithubMcpProxyFetch,
+  credentialBridge: CredentialBridge<Hop1Identity, undefined, string | undefined>,
 ): Promise<Response> {
-  const githubToken = await resolveGithubTokenOrUndefined(options, identity);
+  const githubToken = await resolveGithubTokenOrUndefined(credentialBridge, identity);
   if (!githubToken) {
     return mcpResult(id, { tools: LOCAL_TOOLS });
   }
 
-  const upstreamBody = withUpstreamProtocolMeta(request, body);
-  const upstreamResponse = await fetchImpl(
-    new Request(options.upstreamUrl, {
-      method: request.method,
-      headers: upstreamHeaders(request, githubToken, upstreamBody),
-      body: upstreamBody,
-    }),
-  );
+  const upstreamBody = withUpstreamProtocolMetadata(request, body, SERVER_INFO);
+  const upstreamResponse = await forwardMcpRequest({
+    fetch: fetchImpl,
+    upstreamUrl: options.upstreamUrl,
+    request,
+    credential: githubToken,
+    body: upstreamBody,
+  });
   const responseBody = await upstreamResponse.text();
 
   return new Response(
@@ -421,17 +436,17 @@ async function handleToolsList(
     {
       status: upstreamResponse.status,
       statusText: upstreamResponse.statusText,
-      headers: responseHeaders(upstreamResponse),
+      headers: forwardedMcpResponseHeaders(upstreamResponse),
     },
   );
 }
 
 async function resolveGithubTokenOrUndefined(
-  options: CreateGithubMcpProxyHandlerOptions,
+  bridge: CredentialBridge<Hop1Identity, undefined, string | undefined>,
   identity: Hop1Identity,
 ): Promise<string | undefined> {
   try {
-    return await options.resolveGithubToken(identity);
+    return await bridge.resolve(identity, undefined);
   } catch (error) {
     if (error instanceof GitHubOAuthError && error.code === "reauth_required") {
       return undefined;
@@ -629,86 +644,6 @@ function bearerToken(request: Request): string | undefined {
   }
 
   return token;
-}
-
-function upstreamHeaders(request: Request, githubToken: string, body: string): Headers {
-  const headers = new Headers();
-  for (const name of FORWARDED_REQUEST_HEADERS) {
-    const value = request.headers.get(name);
-    if (value) {
-      headers.set(name, value);
-    }
-  }
-
-  headers.set("authorization", `Bearer ${githubToken}`);
-  const requestMetadata = parseMethod(body);
-  if (requestMetadata?.method) {
-    headers.set("mcp-method", requestMetadata.method);
-  }
-  if (requestMetadata?.requestName) {
-    headers.set("mcp-name", requestMetadata.requestName);
-  }
-  for (const [name, value] of Object.entries(requestMetadata?.requestArguments ?? {})) {
-    const headerName = `mcp-param-${name}`;
-    const headerValue = mcpParamHeaderValue(value);
-    if (/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(headerName) && headerValue !== undefined) {
-      headers.set(headerName, headerValue);
-    }
-  }
-  return headers;
-}
-
-function mcpParamHeaderValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return /[\r\n]/.test(value) ? undefined : value;
-  }
-  if (typeof value === "boolean") {
-    return String(value);
-  }
-  if (typeof value === "number" && Number.isSafeInteger(value)) {
-    return String(value);
-  }
-  return undefined;
-}
-
-function withUpstreamProtocolMeta(request: Request, body: string): string {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(body) as unknown;
-  } catch {
-    return body;
-  }
-  if (!isRecord(payload)) {
-    return body;
-  }
-
-  const params = isRecord(payload.params) ? payload.params : {};
-  const meta = isRecord(params._meta) ? params._meta : {};
-  return JSON.stringify({
-    ...payload,
-    params: {
-      ...params,
-      _meta: {
-        ...meta,
-        "io.modelcontextprotocol/protocolVersion":
-          request.headers.get("mcp-protocol-version") ?? "2025-06-18",
-        "io.modelcontextprotocol/clientInfo": SERVER_INFO,
-        "io.modelcontextprotocol/clientCapabilities": {},
-      },
-    },
-  });
-}
-
-function responseHeaders(response: Response): Headers {
-  const headers = new Headers();
-  for (const name of FORWARDED_RESPONSE_HEADERS) {
-    const value = response.headers.get(name);
-    if (value) {
-      headers.set(name, value);
-    }
-  }
-
-  return headers;
 }
 
 async function denyIfNeeded(

@@ -1,0 +1,18 @@
+{
+  "name": "@apelogic/mcp-gw-wrapper-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./authenticator": "./src/authenticator.ts",
+    "./configuration": "./src/configuration.ts",
+    "./credential-bridge": "./src/credential-bridge.ts",
+    "./errors": "./src/errors.ts",
+    "./lifecycle": "./src/lifecycle.ts",
+    "./mcp/http": "./src/mcp/http.ts",
+    "./mcp/authenticated-http": "./src/mcp/authenticated-http.ts",
+    "./mcp/proxy": "./src/mcp/proxy.ts",
+    "./mcp/registry": "./src/mcp/registry.ts"
+  }
+}

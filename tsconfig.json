@@ -20,5 +20,11 @@
     "target": "ES2023",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.ts", "servers/**/*.ts", "shared/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "servers/**/*.ts",
+    "shared/**/*.ts",
+    "packages/**/*.ts",
+    "test/**/*.ts"
+  ]
 }
