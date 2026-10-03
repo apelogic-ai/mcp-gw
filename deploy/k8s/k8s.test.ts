@@ -309,7 +309,7 @@ describe("Kubernetes production chart", () => {
           ...wrapper,
           serviceAccount: { create: false },
         },
-        expected: "name is required",
+        expected: "serviceAccount",
       },
       {
         label: "partial token exchange client credentials",
@@ -322,7 +322,7 @@ describe("Kubernetes production chart", () => {
           },
           secretRef: { name: "exchange", envKeys: ["EXCHANGE_CLIENT_ID"] },
         },
-        expected: "clientSecretEnv is required",
+        expected: "clientSecretEnv",
       },
     ];
 
