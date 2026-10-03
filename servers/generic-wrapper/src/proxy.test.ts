@@ -43,6 +43,11 @@ const catalog: GenericToolCatalog = {
 
 class RecordingTransport implements GenericUpstreamTransport {
   readonly requests: GenericUpstreamRequest[] = [];
+  readonly issuedSessions: { id: string; principalKey: string }[] = [];
+
+  issueSession(session: { id: string; principalKey: string }): void {
+    this.issuedSessions.push(session);
+  }
 
   send(request: GenericUpstreamRequest): Promise<Response> {
     this.requests.push(request);
@@ -90,6 +95,12 @@ describe("generic MCP proxy", () => {
     });
     expect(credentialCalls).toBe(0);
     expect(transport.requests).toHaveLength(0);
+    expect(transport.issuedSessions).toEqual([
+      {
+        id: initialized.headers.get("mcp-session-id"),
+        principalKey: "https://identity.example.com\nsubject-1",
+      },
+    ]);
 
     const notification = await proxy(mcpRequest("notifications/initialized", {}, undefined));
     expect(notification.status).toBe(202);
@@ -116,6 +127,69 @@ describe("generic MCP proxy", () => {
       },
     });
     expect(transport.requests).toHaveLength(0);
+  });
+
+  test.each([
+    "resources/read",
+    "prompts/get",
+    "completion/complete",
+    "logging/setLevel",
+    "vendor/custom",
+  ])(
+    "rejects ungoverned MCP method %s without resolving credentials or calling upstream",
+    async (method) => {
+      const transport = new RecordingTransport();
+      let credentialCalls = 0;
+      const response = await handler({
+        transport,
+        resolveCredential: () => {
+          credentialCalls += 1;
+          return Promise.resolve({ header: "authorization", value: "Bearer provider-secret" });
+        },
+      })(mcpRequest(method, {}, 91));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        jsonrpc: "2.0",
+        id: 91,
+        error: { code: -32601, message: `Unsupported MCP method: ${method}` },
+      });
+      expect(credentialCalls).toBe(0);
+      expect(transport.requests).toHaveLength(0);
+    },
+  );
+
+  test("pins missing and invalid HOP-1 rejection responses and challenges", async () => {
+    const missing = await handler({ transport: new RecordingTransport() })(
+      new Request("http://wrapper.test/mcp", { method: "POST" }),
+    );
+    const invalid = await createGenericMcpProxyHandler({
+      descriptor,
+      catalog,
+      authenticate: () => Promise.reject(new Error("invalid")),
+      transport: new RecordingTransport(),
+      resolveCredential: () => Promise.resolve(null),
+    })(
+      new Request("http://wrapper.test/mcp", {
+        method: "POST",
+        headers: { authorization: "Bearer invalid" },
+      }),
+    );
+
+    expect(missing.status).toBe(401);
+    expect(missing.headers.get("www-authenticate")).toBe("Bearer");
+    expect(await missing.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "Unauthorized: bearer token is required" },
+    });
+    expect(invalid.status).toBe(401);
+    expect(invalid.headers.get("www-authenticate")).toBe('Bearer error="invalid_token"');
+    expect(await invalid.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "Unauthorized: invalid bearer token" },
+    });
   });
 
   test("authorizes the exposed tool and sends only the upstream name and provider credential", async () => {

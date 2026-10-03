@@ -2,6 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import { createHttpUpstreamTransport, createStdioUpstreamTransport } from "./transport";
 
+interface SessionAwareTransport {
+  issueSession(session: { id: string; principalKey: string }): void;
+  assertSession(sessionId: string, principalKey: string): void;
+}
+
+function sessions(transport: unknown): SessionAwareTransport {
+  return transport as SessionAwareTransport;
+}
+
 describe("generic wrapper HTTP transport", () => {
   test("replaces caller authorization and translates wrapper session IDs", async () => {
     const requests: Request[] = [];
@@ -18,6 +27,7 @@ describe("generic wrapper HTTP transport", () => {
         },
       },
     );
+    sessions(transport).issueSession({ id: "client-session", principalKey: "issuer\nsubject" });
     await transport.send({
       incomingRequest: request("initialize", 1, "client-session"),
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
@@ -63,6 +73,7 @@ describe("generic wrapper HTTP transport", () => {
         },
       },
     );
+    sessions(transport).issueSession({ id: "wrapper-session", principalKey: "issuer\nsubject" });
     const response = await transport.send({
       incomingRequest: request("tools/call", 2, "wrapper-session"),
       body: JSON.stringify({
@@ -92,11 +103,13 @@ describe("generic wrapper HTTP transport", () => {
     const transport = createHttpUpstreamTransport(
       { transport: "http", url: "https://mcp.example.com/mcp" },
       {
-        maxSessions: 1,
+        maxSessions: 2,
+        maxSessionsPerPrincipal: 1,
         sessionIdleTtlMs: 10,
+        reapIntervalMs: 5,
         now: () => now,
         fetch: () => Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: {} })),
-      },
+      } as never,
     );
     const first = {
       incomingRequest: request("initialize", 1, "session-one"),
@@ -104,28 +117,62 @@ describe("generic wrapper HTTP transport", () => {
       credential: null,
       principalKey: "issuer\nsubject",
     };
+    sessions(transport).issueSession({ id: "session-one", principalKey: "issuer\nsubject" });
     await transport.send(first);
 
     expect(
-      transport.send({
-        ...first,
-        incomingRequest: request("initialize", 2, "session-two"),
+      Promise.resolve().then(() =>
+        sessions(transport).issueSession({
+          id: "session-two",
+          principalKey: "issuer\nsubject",
+        }),
+      ),
+    ).rejects.toThrow("per-principal session limit");
+    expect(() =>
+      sessions(transport).issueSession({
+        id: "session-other",
+        principalKey: "issuer\nsubject-other",
       }),
-    ).rejects.toThrow("session limit");
+    ).not.toThrow();
     now = 10;
-    expect(
+    await Bun.sleep(20);
+    expect(() => sessions(transport).assertSession("session-one", "issuer\nsubject")).toThrow(
+      "unknown or expired",
+    );
+  });
+
+  test("rejects missing, unissued, and cross-principal HTTP sessions before upstream access", async () => {
+    let fetchCalls = 0;
+    const transport = createHttpUpstreamTransport(
+      { transport: "http", url: "https://mcp.example.com/mcp" },
+      {
+        fetch: () => {
+          fetchCalls += 1;
+          return Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: {} }));
+        },
+      },
+    );
+    const base = {
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
+      credential: null,
+      principalKey: "issuer\nsubject",
+    };
+
+    await expect(
+      transport.send({ ...base, incomingRequest: request("tools/call", 1) }),
+    ).rejects.toThrow("session ID is required");
+    await expect(
+      transport.send({ ...base, incomingRequest: request("tools/call", 1, "forged") }),
+    ).rejects.toThrow("unknown or expired");
+    sessions(transport).issueSession({ id: "issued", principalKey: "issuer\nsubject" });
+    await expect(
       transport.send({
-        ...first,
-        incomingRequest: request("initialize", 2, "session-two"),
+        ...base,
+        principalKey: "issuer\nother",
+        incomingRequest: request("tools/call", 1, "issued"),
       }),
-    ).resolves.toBeInstanceOf(Response);
-    await transport.close?.({
-      ...first,
-      incomingRequest: new Request("http://wrapper.test/mcp", {
-        method: "DELETE",
-        headers: { "mcp-session-id": "session-two" },
-      }),
-    });
+    ).rejects.toThrow("does not belong");
+    expect(fetchCalls).toBe(0);
   });
 });
 
@@ -143,8 +190,9 @@ describe("generic wrapper stdio transport", () => {
       value: "Bearer provider-token",
       rawValue: "provider-token",
     };
+    sessions(transport).issueSession({ id: "stdio-issued", principalKey: "issuer\nsubject-a" });
     const initialized = await transport.send({
-      incomingRequest: request("initialize", 1),
+      incomingRequest: request("initialize", 1, "stdio-issued"),
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
       credential,
       principalKey: "issuer\nsubject-a",
@@ -195,13 +243,14 @@ describe("generic wrapper stdio transport", () => {
     });
   });
 
-  test("lazily initializes a stdio process for a wrapper-owned session", async () => {
+  test("lazily initializes a stdio process for an issued wrapper-owned session", async () => {
     const transport = createStdioUpstreamTransport({
       transport: "stdio",
       command: process.execPath,
       args: ["servers/generic-wrapper/src/fixtures/stdio-server.ts"],
       timeoutMs: 5_000,
     });
+    sessions(transport).issueSession({ id: "wrapper-session", principalKey: "issuer\nsubject-a" });
     const incomingRequest = request("tools/call", 4, "wrapper-session");
     const called = await transport.send({
       incomingRequest,
@@ -241,7 +290,13 @@ describe("generic wrapper stdio transport", () => {
       },
       process.env,
       undefined,
-      { maxSessions: 1, sessionIdleTtlMs: 10, now: () => now },
+      {
+        maxSessions: 2,
+        maxSessionsPerPrincipal: 1,
+        sessionIdleTtlMs: 10,
+        reapIntervalMs: 5,
+        now: () => now,
+      } as never,
     );
     const firstRequest = {
       incomingRequest: request("initialize", 1, "stdio-one"),
@@ -249,27 +304,39 @@ describe("generic wrapper stdio transport", () => {
       credential: null,
       principalKey: "issuer\nsubject",
     };
+    sessions(transport).issueSession({ id: "stdio-one", principalKey: "issuer\nsubject" });
     await transport.send(firstRequest);
     expect(
-      transport.send({
-        ...firstRequest,
-        incomingRequest: request("initialize", 2, "stdio-two"),
-      }),
-    ).rejects.toThrow("session limit");
+      Promise.resolve().then(() =>
+        sessions(transport).issueSession({ id: "stdio-two", principalKey: "issuer\nsubject" }),
+      ),
+    ).rejects.toThrow("per-principal session limit");
     now = 10;
-    expect(
-      transport.send({
-        ...firstRequest,
-        incomingRequest: request("initialize", 2, "stdio-two"),
-      }),
-    ).resolves.toBeInstanceOf(Response);
-    await transport.close?.({
-      ...firstRequest,
-      incomingRequest: new Request("http://wrapper.test/mcp", {
-        method: "DELETE",
-        headers: { "mcp-session-id": "stdio-two" },
-      }),
+    await Bun.sleep(20);
+    expect(() => sessions(transport).assertSession("stdio-one", "issuer\nsubject")).toThrow(
+      "unknown or expired",
+    );
+  });
+
+  test("rejects missing and unissued stdio sessions without spawning a child", async () => {
+    const transport = createStdioUpstreamTransport({
+      transport: "stdio",
+      command: process.execPath,
+      args: ["servers/generic-wrapper/src/fixtures/stdio-server.ts"],
+      timeoutMs: 5_000,
     });
+    const base = {
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
+      credential: null,
+      principalKey: "issuer\nsubject",
+    };
+
+    await expect(
+      transport.send({ ...base, incomingRequest: request("tools/call", 1) }),
+    ).rejects.toThrow("session ID is required");
+    await expect(
+      transport.send({ ...base, incomingRequest: request("tools/call", 1, "forged") }),
+    ).rejects.toThrow("unknown or expired");
   });
 });
 

@@ -318,6 +318,7 @@ describe("GitHub MCP proxy wrapper", () => {
     const response = await handler(new Request("http://wrapper/mcp", { method: "POST" }));
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe("Bearer");
     expect(diagnostics).toEqual(["missing_bearer"]);
     expect(await response.json()).toEqual({
       jsonrpc: "2.0",
@@ -353,6 +354,7 @@ describe("GitHub MCP proxy wrapper", () => {
     const body = await response.text();
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe('Bearer error="invalid_token"');
     expect(diagnostics).toEqual(["invalid_signature"]);
     expect(body).toContain("Unauthorized: invalid bearer token");
     expect(body).not.toContain("private-client-id");

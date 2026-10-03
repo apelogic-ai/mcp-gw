@@ -38,6 +38,33 @@ const config = createGenericOAuthRuntimeConfig(descriptor, {
 });
 
 describe("generic OAuth routes", () => {
+  test.each(["/\\\\evil.example/x", "/\t/evil.example/x"])(
+    "rejects a browser-normalized cross-origin redirect target %j before creating OAuth state",
+    async (redirectAfter) => {
+      const stateStore = new InMemoryOAuthStateStore();
+      const handler = createGenericOAuthRouteHandler({
+        authenticate: () => Promise.resolve(identity),
+        config,
+        tokenStore: new InMemoryOAuthTokenStore(),
+        stateStore,
+      });
+
+      const response = await handler(
+        new Request("https://gateway.example.com/connections/search-provider/authorize", {
+          method: "POST",
+          headers: { authorization: "Bearer hop1", "content-type": "application/json" },
+          body: JSON.stringify({ redirectAfter }),
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "authorization_denied",
+        code: "oauth_redirect_target_not_allowed",
+      });
+    },
+  );
+
   test("uses exact provider routes and consumes a denied callback state", async () => {
     const tokenStore = new InMemoryOAuthTokenStore();
     const stateStore = new InMemoryOAuthStateStore();
