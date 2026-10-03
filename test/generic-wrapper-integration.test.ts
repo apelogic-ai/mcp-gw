@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -161,6 +161,7 @@ async function exerciseCandidateImage(
 ): Promise<string> {
   const wrapperPort = await unusedPort();
   const directory = await mkdtemp(join(tmpdir(), "mcp-gw-generic-container-"));
+  await chmod(directory, 0o755);
   const descriptorPath = join(directory, "descriptor.yaml");
   const catalogPath = join(directory, "catalog.yaml");
   const upstreamUrl =
@@ -186,6 +187,7 @@ async function exerciseCandidateImage(
     ),
     writeFile(catalogPath, stringify(catalog)),
   ]);
+  await Promise.all([chmod(descriptorPath, 0o444), chmod(catalogPath, 0o444)]);
   const containerName = `mcp-gw-generic-${randomUUID()}`;
   const hostGatewayArgs =
     process.platform === "linux" ? ["--add-host", "host.docker.internal:host-gateway"] : [];
@@ -219,12 +221,14 @@ async function exerciseCandidateImage(
     stdout: "pipe",
     stderr: "pipe",
   });
-  void new Response(container.stdout).text();
-  void new Response(container.stderr).text();
+  const output = {
+    stdout: new Response(container.stdout).text(),
+    stderr: new Response(container.stderr).text(),
+  };
 
   try {
     const baseUrl = `http://127.0.0.1:${String(wrapperPort)}`;
-    await waitForHealth(baseUrl, container);
+    await waitForHealth(baseUrl, container, output);
     const initialized = await fetch(
       `${baseUrl}/mcp`,
       requestInit(
@@ -464,10 +468,15 @@ async function waitForReferenceServer(): Promise<void> {
 async function waitForHealth(
   baseUrl: string,
   container: Bun.Subprocess<"ignore", "pipe", "pipe">,
+  output: { stdout: Promise<string>; stderr: Promise<string> },
 ): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (container.exitCode !== null) {
-      throw new Error(`Generic wrapper candidate exited with ${String(container.exitCode)}`);
+      const [stdout, stderr] = await Promise.all([output.stdout, output.stderr]);
+      const details = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n").slice(0, 1_000);
+      throw new Error(
+        `Generic wrapper candidate exited with ${String(container.exitCode)}${details ? `: ${details}` : ""}`,
+      );
     }
     try {
       const response = await fetch(`${baseUrl}/health/ready`, {

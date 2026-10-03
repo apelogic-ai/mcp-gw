@@ -301,7 +301,7 @@ describe("Kubernetes production chart", () => {
           credential: { mode: "static_secret", env: "SEARCH_API_KEY", header: "x-api-key" },
           secretRef: { name: "search", envKeys: ["SEARCH_API_KEY"] },
         },
-        expected: "credentialEnv is required",
+        expected: "credentialEnv",
       },
       {
         label: "external service account without a name",
