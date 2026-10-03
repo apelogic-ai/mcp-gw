@@ -28,14 +28,14 @@ type BoundedProcessResult = {
 };
 
 describe("Kubernetes production chart", () => {
-  test("keeps the existing production-bundle manifest byte-identical", () => {
+  test("keeps the existing production-bundle manifest contract identical", () => {
     const rendered = helmTemplate([
       "--values",
       "deploy/k8s/examples/values-production-bundle.example.yaml",
     ]);
 
-    expect(createHash("sha256").update(rendered).digest("hex")).toBe(
-      "9534eb6711bf8c3f089f80b205d30cbee18b3cb2855a66d557804c3f9369f9a3",
+    expect(manifestGoldenDigest(rendered)).toBe(
+      "1e2227d0283cd85962dee76de861cc1e6417ed6a0a9e401738499eec117215a8",
     );
   });
 
@@ -2396,6 +2396,28 @@ describe("Kubernetes production chart", () => {
 
 function helmTemplate(extraArgs: string[] = []): string {
   return helmTemplateForRelease("mcp-gateway", extraArgs);
+}
+
+function manifestGoldenDigest(rendered: string): string {
+  const documents = parseAllDocuments(rendered).map((document) => document.toJSON());
+  return createHash("sha256").update(stableManifestString(documents)).digest("hex");
+}
+
+function stableManifestString(value: unknown, key?: string): string {
+  // Helm derives this rollout annotation by rendering the ConfigMap internally.
+  // Its bytes vary between Helm/Sprig builds even when the resulting objects do not.
+  if (key === "checksum/agentgateway-config") return JSON.stringify("<render-derived>");
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableManifestString(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((entry) => `${JSON.stringify(entry)}:${stableManifestString(record[entry], entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function helmTemplateForRelease(releaseName: string, extraArgs: string[] = []): string {
