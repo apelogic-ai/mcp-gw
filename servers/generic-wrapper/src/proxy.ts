@@ -468,19 +468,20 @@ function safeStreamingResponse(response: Response): Response {
 
 async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
   if (!response.body) return "";
-  const reader = response.body.getReader();
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let total = 0;
   let body = "";
   for (;;) {
     const next = await reader.read();
     if (next.done) return body + decoder.decode();
-    total += next.value.byteLength;
+    const chunk: Uint8Array = next.value;
+    total += chunk.byteLength;
     if (total > maxBytes) {
       await reader.cancel().catch(() => undefined);
       throw new Error("MCP upstream response exceeded the size limit");
     }
-    body += decoder.decode(next.value, { stream: true });
+    body += decoder.decode(chunk, { stream: true });
   }
 }
 

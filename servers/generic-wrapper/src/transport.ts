@@ -344,7 +344,8 @@ export function createStdioUpstreamTransport(
       let needsInitialization = false;
       if (!session.child) {
         attachStdioChild(session, descriptor, request, env);
-        void session.child!.exited.finally(() => {
+        const child = requireStdioChild(session);
+        void child.exited.finally(() => {
           if (sessions.get(session.id) === session) sessions.delete(session.id);
         });
         if (message?.method !== "initialize") {
@@ -362,8 +363,9 @@ export function createStdioUpstreamTransport(
           if (needsInitialization) {
             await initializeStdioSession(session, request, serverInfo, timeoutMs);
           }
-          await session.child!.stdin.write(`${request.body}\n`);
-          await session.child!.stdin.flush();
+          const child = requireStdioChild(session);
+          await child.stdin.write(`${request.body}\n`);
+          await child.stdin.flush();
           if (!message?.hasId) {
             return new Response(null, {
               status: 202,
@@ -470,7 +472,8 @@ async function initializeStdioSession(
   const protocolVersion =
     request.incomingRequest.headers.get("mcp-protocol-version") ?? "2025-06-18";
   const initializeId = `generic-wrapper-${randomUUID()}`;
-  await session.child!.stdin.write(
+  const child = requireStdioChild(session);
+  await child.stdin.write(
     `${JSON.stringify({
       jsonrpc: "2.0",
       id: initializeId,
@@ -478,16 +481,16 @@ async function initializeStdioSession(
       params: { protocolVersion, capabilities: {}, clientInfo: serverInfo },
     })}\n`,
   );
-  await session.child!.stdin.flush();
+  await child.stdin.flush();
   await withTimeout(readResponseForId(session, initializeId), timeoutMs);
-  await session.child!.stdin.write(
+  await child.stdin.write(
     `${JSON.stringify({
       jsonrpc: "2.0",
       method: "notifications/initialized",
       params: {},
     })}\n`,
   );
-  await session.child!.stdin.flush();
+  await child.stdin.flush();
 }
 
 async function withSessionLock<T>(session: StdioSession, operation: () => Promise<T>): Promise<T> {
@@ -507,6 +510,9 @@ async function withSessionLock<T>(session: StdioSession, operation: () => Promis
 }
 
 async function readLine(session: StdioSession): Promise<string> {
+  const reader = session.reader;
+  const decoder = session.decoder;
+  if (!reader || !decoder) throw new Error("stdio MCP upstream session is not running");
   for (;;) {
     const newline = session.buffer.indexOf("\n");
     if (newline >= 0) {
@@ -515,13 +521,18 @@ async function readLine(session: StdioSession): Promise<string> {
       if (line) return line;
       continue;
     }
-    const next = await session.reader!.read();
+    const next = await reader.read();
     if (next.done || !next.value) throw new Error("stdio MCP upstream exited before responding");
-    session.buffer += session.decoder!.decode(next.value, { stream: true });
+    session.buffer += decoder.decode(next.value, { stream: true });
     if (session.buffer.length > 1_048_576) {
       throw new Error("stdio MCP upstream response exceeded the size limit");
     }
   }
+}
+
+function requireStdioChild(session: StdioSession): Bun.Subprocess<"pipe", "pipe", "pipe"> {
+  if (!session.child) throw new Error("stdio MCP upstream session is not running");
+  return session.child;
 }
 
 function parseMessage(

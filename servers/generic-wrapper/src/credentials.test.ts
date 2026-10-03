@@ -107,7 +107,7 @@ describe("generic wrapper credentials", () => {
     expect(exchanges).toBe(3);
   });
 
-  test("rejects a token exchange response with the wrong issued token type", async () => {
+  test("rejects a token exchange response with the wrong issued token type", () => {
     const resolver = createGenericCredentialResolver(
       {
         mode: "token_exchange",
@@ -126,8 +126,8 @@ describe("generic wrapper credentials", () => {
       },
     );
 
-    await expect(
-      resolver.resolve({ identity, hop1Token: "hop1-secret", scopes: [] }),
-    ).rejects.toThrow("malformed");
+    expect(resolver.resolve({ identity, hop1Token: "hop1-secret", scopes: [] })).rejects.toThrow(
+      "malformed",
+    );
   });
 });

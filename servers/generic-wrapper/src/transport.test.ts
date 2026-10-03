@@ -109,7 +109,7 @@ describe("generic wrapper HTTP transport", () => {
         reapIntervalMs: 5,
         now: () => now,
         fetch: () => Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: {} })),
-      } as never,
+      },
     );
     const first = {
       incomingRequest: request("initialize", 1, "session-one"),
@@ -141,7 +141,7 @@ describe("generic wrapper HTTP transport", () => {
     );
   });
 
-  test("rejects missing, unissued, and cross-principal HTTP sessions before upstream access", async () => {
+  test("rejects missing, unissued, and cross-principal HTTP sessions before upstream access", () => {
     let fetchCalls = 0;
     const transport = createHttpUpstreamTransport(
       { transport: "http", url: "https://mcp.example.com/mcp" },
@@ -158,14 +158,14 @@ describe("generic wrapper HTTP transport", () => {
       principalKey: "issuer\nsubject",
     };
 
-    await expect(
-      transport.send({ ...base, incomingRequest: request("tools/call", 1) }),
-    ).rejects.toThrow("session ID is required");
-    await expect(
+    expect(transport.send({ ...base, incomingRequest: request("tools/call", 1) })).rejects.toThrow(
+      "session ID is required",
+    );
+    expect(
       transport.send({ ...base, incomingRequest: request("tools/call", 1, "forged") }),
     ).rejects.toThrow("unknown or expired");
     sessions(transport).issueSession({ id: "issued", principalKey: "issuer\nsubject" });
-    await expect(
+    expect(
       transport.send({
         ...base,
         principalKey: "issuer\nother",
@@ -296,7 +296,7 @@ describe("generic wrapper stdio transport", () => {
         sessionIdleTtlMs: 10,
         reapIntervalMs: 5,
         now: () => now,
-      } as never,
+      },
     );
     const firstRequest = {
       incomingRequest: request("initialize", 1, "stdio-one"),
@@ -318,7 +318,7 @@ describe("generic wrapper stdio transport", () => {
     );
   });
 
-  test("rejects missing and unissued stdio sessions without spawning a child", async () => {
+  test("rejects missing and unissued stdio sessions without spawning a child", () => {
     const transport = createStdioUpstreamTransport({
       transport: "stdio",
       command: process.execPath,
@@ -331,10 +331,10 @@ describe("generic wrapper stdio transport", () => {
       principalKey: "issuer\nsubject",
     };
 
-    await expect(
-      transport.send({ ...base, incomingRequest: request("tools/call", 1) }),
-    ).rejects.toThrow("session ID is required");
-    await expect(
+    expect(transport.send({ ...base, incomingRequest: request("tools/call", 1) })).rejects.toThrow(
+      "session ID is required",
+    );
+    expect(
       transport.send({ ...base, incomingRequest: request("tools/call", 1, "forged") }),
     ).rejects.toThrow("unknown or expired");
   });
