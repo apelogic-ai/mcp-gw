@@ -253,6 +253,8 @@ function catalogDigest(catalog: unknown): string {
 
 function withoutVolatileAuditFields(event: unknown): Record<string, unknown> | undefined {
   if (!event || typeof event !== "object" || Array.isArray(event)) return undefined;
-  const { ts: _ts, latencyMs: _latencyMs, ...stable } = event as Record<string, unknown>;
+  const stable = { ...(event as Record<string, unknown>) };
+  delete stable.ts;
+  delete stable.latencyMs;
   return stable;
 }

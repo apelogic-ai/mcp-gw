@@ -52,6 +52,7 @@ RUN bun install --frozen-lockfile --production
 COPY tsconfig.json ./
 COPY src ./src
 COPY shared ./shared
+COPY packages ./packages
 COPY servers ./servers
 RUN chown -R 10001:10001 /app
 

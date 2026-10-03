@@ -19,13 +19,16 @@ import {
   type PolicyDecision,
   type ToolPolicy,
 } from "../../../../../shared/policy/policy";
+import type {
+  ToolRegistry,
+  ToolResult,
+} from "../../../../../packages/wrapper-kit/src/mcp/registry";
 import {
   getGoogleWorkspaceTool,
   listGoogleWorkspaceTools,
   type GoogleWorkspaceCatalogId,
 } from "../catalog/google-workspace";
 import type { WorkspaceToolDefinition } from "../catalog/types";
-import type { ToolRegistry, ToolResult } from "../mcp/registry";
 import { resolveWorkspaceOperation } from "./operation-resolver";
 
 export interface GoogleOAuthStatus {
