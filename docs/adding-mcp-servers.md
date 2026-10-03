@@ -345,9 +345,8 @@ code-generator. The repository contains a private, structured TypeScript
 package at [`packages/wrapper-kit`](../packages/wrapper-kit) for the bundled
 wrappers. It defines internal interfaces for HOP-1 authentication, credential
 bridges, policy and audit assembly, HTTP proxying, server-side tool registries,
-lifecycle routes, and sanitized errors. It is an internal source package, not a
-stable external API; its import paths and interfaces may change with MCP-GW
-itself.
+lifecycle routes, and sanitized errors. They are internal source modules rather than stable external APIs.
+Their import paths and interfaces may change with MCP-GW itself.
 
 The closest reference implementations are:
 
@@ -378,11 +377,11 @@ Until a supported SDK exists, a wrapper implementation must explicitly provide:
 6. sanitized errors and secret-safe logging; and
 7. protocol, authentication, policy, concurrency, and failure tests.
 
-A future supported SDK would version and publish these interfaces, add stable
-configuration parsing and provider extension points, and ship a conformance
-kit. Unless that supported package is named in MCP-GW release notes,
-integrators should treat `packages/wrapper-kit` as implementation detail rather
-than an SDK dependency.
+A future supported SDK would version and publish these interfaces and add stable
+configuration parsing and provider extension points. It would also ship a
+conformance test kit. Unless that supported package is named in MCP-GW release
+notes, integrators should treat `packages/wrapper-kit` as implementation detail
+rather than an SDK dependency.
 
 ## Helm behavior and limitations
 
