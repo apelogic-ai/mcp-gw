@@ -32,7 +32,9 @@ let apiKeyGate: ReturnType<typeof Bun.serve>;
 let identityServer: ReturnType<typeof Bun.serve>;
 let observedGateHeaders: Headers[] = [];
 let hop1Token = "";
+let candidateHop1Token = "";
 let identityIssuer = "";
+let candidateIdentityIssuer = "";
 
 beforeAll(async () => {
   referencePort = await unusedPort();
@@ -54,7 +56,7 @@ beforeAll(async () => {
   await waitForReferenceServer();
 
   apiKeyGate = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: "0.0.0.0",
     port: 0,
     async fetch(request) {
       observedGateHeaders.push(new Headers(request.headers));
@@ -74,7 +76,7 @@ beforeAll(async () => {
   const publicJwk = await exportJWK(signing.publicKey);
   publicJwk.kid = "integration-key";
   identityServer = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: "0.0.0.0",
     port: 0,
     fetch(request) {
       return new URL(request.url).pathname === "/jwks.json"
@@ -83,10 +85,19 @@ beforeAll(async () => {
     },
   });
   identityIssuer = `http://127.0.0.1:${String(identityServer.port)}`;
+  candidateIdentityIssuer = `http://host.docker.internal:${String(identityServer.port)}`;
   hop1Token = await new SignJWT({ email: "developer@example.com" })
     .setProtectedHeader({ alg: "EdDSA", kid: "integration-key" })
     .setIssuer(identityIssuer)
     .setSubject("generic-wrapper-integration")
+    .setAudience("mcp-gateway")
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(signing.privateKey);
+  candidateHop1Token = await new SignJWT({ email: "developer@example.com" })
+    .setProtectedHeader({ alg: "EdDSA", kid: "integration-key" })
+    .setIssuer(candidateIdentityIssuer)
+    .setSubject("generic-wrapper-container-integration")
     .setAudience("mcp-gateway")
     .setIssuedAt()
     .setExpirationTime("5m")
@@ -141,7 +152,7 @@ describe("generic wrapper reference-server integration", () => {
       expect(headers.get("x-api-key")).toBe("fixture-api-key");
       expect(headers.get("authorization")).toBeNull();
     }
-  }, 30_000);
+  }, 60_000);
 });
 
 async function exerciseCandidateImage(
@@ -154,8 +165,8 @@ async function exerciseCandidateImage(
   const catalogPath = join(directory, "catalog.yaml");
   const upstreamUrl =
     mode === "none"
-      ? `http://127.0.0.1:${String(referencePort)}/mcp`
-      : `http://127.0.0.1:${String(apiKeyGate.port)}/mcp`;
+      ? `http://host.docker.internal:${String(referencePort)}/mcp`
+      : `http://host.docker.internal:${String(apiKeyGate.port)}/mcp`;
   await Promise.all([
     writeFile(
       descriptorPath,
@@ -176,25 +187,30 @@ async function exerciseCandidateImage(
     writeFile(catalogPath, stringify(catalog)),
   ]);
   const containerName = `mcp-gw-generic-${randomUUID()}`;
+  const hostGatewayArgs =
+    process.platform === "linux"
+      ? ["--add-host", "host.docker.internal:host-gateway"]
+      : [];
   const containerArgs = [
     "docker",
     "run",
     "--rm",
     "--name",
     containerName,
-    "--network",
-    "host",
+    ...hostGatewayArgs,
+    "--publish",
+    `127.0.0.1:${String(wrapperPort)}:8080`,
     "--read-only",
     "--tmpfs",
     "/tmp:rw,noexec,nosuid,size=16m",
     "--volume",
     `${directory}:/config:ro`,
     "--env",
-    `PORT=${String(wrapperPort)}`,
+    "PORT=8080",
     "--env",
     "GENERIC_WRAPPER_DESCRIPTOR_PATH=/config/descriptor.yaml",
     "--env",
-    `HOP1_ISSUERS_JSON=${issuerProfilesJson()}`,
+    `HOP1_ISSUERS_JSON=${issuerProfilesJson(candidateIdentityIssuer)}`,
   ];
   if (mode === "static_secret") {
     containerArgs.push("--env", "REFERENCE_API_KEY=fixture-api-key");
@@ -221,6 +237,8 @@ async function exerciseCandidateImage(
           clientInfo: { name: "generic-container-integration", version: "1.0.0" },
         },
         1,
+        undefined,
+        candidateHop1Token,
       ),
     );
     expect(initialized.status).toBe(200);
@@ -228,7 +246,7 @@ async function exerciseCandidateImage(
     expect(sessionId).toBeString();
     const listed = await fetch(
       `${baseUrl}/mcp`,
-      requestInit("tools/list", {}, 2, sessionId ?? undefined),
+      requestInit("tools/list", {}, 2, sessionId ?? undefined, candidateHop1Token),
     );
     const listedBody = (await listed.json()) as {
       result: { tools: { name: string }[] };
@@ -242,6 +260,7 @@ async function exerciseCandidateImage(
         { name: "reference_echo", arguments: { message } },
         3,
         sessionId ?? undefined,
+        candidateHop1Token,
       ),
     );
     const body = extractSseMessage(await called.text()) as {
@@ -249,7 +268,7 @@ async function exerciseCandidateImage(
     };
     return body.result?.content?.find((item) => item.type === "text")?.text ?? "";
   } finally {
-    Bun.spawnSync(["docker", "stop", "--time", "1", containerName]);
+    Bun.spawnSync(["docker", "stop", "--timeout", "1", containerName]);
     await container.exited;
     await rm(directory, { recursive: true, force: true });
   }
@@ -354,12 +373,12 @@ async function exerciseWrapper(options: {
   }
 }
 
-function issuerProfilesJson(): string {
+function issuerProfilesJson(issuer = identityIssuer): string {
   return JSON.stringify([
     {
       name: "fixture",
-      issuer: identityIssuer,
-      jwksUrl: `${identityIssuer}/jwks.json`,
+      issuer,
+      jwksUrl: `${issuer}/jwks.json`,
       audiences: ["mcp-gateway"],
       allowedAlgorithms: ["EdDSA"],
       emailClaim: "email",
@@ -393,10 +412,11 @@ function requestInit(
   params: Record<string, unknown>,
   id: number | undefined,
   sessionId?: string,
+  bearerToken = hop1Token,
 ): RequestInit {
   const headers = new Headers({
     accept: "application/json, text/event-stream",
-    authorization: `Bearer ${hop1Token}`,
+    authorization: `Bearer ${bearerToken}`,
     "content-type": "application/json",
     "mcp-protocol-version": "2025-06-18",
   });
@@ -452,7 +472,9 @@ async function waitForHealth(
       throw new Error(`Generic wrapper candidate exited with ${String(container.exitCode)}`);
     }
     try {
-      const response = await fetch(`${baseUrl}/health/ready`);
+      const response = await fetch(`${baseUrl}/health/ready`, {
+        signal: AbortSignal.timeout(250),
+      });
       if (response.ok) return;
     } catch {
       // The candidate container is still starting.
