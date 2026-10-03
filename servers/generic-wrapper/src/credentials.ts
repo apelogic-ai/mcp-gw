@@ -6,6 +6,7 @@ import type { GenericCredentialDescriptor } from "./descriptor";
 export interface GenericUpstreamCredential {
   header: string;
   value: string;
+  rawValue?: string;
 }
 
 export interface GenericCredentialRequest {
@@ -45,7 +46,7 @@ export function createGenericCredentialResolver(
     const secret = requiredEnv(env, descriptor.env);
     const value = descriptor.scheme ? `${descriptor.scheme} ${secret}` : secret;
     return {
-      resolve: () => Promise.resolve({ header: descriptor.header, value }),
+      resolve: () => Promise.resolve({ header: descriptor.header, value, rawValue: secret }),
     };
   }
   if (descriptor.mode === "per_user_oauth") {
@@ -59,6 +60,7 @@ export function createGenericCredentialResolver(
           ? {
               header: descriptor.header ?? "authorization",
               value: `${descriptor.scheme ?? "Bearer"} ${token}`,
+              rawValue: token,
             }
           : null;
       },
@@ -117,6 +119,7 @@ export function createGenericCredentialResolver(
       const credential = {
         header: descriptor.header ?? "authorization",
         value: `${tokenType} ${body.access_token}`,
+        rawValue: body.access_token,
       };
       const expiresIn =
         typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 60;

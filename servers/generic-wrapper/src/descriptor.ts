@@ -13,7 +13,14 @@ export interface GenericServerInfo {
 
 export type GenericUpstreamDescriptor =
   | { transport: "http"; url: string; timeoutMs?: number }
-  | { transport: "stdio"; command: string; args: string[]; envAllowlist?: string[] };
+  | {
+      transport: "stdio";
+      command: string;
+      args: string[];
+      envAllowlist?: string[];
+      credentialEnv?: string;
+      timeoutMs?: number;
+    };
 
 export type GenericCredentialDescriptor =
   | { mode: "none" }
@@ -187,7 +194,14 @@ function parseUpstream(value: unknown): GenericUpstreamDescriptor {
     };
   }
   if (record.transport === "stdio") {
-    assertAllowedFields(record, "upstream", ["transport", "command", "args", "envAllowlist"]);
+    assertAllowedFields(record, "upstream", [
+      "transport",
+      "command",
+      "args",
+      "envAllowlist",
+      "credentialEnv",
+      "timeoutMs",
+    ]);
     const command = nonEmptyString(record.command, "upstream.command");
     if (!command.startsWith("/")) throw new Error("upstream.command must be absolute");
     return {
@@ -201,6 +215,13 @@ function parseUpstream(value: unknown): GenericUpstreamDescriptor {
               (entry) => patternString(entry, "upstream.envAllowlist", ENV_PATTERN),
             ),
           }),
+      ...optionalPatternProperty(
+        record.credentialEnv,
+        "upstream.credentialEnv",
+        "credentialEnv",
+        ENV_PATTERN,
+      ),
+      ...optionalPositiveIntegerProperty(record.timeoutMs, "upstream.timeoutMs", "timeoutMs"),
     };
   }
   throw new Error("upstream.transport must be http or stdio");

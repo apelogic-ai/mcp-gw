@@ -25,6 +25,7 @@ describe("generic wrapper credentials", () => {
     expect(await resolver.resolve({ identity, hop1Token: "hop1-secret", scopes: [] })).toEqual({
       header: "x-api-key",
       value: "provider-secret",
+      rawValue: "provider-secret",
     });
   });
 
@@ -60,7 +61,11 @@ describe("generic wrapper credentials", () => {
 
     expect(
       await resolver.resolve({ identity, hop1Token: "hop1-secret", scopes: ["search.read"] }),
-    ).toEqual({ header: "authorization", value: "Bearer exchanged-provider-token" });
+    ).toEqual({
+      header: "authorization",
+      value: "Bearer exchanged-provider-token",
+      rawValue: "exchanged-provider-token",
+    });
     const request = requests[0];
     expect(request?.headers.get("authorization")).toStartWith("Basic ");
     const body = await request?.text();
