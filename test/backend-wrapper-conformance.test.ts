@@ -49,6 +49,14 @@ describe("bundled wrapper backend conformance", () => {
       expect(report.passed).toContain(checkName);
     }
   });
+
+  test("GitHub sidecar loopback target passes the shared contract", async () => {
+    const target = await createGithubTarget("http://127.0.0.1:8082/mcp");
+    const report = await runBackendConformance(target);
+
+    expect(report.failures).toEqual([]);
+    expect((await target.evidence?.upstream())?.join("\n")).toContain("http://127.0.0.1:8082/mcp");
+  });
 });
 
 async function createGenericTarget(): Promise<BackendConformanceTarget> {
@@ -157,13 +165,15 @@ async function createGenericTarget(): Promise<BackendConformanceTarget> {
   });
 }
 
-async function createGithubTarget(): Promise<BackendConformanceTarget> {
+async function createGithubTarget(
+  upstreamUrl = "http://github-upstream.example/mcp",
+): Promise<BackendConformanceTarget> {
   const tokens = await tokensPromise;
   const audit = new InMemoryAuditSink();
   let scenario: BackendConformanceScenario = "normal";
   const upstreamEvidence: string[] = [];
   const handler = createGithubMcpProxyHandler({
-    upstreamUrl: "http://github-upstream.example/mcp",
+    upstreamUrl,
     githubToolsets: ["repos"],
     authenticate: (token) => tokens.authenticate(token),
     getOAuthStatus: () =>
@@ -179,6 +189,7 @@ async function createGithubTarget(): Promise<BackendConformanceTarget> {
     fetch: async (request) => {
       upstreamEvidence.push(
         JSON.stringify({
+          url: request.url,
           headers: Object.fromEntries(request.headers),
           body: await request.clone().text(),
         }),
