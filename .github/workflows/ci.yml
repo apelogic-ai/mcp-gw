@@ -34,6 +34,9 @@ jobs:
       - name: Run quality gates
         run: bun run ci
 
+      - name: Run backend conformance suite
+        run: bun run conformance:ci
+
       - name: Run deployment validation
         run: bun run deploy:check
 

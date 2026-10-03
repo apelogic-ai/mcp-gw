@@ -3,7 +3,7 @@ import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
 import { InMemoryAuditSink } from "../shared/audit/audit";
 import type { Hop1Identity } from "../shared/identity/hop1";
-import type { PolicyDecision, ToolPolicy, ToolPolicyInput } from "../shared/policy/policy";
+import type { PolicyDecision, ToolPolicy } from "../shared/policy/policy";
 import { createAuthenticator } from "../packages/wrapper-kit/src/authenticator";
 import { createGenericMcpProxyHandler } from "../servers/generic-wrapper/src/proxy";
 import { createHttpUpstreamTransport } from "../servers/generic-wrapper/src/transport";
@@ -31,23 +31,23 @@ describe("bundled wrapper backend conformance", () => {
     const report = await runBackendConformance(await createTarget());
 
     expect(report.failures).toEqual([]);
-    expect(report.passed).toEqual(
-      expect.arrayContaining([
-        "authentication.missing",
-        "authentication.expired",
-        "authentication.wrong_audience",
-        "protocol.initialize",
-        "protocol.initialized_notification",
-        "protocol.tools_list",
-        "protocol.tools_call",
-        "concurrency.parallel_reads",
-        "policy.denied_grant",
-        "failure.upstream_5xx",
-        "failure.upstream_timeout",
-        "security.hop1_not_forwarded",
-        "security.secret_safe_outputs",
-      ]),
-    );
+    for (const checkName of [
+      "authentication.missing",
+      "authentication.expired",
+      "authentication.wrong_audience",
+      "protocol.initialize",
+      "protocol.initialized_notification",
+      "protocol.tools_list",
+      "protocol.tools_call",
+      "concurrency.parallel_reads",
+      "policy.denied_grant",
+      "failure.upstream_5xx",
+      "failure.upstream_timeout",
+      "security.hop1_not_forwarded",
+      "security.secret_safe_outputs",
+    ]) {
+      expect(report.passed).toContain(checkName);
+    }
   });
 });
 
@@ -57,13 +57,18 @@ async function createGenericTarget(): Promise<BackendConformanceTarget> {
   let scenario: BackendConformanceScenario = "normal";
   const upstreamEvidence: string[] = [];
   const policy = scenarioPolicy(() => scenario);
+  const upstream = {
+    transport: "http" as const,
+    url: "http://upstream.example/mcp",
+    timeoutMs: 20,
+  };
   const descriptor: GenericWrapperDescriptor = {
     schemaVersion: "mcp-gateway.generic-wrapper/v1",
     name: "conformance-generic",
     toolPrefix: "reference",
     catalogPath: "/unused/catalog.yaml",
     lifecycleRoutes: false,
-    upstream: { transport: "http", url: "http://upstream.example/mcp", timeoutMs: 20 },
+    upstream,
     credential: { mode: "static_secret", env: "REFERENCE_TOKEN", header: "authorization" },
     serverInfo: { name: "generic-conformance", version: "1.0.0" },
     sessions: { maxTotal: 8, maxPerPrincipal: 2, idleTtlMs: 60_000 },
@@ -82,40 +87,43 @@ async function createGenericTarget(): Promise<BackendConformanceTarget> {
       },
     ],
   };
-  const transport = createHttpUpstreamTransport(descriptor.upstream, {
-    fetch: async (_input, init) => {
+  const transport = createHttpUpstreamTransport(upstream, {
+    fetch: (_input, init) => {
+      const body = typeof init?.body === "string" ? init.body : "{}";
       upstreamEvidence.push(
         JSON.stringify({
           headers: Object.fromEntries(new Headers(init?.headers)),
-          body: init?.body,
+          body,
         }),
       );
       if (scenario === "upstream_5xx") {
-        return Response.json({ error: "fixture unavailable" }, { status: 503 });
+        return Promise.resolve(Response.json({ error: "fixture unavailable" }, { status: 503 }));
       }
       if (scenario === "upstream_timeout") {
-        throw new DOMException("fixture timeout", "TimeoutError");
+        return Promise.reject(new DOMException("fixture timeout", "TimeoutError"));
       }
-      const payload = JSON.parse(String(init?.body ?? "{}")) as {
+      const payload = JSON.parse(body) as {
         id?: string | number | null;
         method?: string;
       };
       if (payload.method === "notifications/initialized")
-        return new Response(null, { status: 202 });
-      return Response.json(
-        {
-          jsonrpc: "2.0",
-          id: payload.id ?? null,
-          result:
-            payload.method === "initialize"
-              ? {
-                  protocolVersion: "2025-06-18",
-                  capabilities: { tools: {} },
-                  serverInfo: { name: "fixture-upstream", version: "1" },
-                }
-              : { content: [{ type: "text", text: "ok" }] },
-        },
-        { headers: { "mcp-session-id": "fixture-upstream-session" } },
+        return Promise.resolve(new Response(null, { status: 202 }));
+      return Promise.resolve(
+        Response.json(
+          {
+            jsonrpc: "2.0",
+            id: payload.id ?? null,
+            result:
+              payload.method === "initialize"
+                ? {
+                    protocolVersion: "2025-06-18",
+                    capabilities: { tools: {} },
+                    serverInfo: { name: "fixture-upstream", version: "1" },
+                  }
+                : { content: [{ type: "text", text: "ok" }] },
+          },
+          { headers: { "mcp-session-id": "fixture-upstream-session" } },
+        ),
       );
     },
     serverInfo: descriptor.serverInfo,
@@ -126,7 +134,7 @@ async function createGenericTarget(): Promise<BackendConformanceTarget> {
   const handler = createGenericMcpProxyHandler({
     descriptor,
     catalog,
-    authenticate: tokens.authenticate,
+    authenticate: (token) => tokens.authenticate(token),
     transport,
     policy,
     audit,
@@ -139,6 +147,7 @@ async function createGenericTarget(): Promise<BackendConformanceTarget> {
     send: handler,
     tokens,
     sessionMode: "required",
+    policyDenial: "mcp_tool_error",
     toolCall: { name: "reference_echo", arguments: { message: "conformance" } },
     scenario: (value) => {
       scenario = value;
@@ -156,7 +165,7 @@ async function createGithubTarget(): Promise<BackendConformanceTarget> {
   const handler = createGithubMcpProxyHandler({
     upstreamUrl: "http://github-upstream.example/mcp",
     githubToolsets: ["repos"],
-    authenticate: tokens.authenticate,
+    authenticate: (token) => tokens.authenticate(token),
     getOAuthStatus: () =>
       Promise.resolve({
         connected: true,
@@ -194,6 +203,7 @@ async function createGithubTarget(): Promise<BackendConformanceTarget> {
     send: handler,
     tokens,
     sessionMode: "optional",
+    policyDenial: "jsonrpc_error",
     toolCall: {
       name: "get_file_contents",
       arguments: { owner: "example", repo: "fixture", path: "README.md" },
@@ -213,7 +223,7 @@ async function createGoogleTarget(): Promise<BackendConformanceTarget> {
   const upstreamEvidence: string[] = [];
   const handler = createGoogleWorkspaceWrapperHandler({
     serverInfo: { name: "google-conformance", version: "1.0.0" },
-    authenticate: tokens.authenticate,
+    authenticate: (token) => tokens.authenticate(token),
     policy: scenarioPolicy(() => scenario),
     audit,
     tokenBroker: {
@@ -237,6 +247,7 @@ async function createGoogleTarget(): Promise<BackendConformanceTarget> {
     send: handler,
     tokens,
     sessionMode: "optional",
+    policyDenial: "transport_error",
     toolCall: { name: "google_drive_files_list", arguments: { pageSize: 1 } },
     scenario: (value) => {
       scenario = value;
@@ -251,15 +262,16 @@ function target(options: {
   send(request: Request): Promise<Response>;
   tokens: TokenFixture;
   sessionMode: "required" | "optional";
+  policyDenial: BackendConformanceTarget["policyDenial"];
   toolCall: { name: string; arguments: Record<string, unknown> };
   scenario(value: BackendConformanceScenario): void;
   upstreamEvidence: string[];
-  logs(): string;
+  logs: () => string;
 }): BackendConformanceTarget {
   return {
     name: options.name,
     endpoint: "http://wrapper.test/mcp",
-    send: options.send,
+    send: (request) => options.send(request),
     tokens: {
       valid: options.tokens.valid,
       expired: options.tokens.expired,
@@ -267,6 +279,7 @@ function target(options: {
       otherPrincipal: options.tokens.otherPrincipal,
     },
     sessionMode: options.sessionMode,
+    policyDenial: options.policyDenial,
     toolCall: options.toolCall,
     concurrency: 4,
     scenarios: {
@@ -277,7 +290,7 @@ function target(options: {
     },
     evidence: {
       upstream: () => options.upstreamEvidence,
-      logs: options.logs,
+      logs: () => options.logs(),
       forbiddenUpstreamValues: [
         options.tokens.valid,
         options.tokens.expired,
@@ -298,7 +311,7 @@ function target(options: {
 
 function scenarioPolicy(current: () => BackendConformanceScenario): ToolPolicy {
   return {
-    decide(_input: ToolPolicyInput): Promise<PolicyDecision> {
+    decide(): Promise<PolicyDecision> {
       return Promise.resolve(
         current() === "policy_denied"
           ? { kind: "deny", ruleId: "conformance-deny", reason: "conformance denial" }
