@@ -1,4 +1,4 @@
-{{- if .Values.githubMcp.enabled }}
+{{- if and .Values.githubMcp.enabled (eq .Values.githubMcp.topology "separate") }}
 {{- if .Values.githubMcp.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget

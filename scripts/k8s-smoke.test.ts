@@ -229,10 +229,10 @@ exit 0
     expect(smoke).toContain("securityContext.runAsGroup");
     expect(smoke).toContain('[[ "$GITHUB_MCP_UID" == "10001" ]]');
     expect(smoke).toContain('[[ "$GITHUB_MCP_GID" == "10001" ]]');
-    expect(smoke).toContain("githubMcp.topology=sidecar");
+    expect(smoke).toContain("upgrade_github_topology sidecar");
     expect(smoke).toContain("127.0.0.1:8082");
     expect(smoke).toContain("github-mcp-topology-sentinel");
-    expect(smoke).toContain("githubMcp.topology=separate");
+    expect(smoke).toContain("upgrade_github_topology separate");
     expect(smoke).toContain('kubectl get deployment "$RELEASE_NAME-github-mcp"');
     expect(values).toMatch(/githubMcp:\n\s+enabled: true/);
   });

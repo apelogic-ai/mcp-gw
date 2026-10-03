@@ -2,7 +2,16 @@
 {{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
 {{- fail "hop1.issuers must contain at least one issuer when githubWrapper is enabled" }}
 {{- end }}
-{{- $githubMcpUpstreamUrl := default (printf "http://%s:%v/mcp" (include "mcp-gateway.componentName" (dict "root" . "component" "github-mcp")) .Values.githubMcp.port) (index .Values.githubWrapper.env "GITHUB_MCP_UPSTREAM_URL") }}
+{{- $githubMcpSidecar := and .Values.githubMcp.enabled (eq .Values.githubMcp.topology "sidecar") }}
+{{- $githubMcpDefaultUrl := printf "http://%s:%v/mcp" (include "mcp-gateway.componentName" (dict "root" . "component" "github-mcp")) .Values.githubMcp.port }}
+{{- if $githubMcpSidecar }}
+{{- $githubMcpDefaultUrl = printf "http://127.0.0.1:%v/mcp" .Values.githubMcp.port }}
+{{- end }}
+{{- $githubMcpUpstreamUrl := default $githubMcpDefaultUrl (index .Values.githubWrapper.env "GITHUB_MCP_UPSTREAM_URL") }}
+{{- $githubWrapperPodSecurityContext := deepCopy .Values.githubWrapper.podSecurityContext }}
+{{- if and $githubMcpSidecar (not (hasKey $githubWrapperPodSecurityContext "fsGroup")) }}
+{{- $_ := set $githubWrapperPodSecurityContext "fsGroup" 10001 }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,8 +41,23 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.githubWrapper.podSecurityContext | nindent 8 }}
+        {{- toYaml $githubWrapperPodSecurityContext | nindent 8 }}
       {{- include "mcp-gateway.podScheduling" .Values.githubWrapper | nindent 6 }}
+      {{- if $githubMcpSidecar }}
+      initContainers:
+        - name: github-mcp-probe-installer
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubWrapper.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - /bin/cp
+            - /usr/local/bin/bun
+            - /probe/bun
+          securityContext:
+            {{- toYaml .Values.githubWrapper.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: github-mcp-probe-bin
+              mountPath: /probe
+      {{- end }}
       containers:
         - name: github-wrapper
           image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubWrapper.image) }}
@@ -111,6 +135,45 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        {{- if $githubMcpSidecar }}
+        - name: github-mcp
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.githubMcp.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.githubMcp.securityContext | nindent 12 }}
+          args:
+            - http
+            - --listen-host
+            - 127.0.0.1
+            - --port
+            - {{ .Values.githubMcp.port | quote }}
+            - --base-path
+            - /mcp
+            - --scope-challenge
+          ports:
+            - name: github-mcp-http
+              containerPort: {{ .Values.githubMcp.port }}
+          {{- include "mcp-gateway.githubMcpSidecarProbes" .Values.githubMcp | nindent 10 }}
+          env:
+            {{- range $name, $value := .Values.githubMcp.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- with .Values.githubMcp.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: github-mcp-probe-bin
+              mountPath: /opt/mcp-gateway-probe
+              readOnly: true
+            {{- with .Values.githubMcp.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.githubMcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
       volumes:
         - name: runtime-tmp
           emptyDir: {}
@@ -118,5 +181,12 @@ spec:
         {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
         {{- with .Values.githubWrapper.extraVolumes }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if $githubMcpSidecar }}
+        - name: github-mcp-probe-bin
+          emptyDir: {}
+        {{- with .Values.githubMcp.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- end }}
 {{- end }}

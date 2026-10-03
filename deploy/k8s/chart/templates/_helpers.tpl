@@ -171,6 +171,30 @@ readinessProbe:
 {{- end }}
 {{- end -}}
 
+{{/* Preserve githubMcp probe controls while checking the loopback-only listener
+from inside the upstream container. Kubelet network probes originate outside
+the Pod network namespace and cannot reach a 127.0.0.1-bound server. */}}
+{{- define "mcp-gateway.githubMcpSidecarProbes" -}}
+{{- range $probeName := list "liveness" "readiness" }}
+{{- $probe := index $.probes $probeName }}
+{{- if $probe.enabled }}
+{{ printf "%sProbe:" $probeName }}
+  {{- $rendered := omit (deepCopy $probe) "enabled" "httpGet" "tcpSocket" "grpc" }}
+  {{- if not (hasKey $probe "exec") }}
+  {{- $path := "/mcp" }}
+  {{- with $probe.httpGet }}
+  {{- $path = default "/mcp" .path }}
+  {{- end }}
+  {{- $probeUrl := printf "http://127.0.0.1:%v%s" $.port $path }}
+  {{- $timeoutMs := mul (int (default 1 $probe.timeoutSeconds)) 900 }}
+  {{- $script := printf "const response = await fetch(%s, { signal: AbortSignal.timeout(%d) }); await response.body?.cancel();" (toJson $probeUrl) $timeoutMs }}
+  {{- $_ := set $rendered "exec" (dict "command" (list "/opt/mcp-gateway-probe/bun" "-e" $script)) }}
+  {{- end }}
+  {{- $rendered | toYaml | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "mcp-gateway.postgresqlCaBundlePath" -}}
 {{- printf "%s/ca.crt" (trimSuffix "/" .Values.postgresql.caBundle.mountPath) -}}
 {{- end -}}

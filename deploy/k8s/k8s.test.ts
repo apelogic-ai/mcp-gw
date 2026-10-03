@@ -2426,16 +2426,53 @@ describe("Kubernetes production chart", () => {
       'githubMcp.extraVolumes=[{"name":"github-config","configMap":{"name":"github-mcp-config"}}]',
     ]);
     const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-github-wrapper");
+    const deploymentObject = parseAllDocuments(rendered)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "Deployment" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-github-wrapper",
+      );
+    const containers = ((
+      deploymentObject?.spec as { template?: { spec?: { containers?: unknown[] } } }
+    ).template?.spec?.containers ?? []) as Array<Record<string, unknown>>;
+    const podSpec = (deploymentObject?.spec as { template?: { spec?: Record<string, unknown> } })
+      .template?.spec;
+    const sidecar = containers.find((container) => container.name === "github-mcp");
 
-    expect(deployment).toMatch(
-      /name: github-mcp[\s\S]*requests:[\s\S]*cpu: 25m[\s\S]*limits:[\s\S]*cpu: 250m/u,
+    expect(sidecar?.resources).toEqual({
+      requests: { cpu: "25m", memory: "64Mi" },
+      limits: { cpu: "250m", memory: "256Mi" },
+    });
+    expect(sidecar?.env).toContainEqual({ name: "SIDECAR_FIXTURE", value: "enabled" });
+    expect(sidecar?.volumeMounts).toContainEqual({
+      name: "github-config",
+      mountPath: "/etc/github-mcp",
+      readOnly: true,
+    });
+    expect((sidecar?.livenessProbe as { exec?: { command?: string[] } }).exec?.command).toEqual([
+      "/opt/mcp-gateway-probe/bun",
+      "-e",
+      expect.stringContaining("http://127.0.0.1:8082/mcp"),
+    ]);
+    expect((sidecar?.readinessProbe as { exec?: { command?: string[] } }).exec?.command).toEqual([
+      "/opt/mcp-gateway-probe/bun",
+      "-e",
+      expect.stringContaining("http://127.0.0.1:8082/mcp"),
+    ]);
+    expect(sidecar?.livenessProbe).toMatchObject({ initialDelaySeconds: 10, periodSeconds: 10 });
+    expect(sidecar?.readinessProbe).toMatchObject({ initialDelaySeconds: 2, periodSeconds: 5 });
+    expect(podSpec?.securityContext).toMatchObject({ runAsNonRoot: true, fsGroup: 10001 });
+    expect(podSpec?.initContainers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "github-mcp-probe-installer",
+          command: ["/bin/cp", "/usr/local/bin/bun", "/probe/bun"],
+        }),
+      ]),
     );
-    expect(deployment).toMatch(/name: github-mcp[\s\S]*name: SIDECAR_FIXTURE/u);
-    expect(deployment).toContain("mountPath: /etc/github-mcp");
     expect(deployment).toContain("name: github-config");
-    expect(deployment).toContain("name: github-mcp-http");
-    expect(deployment).toMatch(/livenessProbe:[\s\S]*port: github-mcp-http/u);
-    expect(deployment).toMatch(/readinessProbe:[\s\S]*port: github-mcp-http/u);
   });
 
   test("rejects ambiguous or unsupported GitHub sidecar configurations", () => {
