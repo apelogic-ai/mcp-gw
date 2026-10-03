@@ -33,6 +33,12 @@ export interface CreateGenericMcpProxyHandlerOptions {
   transport: GenericUpstreamTransport;
   policy?: ToolPolicy;
   audit?: AuditSink;
+  oauth?: {
+    providerId: string;
+    status(identity: Hop1Identity): Promise<Record<string, unknown>>;
+    start(identity: Hop1Identity, redirectAfter?: string): Promise<{ authorizationUrl: string }>;
+  };
+  requireCredential?: boolean;
   onAuthenticationFailure?: Hop1FailureReporter;
 }
 
@@ -74,19 +80,88 @@ export function createGenericMcpProxyHandler(
     if (!message) return mcpError(null, -32700, "Parse error");
     if (message.method === "tools/list") {
       return mcpResult(message.id, {
-        tools: options.catalog.tools.map(publicToolDefinition),
+        tools: [
+          ...oauthToolDefinitions(options),
+          ...options.catalog.tools.map(publicToolDefinition),
+        ],
       });
     }
 
     const started = Date.now();
+    const oauthTool =
+      message.method === "tools/call" ? oauthToolKind(options, message.toolName) : undefined;
     const tool =
-      message.method === "tools/call" ? toolsByName.get(message.toolName ?? "") : undefined;
-    if (message.method === "tools/call" && !tool) {
+      message.method === "tools/call" && !oauthTool
+        ? toolsByName.get(message.toolName ?? "")
+        : undefined;
+    if (message.method === "tools/call" && !tool && !oauthTool) {
       return mcpError(
         message.id,
         -32601,
         `Unsupported MCP tool: ${message.toolName ?? "<missing>"}`,
       );
+    }
+    if (oauthTool && options.oauth) {
+      const decision = await policy.decide({
+        principal: identity.email,
+        tokenClaims: normalizedHop1Claims(identity),
+        tool: message.toolName ?? "",
+        operation: `${options.descriptor.name}.oauth.${oauthTool}`,
+        service: options.descriptor.name,
+        actionClass: oauthTool === "status" ? "read" : "write",
+        scopes: [],
+        args: message.arguments,
+      });
+      if (decision.kind !== "allow") {
+        return mcpResult(message.id, {
+          isError: true,
+          content: [{ type: "text", text: "Tool call denied by policy" }],
+          structuredContent: {
+            error: "policy_denied",
+            ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
+          },
+        });
+      }
+      try {
+        const value =
+          oauthTool === "status"
+            ? await options.oauth.status(identity)
+            : await options.oauth.start(
+                identity,
+                typeof message.arguments.redirectAfter === "string"
+                  ? message.arguments.redirectAfter
+                  : undefined,
+              );
+        await emitSafely(options.audit, {
+          ts: new Date().toISOString(),
+          category: "tool_call",
+          principal: identity.email,
+          status: "allow",
+          tool: message.toolName,
+          argDigest: digestArgs(message.arguments),
+          latencyMs: Date.now() - started,
+        });
+        return mcpResult(message.id, {
+          content: [{ type: "text", text: JSON.stringify(value) }],
+          structuredContent: value,
+        });
+      } catch {
+        await emitSafely(options.audit, {
+          ts: new Date().toISOString(),
+          category: "tool_call",
+          principal: identity.email,
+          status: "error",
+          tool: message.toolName,
+          argDigest: digestArgs(message.arguments),
+          latencyMs: Date.now() - started,
+          error: "oauth_operation_failed",
+        });
+        return mcpResult(message.id, {
+          isError: true,
+          content: [{ type: "text", text: "Provider authorization operation failed" }],
+          structuredContent: { error: "provider_oauth_failure" },
+        });
+      }
     }
     if (tool) {
       const decision = await policy.decide({
@@ -125,6 +200,22 @@ export function createGenericMcpProxyHandler(
     try {
       const scopes = tool?.grants.scopes ?? [];
       const credential = await options.resolveCredential({ identity, hop1Token, scopes });
+      if (!credential && options.requireCredential) {
+        return mcpResult(message.id, {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Provider authorization is required. Call ${options.descriptor.toolPrefix}_oauth_start.`,
+            },
+          ],
+          structuredContent: {
+            error: "provider_oauth_required",
+            provider: options.oauth?.providerId,
+            connectionHelper: `${options.descriptor.toolPrefix}_oauth_start`,
+          },
+        });
+      }
       const upstreamBody = tool ? rewriteToolName(body, tool.upstreamName) : body;
       const upstream = await options.transport.send({
         incomingRequest: request,
@@ -167,6 +258,42 @@ export function createGenericMcpProxyHandler(
       return mcpError(message.id, -32000, "MCP upstream request failed");
     }
   };
+}
+
+function oauthToolDefinitions(
+  options: CreateGenericMcpProxyHandlerOptions,
+): Record<string, unknown>[] {
+  if (!options.oauth || !options.descriptor.lifecycleRoutes) return [];
+  const prefix = options.descriptor.toolPrefix;
+  return [
+    {
+      name: `${prefix}_oauth_status`,
+      description: `Check the ${options.oauth.providerId} connection for the current user.`,
+      inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+      annotations: { readOnlyHint: true },
+    },
+    {
+      name: `${prefix}_oauth_start`,
+      description: `Start ${options.oauth.providerId} authorization for the current user.`,
+      inputSchema: {
+        type: "object",
+        properties: { redirectAfter: { type: "string" } },
+        required: [],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false },
+    },
+  ];
+}
+
+function oauthToolKind(
+  options: CreateGenericMcpProxyHandlerOptions,
+  name: string | undefined,
+): "status" | "start" | undefined {
+  if (!options.oauth || !options.descriptor.lifecycleRoutes) return undefined;
+  if (name === `${options.descriptor.toolPrefix}_oauth_status`) return "status";
+  if (name === `${options.descriptor.toolPrefix}_oauth_start`) return "start";
+  return undefined;
 }
 
 interface ParsedMessage {

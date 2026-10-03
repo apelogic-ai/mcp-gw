@@ -128,6 +128,45 @@ describe("generic MCP proxy", () => {
     expect(credentialCalls).toBe(0);
     expect(transport.requests).toHaveLength(0);
   });
+
+  test("adds prefixed OAuth helpers only when lifecycle support is configured", async () => {
+    const transport = new RecordingTransport();
+    const oauthHandler = createGenericMcpProxyHandler({
+      descriptor: { ...descriptor, lifecycleRoutes: true },
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () => Promise.resolve(null),
+      oauth: {
+        providerId: "search-provider",
+        status: () =>
+          Promise.resolve({
+            provider: "search-provider",
+            phase: "disconnected",
+            connected: false,
+          }),
+        start: () =>
+          Promise.resolve({ authorizationUrl: "https://identity.example.com/oauth/authorize" }),
+      },
+    });
+
+    const listed = await oauthHandler(mcpRequest("tools/list", {}, 4));
+    const listedBody = (await listed.json()) as { result: { tools: Array<{ name: string }> } };
+    expect(listedBody.result.tools.map((tool) => tool.name)).toEqual([
+      "search_oauth_status",
+      "search_oauth_start",
+      "search_query",
+    ]);
+    const status = await oauthHandler(
+      mcpRequest("tools/call", { name: "search_oauth_status", arguments: {} }, 5),
+    );
+    expect(await status.json()).toMatchObject({
+      result: {
+        content: [{ text: expect.stringContaining('"phase":"disconnected"') }],
+      },
+    });
+    expect(transport.requests).toHaveLength(0);
+  });
 });
 
 function handler(options: {

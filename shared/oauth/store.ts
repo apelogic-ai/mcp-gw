@@ -5,7 +5,8 @@ import type {
   PendingCredentialCleanupRecord,
 } from "./connection-types";
 
-export type OAuthProvider = "google" | "github";
+/** Stable provider identifier. Built-ins remain `google` and `github`; generic wrappers use a configured ID. */
+export type OAuthProvider = string;
 
 export interface OAuthStateRecord {
   /** Missing only on state rows written by replicas predating provider-scoped state. */
