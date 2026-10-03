@@ -53,5 +53,4 @@ describe("backend registry config generation", () => {
     expect(guide).toContain("Backend wrappers own stable provider prefixes");
     expect(guide).toContain("Do not commit runtime secrets");
   });
-
 });
