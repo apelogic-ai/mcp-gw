@@ -37,6 +37,18 @@
 {{- end }}
 {{- end }}
 
+{{- if and .Values.dbMcp.wrapper.enabled (not .Values.dbMcp.enabled) }}
+{{- fail "dbMcp.wrapper.enabled requires dbMcp.enabled=true" }}
+{{- end }}
+{{- if and .Values.dbMcp.enabled .Values.dbMcp.wrapper.enabled }}
+{{- if eq (int .Values.dbMcp.port) (int .Values.dbMcp.wrapper.port) }}
+{{- fail "dbMcp.wrapper.port must differ from dbMcp.port" }}
+{{- end }}
+{{- if gt (int .Values.dbMcp.wrapper.sessions.maxPerPrincipal) (int .Values.dbMcp.wrapper.sessions.maxTotal) }}
+{{- fail "dbMcp.wrapper.sessions.maxPerPrincipal must not exceed maxTotal" }}
+{{- end }}
+{{- end }}
+
 {{- if .Values.agentgateway.enabled }}
 {{- if not .Values.agentgateway.mcpAuthentication.resourceMetadata.resource }}
 {{- fail "agentgateway.enabled requires a non-empty agentgateway.mcpAuthentication.resourceMetadata.resource" }}

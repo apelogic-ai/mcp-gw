@@ -1,0 +1,61 @@
+# Opt-in governed db-mcp topology. The db-mcp image is supplied by the
+# operator; the MCP-GW generic-wrapper image comes from the same release.
+hop1:
+  issuers:
+    - name: platform
+      issuer: https://identity.example.com
+      audiences: [mcp-gateway]
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms: [EdDSA]
+      emailClaim: email
+      subjectClaim: sub
+
+agentgateway:
+  enabled: true
+  mcpAuthentication:
+    mode: strict
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported: [openid, email]
+      bearerMethodsSupported: [header]
+  backends:
+    - name: db-mcp
+      enabled: true
+      serviceName: db-mcp
+      port: 8080
+      path: /mcp
+
+dbMcp:
+  enabled: true
+  image:
+    repository: registry.example.com/mcp/db-mcp
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  wrapper:
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    port: 8081
+    toolPrefix: db
+    serverInfo:
+      name: db-mcp-wrapper
+      version: "1.0.0"
+    sessions:
+      maxTotal: 64
+      maxPerPrincipal: 4
+      idleTtlMs: 1800000
+    catalog:
+      catalogId: db-mcp-query@1
+      tools:
+        - name: protocol
+          description: Read the db-mcp operating protocol.
+          inputSchema:
+            type: object
+            properties: {}
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: db.protocol
+            scopes: []

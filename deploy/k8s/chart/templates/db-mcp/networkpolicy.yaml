@@ -16,5 +16,9 @@ spec:
               {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "agentgateway") | nindent 14 }}
       ports:
         - protocol: TCP
+          {{- if .Values.dbMcp.wrapper.enabled }}
+          port: {{ .Values.dbMcp.wrapper.port }}
+          {{- else }}
           port: {{ .Values.dbMcp.port }}
+          {{- end }}
 {{- end }}

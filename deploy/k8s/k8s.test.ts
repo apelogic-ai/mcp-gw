@@ -221,6 +221,19 @@ describe("Kubernetes production chart", () => {
         wrapper: { ...wrapper, port: 8080 },
         expected: /port/,
       },
+      {
+        label: "unbounded principal share",
+        wrapper: {
+          ...wrapper,
+          sessions: { maxTotal: 2, maxPerPrincipal: 3, idleTtlMs: 1_800_000 },
+        },
+        expected: /maxPerPrincipal/,
+      },
+      {
+        label: "unwritable audit path",
+        wrapper: { ...wrapper, audit: { jsonlPath: "/var/log/mcp-gw/audit.jsonl" } },
+        expected: /jsonlPath|pattern/,
+      },
     ];
 
     for (const fixture of cases) {
@@ -232,6 +245,15 @@ describe("Kubernetes production chart", () => {
       assertHelmRejected(result);
       expect(result.stderr.toString(), fixture.label).toMatch(fixture.expected);
     }
+
+    const parentDisabled = helmTemplateResult([
+      "--set-json",
+      `dbMcp.wrapper=${JSON.stringify(wrapper)}`,
+    ]);
+    assertHelmRejected(parentDisabled);
+    expect(parentDisabled.stderr.toString()).toContain(
+      "dbMcp.wrapper.enabled requires dbMcp.enabled=true",
+    );
   });
 
   test("renders the public generic wrapper example", () => {
@@ -244,6 +266,19 @@ describe("Kubernetes production chart", () => {
     expect(rendered).toContain("mcp-gateway-generic-wrapper-hosted-search");
     expect(rendered).toContain("name: HOSTED_SEARCH_API_KEY");
     expect(rendered).not.toContain("<provider-api-key>");
+  });
+
+  test("renders the opt-in wrapped db-mcp example", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-db-mcp-wrapped.example.yaml",
+    ]);
+
+    expect(rendered).toContain("name: mcp-gateway-db-mcp-wrapper-config");
+    expect(rendered).toContain("name: generic-wrapper");
+    expect(renderedResource(rendered, "Service", "mcp-gateway-db-mcp")).toContain(
+      "targetPort: wrapper-http",
+    );
   });
 
   test("rejects unpinned and colliding generic wrapper definitions", () => {
@@ -3227,6 +3262,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-generic-wrappers.example.yaml",
+    "values-db-mcp-wrapped.example.yaml",
     "values-google-policy.example.yaml",
     "values-customer-google-broker.example.yaml",
     "google-provider-callback.example.yaml",
