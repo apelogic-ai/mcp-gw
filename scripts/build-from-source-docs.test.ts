@@ -15,6 +15,7 @@ describe("build-from-source and artifact verification documentation", () => {
     expect(guide).toContain("scripts/resolve-agentgateway-source.ts");
     expect(guide).toContain("servers/google-workspace/wrapper/Dockerfile");
     expect(guide).toContain("servers/github-mcp/wrapper/Dockerfile");
+    expect(guide).toContain("servers/generic-wrapper/Dockerfile");
     expect(guide).toContain("scripts/resolve-github-mcp-source.ts");
     expect(guide).toContain("oras cp --recursive");
     expect(guide).toContain("helm package deploy/k8s/chart");
@@ -29,6 +30,7 @@ describe("build-from-source and artifact verification documentation", () => {
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/mcp-gw-agentgateway@");
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/mcp-gw-google-workspace@");
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/mcp-gw-github-wrapper@");
+    expect(guide).toContain("oci://ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@");
     expect(guide).toContain("oci://ghcr.io/apelogic-ai/charts/mcp-gateway@");
     expect(guide).toContain("--repo apelogic-ai/mcp-gw");
     expect(guide).toContain("--cert-identity");

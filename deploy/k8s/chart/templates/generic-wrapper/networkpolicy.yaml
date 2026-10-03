@@ -1,0 +1,43 @@
+{{- range .Values.wrappers }}
+{{- if .enabled }}
+{{- $component := printf "generic-wrapper-%s" .name }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" $ "component" $component) }}
+  labels:
+    {{- include "mcp-gateway.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" $component) | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "mcp-gateway.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" "agentgateway") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .port | default 8080 }}
+    {{- if and .lifecycleRoutes $.Values.connectionLifecycle.enabled }}
+    - from:
+        {{- range $.Values.connectionLifecycle.allowedCallers }}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .namespaceSelector.matchLabels | nindent 14 }}
+          {{- with .podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .matchLabels | nindent 14 }}
+          {{- end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .port | default 8080 }}
+    {{- end }}
+---
+{{- end }}
+{{- end }}

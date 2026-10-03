@@ -183,6 +183,38 @@ export function parseGenericToolCatalog(value: unknown, toolPrefix: string): Gen
   };
 }
 
+export function validateGenericWrapperConfiguration(
+  descriptor: GenericWrapperDescriptor,
+  catalog: GenericToolCatalog,
+): void {
+  if (
+    descriptor.upstream.transport === "stdio" &&
+    descriptor.credential.mode !== "none" &&
+    !descriptor.upstream.credentialEnv
+  ) {
+    throw new Error("A credentialed stdio upstream requires upstream.credentialEnv");
+  }
+  if (descriptor.credential.mode !== "per_user_oauth") return;
+  const reserved = new Set([
+    `${descriptor.toolPrefix}_oauth_status`,
+    `${descriptor.toolPrefix}_oauth_start`,
+  ]);
+  const collision = catalog.tools.find((tool) => reserved.has(tool.exposedName));
+  if (collision) {
+    throw new Error(`Catalog tool ${collision.exposedName} collides with a lifecycle helper`);
+  }
+  const consentScopes = new Set(descriptor.credential.scopes);
+  for (const tool of catalog.tools) {
+    for (const scope of tool.grants.scopes) {
+      if (!consentScopes.has(scope)) {
+        throw new Error(
+          `Catalog tool ${tool.exposedName} requires ${scope}, which is absent from OAuth consent scopes`,
+        );
+      }
+    }
+  }
+}
+
 function parseUpstream(value: unknown): GenericUpstreamDescriptor {
   const record = objectValue(value, "upstream");
   if (record.transport === "http") {
@@ -319,14 +351,27 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
   ) {
     throw new Error("credential.tokenEndpointAuthMethod is invalid");
   }
+  const providerId = patternString(record.providerId, "credential.providerId", NAME_PATTERN);
+  const redirectUri = httpsOrLoopbackUrl(record.redirectUri, "credential.redirectUri");
+  const parsedRedirect = new URL(redirectUri);
+  const expectedCallbackPath = `/oauth/${providerId}/callback`;
+  if (
+    parsedRedirect.pathname !== expectedCallbackPath ||
+    parsedRedirect.search.length > 0 ||
+    parsedRedirect.hash.length > 0
+  ) {
+    throw new Error(
+      `credential.redirectUri must use the exact callback path ${expectedCallbackPath} without query or fragment`,
+    );
+  }
   return {
     mode: "per_user_oauth",
-    providerId: patternString(record.providerId, "credential.providerId", NAME_PATTERN),
+    providerId,
     authorizationUrl: httpsUrl(record.authorizationUrl, "credential.authorizationUrl"),
     tokenUrl: httpsUrl(record.tokenUrl, "credential.tokenUrl"),
     userInfoUrl: httpsUrl(record.userInfoUrl, "credential.userInfoUrl"),
     ...optionalUrlProperty(record.revocationUrl, "credential.revocationUrl", "revocationUrl"),
-    redirectUri: httpsOrLoopbackUrl(record.redirectUri, "credential.redirectUri"),
+    redirectUri,
     scopes: requiredStringArray(record.scopes, "credential.scopes"),
     clientIdEnv: patternString(record.clientIdEnv, "credential.clientIdEnv", ENV_PATTERN),
     clientSecretEnv: patternString(
@@ -527,10 +572,17 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
 
 function httpUrl(value: unknown, name: string): string {
   const result = nonEmptyString(value, name);
-  const url = new URL(result);
+  let url: URL;
+  try {
+    url = new URL(result);
+  } catch {
+    throw new Error(`${name} must be an absolute HTTP(S) URL`);
+  }
   if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.hostname) {
     throw new Error(`${name} must be an absolute HTTP(S) URL`);
   }
+  if (url.username || url.password) throw new Error(`${name} must not contain credentials`);
+  if (url.hash) throw new Error(`${name} must not contain a fragment`);
   return result;
 }
 

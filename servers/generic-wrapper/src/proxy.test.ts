@@ -58,6 +58,44 @@ class RecordingTransport implements GenericUpstreamTransport {
 }
 
 describe("generic MCP proxy", () => {
+  test("owns initialization so provider authorization can start before upstream access", async () => {
+    const transport = new RecordingTransport();
+    let credentialCalls = 0;
+    const proxy = handler({
+      transport,
+      resolveCredential: () => {
+        credentialCalls += 1;
+        return Promise.resolve(null);
+      },
+    });
+    const initialized = await proxy(
+      mcpRequest(
+        "initialize",
+        {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "fixture", version: "1" },
+        },
+        1,
+      ),
+    );
+
+    expect(initialized.status).toBe(200);
+    expect(initialized.headers.get("mcp-session-id")).toBeString();
+    expect(await initialized.json()).toMatchObject({
+      result: {
+        protocolVersion: "2025-06-18",
+        serverInfo: descriptor.serverInfo,
+      },
+    });
+    expect(credentialCalls).toBe(0);
+    expect(transport.requests).toHaveLength(0);
+
+    const notification = await proxy(mcpRequest("notifications/initialized", {}, undefined));
+    expect(notification.status).toBe(202);
+    expect(transport.requests).toHaveLength(0);
+  });
+
   test("advertises the pinned prefixed catalog without contacting the upstream", async () => {
     const transport = new RecordingTransport();
     const response = await handler({ transport })(mcpRequest("tools/list", {}, 1));
@@ -167,6 +205,39 @@ describe("generic MCP proxy", () => {
     });
     expect(transport.requests).toHaveLength(0);
   });
+
+  test("audits policy denials for wrapper-owned OAuth helpers", async () => {
+    const audit = new InMemoryAuditSink();
+    const oauthHandler = createGenericMcpProxyHandler({
+      descriptor: { ...descriptor, lifecycleRoutes: true },
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport: new RecordingTransport(),
+      resolveCredential: () => Promise.resolve(null),
+      policy: new YamlPolicy({
+        default: "allow",
+        rules: [{ effect: "deny", match: { operation: "hosted-search.oauth.start" } }],
+      }),
+      audit,
+      oauth: {
+        providerId: "search-provider",
+        status: () => Promise.resolve({ connected: false }),
+        start: () =>
+          Promise.resolve({ authorizationUrl: "https://identity.example.com/oauth/authorize" }),
+      },
+    });
+
+    const response = await oauthHandler(
+      mcpRequest("tools/call", { name: "search_oauth_start", arguments: {} }, 6),
+    );
+
+    expect(await response.json()).toMatchObject({
+      result: { isError: true, structuredContent: { error: "policy_denied" } },
+    });
+    expect(audit.events).toMatchObject([
+      { category: "tool_call", status: "deny", tool: "search_oauth_start" },
+    ]);
+  });
 });
 
 function handler(options: {
@@ -188,7 +259,11 @@ function handler(options: {
   });
 }
 
-function mcpRequest(method: string, params: Record<string, unknown>, id: number): Request {
+function mcpRequest(
+  method: string,
+  params: Record<string, unknown>,
+  id: number | undefined,
+): Request {
   return new Request("http://wrapper.test/mcp", {
     method: "POST",
     headers: {
@@ -196,6 +271,6 @@ function mcpRequest(method: string, params: Record<string, unknown>, id: number)
       "content-type": "application/json",
       "mcp-protocol-version": "2025-06-18",
     },
-    body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+    body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
   });
 }

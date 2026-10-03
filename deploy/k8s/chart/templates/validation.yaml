@@ -45,8 +45,165 @@
 {{- range .Values.agentgateway.backends }}
 {{- if .enabled }}{{- $enabledBackendTargets = add1 $enabledBackendTargets }}{{- end }}
 {{- end }}
+{{- range .Values.wrappers }}
+{{- if .enabled }}{{- $enabledBackendTargets = add1 $enabledBackendTargets }}{{- end }}
+{{- end }}
 {{- if eq $enabledBackendTargets 0 }}
 {{- fail "agentgateway.enabled requires at least one enabled agentgateway backend target" }}
+{{- end }}
+{{- end }}
+
+{{- $wrapperNames := list }}
+{{- $wrapperPrefixes := list }}
+{{- $wrapperProviderIds := list }}
+{{- $wrapperToolNames := list }}
+{{- $enabledBuiltInPrefixes := list }}
+{{- range .Values.agentgateway.backends }}
+{{- if .enabled }}
+{{- if eq .name "google-workspace" }}
+{{- $enabledBuiltInPrefixes = concat $enabledBuiltInPrefixes (list "google" "gws") }}
+{{- else if eq .name "github-mcp" }}
+{{- $enabledBuiltInPrefixes = append $enabledBuiltInPrefixes "github" }}
+{{- else if eq .name "db-mcp" }}
+{{- $enabledBuiltInPrefixes = append $enabledBuiltInPrefixes "db" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $index, $wrapper := .Values.wrappers }}
+{{- if has $wrapper.name $wrapperNames }}
+{{- fail "wrappers names must be unique" }}
+{{- end }}
+{{- $wrapperNames = append $wrapperNames $wrapper.name }}
+{{- if has $wrapper.toolPrefix $wrapperPrefixes }}
+{{- fail "wrappers toolPrefix values must be unique" }}
+{{- end }}
+{{- if has $wrapper.toolPrefix $enabledBuiltInPrefixes }}
+{{- fail (printf "wrapper toolPrefix %s conflicts with an enabled built-in backend" $wrapper.toolPrefix) }}
+{{- end }}
+{{- $wrapperPrefixes = append $wrapperPrefixes $wrapper.toolPrefix }}
+{{- if eq $wrapper.upstream.transport "http" }}
+{{- $upstreamUrl := urlParse $wrapper.upstream.url }}
+{{- if or $upstreamUrl.userinfo $upstreamUrl.fragment }}
+{{- fail (printf "wrappers[%d] upstream URL must not contain credentials or a fragment" $index) }}
+{{- end }}
+{{- else if and (ne $wrapper.credential.mode "none") (not $wrapper.upstream.credentialEnv) }}
+{{- fail (printf "wrappers[%d] credentialed stdio upstream requires upstream.credentialEnv" $index) }}
+{{- end }}
+{{- range $tool := $wrapper.catalog.tools }}
+{{- $exposedToolName := printf "%s_%s" $wrapper.toolPrefix $tool.name }}
+{{- if has $exposedToolName $wrapperToolNames }}
+{{- fail (printf "generic wrapper exposed tool name %s must be unique" $exposedToolName) }}
+{{- end }}
+{{- $wrapperToolNames = append $wrapperToolNames $exposedToolName }}
+{{- end }}
+{{- if eq $wrapper.credential.mode "per_user_oauth" }}
+{{- $providerId := $wrapper.credential.providerId }}
+{{- if has $providerId (list "google" "github") }}
+{{- fail (printf "wrappers[%d] OAuth providerId %s is reserved" $index $providerId) }}
+{{- end }}
+{{- if has $providerId $wrapperProviderIds }}
+{{- fail "wrappers OAuth providerId values must be unique" }}
+{{- end }}
+{{- $wrapperProviderIds = append $wrapperProviderIds $providerId }}
+{{- $expectedCallbackPath := printf "/oauth/%s/callback" $providerId }}
+{{- $callbackUrl := urlParse $wrapper.credential.redirectUri }}
+{{- if or (ne $callbackUrl.path $expectedCallbackPath) $callbackUrl.query $callbackUrl.fragment $callbackUrl.userinfo }}
+{{- fail (printf "wrappers[%d] OAuth redirectUri must use exact path %s without credentials, query, or fragment" $index $expectedCallbackPath) }}
+{{- end }}
+{{- range $providerUrl := list $wrapper.credential.authorizationUrl $wrapper.credential.tokenUrl $wrapper.credential.userInfoUrl ($wrapper.credential.revocationUrl | default "https://example.com/") }}
+{{- $parsedProviderUrl := urlParse $providerUrl }}
+{{- if or $parsedProviderUrl.userinfo $parsedProviderUrl.fragment }}
+{{- fail (printf "wrappers[%d] OAuth provider URLs must not contain credentials or fragments" $index) }}
+{{- end }}
+{{- end }}
+{{- range $tool := $wrapper.catalog.tools }}
+{{- range $scope := $tool.grants.scopes }}
+{{- if not (has $scope $wrapper.credential.scopes) }}
+{{- fail (printf "wrappers[%d] catalog scope %s is absent from OAuth consent scopes" $index $scope) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $helperName := list (printf "%s_oauth_status" $wrapper.toolPrefix) (printf "%s_oauth_start" $wrapper.toolPrefix) }}
+{{- if has $helperName $wrapperToolNames }}
+{{- fail (printf "generic wrapper lifecycle helper %s collides with a catalog tool" $helperName) }}
+{{- end }}
+{{- $wrapperToolNames = append $wrapperToolNames $helperName }}
+{{- end }}
+{{- else if eq $wrapper.credential.mode "token_exchange" }}
+{{- if ne (not (not $wrapper.credential.clientIdEnv)) (not (not $wrapper.credential.clientSecretEnv)) }}
+{{- fail (printf "wrappers[%d] token exchange clientIdEnv and clientSecretEnv must be set together" $index) }}
+{{- end }}
+{{- $exchangeUrl := urlParse $wrapper.credential.endpoint }}
+{{- if or $exchangeUrl.userinfo $exchangeUrl.fragment }}
+{{- fail (printf "wrappers[%d] token exchange URL must not contain credentials or a fragment" $index) }}
+{{- end }}
+{{- end }}
+{{- if $wrapper.enabled }}
+{{- $wrapperSecretRef := $wrapper.secretRef | default (dict) }}
+{{- $wrapperServiceAccount := $wrapper.serviceAccount | default (dict) }}
+{{- if not $.Values.agentgateway.enabled }}
+{{- fail "enabled wrappers require agentgateway.enabled=true" }}
+{{- end }}
+{{- if and (hasKey $wrapperServiceAccount "create") (not $wrapperServiceAccount.create) (not $wrapperServiceAccount.name) }}
+{{- fail (printf "wrappers[%d].serviceAccount.name is required when create=false" $index) }}
+{{- end }}
+{{- range $.Values.agentgateway.backends }}
+{{- if and .enabled (eq .name $wrapper.name) }}
+{{- fail (printf "wrapper name %s conflicts with an enabled agentgateway backend" $wrapper.name) }}
+{{- end }}
+{{- end }}
+{{- if and (eq $wrapper.credential.mode "per_user_oauth") (not $.Values.connectionLifecycle.enabled) }}
+{{- fail "enabled per-user OAuth wrappers require connectionLifecycle.enabled=true and an allowed callback ingress caller" }}
+{{- end }}
+{{- $secretKeys := $wrapperSecretRef.envKeys | default (list) }}
+{{- $extraEnvNames := list }}
+{{- range $entry := $wrapper.extraEnv | default (list) }}
+{{- if has $entry.name $extraEnvNames }}
+{{- fail (printf "wrappers[%d].extraEnv names must be unique" $index) }}
+{{- end }}
+{{- $extraEnvNames = append $extraEnvNames $entry.name }}
+{{- if or (has $entry.name (list "PORT" "GENERIC_WRAPPER_DESCRIPTOR_PATH" "HOP1_ISSUERS_JSON")) (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $entry.name) }}
+{{- fail (printf "wrappers[%d].extraEnv must not override chart-managed %s" $index $entry.name) }}
+{{- end }}
+{{- if and $.Values.postgresql.caBundle.enabled (eq $entry.name "POSTGRES_CA_BUNDLE_PATH") }}
+{{- fail (printf "wrappers[%d].extraEnv must not override chart-managed POSTGRES_CA_BUNDLE_PATH" $index) }}
+{{- end }}
+{{- if and $.Values.trustBundle.enabled (eq $entry.name "NODE_EXTRA_CA_CERTS") }}
+{{- fail (printf "wrappers[%d].extraEnv must not override chart-managed NODE_EXTRA_CA_CERTS" $index) }}
+{{- end }}
+{{- end }}
+{{- range $key := $secretKeys }}
+{{- if has $key $extraEnvNames }}
+{{- fail (printf "wrappers[%d].secretRef.envKeys contains %s, which is also set in extraEnv" $index $key) }}
+{{- end }}
+{{- if or (has $key (list "PORT" "GENERIC_WRAPPER_DESCRIPTOR_PATH" "HOP1_ISSUERS_JSON")) (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $key) }}
+{{- fail (printf "wrappers[%d].secretRef.envKeys contains chart-managed variable %s" $index $key) }}
+{{- end }}
+{{- if and $.Values.postgresql.caBundle.enabled (eq $key "POSTGRES_CA_BUNDLE_PATH") }}
+{{- fail (printf "wrappers[%d].secretRef.envKeys contains chart-managed variable POSTGRES_CA_BUNDLE_PATH" $index) }}
+{{- end }}
+{{- if and $.Values.trustBundle.enabled (eq $key "NODE_EXTRA_CA_CERTS") }}
+{{- fail (printf "wrappers[%d].secretRef.envKeys contains chart-managed variable NODE_EXTRA_CA_CERTS" $index) }}
+{{- end }}
+{{- end }}
+{{- if eq $wrapper.credential.mode "static_secret" }}
+{{- if not (has $wrapper.credential.env $secretKeys) }}
+{{- fail (printf "wrappers[%d] static credential env must be imported by secretRef.envKeys" $index) }}
+{{- end }}
+{{- else if eq $wrapper.credential.mode "token_exchange" }}
+{{- with $wrapper.credential.clientIdEnv }}
+{{- if not (has . $secretKeys) }}{{- fail (printf "wrappers[%d] token exchange clientIdEnv must be imported by secretRef.envKeys" $index) }}{{- end }}
+{{- end }}
+{{- with $wrapper.credential.clientSecretEnv }}
+{{- if not (has . $secretKeys) }}{{- fail (printf "wrappers[%d] token exchange clientSecretEnv must be imported by secretRef.envKeys" $index) }}{{- end }}
+{{- end }}
+{{- else if eq $wrapper.credential.mode "per_user_oauth" }}
+{{- range $key := list $wrapper.credential.clientIdEnv $wrapper.credential.clientSecretEnv $wrapper.credential.encryptionKeyEnv $wrapper.credential.tokenStoreDsnEnv }}
+{{- if not (has $key $secretKeys) }}
+{{- fail (printf "wrappers[%d] OAuth credential env vars must be imported by secretRef.envKeys" $index) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 

@@ -57,9 +57,9 @@ compare_case() {
 }
 
 compare_case default
-for values_file in "$ROOT_DIR"/deploy/k8s/examples/values-*.yaml; do
+for values_file in "$BASE_TREE"/deploy/k8s/examples/values-*.yaml; do
   file_name="$(basename "$values_file")"
   compare_case "${file_name%.yaml}" "deploy/k8s/examples/$file_name"
 done
 
-echo "Existing Helm manifests match $BASE_REF for the default chart and every values example."
+echo "Existing Helm manifests match $BASE_REF for the default chart and every pre-existing values example."

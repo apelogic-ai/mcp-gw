@@ -72,4 +72,33 @@ describe("generic wrapper credentials", () => {
     expect(body).toContain("subject_token=hop1-secret");
     expect(body).not.toContain("wrapper-secret");
   });
+
+  test("bounds exchanged-token cache entries", async () => {
+    let exchanges = 0;
+    const resolver = createGenericCredentialResolver(
+      {
+        mode: "token_exchange",
+        endpoint: "https://identity.example.com/oauth/token",
+      },
+      {},
+      {
+        maxCacheEntries: 1,
+        fetch: () => {
+          exchanges += 1;
+          return Promise.resolve(
+            Response.json({
+              access_token: `provider-token-${String(exchanges)}`,
+              expires_in: 300,
+            }),
+          );
+        },
+      },
+    );
+
+    await resolver.resolve({ identity, hop1Token: "hop1-one", scopes: [] });
+    await resolver.resolve({ identity, hop1Token: "hop1-two", scopes: [] });
+    await resolver.resolve({ identity, hop1Token: "hop1-one", scopes: [] });
+
+    expect(exchanges).toBe(3);
+  });
 });

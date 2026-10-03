@@ -22,11 +22,13 @@
     "integration:bundle": "bash scripts/smoke-full-bundle.sh",
     "integration:k8s": "bash scripts/smoke-k8s.sh",
     "integration:k8s:broker": "bash scripts/smoke-k8s-broker-integration.sh",
+    "integration:generic": "bun test test/generic-wrapper-integration.test.ts",
     "release:check": "bun scripts/check-release-metadata.ts",
     "ci": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@modelcontextprotocol/server-everything": "2026.8.31",
     "@types/bun": "^1.2.0",
     "@types/pg": "^8.20.0",
     "eslint": "^9.17.0",

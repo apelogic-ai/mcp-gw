@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { parseAllDocuments } from "yaml";
+import { parse, parseAllDocuments } from "yaml";
 
 import {
   CANONICAL_PUBLIC_IPV4_HOSTS,
   NONCANONICAL_WHATWG_IPV4_HOSTS,
   NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
 } from "../../shared/oauth/public-host-fixtures";
+import {
+  parseGenericToolCatalog,
+  parseGenericWrapperDescriptor,
+} from "../../servers/generic-wrapper/src/descriptor";
 
 const INVALID_PUBLIC_IPV4_HOSTS = [
   ...NONCANONICAL_WHATWG_IPV4_HOSTS,
@@ -52,6 +56,7 @@ describe("Kubernetes production chart", () => {
     const dockerfiles = await Promise.all([
       Bun.file("servers/google-workspace/wrapper/Dockerfile").text(),
       Bun.file("servers/github-mcp/wrapper/Dockerfile").text(),
+      Bun.file("servers/generic-wrapper/Dockerfile").text(),
     ]);
 
     for (const dockerfile of dockerfiles) {
@@ -84,6 +89,332 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("MCP_BROKER_");
     expect(rendered).not.toContain("broker-signing-keyring");
     expect(rendered).not.toContain("/var/run/secrets/mcp-gateway/broker");
+    expect(values).toMatch(/^wrappers: \[\]$/m);
+    expect(rendered).not.toContain("generic-wrapper");
+  });
+
+  test("renders opt-in generic wrappers and registers matching AgentGateway targets", () => {
+    const rendered = helmTemplate(genericWrapperArgs());
+    const gatewayConfig = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-agentgateway-config",
+    );
+
+    for (const name of ["public-search", "private-search"]) {
+      const component = `generic-wrapper-${name}`;
+      const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-${component}`);
+      expect(renderedResource(rendered, "Service", `mcp-gateway-${component}`)).toContain(
+        "targetPort: http",
+      );
+      expect(renderedResource(rendered, "NetworkPolicy", `mcp-gateway-${component}`)).toContain(
+        "app.kubernetes.io/component: agentgateway",
+      );
+      const config = renderedResource(rendered, "ConfigMap", `mcp-gateway-${component}-config`);
+      expect(config).toContain("mcp-gateway.generic-wrapper/v1");
+      expect(config).toContain("mcp-gateway.generic-catalog/v1");
+      const configObject = parseAllDocuments(rendered)
+        .map((document) => document.toJSON() as Record<string, unknown>)
+        .find(
+          (resource) =>
+            resource.kind === "ConfigMap" &&
+            (resource.metadata as { name?: string } | undefined)?.name ===
+              `mcp-gateway-${component}-config`,
+        );
+      const data = configObject?.data as Record<string, string> | undefined;
+      const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
+      expect(() =>
+        parseGenericToolCatalog(parse(data?.["catalog.yaml"] ?? ""), descriptor.toolPrefix),
+      ).not.toThrow();
+      expect(deployment).toContain("GENERIC_WRAPPER_DESCRIPTOR_PATH");
+      expect(deployment).toContain("path: /health/live");
+      expect(deployment).toContain("path: /health/ready");
+      expect(deployment).toContain(
+        "ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      );
+      expect(gatewayConfig).toContain(`name: ${name}`);
+      expect(gatewayConfig).toContain(`http://mcp-gateway-${component}:8080/mcp`);
+    }
+
+    const publicDeployment = renderedResource(
+      rendered,
+      "Deployment",
+      "mcp-gateway-generic-wrapper-public-search",
+    );
+    expect(publicDeployment).not.toContain("secretKeyRef:");
+    expect(publicDeployment).not.toContain("name: upstream");
+
+    const privateDeployment = renderedResource(
+      rendered,
+      "Deployment",
+      "mcp-gateway-generic-wrapper-private-search",
+    );
+    expect(privateDeployment).toContain("name: SEARCH_API_KEY");
+    expect(privateDeployment).toContain("name: hosted-search-credentials");
+    expect(privateDeployment).toContain("name: upstream");
+    expect(privateDeployment).toContain(
+      "registry.example.com/reference/search@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
+  });
+
+  test("renders the public generic wrapper example", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-generic-wrappers.example.yaml",
+    ]);
+
+    expect(rendered).toContain("mcp-gateway-generic-wrapper-public-reference");
+    expect(rendered).toContain("mcp-gateway-generic-wrapper-hosted-search");
+    expect(rendered).toContain("name: HOSTED_SEARCH_API_KEY");
+    expect(rendered).not.toContain("<provider-api-key>");
+  });
+
+  test("rejects unpinned and colliding generic wrapper definitions", () => {
+    const wrappers = genericWrappers();
+    const cases = [
+      {
+        label: "unpinned image",
+        wrappers: [{ ...wrappers[0], image: { repository: "example.com/wrapper" } }],
+        expected: "digest",
+      },
+      {
+        label: "duplicate name",
+        wrappers: [wrappers[0], { ...wrappers[1], name: wrappers[0]?.name }],
+        expected: "names must be unique",
+      },
+      {
+        label: "duplicate prefix",
+        wrappers: [wrappers[0], { ...wrappers[1], toolPrefix: wrappers[0]?.toolPrefix }],
+        expected: "toolPrefix values must be unique",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = helmTemplateResult([
+        ...genericWrapperBaseArgs(),
+        "--set-json",
+        `wrappers=${JSON.stringify(testCase.wrappers)}`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), testCase.label).toContain(testCase.expected);
+    }
+
+    const builtInPrefixResult = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      "--set-json",
+      'agentgateway.backends=[{"name":"github-mcp","enabled":true,"serviceName":"github-wrapper","port":8080,"path":"/mcp"}]',
+      "--set-json",
+      `wrappers=${JSON.stringify([{ ...wrappers[0], toolPrefix: "github" }])}`,
+    ]);
+    assertHelmRejected(builtInPrefixResult);
+    expect(builtInPrefixResult.stderr.toString()).toContain(
+      "toolPrefix github conflicts with an enabled built-in backend",
+    );
+  });
+
+  test("honors generic wrapper workload controls without weakening owned configuration", () => {
+    const [wrapper] = genericWrappers();
+    const configured = {
+      ...wrapper,
+      serviceAccount: { create: false, name: "existing-generic-wrapper" },
+      probes: {
+        liveness: {
+          enabled: true,
+          httpGet: { path: "/health/live", port: "http" },
+          initialDelaySeconds: 3,
+        },
+        readiness: {
+          enabled: true,
+          httpGet: { path: "/health/ready", port: "http" },
+          initialDelaySeconds: 1,
+        },
+      },
+    };
+    const rendered = helmTemplate([
+      ...genericWrapperBaseArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([configured])}`,
+    ]);
+    const deployment = renderedResource(
+      rendered,
+      "Deployment",
+      "mcp-gateway-generic-wrapper-public-search",
+    );
+
+    expect(deployment).toContain("serviceAccountName: existing-generic-wrapper");
+    expect(deployment).toContain("path: /health/live");
+    expect(deployment).toContain("path: /health/ready");
+    expect(rendered).not.toMatch(/kind: ServiceAccount[\s\S]*name: existing-generic-wrapper/);
+  });
+
+  test("rejects unsafe generic wrapper environment and session configurations", () => {
+    const [wrapper] = genericWrappers();
+    const cases = [
+      {
+        label: "owned variable in extraEnv",
+        wrapper: {
+          ...wrapper,
+          extraEnv: [{ name: "HOP1_ISSUERS_JSON", value: "[]" }],
+        },
+        expected: "must not override chart-managed HOP1_ISSUERS_JSON",
+      },
+      {
+        label: "owned variable in Secret",
+        wrapper: {
+          ...wrapper,
+          secretRef: { name: "unsafe", envKeys: ["GENERIC_WRAPPER_DESCRIPTOR_PATH"] },
+        },
+        expected: "contains chart-managed variable GENERIC_WRAPPER_DESCRIPTOR_PATH",
+      },
+      {
+        label: "duplicate Secret and extraEnv key",
+        wrapper: {
+          ...wrapper,
+          credential: { mode: "static_secret", env: "SEARCH_API_KEY", header: "x-api-key" },
+          secretRef: { name: "search", envKeys: ["SEARCH_API_KEY"] },
+          extraEnv: [{ name: "SEARCH_API_KEY", value: "not-a-secret" }],
+        },
+        expected: "also set in extraEnv",
+      },
+      {
+        label: "replicated stdio session state",
+        wrapper: {
+          ...wrapper,
+          replicas: 2,
+          upstream: { transport: "stdio", command: "/app/bin/reference-mcp", args: [] },
+        },
+        expected: "replicas",
+      },
+      {
+        label: "credential-bearing upstream URL",
+        wrapper: {
+          ...wrapper,
+          upstream: { transport: "http", url: "https://api-key@mcp.example.com/mcp" },
+        },
+        expected: "upstream URL must not contain credentials or a fragment",
+      },
+      {
+        label: "credentialed stdio without injection target",
+        wrapper: {
+          ...wrapper,
+          upstream: { transport: "stdio", command: "/app/bin/reference-mcp", args: [] },
+          credential: { mode: "static_secret", env: "SEARCH_API_KEY", header: "x-api-key" },
+          secretRef: { name: "search", envKeys: ["SEARCH_API_KEY"] },
+        },
+        expected: "credentialEnv is required",
+      },
+      {
+        label: "external service account without a name",
+        wrapper: {
+          ...wrapper,
+          serviceAccount: { create: false },
+        },
+        expected: "name is required",
+      },
+      {
+        label: "partial token exchange client credentials",
+        wrapper: {
+          ...wrapper,
+          credential: {
+            mode: "token_exchange",
+            endpoint: "https://identity.example.com/oauth/token",
+            clientIdEnv: "EXCHANGE_CLIENT_ID",
+          },
+          secretRef: { name: "exchange", envKeys: ["EXCHANGE_CLIENT_ID"] },
+        },
+        expected: "clientSecretEnv is required",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = helmTemplateResult([
+        ...genericWrapperBaseArgs(),
+        "--set-json",
+        `wrappers=${JSON.stringify([testCase.wrapper])}`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), testCase.label).toContain(testCase.expected);
+    }
+  });
+
+  test("rejects colliding generic OAuth providers and requires callback reachability", () => {
+    const first = genericOAuthWrapper("search-one", "search_one", "search-provider");
+    const second = genericOAuthWrapper("search-two", "search_two", "search-provider");
+    const unavailableScope = genericOAuthWrapper(
+      "search-scope",
+      "search_scope",
+      "search-scope-provider",
+    );
+    const unavailableCatalog = unavailableScope.catalog as {
+      catalogId: string;
+      tools: Array<Record<string, unknown>>;
+    };
+    unavailableScope.catalog = {
+      ...unavailableCatalog,
+      tools: unavailableCatalog.tools.map((tool) => ({
+        ...tool,
+        grants: { actionClass: "read", operation: "search.query", scopes: ["search.write"] },
+      })),
+    };
+    const cases = [
+      {
+        label: "duplicate provider",
+        wrappers: [first, second],
+        extraArgs: lifecycleCallerArgs(),
+        expected: "OAuth providerId values must be unique",
+      },
+      {
+        label: "reserved provider",
+        wrappers: [genericOAuthWrapper("search-one", "search_one", "google")],
+        extraArgs: lifecycleCallerArgs(),
+        expected: "providerId google is reserved",
+      },
+      {
+        label: "missing callback caller",
+        wrappers: [first],
+        extraArgs: [],
+        expected: "per-user OAuth wrappers require connectionLifecycle.enabled=true",
+      },
+      {
+        label: "tool scope omitted from consent",
+        wrappers: [unavailableScope],
+        extraArgs: lifecycleCallerArgs(),
+        expected: "catalog scope search.write is absent from OAuth consent scopes",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = helmTemplateResult([
+        ...genericWrapperBaseArgs(),
+        ...testCase.extraArgs,
+        "--set-json",
+        `wrappers=${JSON.stringify(testCase.wrappers)}`,
+      ]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), testCase.label).toContain(testCase.expected);
+    }
+  });
+
+  test("renders a generic per-user OAuth wrapper without publishing its lifecycle routes", () => {
+    const wrapper = genericOAuthWrapper("search-one", "search_one", "search-provider");
+    const rendered = helmTemplate([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    const component = "mcp-gateway-generic-wrapper-search-one";
+    const config = renderedResource(rendered, "ConfigMap", `${component}-config`);
+    const deployment = renderedResource(rendered, "Deployment", component);
+    const policy = renderedResource(rendered, "NetworkPolicy", component);
+
+    expect(config).toContain("providerId: search-provider");
+    expect(config).toContain("redirectUri: https://mcp.example.com/oauth/search-provider/callback");
+    expect(deployment).toContain("name: SEARCH_OAUTH_CLIENT_ID");
+    expect(deployment).toContain("name: SEARCH_TOKEN_ENCRYPTION_KEY");
+    expect(policy).toContain("app.kubernetes.io/name: public-gateway");
+    expect(rendered).not.toContain("kind: HTTPRoute");
+    expect(rendered).not.toContain("kind: Ingress");
   });
 
   test("rejects an enabled AgentGateway without a resource or backend target", () => {
@@ -2593,6 +2924,138 @@ function brokerWithGithubArgs(): string[] {
   ];
 }
 
+function genericWrapperArgs(): string[] {
+  return [
+    ...genericWrapperBaseArgs(),
+    "--set-json",
+    `wrappers=${JSON.stringify(genericWrappers())}`,
+  ];
+}
+
+function genericWrapperBaseArgs(): string[] {
+  return [
+    "--set",
+    "agentgateway.enabled=true",
+    "--set-string",
+    "agentgateway.mcpAuthentication.resourceMetadata.resource=https://mcp.example.com/mcp",
+    "--set-json",
+    "agentgateway.backends=[]",
+    "--set-json",
+    'hop1.issuers=[{"name":"fixture","issuer":"https://identity.example.com","audiences":["mcp-gateway"],"jwksUrl":"https://identity.example.com/.well-known/jwks.json","allowedAlgorithms":["EdDSA"]}]',
+  ];
+}
+
+function genericWrappers(): Array<Record<string, unknown>> {
+  const image = {
+    repository: "ghcr.io/apelogic-ai/mcp-gw-generic-wrapper",
+    digest: `sha256:${"a".repeat(64)}`,
+  };
+  const catalogTool = {
+    name: "query",
+    description: "Search public documents.",
+    inputSchema: {
+      type: "object",
+      properties: { q: { type: "string" } },
+      required: ["q"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true },
+    grants: { actionClass: "read", operation: "search.query", scopes: [] },
+  };
+  return [
+    {
+      name: "public-search",
+      enabled: true,
+      image,
+      toolPrefix: "public_search",
+      lifecycleRoutes: false,
+      upstream: { transport: "http", url: "https://mcp.search-provider.example/mcp" },
+      credential: { mode: "none" },
+      serverInfo: { name: "public-search", version: "1.0.0" },
+      catalog: {
+        catalogId: "public-search@1",
+        tools: [catalogTool],
+      },
+    },
+    {
+      name: "private-search",
+      enabled: true,
+      image,
+      toolPrefix: "private_search",
+      lifecycleRoutes: false,
+      upstream: {
+        transport: "http",
+        url: "http://127.0.0.1:8090/mcp",
+        sidecar: {
+          image: {
+            repository: "registry.example.com/reference/search",
+            digest: `sha256:${"b".repeat(64)}`,
+          },
+          port: 8090,
+        },
+      },
+      credential: {
+        mode: "static_secret",
+        env: "SEARCH_API_KEY",
+        header: "x-api-key",
+      },
+      secretRef: { name: "hosted-search-credentials", envKeys: ["SEARCH_API_KEY"] },
+      serverInfo: { name: "private-search", version: "1.0.0" },
+      catalog: {
+        catalogId: "private-search@1",
+        tools: [catalogTool],
+      },
+    },
+  ];
+}
+
+function genericOAuthWrapper(
+  name: string,
+  toolPrefix: string,
+  providerId: string,
+): Record<string, unknown> {
+  const [base] = genericWrappers();
+  return {
+    ...base,
+    name,
+    toolPrefix,
+    lifecycleRoutes: true,
+    credential: {
+      mode: "per_user_oauth",
+      providerId,
+      authorizationUrl: "https://identity.example.com/oauth/authorize",
+      tokenUrl: "https://identity.example.com/oauth/token",
+      userInfoUrl: "https://identity.example.com/oauth/userinfo",
+      revocationUrl: "https://identity.example.com/oauth/revoke",
+      redirectUri: `https://mcp.example.com/oauth/${providerId}/callback`,
+      scopes: ["search.read"],
+      clientIdEnv: "SEARCH_OAUTH_CLIENT_ID",
+      clientSecretEnv: "SEARCH_OAUTH_CLIENT_SECRET",
+      encryptionKeyEnv: "SEARCH_TOKEN_ENCRYPTION_KEY",
+      tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+      identity: { idField: "sub", emailField: "email", emailVerifiedField: "email_verified" },
+    },
+    secretRef: {
+      name: `${name}-oauth`,
+      envKeys: [
+        "SEARCH_OAUTH_CLIENT_ID",
+        "SEARCH_OAUTH_CLIENT_SECRET",
+        "SEARCH_TOKEN_ENCRYPTION_KEY",
+        "TOKEN_STORE_DSN",
+      ],
+    },
+  };
+}
+
+function lifecycleCallerArgs(): string[] {
+  return [
+    "--set",
+    "connectionLifecycle.enabled=true",
+    "--set-json",
+    'connectionLifecycle.allowedCallers=[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"gateway-system"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"public-gateway"}}}]',
+  ];
+}
+
 async function readExample(fileName: string): Promise<string> {
   return Bun.file(`deploy/k8s/examples/${fileName}`).text();
 }
@@ -2606,6 +3069,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-external-platform-issuer.example.yaml",
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
+    "values-generic-wrappers.example.yaml",
     "values-google-policy.example.yaml",
     "values-customer-google-broker.example.yaml",
     "google-provider-callback.example.yaml",

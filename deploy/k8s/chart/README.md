@@ -16,6 +16,23 @@ guide. It explains which servers can be routed directly, when an HTTP or
 credential wrapper is required, and the authentication and compatibility
 contract behind `agentgateway.backends`.
 
+For governed custom integrations, prefer the optional `wrappers[]` list. Each
+enabled entry deploys the released generic-wrapper image, a descriptor/catalog
+ConfigMap, Service, ServiceAccount, NetworkPolicy, and matching AgentGateway
+target. Supported upstreams are Streamable HTTP and a stdio command packaged
+in the same image; an HTTP server may instead run as a pinned sidecar. Supported
+credential modes are none, an existing Secret-backed static header, token
+exchange, and per-user authorization-code OAuth. Every wrapper image and
+sidecar image must be pinned by digest. `wrappers: []` is the default and
+renders no generic-wrapper objects.
+
+Per-user OAuth additionally needs the shared PostgreSQL migrations, an exact
+external `/oauth/<providerId>/callback` route, and
+`connectionLifecycle.allowedCallers` selecting the ingress data-plane Pods.
+The chart does not publish generic callbacks or private lifecycle routes. See
+the [Generic wrapper](https://github.com/apelogic-ai/mcp-gw/blob/main/docs/adding-mcp-servers.md#generic-wrapper)
+examples for complete no-credential, API-key, OAuth, and stdio configurations.
+
 ## Install
 
 The chart is published as an OCI artifact. Enabling `agentgateway` or any
@@ -385,6 +402,7 @@ and are left in place.
 | `agentgateway.image.tag`                                          | `""`                                                | Agentgateway image tag (or set `image.digest`).                                                                         |
 | `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                                               |
 | `agentgateway.backends`                                           | Google Workspace, db-mcp, github-mcp (all disabled) | Backend routing targets behind the shared endpoint.                                                                     |
+| `wrappers`                                                        | `[]`                                                | Optional descriptor-driven wrapper workloads and generated AgentGateway targets; every image must be digest-pinned.     |
 | `agentgateway.ingress.enabled`                                    | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                                                     |
 | `agentgateway.gatewayApi.brokerHttpRoute.enabled`                 | `false`                                             | Create only the broker's exact public HTTPRoute; requires an externally owned `/mcp` route and disables chart Ingress.  |
 | `agentgateway.gatewayApi.brokerHttpRoute.parentRefs`              | `[]`                                                | Gateway listener references for the broker HTTPRoute when enabled.                                                      |

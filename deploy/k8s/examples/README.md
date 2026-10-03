@@ -22,6 +22,13 @@ runtime manifests or install its own chart, then append an entry under
 rendered by this chart, or `host` for a fully qualified in-cluster MCP URL. See
 `values-extra-backend.example.yaml`.
 
+For a backend that needs credential replacement, a governed tool catalog,
+policy/audit, or stdio adaptation, start from
+`values-generic-wrappers.example.yaml`. It demonstrates both no-credential and
+Secret-backed API-key HTTP wrappers. The complete guide also covers per-user
+OAuth, exact callback routing, token-store migrations, and a public stdio
+reference server packaged in the wrapper image.
+
 To enable the bundled official GitHub MCP server, use
 `values-github-mcp.example.yaml` as the overlay starting point. The upstream
 server expects a GitHub bearer token in the inbound `Authorization` header in

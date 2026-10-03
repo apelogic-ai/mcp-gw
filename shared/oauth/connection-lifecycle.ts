@@ -24,11 +24,7 @@ import type {
   ValidatedProviderIdentity,
 } from "./connection-types";
 import { ProviderLifecycleError, ProviderToolScopeError } from "./connection-types";
-import {
-  connectionWriteGuard,
-  type OAuthConnectionStore,
-  type OAuthProvider,
-} from "./store";
+import { connectionWriteGuard, type OAuthConnectionStore, type OAuthProvider } from "./store";
 
 const CREDENTIAL_SCHEMA_VERSION = 1;
 const DEFAULT_RENEWAL_SAFETY_WINDOW_MS = 5 * 60 * 1000;
@@ -2026,7 +2022,9 @@ function legacyCredential(
   const value =
     provider === "google"
       ? credential.renewalCredential
-      : (credential.activeCredential ?? credential.renewalCredential);
+      : provider === "github"
+        ? credential.activeCredential
+        : (credential.activeCredential ?? credential.renewalCredential);
   return encryptSecret(typeof value === "string" ? value : "credential-unavailable", key);
 }
 

@@ -22,6 +22,7 @@ export interface GenericCredentialResolver {
 export interface CreateGenericCredentialResolverOptions {
   fetch?: GenericCredentialFetch;
   oauthResolver?: (identity: Hop1Identity, scopes: string[]) => Promise<string | undefined>;
+  maxCacheEntries?: number;
 }
 
 export type GenericCredentialFetch = (
@@ -73,12 +74,17 @@ export function createGenericCredentialResolver(
     ? requiredEnv(env, descriptor.clientSecretEnv)
     : undefined;
   const cache = new Map<string, CachedExchange>();
+  const maxCacheEntries = options.maxCacheEntries ?? 1_024;
+  if (!Number.isInteger(maxCacheEntries) || maxCacheEntries < 1) {
+    throw new Error("maxCacheEntries must be a positive integer");
+  }
   return {
     resolve: async (request) => {
       const scopes = descriptor.scopes ?? request.scopes;
       const key = exchangeCacheKey(request, scopes);
       const cached = cache.get(key);
       if (cached && cached.expiresAt > Date.now() + 5_000) return cached.credential;
+      pruneExchangeCache(cache);
 
       const params = new URLSearchParams({
         grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -123,10 +129,22 @@ export function createGenericCredentialResolver(
       };
       const expiresIn =
         typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 60;
+      while (cache.size >= maxCacheEntries) {
+        const oldest = cache.keys().next().value;
+        if (typeof oldest !== "string") break;
+        cache.delete(oldest);
+      }
       cache.set(key, { credential, expiresAt: Date.now() + expiresIn * 1000 });
       return credential;
     },
   };
+}
+
+function pruneExchangeCache(cache: Map<string, CachedExchange>): void {
+  const now = Date.now() + 5_000;
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(key);
+  }
 }
 
 function exchangeCacheKey(request: GenericCredentialRequest, scopes: string[]): string {

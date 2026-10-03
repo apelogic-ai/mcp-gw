@@ -29,6 +29,7 @@ const digestByName: Record<string, string | undefined> = {
   "mcp-gw-agentgateway": arg("agentgateway-digest"),
   "mcp-gw-google-workspace": arg("google-workspace-digest"),
   "mcp-gw-github-wrapper": arg("github-wrapper-digest"),
+  "mcp-gw-generic-wrapper": arg("generic-wrapper-digest"),
   "github-mcp-server": arg("github-mcp-server-digest"),
 };
 

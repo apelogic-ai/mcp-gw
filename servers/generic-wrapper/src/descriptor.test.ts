@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseGenericToolCatalog, parseGenericWrapperDescriptor } from "./descriptor";
+import {
+  parseGenericToolCatalog,
+  parseGenericWrapperDescriptor,
+  validateGenericWrapperConfiguration,
+} from "./descriptor";
 
 const baseDescriptor = {
   schemaVersion: "mcp-gateway.generic-wrapper/v1",
@@ -97,6 +101,72 @@ describe("generic wrapper descriptor", () => {
       }),
     ).toThrow("lifecycleRoutes=true");
   });
+
+  test("rejects credential-bearing URLs and a mismatched OAuth callback path", () => {
+    expect(() =>
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        upstream: {
+          transport: "http",
+          url: "https://api-key@mcp.example.com/mcp",
+        },
+      }),
+    ).toThrow("credentials");
+    expect(() =>
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        lifecycleRoutes: true,
+        credential: {
+          mode: "per_user_oauth",
+          providerId: "search-provider",
+          authorizationUrl: "https://identity.example.com/oauth/authorize",
+          tokenUrl: "https://identity.example.com/oauth/token",
+          userInfoUrl: "https://identity.example.com/oauth/userinfo",
+          redirectUri: "https://gateway.example.com/oauth/other-provider/callback",
+          scopes: ["search.read"],
+          clientIdEnv: "OAUTH_CLIENT_ID",
+          clientSecretEnv: "OAUTH_CLIENT_SECRET",
+          encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+          tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+          identity: { idField: "sub", emailField: "email" },
+        },
+      }),
+    ).toThrow("/oauth/search-provider/callback");
+  });
+
+  test("requires an explicit credential environment for credentialed stdio", () => {
+    const descriptor = parseGenericWrapperDescriptor({
+      ...baseDescriptor,
+      upstream: {
+        transport: "stdio",
+        command: "/app/bin/reference-mcp",
+        args: [],
+      },
+      credential: {
+        mode: "static_secret",
+        env: "UPSTREAM_API_KEY",
+        header: "x-api-key",
+      },
+    });
+    const catalog = parseGenericToolCatalog(
+      {
+        schemaVersion: "mcp-gateway.generic-catalog/v1",
+        catalogId: "stdio-credential@1",
+        tools: [
+          {
+            name: "query",
+            description: "Query the stdio server.",
+            inputSchema: { type: "object" },
+            annotations: { readOnlyHint: true },
+            grants: { actionClass: "read", scopes: [] },
+          },
+        ],
+      },
+      descriptor.toolPrefix,
+    );
+
+    expect(() => validateGenericWrapperConfiguration(descriptor, catalog)).toThrow("credentialEnv");
+  });
 });
 
 describe("generic wrapper catalog", () => {
@@ -165,5 +235,66 @@ describe("generic wrapper catalog", () => {
         "search",
       ),
     ).toThrow("grants");
+  });
+
+  test("reserves lifecycle helper names in an OAuth catalog", () => {
+    const descriptor = parseGenericWrapperDescriptor({
+      ...baseDescriptor,
+      lifecycleRoutes: true,
+      credential: {
+        mode: "per_user_oauth",
+        providerId: "search-provider",
+        authorizationUrl: "https://identity.example.com/oauth/authorize",
+        tokenUrl: "https://identity.example.com/oauth/token",
+        userInfoUrl: "https://identity.example.com/oauth/userinfo",
+        redirectUri: "https://gateway.example.com/oauth/search-provider/callback",
+        scopes: ["search.read"],
+        clientIdEnv: "OAUTH_CLIENT_ID",
+        clientSecretEnv: "OAUTH_CLIENT_SECRET",
+        encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+        tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+        identity: { idField: "sub", emailField: "email" },
+      },
+    });
+    const catalog = parseGenericToolCatalog(
+      {
+        schemaVersion: "mcp-gateway.generic-catalog/v1",
+        catalogId: "helper-collision@1",
+        tools: [
+          {
+            name: "oauth_status",
+            description: "Collides with the wrapper-owned lifecycle helper.",
+            inputSchema: { type: "object" },
+            annotations: { readOnlyHint: true },
+            grants: { actionClass: "read", scopes: [] },
+          },
+        ],
+      },
+      descriptor.toolPrefix,
+    );
+
+    expect(() => validateGenericWrapperConfiguration(descriptor, catalog)).toThrow(
+      "lifecycle helper",
+    );
+
+    const unavailableScopeCatalog = parseGenericToolCatalog(
+      {
+        schemaVersion: "mcp-gateway.generic-catalog/v1",
+        catalogId: "missing-consent-scope@1",
+        tools: [
+          {
+            name: "query",
+            description: "Requires a scope the authorization request omits.",
+            inputSchema: { type: "object" },
+            annotations: { readOnlyHint: true },
+            grants: { actionClass: "read", scopes: ["search.write"] },
+          },
+        ],
+      },
+      descriptor.toolPrefix,
+    );
+    expect(() => validateGenericWrapperConfiguration(descriptor, unavailableScopeCatalog)).toThrow(
+      "search.write",
+    );
   });
 });

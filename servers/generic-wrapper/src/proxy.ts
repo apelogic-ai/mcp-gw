@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { digestArgs, type AuditEvent, type AuditSink } from "../../../shared/audit/audit";
 import {
   classifyHop1ValidationFailure,
@@ -67,17 +69,69 @@ export function createGenericMcpProxyHandler(
     }
 
     if (request.method === "DELETE") {
-      await options.transport.close?.(
-        request.headers.get("mcp-session-id") ?? undefined,
-        principalKey(identity),
-      );
-      return new Response(null, { status: 204 });
+      let credential: GenericUpstreamCredential | null = null;
+      try {
+        credential = await options.resolveCredential({ identity, hop1Token, scopes: [] });
+      } catch {
+        // Session cleanup is best-effort and may use the transport's last credential.
+      }
+      try {
+        const closed = await options.transport.close?.({
+          incomingRequest: request,
+          body: "",
+          credential,
+          principalKey: principalKey(identity),
+        });
+        return closed ? safeStreamingResponse(closed) : new Response(null, { status: 204 });
+      } catch {
+        return mcpError(null, -32000, "MCP upstream session cleanup failed");
+      }
+    }
+    if (request.method === "GET") {
+      if (options.descriptor.upstream.transport !== "http") {
+        return mcpError(null, -32600, "Streaming GET is unavailable for a stdio upstream", 405);
+      }
+      try {
+        const credential = await options.resolveCredential({ identity, hop1Token, scopes: [] });
+        if (!credential && options.requireCredential) {
+          return unauthorized("provider authorization is required");
+        }
+        return safeStreamingResponse(
+          await options.transport.send({
+            incomingRequest: request,
+            body: "",
+            credential,
+            principalKey: principalKey(identity),
+          }),
+        );
+      } catch {
+        return mcpError(null, -32000, "MCP upstream request failed");
+      }
     }
     if (request.method !== "POST") return mcpError(null, -32600, "Invalid request", 405);
 
     const body = await request.text();
     const message = parseJsonRpcMessage(body);
     if (!message) return mcpError(null, -32700, "Parse error");
+    if (message.method === "initialize") {
+      const headers = new Headers(JSON_HEADERS);
+      headers.set("mcp-session-id", randomUUID());
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: {
+            protocolVersion: message.protocolVersion ?? "2025-06-18",
+            capabilities: { tools: {} },
+            serverInfo: options.descriptor.serverInfo,
+          },
+        }),
+        { status: 200, headers },
+      );
+    }
+    if (message.method === "notifications/initialized") {
+      return new Response(null, { status: 202 });
+    }
     if (message.method === "tools/list") {
       return mcpResult(message.id, {
         tools: [
@@ -113,6 +167,17 @@ export function createGenericMcpProxyHandler(
         args: message.arguments,
       });
       if (decision.kind !== "allow") {
+        await emitSafely(options.audit, {
+          ts: new Date().toISOString(),
+          category: "tool_call",
+          principal: identity.email,
+          status: "deny",
+          event: "policy_denied",
+          tool: message.toolName,
+          argDigest: digestArgs(message.arguments),
+          latencyMs: Date.now() - started,
+          error: decision.kind,
+        });
         return mcpResult(message.id, {
           isError: true,
           content: [{ type: "text", text: "Tool call denied by policy" }],
@@ -300,6 +365,7 @@ interface ParsedMessage {
   id: JsonRpcId;
   method: string;
   toolName?: string;
+  protocolVersion?: string;
   arguments: Record<string, unknown>;
 }
 
@@ -318,6 +384,9 @@ function parseJsonRpcMessage(body: string): ParsedMessage | undefined {
     id: jsonRpcId(value.id),
     method: value.method,
     ...(typeof params.name === "string" ? { toolName: params.name } : {}),
+    ...(typeof params.protocolVersion === "string"
+      ? { protocolVersion: params.protocolVersion }
+      : {}),
     arguments: isRecord(params.arguments) ? params.arguments : {},
   };
 }
@@ -351,6 +420,14 @@ function forwardedResponseHeaders(response: Response): Headers {
     if (value) headers.set(name, value);
   }
   return headers;
+}
+
+function safeStreamingResponse(response: Response): Response {
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: forwardedResponseHeaders(response),
+  });
 }
 
 function principalKey(identity: Hop1Identity): string {

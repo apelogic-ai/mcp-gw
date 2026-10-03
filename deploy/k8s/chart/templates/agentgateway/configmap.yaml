@@ -91,7 +91,13 @@ data:
 {{- $enabledBackends = append $enabledBackends . }}
 {{- end }}
 {{- end }}
-{{- if $enabledBackends }}
+{{- $enabledWrappers := list }}
+{{- range .Values.wrappers }}
+{{- if .enabled }}
+{{- $enabledWrappers = append $enabledWrappers . }}
+{{- end }}
+{{- end }}
+{{- if or $enabledBackends $enabledWrappers }}
                       targets:
 {{- range $enabledBackends }}
 {{- $host := .host | default "" }}
@@ -105,6 +111,15 @@ data:
                               passthrough: {}
                           mcp:
                             host: {{ $host }}
+{{- end }}
+{{- range $enabledWrappers }}
+{{- $component := printf "generic-wrapper-%s" .name }}
+                        - name: {{ .name }}
+                          policies:
+                            backendAuth:
+                              passthrough: {}
+                          mcp:
+                            host: {{ printf "http://%s:%v/mcp" (include "mcp-gateway.componentName" (dict "root" $ "component" $component)) (.port | default 8080) }}
 {{- end }}
 {{- else }}
                       targets: []

@@ -1,0 +1,147 @@
+{{- range .Values.wrappers }}
+{{- if .enabled }}
+{{- $wrapper := . }}
+{{- $secretRef := $wrapper.secretRef | default (dict) }}
+{{- $serviceAccount := $wrapper.serviceAccount | default (dict) }}
+{{- $component := printf "generic-wrapper-%s" .name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" $ "component" $component) }}
+  labels:
+    {{- include "mcp-gateway.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  replicas: {{ .replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/generic-wrapper-config: {{ toJson . | sha256sum }}
+        {{- with .podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" $component) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $serviceAccount.name | default (include "mcp-gateway.componentName" (dict "root" $ "component" $component)) }}
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        {{- with .podSecurityContext }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: generic-wrapper
+          image: {{ include "mcp-gateway.image" (dict "root" $ "image" .image) }}
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            {{- with .securityContext }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .port | default 8080 }}
+          env:
+            - name: PORT
+              value: {{ .port | default 8080 | quote }}
+            - name: GENERIC_WRAPPER_DESCRIPTOR_PATH
+              value: /etc/mcp-gw/descriptor.yaml
+            - name: HOP1_ISSUERS_JSON
+              {{- if $.Values.googleWorkspace.authorizationBroker.enabled }}
+              value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" $ | quote }}
+              {{- else }}
+              value: {{ include "mcp-gateway.hop1IssuersJson" $.Values.hop1.issuers | quote }}
+              {{- end }}
+            {{- range $index, $issuer := $.Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- range ($secretRef.envKeys | default (list)) }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretRef.name }}
+                  key: {{ . }}
+            {{- end }}
+            {{- with .extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- include "mcp-gateway.postgresqlCaEnv" $ | nindent 12 }}
+            {{- if $.Values.trustBundle.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ include "mcp-gateway.trustBundlePath" $ | quote }}
+            {{- end }}
+          {{- $defaultProbes := dict "liveness" (dict "enabled" true "httpGet" (dict "path" "/health/live" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10) "readiness" (dict "enabled" true "httpGet" (dict "path" "/health/ready" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 5) }}
+          {{- $probes := mergeOverwrite (deepCopy $defaultProbes) ($wrapper.probes | default (dict)) }}
+          {{- include "mcp-gateway.probes" (dict "probes" $probes) | nindent 10 }}
+          volumeMounts:
+            - name: generic-wrapper-config
+              mountPath: /etc/mcp-gw
+              readOnly: true
+            - name: runtime-tmp
+              mountPath: /tmp
+            {{- include "mcp-gateway.postgresqlCaVolumeMount" $ | nindent 12 }}
+            {{- include "mcp-gateway.trustBundleVolumeMount" $ | nindent 12 }}
+            {{- with .extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- with .upstream.sidecar }}
+        - name: upstream
+          image: {{ include "mcp-gateway.image" (dict "root" $ "image" .image) }}
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: upstream
+              containerPort: {{ .port }}
+          {{- with .command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      volumes:
+        - name: generic-wrapper-config
+          configMap:
+            name: {{ include "mcp-gateway.componentName" (dict "root" $ "component" (printf "%s-config" $component)) }}
+        - name: runtime-tmp
+          emptyDir: {}
+        {{- include "mcp-gateway.postgresqlCaVolume" $ | nindent 8 }}
+        {{- include "mcp-gateway.trustBundleVolume" $ | nindent 8 }}
+        {{- with .extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+---
+{{- end }}
+{{- end }}

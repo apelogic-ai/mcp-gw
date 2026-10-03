@@ -28,7 +28,11 @@ import {
   createWrapperPolicy,
 } from "../../../packages/wrapper-kit/src/configuration";
 import { createGenericCredentialResolver } from "./credentials";
-import { loadGenericToolCatalog, loadGenericWrapperDescriptor } from "./descriptor";
+import {
+  loadGenericToolCatalog,
+  loadGenericWrapperDescriptor,
+  validateGenericWrapperConfiguration,
+} from "./descriptor";
 import { createGenericOAuthRuntimeConfig, startGenericOAuth } from "./oauth";
 import { createGenericOAuthRouteHandler } from "./oauth-routes";
 import { createGenericMcpProxyHandler } from "./proxy";
@@ -57,6 +61,7 @@ export function createGenericMainHandler(
 ): (request: Request) => Promise<Response> {
   const descriptor = loadGenericWrapperDescriptor(config.descriptorPath);
   const catalog = loadGenericToolCatalog(descriptor.catalogPath, descriptor.toolPrefix);
+  validateGenericWrapperConfiguration(descriptor, catalog);
   const audit = createWrapperAuditSink(descriptor.audit?.jsonlPath);
   const policy = createWrapperPolicy({
     config: descriptor.policy,
@@ -80,8 +85,8 @@ export function createGenericMainHandler(
   const authenticate = createAuthenticator({ issuers });
   const transport =
     descriptor.upstream.transport === "http"
-      ? createHttpUpstreamTransport(descriptor.upstream)
-      : createStdioUpstreamTransport(descriptor.upstream, env);
+      ? createHttpUpstreamTransport(descriptor.upstream, { serverInfo: descriptor.serverInfo })
+      : createStdioUpstreamTransport(descriptor.upstream, env, descriptor.serverInfo);
 
   let oauthRoutes: ((request: Request) => Promise<Response>) | undefined;
   let oauthHelpers:
@@ -162,25 +167,39 @@ export function createGenericMainHandler(
       oauth: oauthHelpers,
       requireCredential: true,
     });
-    return (request) => {
+    return withHealthRoutes((request) => {
       const path = new URL(request.url).pathname;
       return path.startsWith(`/connections/${oauthDescriptor.providerId}/`) ||
         path === `/oauth/${oauthDescriptor.providerId}/callback`
         ? (oauthRoutes?.(request) ?? Promise.resolve(new Response(null, { status: 404 })))
         : mcpHandler(request);
-    };
+    });
   }
 
   const credentialResolver = createGenericCredentialResolver(descriptor.credential, env);
-  return createGenericMcpProxyHandler({
-    descriptor,
-    catalog,
-    authenticate,
-    resolveCredential: (request) => credentialResolver.resolve(request),
-    transport,
-    policy,
-    audit,
-  });
+  return withHealthRoutes(
+    createGenericMcpProxyHandler({
+      descriptor,
+      catalog,
+      authenticate,
+      resolveCredential: (request) => credentialResolver.resolve(request),
+      transport,
+      policy,
+      audit,
+    }),
+  );
+}
+
+function withHealthRoutes(
+  handler: (request: Request) => Promise<Response>,
+): (request: Request) => Promise<Response> {
+  return (request) => {
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET" && (path === "/health/live" || path === "/health/ready")) {
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    }
+    return handler(request);
+  };
 }
 
 function loadGenericHop1Issuers(env: Record<string, string | undefined>): Hop1IssuerConfig[] {

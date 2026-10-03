@@ -10,9 +10,11 @@ credential or policy wrapper.
 
 MCP-GW is a federating gateway, not a universal process supervisor. The public
 endpoint is owned by AgentGateway. Each configured backend must ultimately be
-reachable as a Streamable HTTP MCP endpoint. The Helm chart can route to an
-arbitrary endpoint, but it does not deploy an arbitrary image or automatically
-adapt stdio, credentials, OAuth, policy, or tool names for that endpoint.
+reachable as a Streamable HTTP MCP endpoint. A direct `agentgateway.backends`
+target only routes to an existing HTTP endpoint. The optional `wrappers[]`
+contract deploys MCP-GW's generic wrapper when an integration needs credential
+replacement, a governed catalog, policy, audit, or an in-container stdio
+adapter.
 
 ## Architecture and trust boundary
 
@@ -45,15 +47,15 @@ reference CLI-backed integration.
 
 ## Decision matrix
 
-| Backend shape                                                                                                        | Recommended integration                                                                  | Why                                                                                               |
-| -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Existing in-cluster Streamable HTTP server that accepts the configured HOP-1 token                                   | Add a direct `agentgateway.backends` target                                              | No protocol or credential translation is needed.                                                  |
-| External container image with Streamable HTTP support                                                                | Deploy it with its own chart or manifests, then add its Service URL as a backend         | `agentgateway.backends` configures routing only; it does not create arbitrary workloads.          |
-| Externally hosted MCP server that is trusted to receive and validate HOP-1                                           | Add its HTTPS URL as a backend                                                           | AgentGateway can connect directly when the identity and trust contracts already match.            |
-| Externally hosted server that expects an API key, provider OAuth token, or its own bearer                            | Put a credential or policy wrapper in front of it                                        | Generic targets cannot inject per-backend secrets or exchange the caller token.                   |
-| CLI or stdio server                                                                                                  | Build a Streamable HTTP wrapper and containerize both                                    | AgentGateway cannot launch or speak stdio to a backend.                                           |
-| Server whose tools need per-user provider OAuth, argument-aware policy, audit, aliases, or a stable governed catalog | Build a provider-aware wrapper                                                           | Those controls live in wrappers, not in generic target routing.                                   |
-| New first-party integration maintained and released by MCP-GW                                                        | Add the wrapper/server, descriptor, deployment contract, tests, docs, and release inputs | A repository integration has compatibility and supply-chain obligations beyond a private overlay. |
+| Backend shape                                                                                                   | Recommended integration                                                                  | Why                                                                                                |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Existing in-cluster Streamable HTTP server that accepts the configured HOP-1 token                              | Add a direct `agentgateway.backends` target                                              | No protocol or credential translation is needed.                                                   |
+| External container image with Streamable HTTP support                                                           | Deploy it with its own chart or manifests, then add its Service URL as a backend         | `agentgateway.backends` configures routing only; it does not create arbitrary workloads.           |
+| Externally hosted MCP server that is trusted to receive and validate HOP-1                                      | Add its HTTPS URL as a backend                                                           | AgentGateway can connect directly when the identity and trust contracts already match.             |
+| Externally hosted server that expects an API key, provider OAuth token, or its own bearer                       | Configure a generic wrapper                                                              | Direct targets cannot inject per-backend secrets or exchange the caller token.                     |
+| CLI or stdio server                                                                                             | Put the CLI and generic wrapper in one pinned image                                      | AgentGateway cannot launch or speak stdio to a backend; the wrapper owns that process boundary.    |
+| Server whose tools need per-user provider OAuth, operation policy, audit, aliases, or a stable governed catalog | Configure a generic wrapper; write code only for provider-specific semantics             | The descriptor covers standard credential modes while the catalog fixes the governed tool surface. |
+| New first-party integration maintained and released by MCP-GW                                                   | Add the wrapper/server, descriptor, deployment contract, tests, docs, and release inputs | A repository integration has compatibility and supply-chain obligations beyond a private overlay.  |
 
 ## Baseline backend contract
 
@@ -116,8 +118,9 @@ model:
    HOP-2, and sends only HOP-2 upstream.
 
 Use a wrapper when the backend expects any credential other than the HOP-1
-token. The generic chart target has no supported field for a static
-`Authorization` header, API key, client secret, or per-user token exchange.
+token. A direct `agentgateway.backends` target has no supported field for a
+static `Authorization` header, API key, client secret, or per-user token
+exchange; use `wrappers[]` for those cases.
 Do not put credentials in the backend URL. Do not send customer HOP-1 tokens to
 a third-party hosted service unless that service is explicitly trusted to
 receive and validate them.
@@ -338,6 +341,324 @@ and route only those required public callback paths. Do not expose a broad
 configured under `googleWorkspace.authorizationBroker`; enabling it does not
 automatically add direct-client OAuth for a custom backend.
 
+### Generic wrapper
+
+`wrappers[]` is the recommended chart path for an existing MCP server that
+needs a credential bridge, a stable prefixed catalog, YAML/OPA policy, audit,
+or stdio adaptation. It is additive and empty by default. Each enabled entry
+creates a Deployment, ClusterIP Service, ServiceAccount (unless an existing
+one is selected), ingress-only NetworkPolicy, descriptor ConfigMap, and
+AgentGateway target.
+
+The wrapper always validates HOP-1 and never forwards its bearer upstream. Its
+catalog is authoritative: only listed tools are advertised, each upstream tool
+is exposed as `<toolPrefix>_<name>`, and each call is classified before a
+credential is resolved. Pin the generic-wrapper image digest from the matching
+MCP-GW release handoff. A configured sidecar image must also be digest-pinned.
+
+The examples below assume the `hop1.issuers` and
+`agentgateway.mcpAuthentication.resourceMetadata` settings shown in the
+[complete skeleton](#configuration-patterns). `agentgateway.backends` may be
+empty because each enabled wrapper creates its own target.
+
+#### Streamable HTTP with no upstream credential
+
+```yaml
+agentgateway:
+  enabled: true
+  backends: []
+
+wrappers:
+  - name: public-reference
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      digest: sha256:<generic-wrapper-release-digest>
+    toolPrefix: reference
+    lifecycleRoutes: false
+    upstream:
+      transport: http
+      url: https://mcp.example.com/mcp
+    credential:
+      mode: none
+    serverInfo:
+      name: public-reference-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: public-reference@1
+      tools:
+        - name: echo
+          description: Echo a message through the reference server.
+          inputSchema:
+            type: object
+            properties:
+              message:
+                type: string
+            required: [message]
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: reference.echo
+            scopes: []
+```
+
+This mode means “authenticate at the wrapper, send no credential upstream.” It
+does not mean anonymous access to MCP-GW; `/mcp` still requires HOP-1.
+
+#### Streamable HTTP with an API-key Secret
+
+Create the Secret through the deployment's secret manager. For a one-off
+development namespace, the equivalent command is:
+
+```bash
+kubectl create secret generic hosted-search-credentials \
+  --namespace mcp-gateway \
+  --from-literal=HOSTED_SEARCH_API_KEY='<provider-api-key>'
+```
+
+Reference only the key name in values:
+
+```yaml
+wrappers:
+  - name: hosted-search
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      digest: sha256:<generic-wrapper-release-digest>
+    toolPrefix: hosted_search
+    lifecycleRoutes: false
+    upstream:
+      transport: http
+      url: https://search-api.example.com/mcp
+    credential:
+      mode: static_secret
+      env: HOSTED_SEARCH_API_KEY
+      header: x-api-key
+    secretRef:
+      name: hosted-search-credentials
+      envKeys: [HOSTED_SEARCH_API_KEY]
+    serverInfo:
+      name: hosted-search-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: hosted-search@1
+      tools:
+        - name: query
+          description: Search indexed documents.
+          inputSchema:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: search.query
+            scopes: []
+```
+
+Set `credential.scheme` when the provider expects a value such as
+`Authorization: Bearer <secret>`; omit it for a raw API-key header. The chart
+rejects a credential environment name that is not explicitly imported from
+`secretRef.envKeys` and rejects Secret/`extraEnv` collisions with wrapper-owned
+variables.
+
+#### Per-user OAuth provider
+
+Standard authorization-code providers can use `per_user_oauth`. MCP-GW binds
+state and encrypted credentials to the immutable HOP-1 `(issuer, subject)`,
+validates the provider user-info email against the HOP-1 email, renews tokens,
+and revokes them when a revocation endpoint is configured.
+
+```yaml
+connectionLifecycle:
+  enabled: true
+  allowedCallers:
+    # Select the actual ingress data-plane Pods delivering the callback.
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: gateway-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: public-gateway
+
+oauthMigrations:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+    digest: sha256:<generic-wrapper-release-digest>
+  secretKeyRef:
+    name: search-oauth-runtime
+    key: TOKEN_STORE_DSN
+
+wrappers:
+  - name: user-search
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      digest: sha256:<generic-wrapper-release-digest>
+    toolPrefix: user_search
+    lifecycleRoutes: true
+    upstream:
+      transport: http
+      url: https://search-api.example.com/mcp
+    credential:
+      mode: per_user_oauth
+      providerId: search-provider
+      authorizationUrl: https://accounts.example.com/oauth/authorize
+      tokenUrl: https://accounts.example.com/oauth/token
+      userInfoUrl: https://accounts.example.com/oauth/userinfo
+      revocationUrl: https://accounts.example.com/oauth/revoke
+      redirectUri: https://mcp.example.com/oauth/search-provider/callback
+      scopes: [search.read]
+      clientIdEnv: SEARCH_OAUTH_CLIENT_ID
+      clientSecretEnv: SEARCH_OAUTH_CLIENT_SECRET
+      encryptionKeyEnv: SEARCH_TOKEN_ENCRYPTION_KEY
+      tokenStoreDsnEnv: TOKEN_STORE_DSN
+      identity:
+        idField: sub
+        emailField: email
+        emailVerifiedField: email_verified
+    secretRef:
+      name: search-oauth-runtime
+      envKeys:
+        - SEARCH_OAUTH_CLIENT_ID
+        - SEARCH_OAUTH_CLIENT_SECRET
+        - SEARCH_TOKEN_ENCRYPTION_KEY
+        - TOKEN_STORE_DSN
+    serverInfo:
+      name: user-search-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: user-search@1
+      tools:
+        - name: query
+          description: Search documents available to the connected user.
+          inputSchema:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: search.query
+            scopes: [search.read]
+```
+
+The Secret contains the four named keys. The encryption key is a base64-encoded
+32-byte key, and `TOKEN_STORE_DSN` points to the PostgreSQL database migrated by
+the hook. Provider IDs must be unique and cannot reuse the built-in `google` or
+`github` storage namespaces. The redirect URI must use the exact
+`/oauth/<providerId>/callback` path and must be registered with the provider.
+
+The chart deliberately does not publish generic provider routes. Route only
+the exact callback to the generated wrapper Service; keep authenticated
+`/connections/<providerId>/*` routes private. For a release named
+`mcp-gateway`, a Gateway API route has this shape:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: search-provider-callback
+  namespace: mcp-gateway
+spec:
+  parentRefs:
+    - name: public
+      namespace: gateway-system
+      sectionName: https
+  hostnames: [mcp.example.com]
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /oauth/search-provider/callback
+      backendRefs:
+        - name: mcp-gateway-generic-wrapper-user-search
+          port: 8080
+```
+
+The wrapper publishes stable `user_search_oauth_status` and
+`user_search_oauth_start` helper tools. An internal control plane may instead
+use the authenticated routes described under
+[Private connection lifecycle access](#private-connection-lifecycle-access).
+
+#### Stdio server in the wrapper container
+
+Kubernetes containers cannot share stdin/stdout with a sidecar. Package a
+stdio server in the same image as the generic wrapper, or run it as an HTTP
+sidecar and select `transport: http`. This Dockerfile shape vendors the public
+MCP Everything reference server without changing MCP-GW source:
+
+```dockerfile
+FROM oven/bun:1.2.21@sha256:5a2011bf09364b9af658ac1e66f60d08092f4291aeefbff448d58b027734fdd0 AS reference
+WORKDIR /reference
+RUN bun add @modelcontextprotocol/server-everything@2026.8.31
+
+FROM ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@sha256:<generic-wrapper-release-digest>
+COPY --from=reference /reference /opt/reference
+```
+
+Push the derived image and pin its digest:
+
+```yaml
+wrappers:
+  - name: everything-stdio
+    enabled: true
+    image:
+      repository: registry.example.com/mcp/everything-wrapper
+      digest: sha256:<derived-image-digest>
+    replicas: 1
+    toolPrefix: reference
+    lifecycleRoutes: false
+    upstream:
+      transport: stdio
+      command: /usr/local/bin/bun
+      args:
+        - /opt/reference/node_modules/@modelcontextprotocol/server-everything/dist/index.js
+        - stdio
+    credential:
+      mode: none
+    serverInfo:
+      name: everything-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: modelcontextprotocol-everything@2026.8.31
+      tools:
+        - name: echo
+          description: Echo a message through the public reference server.
+          inputSchema:
+            type: object
+            properties:
+              message:
+                type: string
+            required: [message]
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: reference.echo
+            scopes: []
+```
+
+Stdio sessions are process-local, so the chart enforces one wrapper replica.
+The wrapper starts one child per authenticated MCP session, binds it to the
+HOP-1 principal, injects only explicitly allowlisted environment variables and
+the resolved provider credential, serializes calls within the session, and
+terminates the child on session deletion. Runtime bounds protect both transport
+types: HTTP keeps at most 1,024 wrapper-owned sessions, stdio keeps at most 64
+child sessions, and idle entries are reaped opportunistically after 30 minutes.
+
 ## Wrapper SDK status
 
 MCP-GW does not currently publish a supported wrapper SDK, npm package, or
@@ -348,8 +669,15 @@ bridges, policy and audit assembly, HTTP proxying, server-side tool registries,
 lifecycle routes, and sanitized errors. They are internal source modules rather than stable external APIs.
 Their import paths and interfaces may change with MCP-GW itself.
 
+The released generic-wrapper image is the supported configuration surface for
+integrations covered by `wrappers[]`; using it does not require importing the
+internal TypeScript package. Custom code is still responsible for semantics
+that the descriptor cannot express.
+
 The closest reference implementations are:
 
+- [`servers/generic-wrapper`](../servers/generic-wrapper), the descriptor-driven
+  HTTP/stdio bridge shipped as the generic-wrapper image;
 - [`servers/github-mcp/wrapper/src/proxy.ts`](../servers/github-mcp/wrapper/src/proxy.ts),
   an HTTP-to-HTTP MCP credential bridge; and
 - [`servers/google-workspace/wrapper/src/runtime.ts`](../servers/google-workspace/wrapper/src/runtime.ts),
