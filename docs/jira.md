@@ -218,6 +218,13 @@ copied into those errors or audit records. Live v2 responses have advertised a
 dimension. Treat response headers as authoritative and do not describe this as
 a per-site hourly quota.
 
+If `jira_oauth_status` is connected with no missing scopes but Jira data tools
+return `provider_permission_denied`, do not reconnect first. Confirm that the
+organization has enabled Rovo MCP access and the Jira read, write, and search
+permission groups for the account and site. These controls are separate from
+the 3LO app scopes and apply immediately; reconnect only if the OAuth grant
+itself is missing a required scope.
+
 ## Atlassian references
 
 - [OAuth 2.0 (3LO) apps](https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/)

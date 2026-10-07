@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse as parseYaml } from "yaml";
 
+import { GITHUB_MCP_TOOL_NAMES } from "../servers/github-mcp/wrapper/src/catalog/github-mcp";
 import {
   buildJiraCatalog,
   captureSha256,
@@ -92,6 +93,25 @@ describe("Jira catalog generation", () => {
         checkedInCapture,
       ),
     ).toEqual(checkedInCatalog);
+  });
+
+  test("does not collide with the GitHub wrapper catalog when federated", async () => {
+    const checkedInCatalog = parseYaml(
+      await Bun.file("deploy/k8s/chart/files/catalogs/jira.yaml").text(),
+    ) as { tools: Array<{ alias?: string; name: string }> };
+    const jiraNames = [
+      ...checkedInCatalog.tools.map((tool) => `jira_${tool.alias ?? tool.name}`),
+      "jira_oauth_status",
+      "jira_oauth_start",
+    ];
+    const githubNames = new Set([
+      ...GITHUB_MCP_TOOL_NAMES,
+      "github_oauth_status",
+      "github_oauth_start",
+    ]);
+
+    expect(jiraNames.filter((name) => githubNames.has(name))).toEqual([]);
+    expect(new Set(jiraNames).size).toBe(jiraNames.length);
   });
 
   test("requires explicit decisions for the complete digest-pinned capture", () => {
