@@ -25,6 +25,7 @@
     "integration:generic": "bun test test/generic-wrapper-integration.test.ts",
     "conformance:backend": "bun scripts/run-backend-conformance.ts",
     "catalog:capture:oauth": "bun scripts/capture-generic-oauth-catalog.ts",
+    "catalog:generate:jira": "bun scripts/generate-jira-catalog.ts",
     "conformance:ci": "bun test test/backend-wrapper-conformance.test.ts test/db-mcp-wrapped-conformance.test.ts scripts/backend-conformance-cli.test.ts",
     "release:check": "bun scripts/check-release-metadata.ts",
     "ci": "bun run typecheck && bun run lint && bun run format:check && bun run test"
