@@ -625,6 +625,63 @@ describe("generic MCP proxy", () => {
     });
   });
 
+  test("classifies Atlassian's access-verification error as permission denied for a valid credential", async () => {
+    let validations = 0;
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession(sessionId, principalKey) {
+        void sessionId;
+        void principalKey;
+      },
+      send: () =>
+        Promise.resolve(
+          Response.json({
+            jsonrpc: "2.0",
+            id: 23,
+            result: {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: "We couldn't verify your access. Reconnecting and signing in again may resolve this issue.",
+                },
+              ],
+            },
+          }),
+        ),
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        }),
+      validateCredential: () => {
+        validations += 1;
+        return Promise.resolve("valid");
+      },
+    });
+
+    const response = await proxy(
+      mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 23),
+    );
+
+    expect(validations).toBe(1);
+    expect(await response.json()).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: { error: "provider_permission_denied" },
+      },
+    });
+  });
+
   test("renews and retries Atlassian's opaque error when identity validation rejects the token", async () => {
     const requests: (string | undefined)[] = [];
     const transport: GenericUpstreamTransport = {

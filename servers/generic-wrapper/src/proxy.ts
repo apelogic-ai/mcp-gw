@@ -373,11 +373,8 @@ export function createGenericMcpProxyHandler(
             responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
           }
         }
-        if (
-          isAtlassianOpaqueFailure(responseBody) &&
-          credential?.rawValue &&
-          options.validateCredential
-        ) {
+        let opaqueFailure = atlassianOpaqueFailure(responseBody);
+        if (opaqueFailure && credential?.rawValue && options.validateCredential) {
           let validation: "valid" | "invalid" | "unavailable" = "unavailable";
           try {
             validation = await options.validateCredential(credentialRequest, credential.rawValue);
@@ -414,19 +411,25 @@ export function createGenericMcpProxyHandler(
                 principalKey: principalKey(identity),
               });
               responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
+              opaqueFailure = atlassianOpaqueFailure(responseBody);
             }
           }
-          if (isAtlassianOpaqueFailure(responseBody)) {
+          if (opaqueFailure) {
             const failure =
               validation === "invalid"
                 ? {
                     error: "provider_oauth_required",
                     message: "Provider authorization is required",
                   }
-                : {
-                    error: "provider_unavailable",
-                    message: "Provider is temporarily unavailable",
-                  };
+                : validation === "valid" && opaqueFailure === "access_verification"
+                  ? {
+                      error: "provider_permission_denied",
+                      message: "Provider permission was denied",
+                    }
+                  : {
+                      error: "provider_unavailable",
+                      message: "Provider is temporarily unavailable",
+                    };
             await emitProviderFailureAudit(
               options.audit,
               identity,
@@ -620,8 +623,11 @@ function isJiraProvider(descriptor: GenericWrapperDescriptor): boolean {
   );
 }
 
-function isAtlassianOpaqueFailure(body: string): boolean {
-  return body.toLowerCase().includes("we are having trouble completing this action");
+function atlassianOpaqueFailure(body: string): "transient" | "access_verification" | undefined {
+  const normalized = body.toLowerCase();
+  if (normalized.includes("we are having trouble completing this action")) return "transient";
+  if (normalized.includes("we couldn't verify your access")) return "access_verification";
+  return undefined;
 }
 
 function jiraHttpFailure(
