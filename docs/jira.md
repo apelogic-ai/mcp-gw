@@ -58,6 +58,10 @@ For Kubernetes, publish only an exact `/oauth/jira/callback` match to the Jira
 wrapper Service. Do not publish `/connections/jira/*`, `/oauth/jira/*` as a
 prefix, or the wrapper Service wholesale. Start from
 [`jira-provider-callback.example.yaml`](../deploy/k8s/examples/jira-provider-callback.example.yaml).
+The complete opt-in wrapper configuration is
+[`values-jira.example.yaml`](../deploy/k8s/examples/values-jira.example.yaml);
+replace its public origins, image digests, Secret name, and Jira site URL in the
+environment's private values overlay.
 The `connectionLifecycle.allowedCallers` selectors must match the actual
 Gateway data-plane proxy Pods that deliver the callback; a Gateway controller
 reference alone does not identify those Pods.
@@ -72,6 +76,19 @@ JIRA_OAUTH_CLIENT_SECRET
 JIRA_TOKEN_ENCRYPTION_KEY
 TOKEN_STORE_DSN
 ```
+
+For the example values, create the existing Secret in the release namespace:
+
+```bash
+kubectl -n mcp-gateway create secret generic jira-oauth-runtime \
+  --from-literal=JIRA_OAUTH_CLIENT_ID='<atlassian-client-id>' \
+  --from-literal=JIRA_OAUTH_CLIENT_SECRET='<atlassian-client-secret>' \
+  --from-literal=JIRA_TOKEN_ENCRYPTION_KEY='<base64-encoded-32-byte-key>' \
+  --from-literal=TOKEN_STORE_DSN='<postgresql-dsn>'
+```
+
+Use the environment's secret reconciler instead of this imperative command
+when GitOps owns Secrets. Never put the literal values in Helm values.
 
 `JIRA_TOKEN_ENCRYPTION_KEY` is a 32-byte key encoded as base64. Generate one,
 for example, with:
@@ -101,6 +118,11 @@ The provider uses a named Atlassian-only identity mode. It:
 This is not a general unverified-email switch. The configuration is accepted
 only for provider ID `jira` and the pinned first-party resource endpoint.
 
+The configured `credential.identity.siteUrl` is also the authoritative site for
+every Jira data tool. MCP-GW removes upstream `cloudId` fields from the public
+tool schemas and injects the resolved configured site into upstream calls. A
+caller cannot select or override another Jira site.
+
 If Jira profile visibility prevents the app from receiving `emailAddress`, the
 connection fails closed with an identity error. Fix the account/app visibility
 contract; do not weaken HOP-1 binding.
@@ -129,6 +151,12 @@ The catalog is captured from every paginated `tools/list` page at the exact v2
 digest-bound and requires an explicit include or exclude decision for every
 captured tool.
 
+The initial 2026-10-07 capture contains 44 tools on one page and has canonical
+SHA-256 digest
+`442c35b390f60b725e6f05eb1f17aa31437190fbc829ccd4b14ea36738e3fa9c`.
+The reviewed catalog includes 41 tools and excludes the generic Rovo `search`
+tool plus the upload and download attachment tools.
+
 The default catalog excludes:
 
 - the generic Rovo `search` tool and Teamwork Graph/Rovo Search operations that
@@ -139,8 +167,10 @@ The default catalog excludes:
 
 JQL search is distinct from generic Rovo search. It is governed by
 `search:jira:agent-interface` and may be included under a stable `jira_*`
-alias. Included writes are classified as `write`; destructive tools are not
-accepted by the generator.
+alias. Included writes are classified as `write`. If Atlassian marks an
+explicitly reviewed non-delete operation as destructive, the generated catalog
+preserves that annotation so clients and policy can require the appropriate
+confirmation.
 
 To refresh the catalog for a future release:
 
@@ -150,7 +180,7 @@ To refresh the catalog for a future release:
    ```bash
    bun run catalog:capture:oauth -- \
      --descriptor /absolute/path/to/jira-descriptor.yaml \
-     --output /private/path/jira-tools-capture.json
+     --output servers/generic-wrapper/catalog/jira/capture-v2-YYYY-MM-DD.json
    ```
 
 3. review every upstream tool and update the decision file;
@@ -158,13 +188,16 @@ To refresh the catalog for a future release:
 
    ```bash
    bun run catalog:generate:jira -- \
-     --capture /private/path/jira-tools-capture.json \
-     --decisions /path/to/jira-catalog-decisions.yaml \
-     --output /path/to/jira-catalog.yaml
+     --capture servers/generic-wrapper/catalog/jira/capture-v2-YYYY-MM-DD.json \
+     --decisions servers/generic-wrapper/catalog/jira/decisions.yaml \
+     --output deploy/k8s/chart/files/catalogs/jira.yaml
    ```
 
 The capture command stops if Atlassian exposes only the credit-bearing
 `search` fallback. A digest mismatch or an undecided tool also stops generation.
+The chart expands `catalog.preset: jira` to this checked-in artifact and rejects
+the preset unless the wrapper uses provider ID `jira`, tool prefix `jira`, and
+the exact pinned Atlassian v2 `?tools=all` upstream.
 
 ## Provider failures and quotas
 
