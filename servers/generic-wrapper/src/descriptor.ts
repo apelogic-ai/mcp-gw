@@ -5,6 +5,8 @@ import type { PolicyActionClass } from "../../../shared/policy/policy";
 
 export const GENERIC_WRAPPER_SCHEMA_VERSION = "mcp-gateway.generic-wrapper/v1" as const;
 export const GENERIC_CATALOG_SCHEMA_VERSION = "mcp-gateway.generic-catalog/v1" as const;
+export const ATLASSIAN_ACCESSIBLE_RESOURCES_URL =
+  "https://api.atlassian.com/oauth/token/accessible-resources" as const;
 
 export interface GenericServerInfo {
   name: string;
@@ -60,16 +62,24 @@ export interface GenericOAuthCredentialDescriptor {
   tokenStoreDsnEnv: string;
   header?: string;
   scheme?: string;
-  identity: {
-    idField: string;
-    emailField: string;
-    loginField?: string;
-    emailVerifiedField: string;
-  };
+  identity: GenericOAuthIdentityDescriptor;
   authorizationParams?: Record<string, string>;
   tokenEndpointAuthMethod?: "client_secret_basic" | "client_secret_post";
   timeoutMs?: number;
 }
+
+export type GenericOAuthIdentityDescriptor =
+  | {
+      mode?: "verified_email";
+      idField: string;
+      emailField: string;
+      loginField?: string;
+      emailVerifiedField: string;
+    }
+  | {
+      mode: "atlassian_jira_asserted_email";
+      siteUrl: string;
+    };
 
 export interface GenericWrapperDescriptor {
   schemaVersion: typeof GENERIC_WRAPPER_SCHEMA_VERSION;
@@ -94,6 +104,7 @@ export interface GenericToolGrant {
 export interface GenericCatalogTool {
   exposedName: string;
   upstreamName: string;
+  alias?: string;
   description: string;
   inputSchema: Record<string, unknown>;
   annotations: { readOnlyHint: boolean; destructiveHint?: boolean };
@@ -109,6 +120,7 @@ export interface GenericToolCatalog {
 const NAME_PATTERN = /^[a-z][a-z0-9-]{1,62}$/;
 const TOOL_PREFIX_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,128}$/;
+const TOOL_ALIAS_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const ENV_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const HEADER_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const FIELD_PATH_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
@@ -359,13 +371,7 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
     "tokenEndpointAuthMethod",
     "timeoutMs",
   ]);
-  const identity = objectValue(record.identity, "credential.identity");
-  assertAllowedFields(identity, "credential.identity", [
-    "idField",
-    "emailField",
-    "loginField",
-    "emailVerifiedField",
-  ]);
+  const identity = parseOAuthIdentity(record.identity);
   const authMethod = record.tokenEndpointAuthMethod;
   if (
     authMethod !== undefined &&
@@ -375,6 +381,20 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
     throw new Error("credential.tokenEndpointAuthMethod is invalid");
   }
   const providerId = patternString(record.providerId, "credential.providerId", NAME_PATTERN);
+  if (identity.mode === "atlassian_jira_asserted_email" && providerId !== "jira") {
+    throw new Error(
+      "credential.identity mode atlassian_jira_asserted_email requires providerId jira",
+    );
+  }
+  const userInfoUrl = httpsUrl(record.userInfoUrl, "credential.userInfoUrl");
+  if (
+    identity.mode === "atlassian_jira_asserted_email" &&
+    userInfoUrl !== ATLASSIAN_ACCESSIBLE_RESOURCES_URL
+  ) {
+    throw new Error(
+      `credential.userInfoUrl must be the pinned Atlassian accessible-resources endpoint ${ATLASSIAN_ACCESSIBLE_RESOURCES_URL}`,
+    );
+  }
   const redirectUri = httpsOrLoopbackUrl(record.redirectUri, "credential.redirectUri");
   const parsedRedirect = new URL(redirectUri);
   const expectedCallbackPath = `/oauth/${providerId}/callback`;
@@ -392,7 +412,7 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
     providerId,
     authorizationUrl: httpsUrl(record.authorizationUrl, "credential.authorizationUrl"),
     tokenUrl: httpsUrl(record.tokenUrl, "credential.tokenUrl"),
-    userInfoUrl: httpsUrl(record.userInfoUrl, "credential.userInfoUrl"),
+    userInfoUrl,
     ...optionalUrlProperty(record.revocationUrl, "credential.revocationUrl", "revocationUrl"),
     redirectUri,
     scopes: requiredStringArray(record.scopes, "credential.scopes"),
@@ -418,25 +438,7 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
         : headerName(record.header, "credential.header"),
     scheme:
       record.scheme === undefined ? "Bearer" : nonEmptyString(record.scheme, "credential.scheme"),
-    identity: {
-      idField: patternString(identity.idField, "credential.identity.idField", FIELD_PATH_PATTERN),
-      emailField: patternString(
-        identity.emailField,
-        "credential.identity.emailField",
-        FIELD_PATH_PATTERN,
-      ),
-      ...optionalPatternProperty(
-        identity.loginField,
-        "credential.identity.loginField",
-        "loginField",
-        FIELD_PATH_PATTERN,
-      ),
-      emailVerifiedField: patternString(
-        identity.emailVerifiedField,
-        "credential.identity.emailVerifiedField",
-        FIELD_PATH_PATTERN,
-      ),
-    },
+    identity,
     ...(record.authorizationParams === undefined
       ? {}
       : {
@@ -450,17 +452,63 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
   };
 }
 
+function parseOAuthIdentity(value: unknown): GenericOAuthIdentityDescriptor {
+  const identity = objectValue(value, "credential.identity");
+  if (identity.mode === "atlassian_jira_asserted_email") {
+    assertAllowedFields(identity, "credential.identity", ["mode", "siteUrl"]);
+    return {
+      mode: "atlassian_jira_asserted_email",
+      siteUrl: httpsOrigin(identity.siteUrl, "credential.identity.siteUrl"),
+    };
+  }
+  if (identity.mode !== undefined && identity.mode !== "verified_email") {
+    throw new Error("credential.identity.mode is invalid");
+  }
+  assertAllowedFields(identity, "credential.identity", [
+    "mode",
+    "idField",
+    "emailField",
+    "loginField",
+    "emailVerifiedField",
+  ]);
+  return {
+    ...(identity.mode === "verified_email" ? { mode: "verified_email" as const } : {}),
+    idField: patternString(identity.idField, "credential.identity.idField", FIELD_PATH_PATTERN),
+    emailField: patternString(
+      identity.emailField,
+      "credential.identity.emailField",
+      FIELD_PATH_PATTERN,
+    ),
+    ...optionalPatternProperty(
+      identity.loginField,
+      "credential.identity.loginField",
+      "loginField",
+      FIELD_PATH_PATTERN,
+    ),
+    emailVerifiedField: patternString(
+      identity.emailVerifiedField,
+      "credential.identity.emailVerifiedField",
+      FIELD_PATH_PATTERN,
+    ),
+  };
+}
+
 function parseCatalogTool(value: unknown, index: number, prefix: string): GenericCatalogTool {
   const name = `catalog.tools[${String(index)}]`;
   const record = objectValue(value, name);
   assertAllowedFields(record, name, [
     "name",
+    "alias",
     "description",
     "inputSchema",
     "annotations",
     "grants",
   ]);
   const upstreamName = patternString(record.name, `${name}.name`, TOOL_NAME_PATTERN);
+  const alias =
+    record.alias === undefined
+      ? undefined
+      : patternString(record.alias, `${name}.alias`, TOOL_ALIAS_PATTERN);
   const annotations = objectValue(record.annotations, `${name}.annotations`);
   assertAllowedFields(annotations, `${name}.annotations`, ["readOnlyHint", "destructiveHint"]);
   const grants = objectValue(record.grants, `${name}.grants`);
@@ -471,7 +519,8 @@ function parseCatalogTool(value: unknown, index: number, prefix: string): Generi
   }
   return {
     upstreamName,
-    exposedName: `${prefix}_${upstreamName}`,
+    exposedName: `${prefix}_${alias ?? upstreamName}`,
+    ...(alias ? { alias } : {}),
     description: nonEmptyString(record.description, `${name}.description`),
     inputSchema: objectValue(record.inputSchema, `${name}.inputSchema`),
     annotations: {
@@ -642,12 +691,24 @@ function httpsUrl(value: unknown, name: string): string {
   return result;
 }
 
+function httpsOrigin(value: unknown, name: string): string {
+  const result = httpsUrl(value, name);
+  const url = new URL(result);
+  if (url.pathname !== "/" || url.search || url.hash) {
+    throw new Error(`${name} must be an HTTPS origin without a path, query, or fragment`);
+  }
+  return url.origin;
+}
+
 function httpsOrLoopbackUrl(value: unknown, name: string): string {
   const result = httpUrl(value, name);
   const url = new URL(result);
   if (
     url.protocol !== "https:" &&
-    !(url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "::1"))
+    !(
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1")
+    )
   ) {
     throw new Error(`${name} must use HTTPS or explicit loopback HTTP`);
   }

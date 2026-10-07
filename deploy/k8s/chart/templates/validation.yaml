@@ -107,7 +107,7 @@
 {{- fail (printf "wrappers[%d] credentialed stdio upstream requires upstream.credentialEnv" $index) }}
 {{- end }}
 {{- range $tool := $wrapper.catalog.tools }}
-{{- $exposedToolName := printf "%s_%s" $wrapper.toolPrefix $tool.name }}
+{{- $exposedToolName := printf "%s_%s" $wrapper.toolPrefix ($tool.alias | default $tool.name) }}
 {{- if has $exposedToolName $wrapperToolNames }}
 {{- fail (printf "generic wrapper exposed tool name %s must be unique" $exposedToolName) }}
 {{- end }}
@@ -122,6 +122,14 @@
 {{- fail "wrappers OAuth providerId values must be unique" }}
 {{- end }}
 {{- $wrapperProviderIds = append $wrapperProviderIds $providerId }}
+{{- if eq ($wrapper.credential.identity.mode | default "verified_email") "atlassian_jira_asserted_email" }}
+{{- if ne $providerId "jira" }}
+{{- fail (printf "wrappers[%d] atlassian_jira_asserted_email requires OAuth providerId jira" $index) }}
+{{- end }}
+{{- if ne $wrapper.credential.userInfoUrl "https://api.atlassian.com/oauth/token/accessible-resources" }}
+{{- fail (printf "wrappers[%d] atlassian_jira_asserted_email requires the pinned Atlassian accessible-resources userInfoUrl" $index) }}
+{{- end }}
+{{- end }}
 {{- $expectedCallbackPath := printf "/oauth/%s/callback" $providerId }}
 {{- $callbackUrl := urlParse $wrapper.credential.redirectUri }}
 {{- if or (ne $callbackUrl.path $expectedCallbackPath) $callbackUrl.query $callbackUrl.fragment $callbackUrl.userinfo }}

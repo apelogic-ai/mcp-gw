@@ -197,9 +197,19 @@ export class GenericOAuthConnectionAdapter implements DownstreamConnectionAdapte
       },
       this.timeoutMs,
     );
-    const body = await jsonObject(response);
-    if (!response.ok) throw providerResponseError(response);
     const identityConfig = this.config.descriptor.identity;
+    if (identityConfig.mode === "atlassian_jira_asserted_email") {
+      const resources = await jsonValue(response);
+      if (!response.ok) throw providerResponseError(response);
+      return this.validateAtlassianJiraIdentity(
+        resources,
+        active,
+        identityConfig.siteUrl,
+        expectedPrincipal,
+      );
+    }
+    const body = objectFrom(await jsonValue(response));
+    if (!response.ok) throw providerResponseError(response);
     const id = stringAtPath(body, identityConfig.idField);
     const email = stringAtPath(body, identityConfig.emailField);
     const login = identityConfig.loginField
@@ -207,12 +217,56 @@ export class GenericOAuthConnectionAdapter implements DownstreamConnectionAdapte
       : undefined;
     const verified = valueAtPath(body, identityConfig.emailVerifiedField);
     if (!id || !email || verified !== true) throw malformedResponse();
-    if (email.toLowerCase() !== expectedPrincipal.email.toLowerCase()) {
+    if (normalizeEmail(email) !== normalizeEmail(expectedPrincipal.email)) {
       throw new ProviderLifecycleError("Provider identity does not match", "identity_mismatch");
     }
     return {
       displayAccountIdentity: email,
       providerAccount: { id, ...(login ? { login } : {}) },
+    };
+  }
+
+  private async validateAtlassianJiraIdentity(
+    value: unknown,
+    activeCredential: string,
+    siteUrl: string,
+    expectedPrincipal: Hop1Identity,
+  ): Promise<ValidatedProviderIdentity> {
+    if (!Array.isArray(value)) throw malformedResponse();
+    const resources = value as unknown[];
+    const resource = resources.find((entry) => {
+      if (!isRecord(entry)) return false;
+      const url = nonEmptyString(entry.url);
+      return url ? normalizedOrigin(url) === siteUrl : false;
+    });
+    if (!isRecord(resource)) {
+      throw new ProviderLifecycleError(
+        "Configured Jira site is not authorized",
+        "identity_mismatch",
+      );
+    }
+    const cloudId = nonEmptyString(resource.id);
+    if (!cloudId) throw malformedResponse();
+    const profileResponse = await providerFetch(
+      this.fetchImpl,
+      `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}/rest/api/3/myself`,
+      { headers: { authorization: `Bearer ${activeCredential}` } },
+      this.timeoutMs,
+    );
+    const profile = objectFrom(await jsonValue(profileResponse));
+    if (!profileResponse.ok) throw providerResponseError(profileResponse);
+    const id = nonEmptyString(profile.accountId);
+    const email = nonEmptyString(profile.emailAddress);
+    if (!id || !email) throw malformedResponse();
+    if (
+      profile.active !== true ||
+      normalizeEmail(email) !== normalizeEmail(expectedPrincipal.email)
+    ) {
+      throw new ProviderLifecycleError("Provider identity does not match", "identity_mismatch");
+    }
+    return {
+      displayAccountIdentity: email.trim(),
+      providerAccount: { id },
     };
   }
 
@@ -471,6 +525,10 @@ async function providerFetch(
 }
 
 async function jsonObject(response: Response): Promise<Record<string, unknown>> {
+  return objectFrom(await jsonValue(response));
+}
+
+async function jsonValue(response: Response): Promise<unknown> {
   let value: unknown;
   try {
     value = await response.json();
@@ -480,6 +538,10 @@ async function jsonObject(response: Response): Promise<Record<string, unknown>> 
     }
     throw malformedResponse();
   }
+  return value;
+}
+
+function objectFrom(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw malformedResponse();
   return value;
 }
@@ -498,6 +560,22 @@ function malformedResponse(): ProviderLifecycleError {
     "Provider response is malformed",
     "malformed_provider_response",
   );
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizedOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function identityFromState(record: {

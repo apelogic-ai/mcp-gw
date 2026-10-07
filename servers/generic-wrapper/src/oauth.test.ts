@@ -169,4 +169,121 @@ describe("generic per-user OAuth", () => {
       ),
     ).rejects.toMatchObject({ category: "identity_mismatch" });
   });
+
+  test("trusts only the configured active Jira site's asserted identity", async () => {
+    const jiraDescriptor: GenericOAuthCredentialDescriptor = {
+      ...descriptor,
+      providerId: "jira",
+      authorizationUrl: "https://auth.atlassian.com/authorize",
+      tokenUrl: "https://auth.atlassian.com/oauth/token",
+      userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
+      redirectUri: "http://localhost:8788/oauth/jira/callback",
+      scopes: [
+        "read:jira-user",
+        "read:jira:agent-interface",
+        "write:jira:agent-interface",
+        "search:jira:agent-interface",
+        "offline_access",
+      ],
+      identity: {
+        mode: "atlassian_jira_asserted_email",
+        siteUrl: "https://example.atlassian.net",
+      },
+      authorizationParams: { audience: "api.atlassian.com", prompt: "consent" },
+      tokenEndpointAuthMethod: "client_secret_post",
+    };
+    const requests: Request[] = [];
+    const adapter = new GenericOAuthConnectionAdapter(
+      createGenericOAuthRuntimeConfig(jiraDescriptor, env),
+      (input, init) => {
+        const request =
+          input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
+        requests.push(request);
+        if (request.url === jiraDescriptor.userInfoUrl) {
+          return Promise.resolve(
+            Response.json([
+              { id: "other-cloud", url: "https://other.atlassian.net", name: "Other" },
+              { id: "cloud-123", url: "https://example.atlassian.net/", name: "Example" },
+            ]),
+          );
+        }
+        if (request.url === "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/myself") {
+          return Promise.resolve(
+            Response.json({
+              accountId: "account-123",
+              emailAddress: " USER@example.com ",
+              active: true,
+            }),
+          );
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      },
+    );
+
+    expect(
+      await adapter.validateIdentity(
+        {
+          provider: "jira",
+          generation: 1,
+          credential: { activeCredential: "jira-access" },
+          grantedScopes: jiraDescriptor.scopes,
+        },
+        identity,
+      ),
+    ).toEqual({
+      displayAccountIdentity: "USER@example.com",
+      providerAccount: { id: "account-123" },
+    });
+    expect(requests).toHaveLength(2);
+    expect(
+      requests.every((request) => request.headers.get("authorization") === "Bearer jira-access"),
+    ).toBe(true);
+  });
+
+  test("rejects inactive, wrong-site, and email-mismatched Jira identities", () => {
+    const jiraDescriptor: GenericOAuthCredentialDescriptor = {
+      ...descriptor,
+      providerId: "jira",
+      userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
+      redirectUri: "https://gateway.example.com/oauth/jira/callback",
+      identity: {
+        mode: "atlassian_jira_asserted_email",
+        siteUrl: "https://example.atlassian.net",
+      },
+    };
+    const generation = {
+      provider: "jira",
+      generation: 1,
+      credential: { activeCredential: "jira-access" },
+      grantedScopes: ["read:jira-user"],
+    };
+
+    const wrongSite = new GenericOAuthConnectionAdapter(
+      createGenericOAuthRuntimeConfig(jiraDescriptor, env),
+      () => Promise.resolve(Response.json([{ id: "cloud-1", url: "https://other.atlassian.net" }])),
+    );
+    expect(wrongSite.validateIdentity(generation, identity)).rejects.toMatchObject({
+      category: "identity_mismatch",
+    });
+
+    for (const profile of [
+      { accountId: "account-1", emailAddress: "other@example.com", active: true },
+      { accountId: "account-1", emailAddress: "user@example.com", active: false },
+    ]) {
+      const adapter = new GenericOAuthConnectionAdapter(
+        createGenericOAuthRuntimeConfig(jiraDescriptor, env),
+        (input) => {
+          const url = input instanceof Request ? input.url : input.toString();
+          return Promise.resolve(
+            url === jiraDescriptor.userInfoUrl
+              ? Response.json([{ id: "cloud-1", url: "https://example.atlassian.net" }])
+              : Response.json(profile),
+          );
+        },
+      );
+      expect(adapter.validateIdentity(generation, identity)).rejects.toMatchObject({
+        category: "identity_mismatch",
+      });
+    }
+  });
 });

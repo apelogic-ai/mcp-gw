@@ -452,7 +452,10 @@
             "tokenUrl": { "type": "string", "pattern": "^https://[^#]+$" },
             "userInfoUrl": { "type": "string", "pattern": "^https://[^#]+$" },
             "revocationUrl": { "type": "string", "pattern": "^https://[^#]+$" },
-            "redirectUri": { "type": "string", "pattern": "^https://[^#]+$" },
+            "redirectUri": {
+              "type": "string",
+              "pattern": "^(?:https://[^#]+|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?/[^#]*)$"
+            },
             "scopes": {
               "type": "array",
               "minItems": 1,
@@ -466,15 +469,32 @@
             "header": { "type": "string", "minLength": 1 },
             "scheme": { "type": "string", "minLength": 1 },
             "identity": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["idField", "emailField", "emailVerifiedField"],
-              "properties": {
-                "idField": { "type": "string", "minLength": 1 },
-                "emailField": { "type": "string", "minLength": 1 },
-                "loginField": { "type": "string", "minLength": 1 },
-                "emailVerifiedField": { "type": "string", "minLength": 1 }
-              }
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["idField", "emailField", "emailVerifiedField"],
+                  "properties": {
+                    "mode": { "const": "verified_email" },
+                    "idField": { "type": "string", "minLength": 1 },
+                    "emailField": { "type": "string", "minLength": 1 },
+                    "loginField": { "type": "string", "minLength": 1 },
+                    "emailVerifiedField": { "type": "string", "minLength": 1 }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["mode", "siteUrl"],
+                  "properties": {
+                    "mode": { "const": "atlassian_jira_asserted_email" },
+                    "siteUrl": {
+                      "type": "string",
+                      "pattern": "^https://[^/?#]+/?$"
+                    }
+                  }
+                }
+              ]
             },
             "authorizationParams": {
               "type": "object",
@@ -523,6 +543,7 @@
       "required": ["name", "description", "inputSchema", "annotations", "grants"],
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "alias": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
         "description": { "type": "string", "minLength": 1 },
         "inputSchema": { "type": "object" },
         "annotations": {

@@ -12,6 +12,32 @@ function sessions(transport: unknown): SessionAwareTransport {
 }
 
 describe("generic wrapper HTTP transport", () => {
+  test("preserves fixed upstream query parameters on every MCP request", async () => {
+    const urls: string[] = [];
+    const transport = createHttpUpstreamTransport(
+      { transport: "http", url: "https://mcp.example.com/v2/mcp?tools=all" },
+      {
+        fetch: (input, init) => {
+          const request =
+            input instanceof Request
+              ? new Request(input, init)
+              : new Request(input.toString(), init);
+          urls.push(request.url);
+          return Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: {} }));
+        },
+      },
+    );
+    sessions(transport).issueSession({ id: "client-session", principalKey: "issuer\nsubject" });
+    await transport.send({
+      incomingRequest: request("initialize", 1, "client-session"),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+      credential: null,
+      principalKey: "issuer\nsubject",
+    });
+
+    expect(urls).toEqual(["https://mcp.example.com/v2/mcp?tools=all"]);
+  });
+
   test("replaces caller authorization and translates wrapper session IDs", async () => {
     const requests: Request[] = [];
     const transport = createHttpUpstreamTransport(
