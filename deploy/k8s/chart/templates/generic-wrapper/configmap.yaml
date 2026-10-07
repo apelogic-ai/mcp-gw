@@ -1,6 +1,10 @@
 {{- range .Values.wrappers }}
 {{- if .enabled }}
 {{- $component := printf "generic-wrapper-%s" .name }}
+{{- $catalog := .catalog }}
+{{- if eq ($catalog.preset | default "") "jira" }}
+{{- $catalog = $.Files.Get "files/catalogs/jira.yaml" | fromYaml }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,9 +44,9 @@ data:
     {{- end }}
   catalog.yaml: |
     schemaVersion: mcp-gateway.generic-catalog/v1
-    catalogId: {{ .catalog.catalogId | quote }}
+    catalogId: {{ $catalog.catalogId | quote }}
     tools:
-{{ .catalog.tools | toYaml | nindent 6 }}
+{{ $catalog.tools | toYaml | nindent 6 }}
   {{- with .policy }}
   {{- with .yaml }}
   policy.yaml: |

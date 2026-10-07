@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -14,6 +13,7 @@ import { captureUpstreamCatalog } from "../servers/generic-wrapper/src/catalog-c
 import { loadGenericWrapperDescriptor } from "../servers/generic-wrapper/src/descriptor";
 import { createGenericOAuthRuntimeConfig } from "../servers/generic-wrapper/src/oauth";
 import { createHttpUpstreamTransport } from "../servers/generic-wrapper/src/transport";
+import { catalogCaptureSha256 } from "./generic-catalog-capture-artifact";
 
 const descriptorPath = resolve(requiredArg(process.argv.slice(2), "descriptor"));
 const outputPath = resolve(requiredArg(process.argv.slice(2), "output"));
@@ -64,8 +64,7 @@ try {
     pages: capture.pages,
     tools: capture.tools,
   };
-  const canonical = JSON.stringify(canonicalValue(artifact));
-  const digest = createHash("sha256").update(canonical).digest("hex");
+  const digest = catalogCaptureSha256(artifact);
   await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
   await writeFile(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
   await chmod(outputPath, 0o600);
@@ -87,14 +86,4 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable ${name}`);
   return value;
-}
-
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, canonicalValue(entry)]),
-  );
 }

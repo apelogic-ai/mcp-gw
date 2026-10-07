@@ -1,0 +1,259 @@
+schemaVersion: mcp-gw.jira-catalog-decisions/v1
+catalogId: atlassian-rovo-v2@2026-10-07+442c35b3
+captureSha256: 442c35b390f60b725e6f05eb1f17aa31437190fbc829ccd4b14ea36738e3fa9c
+tools:
+  - name: addOrEditJiraIssueComment
+    disposition: include
+    alias: add_comment
+    actionClass: write
+    operation: jira.issue.comment.upsert
+    scopes: [write:jira:agent-interface]
+  - name: addOrEditJiraIssueWorklog
+    disposition: include
+    alias: add_worklog
+    actionClass: write
+    operation: jira.issue.worklog.upsert
+    scopes: [write:jira:agent-interface]
+  - name: convertJiraIssueHierarchy
+    disposition: include
+    alias: convert_issue_hierarchy
+    actionClass: write
+    operation: jira.issue.hierarchy.convert
+    scopes: [write:jira:agent-interface]
+  - name: createJiraBoard
+    disposition: include
+    alias: create_board
+    actionClass: write
+    operation: jira.board.create
+    scopes: [write:jira:agent-interface]
+  - name: createJiraIssue
+    disposition: include
+    alias: create_issue
+    actionClass: write
+    operation: jira.issue.create
+    scopes: [write:jira:agent-interface]
+  - name: createJiraIssueLink
+    disposition: include
+    alias: create_issue_link
+    actionClass: write
+    operation: jira.issue.link.create
+    scopes: [write:jira:agent-interface]
+  - name: createJiraIssueRemoteIssueLink
+    disposition: include
+    alias: create_remote_issue_link
+    actionClass: write
+    operation: jira.issue.remotelink.create
+    scopes: [write:jira:agent-interface]
+  - name: downloadJiraIssueAttachment
+    disposition: exclude
+    reason: attachment
+  - name: editJiraEntityProperty
+    disposition: include
+    alias: set_entity_property
+    actionClass: write
+    operation: jira.entity.property.set
+    scopes: [write:jira:agent-interface]
+  - name: editJiraIssue
+    disposition: include
+    alias: edit_issue
+    actionClass: write
+    operation: jira.issue.edit
+    scopes: [write:jira:agent-interface]
+  - name: getJiraBoardConfig
+    disposition: include
+    alias: get_board_config
+    actionClass: read
+    operation: jira.board.config.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraBoardIssueData
+    disposition: include
+    alias: get_board_issues
+    actionClass: read
+    operation: jira.board.issues.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraBoardSprintData
+    disposition: include
+    alias: get_sprint_data
+    actionClass: read
+    operation: jira.board.sprint.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraCurrentUser
+    disposition: include
+    alias: get_current_user
+    actionClass: read
+    operation: jira.user.current.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraEntityProperty
+    disposition: include
+    alias: get_entity_property
+    actionClass: read
+    operation: jira.entity.property.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraIssue
+    disposition: include
+    alias: get_issue
+    actionClass: read
+    operation: jira.issue.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraIssueTypeMetaWithFields
+    disposition: include
+    alias: get_issue_type_fields
+    actionClass: read
+    operation: jira.issuetype.fields.get
+    scopes: [read:jira:agent-interface]
+  - name: getJiraProjectVersionRelatedWork
+    disposition: include
+    alias: list_version_related_work
+    actionClass: read
+    operation: jira.version.relatedwork.list
+    scopes: [read:jira:agent-interface]
+  - name: getJiraProjectVersions
+    disposition: include
+    alias: list_project_versions
+    actionClass: read
+    operation: jira.version.list
+    scopes: [read:jira:agent-interface]
+  - name: getJiraUser
+    disposition: include
+    alias: get_user
+    actionClass: read
+    operation: jira.user.get
+    scopes: [read:jira:agent-interface]
+  - name: listJiraBoardSprints
+    disposition: include
+    alias: list_board_sprints
+    actionClass: read
+    operation: jira.board.sprints.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraBoards
+    disposition: include
+    alias: list_boards
+    actionClass: read
+    operation: jira.board.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraDashboards
+    disposition: include
+    alias: list_dashboards
+    actionClass: read
+    operation: jira.dashboard.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraFilters
+    disposition: include
+    alias: list_filters
+    actionClass: read
+    operation: jira.filter.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueAssignableUsers
+    disposition: include
+    alias: list_assignable_users
+    actionClass: read
+    operation: jira.issue.assignableusers.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueChangelogs
+    disposition: include
+    alias: list_issue_changelogs
+    actionClass: read
+    operation: jira.issue.changelog.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueComments
+    disposition: include
+    alias: list_issue_comments
+    actionClass: read
+    operation: jira.issue.comment.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueLinkTypes
+    disposition: include
+    alias: list_issue_link_types
+    actionClass: read
+    operation: jira.issue.linktype.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueRemoteIssueLinks
+    disposition: include
+    alias: list_remote_issue_links
+    actionClass: read
+    operation: jira.issue.remotelink.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueTransitions
+    disposition: include
+    alias: get_transitions
+    actionClass: read
+    operation: jira.issue.transition.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraIssueWorklogs
+    disposition: include
+    alias: list_issue_worklogs
+    actionClass: read
+    operation: jira.issue.worklog.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraProjectComponents
+    disposition: include
+    alias: list_project_components
+    actionClass: read
+    operation: jira.project.component.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraProjectIssueTypesMetadata
+    disposition: include
+    alias: list_project_issue_types
+    actionClass: read
+    operation: jira.project.issuetype.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraProjects
+    disposition: include
+    alias: list_projects
+    actionClass: read
+    operation: jira.project.list
+    scopes: [read:jira:agent-interface]
+  - name: listJiraStatuses
+    disposition: include
+    alias: list_statuses
+    actionClass: read
+    operation: jira.status.list
+    scopes: [read:jira:agent-interface]
+  - name: lookupJiraAccountId
+    disposition: include
+    alias: lookup_account
+    actionClass: read
+    operation: jira.user.lookup
+    scopes: [read:jira:agent-interface]
+  - name: manageJiraProjectVersion
+    disposition: include
+    alias: manage_project_version
+    actionClass: write
+    operation: jira.version.manage
+    scopes: [write:jira:agent-interface]
+  - name: manageJiraProjectVersionRelatedWork
+    disposition: include
+    alias: manage_version_related_work
+    actionClass: write
+    operation: jira.version.relatedwork.manage
+    scopes: [write:jira:agent-interface]
+  - name: manageJiraSprint
+    disposition: include
+    alias: manage_sprint
+    actionClass: write
+    operation: jira.sprint.manage
+    scopes: [write:jira:agent-interface]
+  - name: search
+    disposition: exclude
+    reason: credit_bearing_search
+  - name: searchJiraIssuesUsingJql
+    disposition: include
+    alias: search_issues
+    actionClass: read
+    operation: jira.issue.search
+    scopes: [search:jira:agent-interface]
+  - name: transitionJiraIssue
+    disposition: include
+    alias: transition_issue
+    actionClass: write
+    operation: jira.issue.transition
+    scopes: [write:jira:agent-interface]
+  - name: uploadAttachmentToJiraIssue
+    disposition: exclude
+    reason: attachment
+  - name: watchJiraIssue
+    disposition: include
+    alias: watch_issue
+    actionClass: write
+    operation: jira.issue.watch
+    scopes: [write:jira:agent-interface]

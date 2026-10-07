@@ -580,7 +580,13 @@ describe("Kubernetes production chart", () => {
       tokenUrl: "https://auth.atlassian.com/oauth/token",
       userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
-      scopes: ["read:jira-user", "read:jira:agent-interface", "offline_access"],
+      scopes: [
+        "read:jira-user",
+        "read:jira:agent-interface",
+        "write:jira:agent-interface",
+        "search:jira:agent-interface",
+        "offline_access",
+      ],
       clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
       clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
       encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
@@ -605,23 +611,7 @@ describe("Kubernetes production chart", () => {
       transport: "http",
       url: "https://mcp.atlassian.com/v2/mcp?tools=all",
     };
-    wrapper.catalog = {
-      catalogId: "jira@captured",
-      tools: [
-        {
-          name: "getJiraIssue",
-          alias: "get_issue",
-          description: "Get one Jira issue.",
-          inputSchema: { type: "object" },
-          annotations: { readOnlyHint: true },
-          grants: {
-            actionClass: "read",
-            operation: "jira.issue.get",
-            scopes: ["read:jira:agent-interface"],
-          },
-        },
-      ],
-    };
+    wrapper.catalog = { preset: "jira" };
 
     const rendered = helmTemplate([
       ...genericWrapperBaseArgs(),
@@ -649,10 +639,63 @@ describe("Kubernetes production chart", () => {
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       identity: { mode: "atlassian_jira_asserted_email" },
     });
-    expect(parsedCatalog.tools[0]).toMatchObject({
-      upstreamName: "getJiraIssue",
-      exposedName: "jira_get_issue",
-    });
+    expect(parsedCatalog.catalogId).toBe("atlassian-rovo-v2@2026-10-07+442c35b3");
+    expect(parsedCatalog.tools).toHaveLength(41);
+    expect(parsedCatalog.tools).toContainEqual(
+      expect.objectContaining({
+        upstreamName: "getJiraIssue",
+        exposedName: "jira_get_issue",
+      }),
+    );
+    expect(parsedCatalog.tools).toContainEqual(
+      expect.objectContaining({
+        upstreamName: "manageJiraSprint",
+        exposedName: "jira_manage_sprint",
+        annotations: expect.objectContaining({ destructiveHint: true }),
+      }),
+    );
+    expect(parsedCatalog.tools.map((tool) => tool.upstreamName)).not.toContain("search");
+    expect(parsedCatalog.tools.map((tool) => tool.upstreamName)).not.toContain(
+      "downloadJiraIssueAttachment",
+    );
+  });
+
+  test("pins the Jira catalog preset to the Jira provider and upstream", () => {
+    const wrapper = genericOAuthWrapper("jira", "other", "jira");
+    wrapper.upstream = {
+      transport: "http",
+      url: "https://mcp.atlassian.com/v2/mcp?tools=all",
+    };
+    wrapper.catalog = { preset: "jira" };
+
+    const result = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+
+    assertHelmRejected(result);
+    expect(result.stderr.toString()).toContain(
+      "Jira catalog preset requires toolPrefix jira, OAuth providerId jira",
+    );
+  });
+
+  test("renders the opt-in Jira values example with the governed catalog", () => {
+    const rendered = helmTemplate(["--values", "deploy/k8s/examples/values-jira.example.yaml"]);
+    const config = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-generic-wrapper-jira-config",
+    );
+
+    expect(config).toContain('catalogId: "atlassian-rovo-v2@2026-10-07+442c35b3"');
+    expect(config).toContain("alias: search_issues");
+    expect(config).not.toMatch(/^\s+- name: search$/m);
+    expect(config).not.toContain("name: uploadAttachmentToJiraIssue");
+    expect(rendered).not.toContain("/connections/jira/");
+    expect(rendered).not.toContain("kind: HTTPRoute");
+    expect(rendered).not.toContain("kind: Ingress");
   });
 
   test("ships an exact-only Gateway API route for the Jira provider callback", async () => {
@@ -3163,7 +3206,7 @@ function stableManifestString(value: unknown, key?: string): string {
 function helmTemplateForRelease(releaseName: string, extraArgs: string[] = []): string {
   const result = helmTemplateResultForRelease(releaseName, extraArgs);
 
-  expect(result.exitCode).toBe(0);
+  expect(result.exitCode, result.stderr.toString()).toBe(0);
   return result.stdout.toString();
 }
 
@@ -3542,6 +3585,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-generic-wrappers.example.yaml",
+    "values-jira.example.yaml",
     "values-db-mcp-wrapped.example.yaml",
     "values-google-policy.example.yaml",
     "values-customer-google-broker.example.yaml",

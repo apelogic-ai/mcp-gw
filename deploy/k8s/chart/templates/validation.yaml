@@ -93,6 +93,13 @@
 {{- fail (printf "wrapper toolPrefix %s conflicts with an enabled built-in backend" $wrapper.toolPrefix) }}
 {{- end }}
 {{- $wrapperPrefixes = append $wrapperPrefixes $wrapper.toolPrefix }}
+{{- $catalog := $wrapper.catalog }}
+{{- if eq ($catalog.preset | default "") "jira" }}
+{{- if or (ne $wrapper.toolPrefix "jira") (ne $wrapper.credential.mode "per_user_oauth") (ne ($wrapper.credential.providerId | default "") "jira") (ne $wrapper.upstream.transport "http") (ne ($wrapper.upstream.url | default "") "https://mcp.atlassian.com/v2/mcp?tools=all") }}
+{{- fail (printf "wrappers[%d] Jira catalog preset requires toolPrefix jira, OAuth providerId jira, and the pinned Atlassian v2 tools=all upstream" $index) }}
+{{- end }}
+{{- $catalog = $.Files.Get "files/catalogs/jira.yaml" | fromYaml }}
+{{- end }}
 {{- with $wrapper.sessions }}
 {{- if and .maxTotal .maxPerPrincipal (gt (int .maxPerPrincipal) (int .maxTotal)) }}
 {{- fail (printf "wrappers[%d] sessions.maxPerPrincipal must not exceed sessions.maxTotal" $index) }}
@@ -106,7 +113,7 @@
 {{- else if and (ne $wrapper.credential.mode "none") (not $wrapper.upstream.credentialEnv) }}
 {{- fail (printf "wrappers[%d] credentialed stdio upstream requires upstream.credentialEnv" $index) }}
 {{- end }}
-{{- range $tool := $wrapper.catalog.tools }}
+{{- range $tool := $catalog.tools }}
 {{- $exposedToolName := printf "%s_%s" $wrapper.toolPrefix ($tool.alias | default $tool.name) }}
 {{- if has $exposedToolName $wrapperToolNames }}
 {{- fail (printf "generic wrapper exposed tool name %s must be unique" $exposedToolName) }}
@@ -141,7 +148,7 @@
 {{- fail (printf "wrappers[%d] OAuth provider URLs must not contain credentials or fragments" $index) }}
 {{- end }}
 {{- end }}
-{{- range $tool := $wrapper.catalog.tools }}
+{{- range $tool := $catalog.tools }}
 {{- range $scope := $tool.grants.scopes }}
 {{- if not (has $scope $wrapper.credential.scopes) }}
 {{- fail (printf "wrappers[%d] catalog scope %s is absent from OAuth consent scopes" $index $scope) }}

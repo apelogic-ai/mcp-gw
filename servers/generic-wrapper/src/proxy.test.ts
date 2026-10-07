@@ -470,6 +470,44 @@ describe("generic MCP proxy", () => {
     });
   });
 
+  test("overrides caller-supplied Jira cloudId with the configured site", async () => {
+    const transport = new RecordingTransport();
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog: jiraWriteCatalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        }),
+    });
+
+    await proxy(
+      mcpRequest(
+        "tools/call",
+        {
+          name: "jira_edit_issue",
+          arguments: { issueKey: "TEST-1", cloudId: "https://other.atlassian.net" },
+        },
+        25,
+      ),
+    );
+
+    const forwarded = JSON.parse(transport.requests[0]?.body ?? "") as {
+      params: { name: string; arguments: Record<string, unknown> };
+    };
+    expect(forwarded.params).toMatchObject({
+      name: "editJiraIssue",
+      arguments: {
+        issueKey: "TEST-1",
+        cloudId: "https://example.atlassian.net",
+      },
+    });
+  });
+
   test.each([
     [401, "provider_oauth_required"],
     [403, "provider_permission_denied"],

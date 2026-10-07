@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
+import { catalogCaptureSha256 } from "./generic-catalog-capture-artifact";
 
 export const JIRA_CAPTURE_SCHEMA_VERSION = "mcp-gateway.generic-catalog-capture/v1" as const;
 export const JIRA_DECISIONS_SCHEMA_VERSION = "mcp-gw.jira-catalog-decisions/v1" as const;
@@ -81,7 +82,7 @@ export interface JiraGeneratedCatalog {
 }
 
 export function captureSha256(serializedCapture: string): string {
-  return createHash("sha256").update(serializedCapture).digest("hex");
+  return catalogCaptureSha256(serializedCapture);
 }
 
 export function buildJiraCatalog(
@@ -133,18 +134,17 @@ export function buildJiraCatalog(
     if (upstreamReadOnly === false && decision.actionClass === "read") {
       throw new Error(`${tool.name} is not read-only upstream but is classified as read`);
     }
-    if (tool.annotations?.destructiveHint === true) {
-      throw new Error(`${tool.name} is destructive upstream and cannot be included`);
-    }
     return [
       {
         name: tool.name,
         alias: decision.alias,
         description: tool.description,
-        inputSchema: tool.inputSchema,
+        inputSchema: publicJiraInputSchema(tool.inputSchema),
         annotations: {
           readOnlyHint: decision.actionClass === "read",
-          ...(decision.actionClass === "write" ? { destructiveHint: false } : {}),
+          ...(decision.actionClass === "write"
+            ? { destructiveHint: tool.annotations?.destructiveHint === true }
+            : {}),
         },
         grants: {
           actionClass: decision.actionClass,
@@ -161,6 +161,25 @@ export function buildJiraCatalog(
     catalogId: decisions.catalogId,
     tools,
   };
+}
+
+function publicJiraInputSchema(inputSchema: Record<string, unknown>): Record<string, unknown> {
+  const schema = structuredClone(inputSchema);
+  if (objectOrUndefined(schema.properties)) {
+    delete schema.properties.cloudId;
+  }
+  if (Array.isArray(schema.required)) {
+    const required = schema.required.filter((name) => name !== "cloudId");
+    if (required.length > 0) schema.required = required;
+    else delete schema.required;
+  }
+  return schema;
+}
+
+function objectOrUndefined(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function parseCapture(value: unknown): JiraCapture {

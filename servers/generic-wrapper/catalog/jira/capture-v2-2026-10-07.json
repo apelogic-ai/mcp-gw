@@ -1,0 +1,2412 @@
+{
+  "schemaVersion": "mcp-gateway.generic-catalog-capture/v1",
+  "provider": "jira",
+  "upstream": "https://mcp.atlassian.com/v2/mcp?tools=all",
+  "capturedAt": "2026-10-07T20:25:25.947Z",
+  "pages": 1,
+  "tools": [
+    {
+      "name": "addOrEditJiraIssueComment",
+      "description": "Add a comment to a Jira issue, or edit an existing one: omit commentId to add, or pass one from listJiraIssueComments to edit. Returns the commentId, needed to edit or delete it later. When no file was appended through inlineFileId, it also returns the echoed body and its format (appliedContentFormat).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (e.g. PROJ-123) or a Jira issue URL"
+          },
+          "commentBody": {
+            "type": "string",
+            "description": "Comment text. Markdown by default; set contentFormat: html to pass HTML instead. Required unless adding a new comment purely to embed a file via inlineFileId. Editing replaces the whole comment body: pass the full intended text (fetch the current comment first to preserve it), or \"\" for media only. Editing a body that already contains inline media must use contentFormat: html — markdown drops it. For HTML body shapes (inline media, panels, tables), first get the format guide via the generic operation runner (execute) as name=getContentFormatGuide, inputs={toolName: \"addOrEditJiraIssueComment\"}.\n"
+          },
+          "contentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Body format for commentBody. Defaults to markdown. html preserves inline media across a read-modify-write; a body fetched as HTML can be written straight back (Jira resolves media collection/filename server-side and omits them on read — not data loss). Requires the HTML content-format feature; when it is disabled the call is rejected rather than downgraded, because markdown would store the HTML tags as literal text and drop the media.\n"
+          },
+          "commentVisibility": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Restrict comment visibility to a Jira group or role. Shape: `{\"type\":\"group\"|\"role\",\"value\":\"<name>\"}`.\nRole and group names are site-specific, so do not reuse a name from another site.\nOn JSM this does not make a comment internal — a restricted comment stays customer-visible\n(`jsdPublic: true`). Use `jsmCommentType: \"internalNote\"` for that.\n"
+          },
+          "jsmCommentType": {
+            "type": "string",
+            "enum": ["internalNote", "publicComment"],
+            "description": "JSM comment type. Use internalNote for an internal note or publicComment for a customer-visible comment. Applies when adding or editing a JSM comment. Omit for existing Jira behavior.\n"
+          },
+          "commentId": {
+            "type": "string",
+            "description": "ID of an existing comment to edit. When omitted, a new comment is added."
+          },
+          "inlineFileId": {
+            "type": "array",
+            "items": {},
+            "description": "Media file ID(s) from uploadAttachmentToJiraIssue to append inline to the comment, e.g. [\"id1\",\"id2\"]. Requires contentFormat: html and a matching inlineFileCollection (paired by index). Appends at the end; for exact placement, author the media node in the HTML commentBody instead. A file already embedded in the body is rejected (would duplicate).\n"
+          },
+          "inlineFileCollection": {
+            "type": "array",
+            "items": {},
+            "description": "Media collection(s) from the upload step, paired to inlineFileId by index (a single value applies to all). Required whenever inlineFileId is set.\n"
+          },
+          "inlineFileName": {
+            "type": "array",
+            "items": {},
+            "description": "Optional file name(s) (from the upload step's fileName), paired to inlineFileId by index. Only selects the render shape: images render as a block image, other files as an inline chip. Omit to default to the image shape.\n"
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Format of the echoed comment body. Defaults to the format written, so an html write reads back as html. Bodies markdown cannot represent (media, panels, statuses, @mentions) are always echoed as HTML so a follow-up edit does not destroy them. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Add or edit Jira issue comment",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "addOrEditJiraIssueWorklog",
+      "description": "Log time spent on a Jira issue, or edit an existing worklog: omit worklogId to add, or pass one from listJiraIssueWorklogs to edit, which changes only the fields you pass. A new worklog is always logged as the calling user; an edit keeps its original author. Jira reduces the issue's remaining estimate by the time logged (by the difference on an edit). To change the estimate itself, use editJiraIssue. Returns the worklog's id, needed to edit it later, with the stored timeSpent and started.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key like PROJ-123"
+          },
+          "timeSpent": {
+            "type": "string",
+            "description": "Time spent like 2h 30m. Required when adding; optional when editing."
+          },
+          "comment": {
+            "type": "string",
+            "description": "Work description (markdown by default, or HTML with contentFormat html; converted to ADF automatically)"
+          },
+          "contentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Body format for comment. Defaults to markdown. html preserves inline media across a read-modify-write: a note fetched from listJiraIssueWorklogs as html can be written straight back. For HTML body shapes, first get the format guide via the generic operation runner (execute) as name=getContentFormatGuide, inputs={toolName: \"addOrEditJiraIssueWorklog\"}. Requires the HTML content-format feature; when it is disabled the call is rejected rather than downgraded, because markdown would store the HTML tags as literal text.\n"
+          },
+          "started": {
+            "type": "string",
+            "description": "Start time in ISO 8601 format (e.g. 2026-01-01T09:00:00.000+0000)"
+          },
+          "visibility": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Restrict the worklog to a Jira group or role. Shape: `{\"type\":\"group\"|\"role\",\"value\":\"<name>\"}`.\nExamples: `{\"type\":\"role\",\"value\":\"Administrators\"}`, `{\"type\":\"group\",\"value\":\"jira-software-users\"}`.\nWhen omitted, the worklog is visible to everyone who can view the issue.\n"
+          },
+          "worklogId": {
+            "type": "string",
+            "description": "ID of an existing worklog to edit. When omitted, a new worklog is added."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Add or edit Jira issue worklog",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "convertJiraIssueHierarchy",
+      "description": "Convert an existing Jira issue across hierarchy levels: a standard issue (Task, Bug, Story) into a sub-task under a parent, or a sub-task back into a standard issue. Mirrors Jira's Move / Convert-to-sub-task wizard: preview destination compatibility (mode=preview_step1), preview field retain/remap/drop (mode=preview_step2), then execute (mode=confirm). Do not use this for same-level type edits such as Bug → Story — use editJiraIssue for those. Task → Sub-task: always ask the user for parentIssueKey before calling. Do not search for, infer, or pick a parent. If they did not name a parent, ask them instead of calling this tool. The parent must be a standard issue. If this result has CHILD_ISSUES_WILL_REPARENT, those children will get the same new parent — ask the user to accept that, then confirm with acknowledgeChildReparent=true. If this result has SOURCE_HAS_SUBTASKS, the convert is blocked; tell the user that. Do not mention another project style. If preview execution.method is bulk-move, or confirm returns MOVE_CONFIRMATION_REQUIRED, this is Jira's Move wizard: list the destination project, statusMapping, and fieldPlan.dropped to the user and ask them to accept that status change and that those fields will be dropped. Do not convert until they accept, then retry with mode=confirm and acknowledgeMove=true. If they decline, stop. Sub-task → Task: no parent needed; confirm clears the parent. After convert, reply with this issue's key, new type, and parent. If appliedChanges.dropped is present, also name those dropped fields. If appliedChanges.status is present, also name that status change. Do not mention bulk-move permissions or project-style notes.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key or ID to convert (e.g. PROJ-123)."
+          },
+          "targetIssueType": {
+            "type": "string",
+            "description": "Destination issue type name or ID. Use a sub-task type to demote a standard issue, or a standard type (Task, Bug, Story) to promote a sub-task. Same-level changes (Bug → Story) are rejected.\n"
+          },
+          "parentIssueKey": {
+            "type": "string",
+            "description": "Parent issue key required when converting a standard issue into a sub-task. The user must provide this key — do not search for, infer, or pick a parent, including from other issues in the same project. The parent must be a standard issue in the destination project. Ignored when promoting a sub-task to a standard type.\n"
+          },
+          "targetProjectKey": {
+            "type": "string",
+            "description": "Optional destination project key. Omit to convert in the issue's current project. A different project uses Jira's bulk move API for this single issue (requires global Bulk change plus Move/Create issue permissions).\n"
+          },
+          "fieldRemap": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional values for fields that are required on the destination type and empty or incompatible on the source. Keys may be field names or customfield_* IDs. Call mode=preview_step2 first to see fieldPlan.requiresInput.\n"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["preview_step1", "preview_step2", "confirm"],
+            "description": "preview_step1 (default) returns destination compatibility without converting. preview_step2 adds the field retain/remap/drop plan. confirm executes the conversion. Omitting mode never mutates.\n"
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "When true, executes the conversion (same as mode=confirm). Prefer mode=confirm. Preview modes never convert, even if confirm is false.\n"
+          },
+          "acknowledgeChildReparent": {
+            "type": "boolean",
+            "description": "Required as true on mode=confirm when converting a team-managed issue that already has child sub-tasks. Those children become sub-tasks of the same new parentIssueKey (Jira does not nest sub-tasks). After preview, show CHILD_ISSUES_WILL_REPARENT and only set this after the user accepts that. Ignored on company-managed projects (those conversions are blocked) and when the source has no children.\n"
+          },
+          "acknowledgeMove": {
+            "type": "boolean",
+            "description": "Required as true on mode=confirm when this conversion uses Jira's Move instead of a direct issue edit (preview execution.method is bulk-move, or confirm returned MOVE_CONFIRMATION_REQUIRED). After preview, show the destination project, statusMapping, and any fieldPlan.dropped names and only set this after the user accepts that status change and that those fields will be dropped. Not needed when a same-project convert succeeds via a direct issue edit.\n"
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey", "targetIssueType"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Convert Jira issue hierarchy",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "createJiraBoard",
+      "description": "Create a new company-managed Jira Software board (scrum or kanban) from an existing filter. Requires a filter ID the user can view. When location is omitted, the board is filed in the single company-managed project from the filter's JQL. Team-managed (TMP) locations are always rejected: TMP projects are 1:1 project to board (one built-in board at project creation, no way to add another). User locations are also rejected. The response includes a url that opens the board. The filter decides which issues the board shows; location only decides where the board is filed in navigation.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Display name for the new board. Must be less than 255 characters."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["scrum", "kanban"],
+            "description": "Company-managed board type: scrum or kanban."
+          },
+          "filterId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "ID of a Jira filter the user can view. This filter's JQL determines which issues appear on the board — pick or create one that targets the intended project, since location does not restrict the issue set. Board sharing follows the filter's sharing; without Create shared objects permission a private board may be created instead.\n"
+          },
+          "location": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional board container, controlling only where the board is filed in navigation — not which issues it shows. When omitted (or {}), defaults to the single project in the filter's JQL. Object with type \"project\" and projectKeyOrId set to a company-managed project key or numeric ID. Team-managed (TMP) locations are always rejected (TMP is 1:1 project to board). User locations are also rejected. Example: {\"type\":\"project\",\"projectKeyOrId\":\"PROJ\"}.\n"
+          }
+        },
+        "required": ["cloudId", "name", "type", "filterId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Create Jira board",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "createJiraIssue",
+      "description": "Create a new Jira issue. Custom fields go in additional_fields: keyed by field name, values are resolved automatically, so no field lookup is needed first (user fields take accountIds); keyed by customfield_* ID, pass the value in Jira's format. A rejected create returns a repairHint and names the field at fault where there is one, with its allowedValues when known, so retry from that. If sprint assignment fails, the response still has the new issue's key and sprintAssignment.assigned: false — do not create it again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "projectKey": {
+            "type": "string",
+            "description": "Project key (e.g. PROJ)."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Issue summary / title."
+          },
+          "issueType": {
+            "type": "string",
+            "description": "Issue type name (e.g. Bug, Task, Story, Epic). Use listJiraProjectIssueTypesMetadata to list valid types for this project if unsure.\n"
+          },
+          "description": {
+            "type": "string",
+            "description": "Issue description in markdown, or HTML with contentFormat html. Converted to Jira ADF automatically."
+          },
+          "contentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Body format for description. Defaults to markdown; html adds panels, tables and status lozenges. For HTML body shapes, first get the format guide via the generic operation runner (execute) as name=getContentFormatGuide, inputs={toolName: \"createJiraIssue\"}. Inline media needs an existing issue: create first, then embed with editJiraIssue. When the HTML content-format feature is disabled the call is rejected rather than downgraded, because markdown would store the HTML tags as literal text.\n"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority name (e.g. High, Medium, Low, Highest, Lowest)."
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Account ID of the assignee. Resolve a name with listJiraIssueAssignableUsers, which returns only users who can be assigned in this project; lookupJiraAccountId resolves any user and does not check that."
+          },
+          "labels": {
+            "type": "array",
+            "items": {},
+            "description": "List of label strings (e.g. [\"bug\", \"needs-triage\"])."
+          },
+          "parent": {
+            "type": "string",
+            "description": "Parent issue key for sub-tasks or child issues (e.g. PROJ-10)."
+          },
+          "additional_fields": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Additional Jira fields. Keys can be human-readable field names or raw customfield_* IDs. Values can be human-readable (resolved automatically) or already-correct Jira shapes. Examples:\n  {\"Story Points\": 8}                          ← number field by name\n  {\"Team\": \"Backend\"}                          ← option/select by name\n  {\"Reviewers\": [\"alice@acme.com\", \"bob@acme.com\"]}  ← multi-user by accountId\n  {\"Component Area\": \"Platform / Auth\"}        ← cascading select as \"Parent / Child\"\n  {\"customfield_10010\": 8}                     ← raw ID (no resolution needed, fastest)\n  {\"components\": [{\"name\": \"Backend\"}]}        ← system array field (raw shape)\n  {\"fixVersions\": [{\"name\": \"v2.0\"}]}          ← system array field (raw shape)\nOn error, the response includes allowedValues and a repairHint for self-correction.\n"
+          },
+          "assignToSprint": {
+            "type": "string",
+            "description": "Optional sprint assignment after the issue is created. Accepts a numeric sprint ID, an exact sprint name, or \"active\" to resolve an active sprint. Numeric sprint IDs assign directly and do not need board lookup. When omitted, createJiraIssue behaves exactly as before and does not make sprint calls.\n"
+          }
+        },
+        "required": ["cloudId", "projectKey", "summary", "issueType"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Create Jira issue",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "createJiraIssueLink",
+      "description": "Create a link between two existing issues — blocks, duplicates, clones, relates. Hierarchy is not a link: a parent or epic is the issue's parent field. To link an issue to anything outside Jira — a page, a document, any URL — use createJiraIssueRemoteIssueLink.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "linkType": {
+            "type": "string",
+            "description": "Link type name e.g. Blocks, Relates, Duplicates. Use listJiraIssueLinkTypes for valid names."
+          },
+          "inwardIssue": {
+            "type": "string",
+            "description": "Inward issue key e.g. PROJ-1. The link reads inwardIssue to outwardIssue using the link type's outward description, so with linkType \"Blocks\" inwardIssue blocks outwardIssue."
+          },
+          "outwardIssue": {
+            "type": "string",
+            "description": "Outward issue key e.g. PROJ-2. With linkType \"Blocks\" this is the issue that is blocked by inwardIssue."
+          },
+          "comment": {
+            "type": "string",
+            "description": "Optional comment on the outward issue (plain text or markdown, converted to ADF automatically)."
+          }
+        },
+        "required": ["cloudId", "linkType", "inwardIssue", "outwardIssue"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Create Jira issue link",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "createJiraIssueRemoteIssueLink",
+      "description": "Create a native web link in a Jira issue's Web links section for a Confluence page or external HTTP(S) URL. Not a URL custom field; for an issue-to-issue dependency use createJiraIssueLink.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Target Jira issue key or ID, for example PROJ-123"
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute HTTP or HTTPS URL to add to the issue"
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional display text; defaults to the URL when omitted or blank"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Optional short summary of the linked content"
+          },
+          "relationship": {
+            "type": "string",
+            "description": "Optional relationship label; Jira uses \"links to\" when omitted or blank"
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey", "url"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Create Jira issue remote issue link",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "downloadJiraIssueAttachment",
+      "description": "Get a short-lived download URL for a Jira attachment and return a local downloadCommand. Run it from your shell to save the file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "attachmentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Numeric ID of the Jira attachment to download. Get it from getJiraIssue with fields: [\"attachment\"], which returns id, filename, size and mimeType per attachment. This is the numeric attachment ID, not a filename and not the media UUID that appears in comment or description bodies."
+          },
+          "outputPath": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "Optional local path where the file should be saved (used only to build downloadCommand). Prefer a path relative to your current working directory (e.g. \"./report.pdf\"); avoid temp directories. Defaults to the attachment's filename in the current directory when omitted."
+          }
+        },
+        "required": ["cloudId", "attachmentId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Download Jira issue attachment",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "editJiraEntityProperty",
+      "description": "Sets a single property (technical key/value store) on a specific Jira entity (issue, issueComment, issueWorklog, dashboardItem, user), creating or overwriting it. Returns {key, entityType, status}, status being \"created\" or \"updated\"; the value you wrote is not returned — read it back with getJiraEntityProperty.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "entityType": {
+            "type": "string",
+            "enum": ["issue", "issueComment", "issueWorklog", "dashboardItem", "user"],
+            "description": "Which Jira entity type to set the property on. Determines the required identifier(s). Irrelevant identifiers are ignored.\n"
+          },
+          "propertyKey": {
+            "type": "string",
+            "description": "The full property key to set. Must be namespaced under \"atlassian-mcp.\" prefix (e.g. \"atlassian-mcp.config\") or call is rejected. This keeps MCP-written  properties isolated from app-written keys.\n"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              {
+                "type": "array",
+                "items": {}
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Full property value to store; replaces any existing value for the key. Accepts any valid JSON — object, array, string, number, or boolean (e.g. {\"enabled\": true, \"level\": 3}, [1, 2, 3], \"dark\", or 42). Must be non-empty: null and blank strings are rejected.\n"
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (PROJ-123) or a Jira issue URL. Required for entityTypes \"issue\" and \"issueWorklog\".\n"
+          },
+          "commentId": {
+            "type": "string",
+            "description": "ID of an existing comment. Required when entityType is \"issueComment\"."
+          },
+          "worklogId": {
+            "type": "string",
+            "description": "ID of a worklog for a specific issue. Required when entityType is \"issueWorklog\"."
+          },
+          "dashboardId": {
+            "type": "string",
+            "description": "ID for a dashboard. Required when entityType is \"dashboardItem\"."
+          },
+          "itemId": {
+            "type": "string",
+            "description": "Dashboard gadget/item ID. Required when entityType is \"dashboardItem\"."
+          },
+          "accountId": {
+            "type": "string",
+            "description": "User account ID. Required when entityType is \"user\" (including for the calling user's own properties)\n"
+          }
+        },
+        "required": ["cloudId", "entityType", "propertyKey", "value"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Edit Jira entity property",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "editJiraIssue",
+      "description": "Edit an existing Jira issue. Custom fields go in additional_fields: keyed by field name, values are resolved automatically (user fields take accountIds); keyed by customfield_* ID, pass the value in Jira's format. Every field is set, not appended: send the full list for labels, components and other multi-value fields. Change status or move to a sprint with transitionJiraIssue, and convert Task↔Sub-task with convertJiraIssueHierarchy. Empty description or environment with \"\". When editing a body that holds inline media, use contentFormat: html, or the media is dropped. Reorder on a board with rankBeforeIssue or rankAfterIssue; fields are saved first, so a failed reorder leaves the edit applied and returns ranking.ranked: false. The response shows only getJiraIssue's default fields, so other fields you set are not echoed back.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (e.g. PROJ-123)."
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Jira fields payload to set, keyed by field name or customfield_* ID. To clear a field, pass explicit null (e.g. {\"resolution\": null}). Rich-text fields (description/environment) default to markdown; set contentFormat: html to author them in HTML. Editing a body that already contains inline media must use contentFormat: html — markdown drops it. For HTML body shapes (inline media, panels, tables), first get the format guide via the generic operation runner (execute) as name=getContentFormatGuide, inputs={toolName: \"editJiraIssue\"}.\n"
+          },
+          "additional_fields": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Additional Jira fields. Keys can be human-readable field names or raw customfield_* IDs. Values can be human-readable (resolved automatically) or already-correct Jira shapes. Examples:\n  {\"Story Points\": 8}                          ← number field by name\n  {\"Team\": \"Backend\"}                          ← option/select by name\n  {\"Reviewers\": [\"alice@acme.com\", \"bob@acme.com\"]}  ← multi-user by accountId\n  {\"Component Area\": \"Platform / Auth\"}        ← cascading select as \"Parent / Child\"\n  {\"customfield_10010\": 8}                     ← raw ID (no resolution needed, fastest)\n  {\"components\": [{\"name\": \"Backend\"}]}        ← system array field (raw shape)\n  {\"fixVersions\": [{\"name\": \"v2.0\"}]}          ← system array field (raw shape)\nOn error, the response includes allowedValues and a repairHint for self-correction.\n"
+          },
+          "inlineFileId": {
+            "type": "array",
+            "items": {},
+            "description": "Media file ID(s) from uploadAttachmentToJiraIssue to append inline to the description, e.g. [\"id1\",\"id2\"]. Requires contentFormat: html and a matching inlineFileCollection (paired by index). Appends at the end, keeping existing content; for exact placement, author the media node in the HTML description instead. A file already embedded in the body is rejected (would duplicate).\n"
+          },
+          "inlineFileCollection": {
+            "type": "array",
+            "items": {},
+            "description": "Media collection(s) from the upload step, paired to inlineFileId by index (a single value applies to all). Required whenever inlineFileId is set.\n"
+          },
+          "inlineFileName": {
+            "type": "array",
+            "items": {},
+            "description": "Optional file name(s) (from the upload step's fileName), paired to inlineFileId by index. Only selects the render shape: images render as a block image, other files as an inline chip. Omit to default to the image shape.\n"
+          },
+          "contentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Body format for rich-text fields (description/environment). Defaults to markdown. html preserves inline media across a read-modify-write; a body fetched as HTML can be written straight back (Jira resolves media collection/filename server-side and omits them on read — not data loss). Requires the HTML content-format feature; when it is disabled the call is rejected rather than downgraded, because markdown would store the HTML tags as literal text and drop the media.\n"
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Output format for rich-text fields in the returned issue. Defaults to markdown. Bodies markdown cannot represent (media, panels, expands, statuses, @mentions) are always returned as HTML, so a follow-up edit does not destroy them. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          },
+          "rankBeforeIssue": {
+            "type": "string",
+            "description": "Optional. Rank this issue immediately before the given issue key or ID (LexoRank relative anchor). Mutually exclusive with rankAfterIssue. When omitted, editJiraIssue does not make ranking calls.\n"
+          },
+          "rankAfterIssue": {
+            "type": "string",
+            "description": "Optional. Rank this issue immediately after the given issue key or ID (LexoRank relative anchor). Mutually exclusive with rankBeforeIssue. When omitted, editJiraIssue does not make ranking calls.\n"
+          },
+          "rankCustomFieldId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional. Numeric Rank field id for this rank call (e.g. 10020). Pass only when the user explicitly provides a Rank field id, or asks to reorder on a specific board's Rank field. For a named board, call getJiraBoardConfig first and use ranking.rankCustomFieldId. Do not invent or guess this id. Omit for ordinary reorders so Jira uses its default Rank field. Ignored unless rankBeforeIssue or rankAfterIssue is also set.\n"
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Edit Jira issue",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraBoardConfig",
+      "description": "Returns the configuration for a Jira board; filter, column layout, and each column's mapped statuses with their id, name and category. For the issues on the board, use getJiraBoardIssueData.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "boardId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Numeric ID of the board. Get from listJiraBoards."
+          }
+        },
+        "required": ["cloudId", "boardId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira board configuration",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraBoardIssueData",
+      "description": "Get the issues on a Jira board, its backlog, or all of them, with optional count and JQL filtering. For an issue search that is not scoped to a board, use searchJiraIssuesUsingJql. For one sprint's issues with progress metrics, use getJiraBoardSprintData — on a Scrum board dataset \"board\" spans current and future sprints, not just the active one.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "boardId": {
+            "type": "integer",
+            "description": "Numeric ID of the board. Get from listJiraBoards."
+          },
+          "dataset": {
+            "type": "string",
+            "enum": ["board", "backlog", "all"],
+            "description": "Which issues to return. \"board\": issues on the active board (for scrum boards, those in current/future sprints). \"backlog\": backlog issues (for scrum boards, those with no sprint). \"all\": every issue on the board and backlog. Kanban boards have no backlog.\n",
+            "default": "board"
+          },
+          "searchResultMode": {
+            "type": "string",
+            "enum": ["issues", "count", "all"],
+            "description": "Never count for a normal listing or if nextPageToken is used. If the total for the same board/dataset/JQL is already known, reuse it. Use \"count\" only when no trusted count exists and either the user asks or a downstream step  needs it. Use \"all\" only if both count and issues are required.\n",
+            "default": "issues"
+          },
+          "jql": {
+            "type": "string",
+            "description": "Optional JQL to further filter the issues, e.g. \"status = 'In Progress' AND assignee = currentUser()\". To filter by epic, add (\"Epic Link\" = <epicId> OR parent = <epicId>); OR-join one such clause per  epic for multiple epics. To filter for no epics, use (\"Epic Link\" is EMPTY  AND parent is EMPTY). If the tool returns a repairHint, follow it and retry.\n"
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum number of issues to return (default 50, max 100)."
+          },
+          "fields": {
+            "type": "array",
+            "items": {},
+            "description": "Fields per issue (e.g. [\"summary\", \"status\", \"customfield_10010\"]). customfield_* IDs are site-specific — discover the correct id for story points etc. on this Cloud site. Honoured exactly when supplied. Values map to issues[].fields.customFields (human labels), not raw customfield_* keys. The default \"compact\" view omits custom fields; use view: \"evidence\" (fetches and maps all custom fields) or pass explicit customfield_* IDs.\n"
+          },
+          "nextPageToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response to fetch the next page."
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Format for rich-text bodies (description, environment, comments) when the view returns them. Defaults to markdown; html is lossless for a later editJiraIssue. Issues holding anything markdown cannot represent (media, panels, expands, statuses, @mentions) are returned as HTML automatically, decided per issue. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          },
+          "view": {
+            "type": "string",
+            "enum": ["compact", "evidence", "full"],
+            "description": "Output view preset. Default: \"compact\". Options: \"compact\", \"evidence\", \"full\". compact = minimal fields for scanning; evidence = decision-relevant detail; full = complete response."
+          }
+        },
+        "required": ["cloudId", "boardId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira board issue data",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraBoardSprintData",
+      "description": "Resolve a Jira board plus its sprint data in one call. Supports board lookup by name, sprint lookup by name, and defaults to the active sprint when sprintId and sprintName are omitted. Returns the board, the resolved sprint, all sprint metadata on that board, and — unless includeIssues is false — the sprint's issues with computed focus and progress slices such as assigned-to-me and at-risk items. If the requested sprint name or ID is not found, the tool returns the resolved board plus the available sprint names to help the agent repair the request. To only list a board's sprints or filter them by state, use listJiraBoardSprints. For board or backlog issues that are not scoped to a single sprint, use getJiraBoardIssueData.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "boardId": {
+            "type": "string",
+            "description": "Jira board ID. Preferred when already known because it avoids board-name ambiguity."
+          },
+          "boardName": {
+            "type": "string",
+            "description": "Jira board name to resolve when boardId is unknown. Uses an exact case-insensitive name match when possible; narrow with projectKeyOrId or boardType if multiple boards share a similar name."
+          },
+          "projectKeyOrId": {
+            "type": "string",
+            "description": "Optional Jira project key or numeric project ID used to narrow board lookup."
+          },
+          "boardType": {
+            "type": "string",
+            "enum": ["all", "CMPScrum", "CMPKanban", "TMP"],
+            "description": "Optional board type filter for board lookup. Use all to omit Jira's type filter, CMPScrum for company-managed Scrum boards, CMPKanban for company-managed Kanban boards, and TMP for Jira's \"simple\" boards. TMP can include both team-managed Scrum and team-managed Kanban boards; inspect board features/details when you need to distinguish them.\n"
+          },
+          "sprintId": {
+            "type": "string",
+            "description": "Specific sprint ID to resolve on the selected board."
+          },
+          "sprintName": {
+            "type": "string",
+            "description": "Specific sprint name to resolve on the selected board. When omitted, the tool resolves the board's active sprint by default."
+          },
+          "includeIssues": {
+            "type": "boolean",
+            "description": "When true (default), also fetch every issue in the resolved sprint and compute assigned-to-me, at-risk, and progress metrics. Pass false for a lighter metadata-only response.",
+            "default": true
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira board sprint data",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraCurrentUser",
+      "description": "Get the calling user's own Jira profile. Use it to turn \"me\" or \"my\" into an accountId, and to read the user's time zone before resolving relative dates. For a JQL search, skip this tool and write assignee = currentUser() in the query instead. For anyone else use lookupJiraAccountId or getJiraUser.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated list of extra data to include. Options: groups (all groups you belong to) and applicationRoles (application roles you are assigned). Example: \"groups,applicationRoles\". Both are omitted from the response unless requested here."
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get current Jira user",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraEntityProperty",
+      "description": "Returns a single property (technical key/value store) from a specific Jira entity (issue, issueComment, issueWorklog, dashboardItem, user), or lists all its property keys when propertyKey is omitted. With propertyKey it returns {key, value} with the stored JSON, null-valued fields generally dropped except assignee; without one, {keys: [...]} — key names only, no values.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "entityType": {
+            "type": "string",
+            "enum": ["issue", "issueComment", "issueWorklog", "dashboardItem", "user"],
+            "description": "Which Jira entity to read the property from. Determines the required identifier(s). Irrelevant identifiers are ignored.\n"
+          },
+          "propertyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "The exact property key to fetch (a single known key; no wildcards). Omit to list all property keys on the entity instead.\n"
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Issue key (PROJ-123) or a Jira issue URL. Required for entityTypes \"issue\" and \"issueWorklog\".\n"
+          },
+          "commentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "ID of an existing comment. Required when entityType is \"issueComment\"."
+          },
+          "worklogId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "ID of a worklog for a specific issue. Required when entityType is \"issueWorklog\"."
+          },
+          "dashboardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "ID for a dashboard. Required when entityType is \"dashboardItem\"."
+          },
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Dashboard gadget/item ID. Required when entityType is \"dashboardItem\"."
+          },
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "User account ID. Required when entityType is \"user\" (including for the calling user's own properties)\n"
+          }
+        },
+        "required": ["cloudId", "entityType"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira entity property",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraIssue",
+      "description": "Get a Jira or JSM issue by key or ID. Use for one known issue; use searchJiraIssuesUsingJql to find or list many issues. Reports how many comments an issue has, not the comments themselves — for those use listJiraIssueComments. View \"evidence\" also returns the issue's links to other issues.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (PROJ-123), numeric ID, or a Jira issue URL"
+          },
+          "fields": {
+            "type": "array",
+            "items": {},
+            "description": "Custom Jira field IDs to fetch (e.g. [\"customfield_10010\", \"customfield_10020\"]). Overrides the view's fetch strategy. For custom fields in normal use, prefer view: \"evidence\", which fetches and maps them automatically. Use [\"*all\"] to fetch every field (expensive — prefer view: \"full\" instead).\n"
+          },
+          "includeEditableFields": {
+            "type": "boolean",
+            "description": "When true, also return compact metadata for fields the authenticated user can edit on this issue, including type, allowed values, and operations. Omit unless preparing an edit: this makes an extra Jira REST call.\n"
+          },
+          "fieldsByKeys": {
+            "type": "boolean",
+            "description": "When true, each entry in `fields` is interpreted as a Jira field key (e.g. \"summary\", \"description\") instead of a field id. Matches the Jira REST `fieldsByKeys` query parameter. Ignored when `fields` is omitted (default field list uses ids).\n"
+          },
+          "expand": {
+            "type": "string",
+            "description": "Additional Jira expand tokens (comma-separated), e.g. \"renderedFields,changelog\". Merged with any expand the server adds for custom-field mapping (e.g. \"names\"); duplicate tokens removed. Note \"changelog\" here returns only the newest page, sorted newest-first, and it accepts startAt/maxResults then ignores them — so it cannot be paged and reports a longer history as complete. Use listJiraIssueChangelogs to read all of it (oldest-first); do not mix their orderings.\n"
+          },
+          "properties": {
+            "type": "array",
+            "items": {},
+            "description": "Issue entity property keys to return (Jira `properties` query param, repeated per key). Omit unless you rely on app-specific issue properties.\n"
+          },
+          "failFast": {
+            "type": "boolean",
+            "description": "When true, forwards Jira's `failFast` query flag for this GET. Omit for Jira default behavior.\n"
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Format for rich-text bodies — description and environment, plus any comment bodies the view returns. Defaults to markdown. Set html to receive HTML, which is lossless, so you can pass it straight back to editJiraIssue/addOrEditJiraIssueComment with contentFormat: html. Bodies holding anything markdown cannot represent — inline media, panels, expands, layouts, statuses, @mentions, dates, emoji — are returned as HTML automatically, because markdown would drop those nodes or turn them into literal text on write-back. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          },
+          "view": {
+            "type": "string",
+            "enum": ["compact", "evidence", "full"],
+            "description": "Output view preset. Default: \"compact\". Options: \"compact\", \"evidence\", \"full\". compact = minimal fields for scanning; evidence = decision-relevant detail; full = complete response."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira issue",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraIssueTypeMetaWithFields",
+      "description": "Returns the schema and field metadata for a specific issue type in a project, useful for creating issues with correct fields. Get issueTypeId from listJiraProjectIssueTypesMetadata first. Each entry in fields gives the fieldId, its name, whether it is required, schema.type — with schema.items naming the element type on arrays — and allowedValues on fields whose value must come from a predefined list. Only required fields are returned unless you pass requiredFieldsOnly: false.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "projectIdOrKey": {
+            "type": "string",
+            "description": "Project ID or key (e.g. PROJ or 10000)"
+          },
+          "issueTypeId": {
+            "type": "string",
+            "description": "Issue type ID"
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first field to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum fields to return per page (max 200, default 50)."
+          },
+          "requiredFieldsOnly": {
+            "type": "boolean",
+            "description": "When true (default), returns only the fields that are required to create an issue of this type, reducing response size. Set to false to return all available fields (both required and optional)."
+          }
+        },
+        "required": ["cloudId", "projectIdOrKey", "issueTypeId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira issue type field metadata",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraProjectVersionRelatedWork",
+      "description": "List the related work on a Jira project version (release): the designs, test plans, runbooks and change records teams attach to it. Use an item's relatedWorkId to edit it with manageJiraProjectVersionRelatedWork; Jira's own release-note item has no relatedWorkId and cannot be edited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ID of the version. Use getJiraProjectVersions to find the ID."
+          }
+        },
+        "required": ["cloudId", "versionId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira project version related work",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraProjectVersions",
+      "description": "List a Jira project's releases/versions (pass projectIdOrKey), or fetch a single version (pass versionId) — provide exactly one. Results come back in a paginated envelope (values[]); in single-version mode the list-only inputs (startAt, maxResults, query, status, orderBy) are ignored. Optionally set include to add the \"driver\" and/or \"approvers\" to every version returned, but leave it unset unless the user explicitly asks for them. To create, update, or release a version, use manageJiraProjectVersion instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "projectIdOrKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The project key (e.g. PROJ) or numeric project ID to list versions for. Use listJiraProjects to find the key if not known. Provide either projectIdOrKey or versionId (not both); required when versionId is omitted."
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The numeric ID of a single version (release) to fetch. Provide either versionId or projectIdOrKey (not both); required when projectIdOrKey is omitted. In this mode the pagination/filter inputs are ignored and a single-entry envelope is returned."
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset (default 0). List mode only; ignored when versionId is provided."
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum results per page (default 50). List mode only; ignored when versionId is provided."
+          },
+          "query": {
+            "type": "string",
+            "description": "Filter versions by name or description (case-insensitive substring match). List mode only."
+          },
+          "status": {
+            "type": "array",
+            "items": {},
+            "description": "Filter by version status. Array of any of: \"released\", \"unreleased\", \"archived\". Example: [\"released\", \"unreleased\"]. List mode only."
+          },
+          "orderBy": {
+            "type": "string",
+            "pattern": "^-?(description|name|releaseDate|sequence|startDate)$",
+            "description": "Order results by a field. Options: description, name, releaseDate, sequence, startDate. Prefix with '-' for descending. Example: '-releaseDate'. List mode only."
+          },
+          "include": {
+            "type": "array",
+            "items": {},
+            "description": "Extra sections to add to every version returned. Allowed values: \"driver\" (the resolved driver display name) and \"approvers\" (approvers with displayName, status, description, declineReason). Only set this when the user explicitly asks for the driver or approvers; otherwise omit it. In list mode one call enriches all versions, so never call per version."
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira project versions",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "getJiraUser",
+      "description": "Get a Jira user's profile by account ID, including time zone, locale and active status, plus groups and application roles when asked for via expand. If you do not have the accountId, use lookupJiraAccountId or listJiraIssueAssignableUsers first. For the calling user's own profile use getJiraCurrentUser instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "The account ID of the user to retrieve."
+          },
+          "expand": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "Comma-separated list of extra data to include. Options: groups (all groups the user belongs to) and applicationRoles (application roles the user is assigned). Example: \"groups,applicationRoles\". Both are omitted from the response unless requested here."
+          }
+        },
+        "required": ["cloudId", "accountId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira user",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraBoardSprints",
+      "description": "List a board's sprints — past, active or upcoming — or resolve a sprint name to the numeric sprintId that transitionJiraIssue and manageJiraSprint take. Not needed before createJiraIssue, whose assignToSprint accepts a sprint name or \"active\" directly. For the active sprint plus its issues and progress in one call, use getJiraBoardSprintData.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "boardId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Numeric ID of the Scrum board. Get from listJiraBoards."
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "future", "closed", "all"],
+            "description": "Optional sprint state filter. Use all or omit to return all sprint states.",
+            "default": "all"
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first result to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum results to return per page. Jira defaults to 50."
+          }
+        },
+        "required": ["cloudId", "boardId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "List Jira board sprints",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraBoards",
+      "description": "List Jira boards visible to the current user. Use it to get board IDs for getJiraBoardIssueData, getJiraBoardConfig and listJiraBoardSprints; getJiraBoardSprintData can resolve a board by name directly. Returns each board's ID, name, type, edit/privacy/favourite flags and location. Page with startAt until isLast is true. projectKeyOrId matches boards whose JQL references that project, not boards located in it. includePrivate appends private boards, but Jira omits their name and type.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first result to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum results to return per page. Jira defaults to 50."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["all", "CMPScrum", "CMPKanban", "TMP"],
+            "description": "Optional board type filter. Use all to omit Jira's type filter, CMPScrum for company-managed Scrum boards, CMPKanban for company-managed Kanban boards, and TMP for Jira's \"simple\" boards. TMP can include both team-managed Scrum and team-managed Kanban boards; inspect board features/details when you need to distinguish them.\n"
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional partial board name filter."
+          },
+          "projectKeyOrId": {
+            "type": "string",
+            "description": "Optional project key or numeric ID used to find boards relevant to a project."
+          },
+          "includePrivate": {
+            "type": "boolean",
+            "description": "When true, append private boards to the end of the result list."
+          },
+          "negateLocationFiltering": {
+            "type": "boolean",
+            "description": "When true, negates location-based filters such as project or project type."
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "Optional sort order. Supported values are name, -name, or +name."
+          },
+          "expand": {
+            "type": "string",
+            "description": "Optional comma-separated expand tokens such as admins or permissions."
+          },
+          "projectTypeLocation": {
+            "type": "array",
+            "items": {},
+            "description": "Optional list of project type locations such as software or service_desk."
+          },
+          "filterId": {
+            "type": "number",
+            "description": "Optional filter ID used to find boards relevant to a Jira filter."
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "List Jira boards",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraDashboards",
+      "description": "Returns Jira dashboards visible to the current user for discovery and linking workflows. Use this to find dashboard IDs, names, and links that can be shared or opened. This tool is intentionally lightweight and does not fetch dashboard gadget data. Page with startAt until isLast is true.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "dashboardName": {
+            "type": "string",
+            "description": "Optional dashboard name filter (maps to Jira dashboardName)."
+          },
+          "accountId": {
+            "type": "string",
+            "description": "Optional owner account ID filter (preferred over deprecated owner username)."
+          },
+          "groupname": {
+            "type": "string",
+            "description": "Optional group name filter for shared dashboards (prefer groupId when available)."
+          },
+          "groupId": {
+            "type": "string",
+            "description": "Optional group ID filter for dashboards shared to a specific group. Do not combine with groupname."
+          },
+          "projectId": {
+            "type": "number",
+            "description": "Optional project ID filter for dashboards shared to a specific project."
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional status filter. Allowed values are active, archived, or deleted."
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "Optional sort order. Supported values include name, -name, owner, -owner, +owner, favorite_count, -favorite_count, +favorite_count, id, -id, +id, description, -description, +description, is_favorite, -is_favorite, and +is_favorite.\n"
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first result to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum results to return per page (default 50, max 100)."
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "List Jira dashboards",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraFilters",
+      "description": "Search saved Jira filters visible to the current user, returning their IDs and JQL. To get the matching issues, run a filter's jql through searchJiraIssuesUsingJql; to build a board, pass its id as createJiraBoard's filterId. projectId finds filters shared with that project, not filters whose JQL mentions it.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "filterName": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional filter name to match. Partial matches are returned unless isSubstringMatch is false. Must be 255 characters or fewer.\n"
+          },
+          "projectId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional numeric project ID used to return filters scoped to a project. Use listJiraProjects to resolve a project key to its ID.\n"
+          },
+          "accountId": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Optional owner account ID used to return filters owned by that user."
+          },
+          "id": {
+            "type": "array",
+            "items": {},
+            "description": "Optional list of specific filter IDs to return. Jira accepts at most 200 IDs per call (`id=10000&id=10001`).\n"
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": ["name", "-name", "+name", "id", "-id", "+id", "owner", "-owner", "+owner"],
+            "description": "Optional sort order. Defaults to Jira's own ordering when omitted."
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first result to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum results to return per page. Jira defaults to 50."
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated expand tokens on GET /rest/api/3/filter/search. jql, owner, and description are expand-only. Defaults to description,jql,owner.\n",
+            "default": "description,jql,owner"
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Search Jira filters",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueAssignableUsers",
+      "description": "List the users who can actually be assigned work in a project or on an issue. Filters by assign permission, which a plain name search does not, so prefer it when choosing an assignee for editJiraIssue or createJiraIssue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project key (e.g. PROJ) whose assignable users to list. Pass this or issueKey — with neither, Jira rejects the request."
+          },
+          "query": {
+            "type": "string",
+            "description": "Narrow the result to users whose display name or email matches this term. Omit it to list every assignable user. Only assignable users are searched — for a site-wide search by name or email, use lookupJiraAccountId."
+          },
+          "issueKey": {
+            "type": "string",
+            "description": "Issue key (e.g. PROJ-123) whose assignable users to list. More accurate than project for an issue that already exists, because permission and security-level rules are evaluated against that issue."
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          },
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Find Jira assignable users",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueChangelogs",
+      "description": "Get a Jira issue's field-change history — field edits only — paginated oldest-first with no ordering options. For the current value or most recent change, read total (which counts entries, not items) and request startAt = max(0, total - your page size); for counts or patterns across the history, page from startAt 0. A field's original value is in the first item that changed it; fields never changed leave no trace, and the log starts at the first edit, not at creation. On an item, from/to are IDs or raw values and are absent on text and array fields; fromString/toString are display text, and on array fields like labels each side is the complete set (space-joined, sorted) — diff the two sides, never read one as a delta. Jira omits from and fromString together when the field had no previous value, and to and toString together when it was cleared (so an assignee item with no to/toString is an unassignment). Match items on field, not position: order within an entry varies. Do not infer automation from author.accountType — a script running under a person's token reads \"atlassian\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (PROJ-123), numeric ID, or a Jira issue URL"
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "Zero-based index of the first changelog entry to return (for pagination). Defaults to 0.",
+            "default": 0
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum changelog entries per page (1-50). Defaults to 20; larger pages risk exceeding the client's token limit and failing the call. Use maxResults=1 as a cheap probe to read total before jumping to the end of the history.",
+            "default": 20
+          },
+          "view": {
+            "type": "string",
+            "enum": ["compact", "evidence"],
+            "description": "Output view preset. Default: \"compact\". Options: \"compact\", \"evidence\". compact = minimal fields for scanning; evidence = decision-relevant detail; full = complete response."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get issue changelog",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueComments",
+      "description": "Get a paginated list of comments for a Jira issue. Use this instead of getJiraIssue when an issue has many comments — getJiraIssue embeds at most 20 and cannot page them. Page with startAt until isLast is true; total is the full comment count. Each comment reports any visibility restriction on it and, on JSM, whether it is internal (jsdPublic: false) — check both before quoting or summarising a comment. Comments are returned as a flat list: a non-null parentId means the comment is a reply, and parentId identifies its root/parent comment. Group comments by parentId to reconstruct threads. Set reactionDetail when emoji reaction data is needed. For the issue's own fields, use getJiraIssue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (PROJ-123), numeric ID, or a Jira issue URL"
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based index of the first comment to return (for pagination). Defaults to 0.",
+            "default": 0
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of comments to return per page (1-100). Defaults to 100. Read total from the response for the full count. With view: \"full\" the page is capped at 20, because a larger full-view page can exceed the client's token limit and fail the whole call; the response echoes the effective value.",
+            "default": 100
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": ["created", "-created", "+created"],
+            "description": "Order comments by created date — \"created\"/\"+created\" (oldest first) or \"-created\" (newest first)."
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated list of extra data to include on each comment, e.g. \"renderedBody\" (HTML-rendered body) or \"properties\"."
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Format for comment bodies. Defaults to markdown. Set html to receive HTML, which is lossless, so a body can be passed straight back to addOrEditJiraIssueComment with contentFormat: html. Fetch as html before editing any comment, since markdown drops images, panels and expands and returns statuses/@mentions as literal text. A page holding any such comment is returned as HTML automatically. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          },
+          "reactionDetail": {
+            "type": "string",
+            "enum": ["none", "summary", "users"],
+            "description": "Reaction enrichment level. \"none\" (default) returns comments only, with no Reactions API call. \"summary\" adds emoji counts and whether the current user reacted. \"users\" also names who reacted — ask for it only when attribution is requested, since it costs an extra request per distinct emoji and reports when it could not expand every one.",
+            "default": "none"
+          },
+          "view": {
+            "type": "string",
+            "enum": ["compact", "evidence", "full"],
+            "description": "Output view preset. Default: \"compact\". Options: \"compact\", \"evidence\", \"full\". compact = minimal fields for scanning; evidence = decision-relevant detail; full = complete response."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get issue comments",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueLinkTypes",
+      "description": "List the issue link types configured on this site, each with its name and its inward and outward wording (name \"Blocks\", inward \"is blocked by\", outward \"blocks\"). Call it before createJiraIssueLink, which takes the name, when the user has described a link by its inward/outward wording. Issue linking must be enabled site-wide; where it is turned off this operation and createJiraIssueLink both fail.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "List Jira issue link types",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueRemoteIssueLinks",
+      "description": "List the Confluence pages and external URLs linked from an issue's Web links section. These are not issue-to-issue links: for those call getJiraIssue with view \"evidence\", which returns fields.issuelinks. Check here before calling createJiraIssueRemoteIssueLink: the same URL added twice becomes two separate links, and no operation removes one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key like PROJ-123"
+          },
+          "globalId": {
+            "type": "string",
+            "description": "Return only the link with this globalId — the creating system's identifier for the remote item, e.g. \"appId=456&pageId=12345\" for a Confluence page. It is not the id this tool returns, and the response never includes a globalId, so pass one only when the user supplied it. Pass it raw — the value is URL-encoded for you."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira remote issue links",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueTransitions",
+      "description": "List the workflow transitions this issue can take right now, for the calling user. Pass a transition's id to transitionJiraIssue. A transition's name and the status it leads to are separate fields: when the user names a target status, match the status a transition leads to, not the transition's name. For every status a project defines, rather than this issue's currently valid moves, use listJiraStatuses.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (e.g. PROJ-123) or numeric ID"
+          },
+          "transitionId": {
+            "type": "string",
+            "description": "Return only the transition with this ID"
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated expand tokens for extra detail. Use \"transitions.fields\" to include the fields shown on each transition's screen (for use with transitionJiraIssue).\n"
+          },
+          "skipRemoteOnlyCondition": {
+            "type": "boolean",
+            "description": "When true, include transitions hidden by the \"Hide From User\" condition (default false)"
+          },
+          "includeUnavailableTransitions": {
+            "type": "boolean",
+            "description": "When true, include transitions that currently fail a condition (default false)"
+          },
+          "sortByOpsBarAndStatus": {
+            "type": "boolean",
+            "description": "When true, sort by ops-bar sequence then status category (Todo, In Progress, Done); otherwise by ops-bar sequence only (default false)\n"
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira issue transitions",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraIssueWorklogs",
+      "description": "Get a paginated list of worklogs (logged time) for a Jira issue. Ordered by worklog creation time, not by when the work started — so the last page is not the most recent work. To find recent work, filter with startedAfter/startedBefore, or read every page and sort by `started`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (PROJ-123), numeric ID, or a Jira issue URL"
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "Zero-based index of the first worklog to return (for pagination). Defaults to 0.",
+            "default": 0
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of worklogs to return per page (1-100). Defaults to 100. Read total from the response for the full count. With view: \"full\" the page is capped at 20, because a larger full-view page can exceed the client's token limit and fail the whole call; the response echoes the effective value.",
+            "default": 100
+          },
+          "startedAfter": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Only return worklogs whose work started at or after this time, as a UNIX timestamp in milliseconds. Inclusive: a worklog starting exactly on this timestamp is returned.\n"
+          },
+          "startedBefore": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Only return worklogs whose work started strictly before this time, as a UNIX timestamp in milliseconds. Exclusive: a worklog starting exactly on this timestamp is not returned. Pairs with startedAfter as a half-open range, so [dayStart, dayStart+86400000) is exactly one day with no double-counting or gaps between adjacent windows.\n"
+          },
+          "expand": {
+            "type": "string",
+            "enum": ["properties"],
+            "description": "Extra data to include on each worklog. The only supported value is \"properties\" (worklog properties)."
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Format for worklog notes. Defaults to markdown. Set html to receive HTML, which is lossless, so a note can be passed straight back to addOrEditJiraIssueWorklog with contentFormat: html. A page holding any note markdown cannot represent (media, panels, statuses, @mentions) is returned as HTML automatically. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          },
+          "view": {
+            "type": "string",
+            "enum": ["compact", "evidence", "full"],
+            "description": "Output view preset. Default: \"compact\". Options: \"compact\", \"evidence\", \"full\". compact = minimal fields for scanning; evidence = decision-relevant detail; full = complete response."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get issue worklogs",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraProjectComponents",
+      "description": "List a Jira project's components with their ids, names, lead and assignee settings, and issueCount — 0 means no issues use a Jira component; Compass results list only components already linked to issues. realAssignee is who actually receives issues when the configured assignee cannot be used. Use it to find a valid component name before setting components on createJiraIssue or editJiraIssue.\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "projectIdOrKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Jira project key or numeric project ID whose components should be listed."
+          },
+          "query": {
+            "type": "string",
+            "description": "Optional case-insensitive literal filter that matches component name or description."
+          },
+          "componentSource": {
+            "type": "string",
+            "enum": ["jira", "compass", "auto"],
+            "description": "Optional component source filter: jira (default Jira components), compass (connected Compass components), or auto (Compass components when the project is opted into Compass, otherwise Jira components).",
+            "default": "jira"
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": [
+              "description",
+              "-description",
+              "+description",
+              "issueCount",
+              "-issueCount",
+              "+issueCount",
+              "lead",
+              "-lead",
+              "+lead",
+              "name",
+              "-name",
+              "+name"
+            ],
+            "description": "Optional sort order. Sort by description, issueCount, lead, or name. Prefix with - for descending or + for ascending."
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset. Use 0 for the first page and previous startAt + maxResults for the next page.",
+            "default": 0
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum components to return per page. Use a smaller value when the user asks for a limited sample.",
+            "default": 50
+          }
+        },
+        "required": ["cloudId", "projectIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira project components",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraProjectIssueTypesMetadata",
+      "description": "Returns all issue types available in a Jira project, useful for knowing which issue types can be created. Each entry gives the issue type's id, name, description and subtask flag; pass that id as issueTypeId to getJiraIssueTypeMetaWithFields to get the type's create fields. Page with startAt until it covers total.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "projectIdOrKey": {
+            "type": "string",
+            "description": "Project ID or key (e.g. PROJ or 10000)"
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first issue type to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum issue types to return per page (max 200, default 50)."
+          }
+        },
+        "required": ["cloudId", "projectIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira project issue types",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraProjects",
+      "description": "Find the Jira projects the calling user can see — use it to resolve the projectKey that createJiraIssue requires, or the project a JQL search filters on. For a project's releases use getJiraProjectVersions; for its statuses, use listJiraStatuses.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "query": {
+            "type": "string",
+            "description": "Filter results by a literal string matching project key or name (case insensitive)."
+          },
+          "action": {
+            "type": "string",
+            "description": "Filter by the action the user can perform on the project: view, browse, edit, or create. Defaults to view when omitted."
+          },
+          "startAt": {
+            "type": "number",
+            "description": "Index of the first result to return (page offset). Defaults to 0."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum results to return per page (max 100, default 50)."
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated list of extra data to include per project. Options: description, url, projectKeys, lead (project lead account), issueTypes (issue types available in the project), insight (total issue count and last update time). Example: \"issueTypes,lead\"."
+          }
+        },
+        "required": ["cloudId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Get Jira projects",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "listJiraStatuses",
+      "description": "List the statuses a Jira issue can be in — for a project (per work type), for one status looked up by ID or name, or across the whole site by name or category. Takes a PROJECT key (or project ID), not an issue key. For what a specific issue can do right now, use listJiraIssueTransitions instead; a status existing in a project does not mean a given issue can move to it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["project", "status", "site"],
+            "description": "Which question to answer. \"project\" lists a project's statuses per work type (e.g. what statuses a Bug can be in for PROJ) — pass issueType to narrow to one work type. \"status\" resolves a single status you saw elsewhere (changelog, JQL, user phrasing) to its ID, name, and category. \"site\" searches statuses across the site by nameContains and/or statusCategory, returning ID and name only — use mode \"status\" for the full detail on any one of them."
+          },
+          "projectKey": {
+            "type": "string",
+            "description": "Project key (e.g. PROJ) or numeric project ID — not an issue key. Required when mode is \"project\"."
+          },
+          "issueType": {
+            "type": "string",
+            "description": "Only with mode \"project\". Narrows the result to one work type, matched by name or ID (e.g. \"Bug\"), so the statuses returned are exactly that work type's. Omit to get every work type in the project."
+          },
+          "statusIdOrName": {
+            "type": "string",
+            "description": "Only with mode \"status\". Numeric status ID (preferred) or status name. Names are not unique in Jira, so a name returns one match with a warning — use mode \"site\" with nameContains to see every status sharing a name."
+          },
+          "nameContains": {
+            "type": "string",
+            "description": "Only with mode \"site\". Case-insensitive substring match on the status name. Combine with statusCategory to narrow further. Omitting both filters returns a capped sample of the site's statuses rather than all of them."
+          },
+          "statusCategory": {
+            "type": "string",
+            "enum": ["new", "indeterminate", "done"],
+            "description": "Only with mode \"site\". Restricts results to one status category: \"new\" (not started), \"indeterminate\" (in progress), or \"done\"."
+          }
+        },
+        "required": ["cloudId", "mode"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "List Jira statuses",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "lookupJiraAccountId",
+      "description": "Look up a Jira user account ID by display name or email — skip it if you already have the accountId. Returns only accountId, displayName and active, plus emailAddress when profile visibility allows it; for time zone, locale, groups, or application roles, pass the accountId on to getJiraUser. To choose an assignee use listJiraIssueAssignableUsers instead, which returns only users who can be assigned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "query": {
+            "type": "string",
+            "description": "User name or email to search for"
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Max results (default 10)"
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          }
+        },
+        "required": ["cloudId", "query"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Lookup Jira account ID",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "manageJiraProjectVersion",
+      "description": "Create, update, release, or archive a Jira project version (release or fix version). create returns the version id the other actions need. If release uses moveUnfixedIssuesTo, setting released: false later does not move those issues back. Otherwise release and archive change only the version, not its issues, and update can reverse either. To view or list versions, or read their release driver and approvers, use getJiraProjectVersions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "update", "release", "archive"],
+            "description": "The version operation to perform."
+          },
+          "projectIdOrKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Project key (e.g. \"PROJ\") or numeric ID. Required for \"create\"."
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ID of the version. Required for \"update\", \"release\", \"archive\"."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Version name (e.g. \"v2.1.0\"). Required for \"create\", optional for \"update\"."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 16384,
+            "description": "Description of what this version includes. Used by \"create\" and \"update\"."
+          },
+          "releaseDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Release date in yyyy-mm-dd format (ISO 8601). Used by \"create\", \"update\", and \"release\"."
+          },
+          "startDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Start date in yyyy-mm-dd format (ISO 8601). Used by \"create\" and \"update\"."
+          },
+          "released": {
+            "type": "boolean",
+            "description": "Whether the version is released. Used by \"create\" and \"update\"."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Whether the version is archived. Used by \"create\" and \"update\"."
+          },
+          "driver": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Atlassian account ID (AAID) of the version driver, not a name. Used by \"create\" and \"update\". Use lookupJiraAccountId (query = a name or email) to find the AAID to pass here. When set, the response echoes back the driver's resolved display name so you can confirm it."
+          },
+          "moveUnfixedIssuesTo": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Version ID to move any unresolved issues to when releasing. Used by \"release\" only; reassigns the fixVersion of open issues from this version to the given one."
+          }
+        },
+        "required": ["cloudId", "action"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Manage Jira project version",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "manageJiraProjectVersionRelatedWork",
+      "description": "Create or update related work links on a Jira project version (release). To read a version's existing related work, use getJiraProjectVersionRelatedWork. Both actions return the relatedWorkId a later update requires, with the stored category, title and url.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "update"],
+            "description": "The related work operation to perform."
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ID of the version. Use manageJiraProjectVersion or getJiraProjectVersions to find the ID."
+          },
+          "relatedWorkId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ID of an existing related work item. Required for \"update\"; it must match an item that already exists on the version (validated before the update is applied). Use getJiraProjectVersionRelatedWork to list existing items and obtain their relatedWorkId values."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Display title for the related work link. Used by \"create\" and \"update\". Optional on \"create\" — when omitted or blank, the URL is used as the title. On \"update\", omitting it leaves the title unchanged; passing an empty/blank string clears the title and resets the display back to the URL."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "URL of the related work link. Any valid http(s) URL is accepted — a runbook, dashboard, change record, or a link to any other system. Required for \"create\"; on \"update\" it is optional and, when omitted, the existing URL is left unchanged."
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Category of the related work. Required for \"create\"; on \"update\" it is optional and, when omitted, the existing category is left unchanged. It cannot be cleared — passing an empty/blank value is rejected. Examples: \"Designs\", \"Testing\"."
+          }
+        },
+        "required": ["cloudId", "action", "versionId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Manage Jira project version related work",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "manageJiraSprint",
+      "description": "Create, add issues to, start, update, or close a Jira sprint; get a sprintId from listJiraBoardSprints. create returns the new sprint's id, which every later action needs. update rewrites the whole sprint, so any of name, goal, startDate or endDate you omit is cleared — resend the ones to keep; start and close keep them. Closing is one-way. addIssues returns movedIssues, as does start when given issueIdsOrKeys; both add estimatedIssues, with the field each estimate was written to, when storyPoints are passed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "addIssues", "start", "update", "close"],
+            "description": "Which sprint lifecycle action to perform."
+          },
+          "boardId": {
+            "type": "integer",
+            "description": "Numeric Jira board ID. Required for \"create\"."
+          },
+          "sprintId": {
+            "type": "integer",
+            "description": "Numeric Jira sprint ID. Required for \"start\", \"update\", and \"close\"."
+          },
+          "name": {
+            "type": "string",
+            "description": "Sprint name. Required for \"create\"; optional for \"start\" and \"update\"."
+          },
+          "goal": {
+            "type": "string",
+            "description": "Sprint goal. Used by \"create\", \"start\", and \"update\"."
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Sprint start date/time in ISO 8601 format (e.g. 2026-08-03T09:00:00.000+0000)."
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Sprint end date/time in ISO 8601 format (e.g. 2026-08-14T18:00:00.000+0000)."
+          },
+          "issueIdsOrKeys": {
+            "type": "array",
+            "items": {},
+            "description": "Issue keys or IDs to move into the sprint when action = \"addIssues\" or \"start\". Example: [\"PROJ-123\", \"PROJ-456\"]."
+          },
+          "storyPoints": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional issue-key → estimate map to apply before adding issues to the sprint or starting it. Example: {\"PROJ-123\": 8, \"PROJ-456\": 3}. The handler resolves the correct Story Points custom field automatically for each issue."
+          }
+        },
+        "required": ["cloudId", "action"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Manage Jira sprint",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "search",
+      "description": "Semantically search Jira, Confluence, and connected third-party content using Rovo Search. ALWAYS use this tool to search for Jira and Confluence content unless CQL or JQL is specified. The utilisation of this tool may consume up to 10 Rovo Credits. If the user or organization does not have any Rovo Credits available, the tool call will fail.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "The search query."
+          },
+          "targetApp": {
+            "type": "string",
+            "enum": ["ALL", "JIRA", "CONFLUENCE", "THIRD_PARTY"],
+            "description": "Filters results by product and is only applicable for standard mode. ALL searches everything. JIRA returns only Jira issues/boards/projects. CONFLUENCE returns only Confluence pages/blogs/spaces. THIRD_PARTY returns content from ready connected external sources."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["STANDARD", "AGENTIC", "ENHANCED"],
+            "description": "Search mode. STANDARD returns matching records; AGENTIC asks the search agent to synthesize an answer with full agentic effort; ENHANCED uses a faster agentic loop to return ranked citations."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 30,
+            "default": 10
+          }
+        },
+        "required": ["cloudId", "query"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Rovo Search",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "searchJiraIssuesUsingJql",
+      "description": "Search for Jira issues using JQL, with an optional approximate count. Use view: \"evidence\" to fetch and map custom fields. Page with nextPageToken until isLast is true. For one known issue, use getJiraIssue. JQL only returns issues; inferring anything else from issue rows is silently incomplete. Use the purpose-built operation for sprints, boards, board config, field history, worklogs, releases, accountIds, issue types, projects and statuses.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "jql": {
+            "type": "string",
+            "description": "JQL query string e.g. \"project = PROJ AND status = 'In Progress'\". If the tool returns a repairHint, follow it and retry.\n"
+          },
+          "searchResultMode": {
+            "type": "string",
+            "enum": ["issues", "count", "all"],
+            "description": "Default \"issues\". Never count for normal search or if nextPageToken used. If total for same query is known, reuse it. Use \"count\" only when no trusted count exists and either the user asks or a downstream step needs it. Use \"all\" only if both count and issues required.\n"
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "Maximum results to return (default 50, max 100)"
+          },
+          "fields": {
+            "type": "array",
+            "items": {},
+            "description": "Fields per issue (e.g. [\"summary\", \"status\", \"customfield_10010\"]). customfield_* IDs are site-specific — discover the correct id for story points etc. on this Cloud site. Honoured exactly when supplied. Values map to issues[].fields.customFields (human labels), not raw customfield_* keys. The default \"compact\" view omits custom fields; use view: \"evidence\" for velocity/sprint JQL (fetches and maps all custom fields) or pass explicit customfield_* IDs.\n"
+          },
+          "nextPageToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response to fetch the next page"
+          },
+          "responseContentFormat": {
+            "type": "string",
+            "enum": ["markdown", "html"],
+            "description": "Format for rich-text bodies (description, environment, comments) when the view returns them. Defaults to markdown; html is lossless for a later editJiraIssue. Issues holding anything markdown cannot represent (media, panels, expands, statuses, @mentions) are returned as HTML automatically, decided per issue. An explicit markdown request is overridden for those bodies, with a warning saying so; appliedContentFormat in the response reports the format you actually got.\n"
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          },
+          "view": {
+            "type": "string",
+            "enum": ["compact", "evidence", "full"],
+            "description": "Output view preset. Default: \"compact\". Options: \"compact\", \"evidence\", \"full\". compact = minimal fields for scanning; evidence = decision-relevant detail; full = complete response."
+          }
+        },
+        "required": ["cloudId", "jql"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Search Jira issues using JQL",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "transitionJiraIssue",
+      "description": "Move a Jira issue through its workflow and/or into a sprint or the backlog — at least one is required. Take transitionId from listJiraIssueTransitions; transitionName is the transition's own name, not the target status. Returns the status the issue actually landed in, so no read-back is needed. If the sprint/backlog move fails after the status change succeeds, the status change stays — retry the move alone, not the whole call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key like PROJ-123"
+          },
+          "transitionId": {
+            "type": "string",
+            "description": "Transition ID (get from listJiraIssueTransitions). Provide either transitionId or transitionName."
+          },
+          "transitionName": {
+            "type": "string",
+            "description": "Name of the transition itself, not the target status — the two often differ, so \"Done\" does not match a transition named \"Review->Done\". Provide either transitionId or transitionName."
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional Jira field values to apply during the workflow transition."
+          },
+          "update": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional Jira field update operations to apply during the workflow transition. A comment passed here may be dropped without error — the transition reports success and no comment is created. Use addOrEditJiraIssueComment instead."
+          },
+          "historyMetadata": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional issue history metadata to attach to the workflow transition."
+          },
+          "sprintId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Assign the issue into this sprint. Mutually exclusive with assignToBacklog."
+          },
+          "assignToBacklog": {
+            "type": "boolean",
+            "description": "Set true to assign the issue to the backlog, mutually exclusive with sprintId. Optionally use boardId to target a specific board's backlog."
+          },
+          "boardId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Only used when assignToBacklog is true: targets this specific board's backlog (board IDs from listJiraBoards). Ignored otherwise."
+          },
+          "actionSource": {
+            "type": "string",
+            "enum": ["jira_mcp_card", "model_tool_call"],
+            "description": "Optional invocation attribution. Jira MCP cards set jira_mcp_card; omit for model/tool-loop calls."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Transition Jira issue",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "uploadAttachmentToJiraIssue",
+      "description": "Attach a single local file to a Jira issue. Two phases: (1) call with filePath only to get a local uploadCommand; run it from your shell to upload the bytes and obtain a fileId; (2) call again with that fileId to attach the file to the issue. To instead embed the uploaded file inline in a body, stop after phase 1 and pass the fileId (with its collection) to editJiraIssue/addOrEditJiraIssueComment via inlineFileId (appends at the end) or an HTML body media node (for positional placement) — do not also run phase 2 for the same file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (e.g. PROJ-123) or a Jira issue URL"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Local path of the file to attach (absolute, or relative to where uploadCommand is run). Provide for phase 1 to get an uploadCommand. Ignored when fileId is supplied."
+          },
+          "fileId": {
+            "type": "string",
+            "description": "Media file ID returned by running the phase-1 uploadCommand. Provide for phase 2 to attach the uploaded file to the issue."
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Upload Jira issue attachment",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "watchJiraIssue",
+      "description": "Add or remove the calling user as a watcher on a Jira issue. Always acts on you — it cannot add or remove another person, and it does not list who is watching. Watching only subscribes you to notifications about the issue; it does not assign it to you. To do that, set the issue's assignee field with editJiraIssue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cloudId": {
+            "type": "string",
+            "description": "Site UUID or Jira/Confluence URL for this operation's Atlassian site. cloudId is never silently auto-resolved or reused for you — call getAccessibleAtlassianResources ONCE per session, cache the returned cloudId, and pass it explicitly on this and every subsequent call, since most operations need it. `execute` and its read/write/destructive variants strictly require it for cloudId-scoped operations and fail without it. Not needed for cloudId-less operations (e.g. Bitbucket), which ignore this field."
+          },
+          "issueIdOrKey": {
+            "type": "string",
+            "description": "Issue key (e.g. PROJ-123) or a Jira issue URL"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["watch", "unwatch"],
+            "description": "Whether to watch or unwatch the issue as the calling user. Defaults to \"watch\".\n",
+            "default": "watch"
+          }
+        },
+        "required": ["cloudId", "issueIdOrKey"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "title": "Watch or unwatch Jira issue",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

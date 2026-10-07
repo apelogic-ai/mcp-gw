@@ -188,6 +188,9 @@ export function createGenericMcpProxyHandler(
         `Unsupported MCP tool: ${message.toolName ?? "<missing>"}`,
       );
     }
+    if (tool) {
+      message.arguments = effectiveToolArguments(options.descriptor, message.arguments);
+    }
     if (oauthTool && options.oauth) {
       const decision = await policy.decide({
         principal: identity.email,
@@ -327,7 +330,9 @@ export function createGenericMcpProxyHandler(
           },
         });
       }
-      const upstreamBody = tool ? rewriteToolName(body, tool.upstreamName) : body;
+      const upstreamBody = tool
+        ? rewriteToolCall(body, tool.upstreamName, message.arguments)
+        : body;
       let upstream = await options.transport.send({
         incomingRequest: request,
         body: upstreamBody,
@@ -565,10 +570,32 @@ function publicToolDefinition(tool: GenericCatalogTool): Record<string, unknown>
   };
 }
 
-function rewriteToolName(body: string, upstreamName: string): string {
+function rewriteToolCall(
+  body: string,
+  upstreamName: string,
+  args: Record<string, unknown>,
+): string {
   const value = JSON.parse(body) as Record<string, unknown>;
   const params = isRecord(value.params) ? value.params : {};
-  return JSON.stringify({ ...value, params: { ...params, name: upstreamName } });
+  return JSON.stringify({
+    ...value,
+    params: { ...params, name: upstreamName, arguments: args },
+  });
+}
+
+function effectiveToolArguments(
+  descriptor: GenericWrapperDescriptor,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const credential = descriptor.credential;
+  if (
+    credential.mode === "per_user_oauth" &&
+    credential.providerId === "jira" &&
+    credential.identity.mode === "atlassian_jira_asserted_email"
+  ) {
+    return { ...args, cloudId: credential.identity.siteUrl };
+  }
+  return args;
 }
 
 function bearerToken(request: Request): string | undefined {

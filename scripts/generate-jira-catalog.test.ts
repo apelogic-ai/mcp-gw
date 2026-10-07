@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parse as parseYaml } from "yaml";
 
 import {
   buildJiraCatalog,
@@ -18,7 +19,14 @@ const capture = {
     {
       name: "getJiraIssue",
       description: "Get an issue.",
-      inputSchema: { type: "object", properties: { issueKey: { type: "string" } } },
+      inputSchema: {
+        type: "object",
+        properties: {
+          cloudId: { type: "string", description: "Jira Cloud site URL." },
+          issueKey: { type: "string" },
+        },
+        required: ["cloudId", "issueKey"],
+      },
       annotations: { readOnlyHint: true },
     },
     {
@@ -62,6 +70,30 @@ const decisions = {
 };
 
 describe("Jira catalog generation", () => {
+  test("uses a formatting-independent canonical capture digest", () => {
+    expect(captureSha256(serializedCapture)).toBe(captureSha256(JSON.stringify(capture)));
+  });
+
+  test("keeps the checked-in Jira catalog synchronized with its captured provenance", async () => {
+    const checkedInCapture = await Bun.file(
+      "servers/generic-wrapper/catalog/jira/capture-v2-2026-10-07.json",
+    ).text();
+    const checkedInDecisions = parseYaml(
+      await Bun.file("servers/generic-wrapper/catalog/jira/decisions.yaml").text(),
+    ) as unknown;
+    const checkedInCatalog = parseYaml(
+      await Bun.file("deploy/k8s/chart/files/catalogs/jira.yaml").text(),
+    ) as unknown;
+
+    expect(
+      buildJiraCatalog(
+        JSON.parse(checkedInCapture) as unknown,
+        checkedInDecisions,
+        checkedInCapture,
+      ),
+    ).toEqual(checkedInCatalog);
+  });
+
   test("requires explicit decisions for the complete digest-pinned capture", () => {
     const catalog = buildJiraCatalog(capture, decisions, serializedCapture);
 
@@ -78,6 +110,10 @@ describe("Jira catalog generation", () => {
       },
       {
         name: "getJiraIssue",
+        inputSchema: {
+          properties: { issueKey: { type: "string" } },
+          required: ["issueKey"],
+        },
         grants: {
           actionClass: "read",
           operation: "jira.issue.get",
@@ -85,6 +121,7 @@ describe("Jira catalog generation", () => {
         },
       },
     ]);
+    expect(catalog.tools[1]?.inputSchema).not.toHaveProperty("properties.cloudId");
     expect(catalog.tools.some((tool) => tool.name === "search")).toBeFalse();
   });
 
@@ -160,7 +197,7 @@ describe("Jira catalog generation", () => {
     );
   });
 
-  test("rejects tools that the upstream marks destructive", () => {
+  test("preserves upstream destructive annotations for included non-delete tools", () => {
     const destructiveCapture = {
       ...capture,
       tools: [
@@ -188,8 +225,11 @@ describe("Jira catalog generation", () => {
       ],
     };
 
-    expect(() => buildJiraCatalog(destructiveCapture, include, serialized)).toThrow(
-      "is destructive upstream",
-    );
+    expect(buildJiraCatalog(destructiveCapture, include, serialized).tools).toMatchObject([
+      {
+        alias: "dangerous_mutation",
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+    ]);
   });
 });
