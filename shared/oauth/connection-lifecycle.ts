@@ -1184,6 +1184,21 @@ export class ConnectionLifecycle {
         ) {
           throw generationConflict();
         }
+        let supersededGeneration: CredentialGenerationRecord | undefined;
+        if (
+          current.credentialGenerationId &&
+          current.credentialGenerationId !== preparation.candidate.id
+        ) {
+          const generations = await store.listPrincipalCredentialGenerations(
+            this.providerId,
+            identity.issuer,
+            identity.subject,
+          );
+          supersededGeneration = generations.find(
+            (record) => record.id === current.credentialGenerationId,
+          );
+          if (supersededGeneration?.state !== "active") throw generationConflict();
+        }
         const now = this.now();
         const nextCredential = mergeRotatedCredential(
           preparation.decrypted.credential,
@@ -1239,6 +1254,26 @@ export class ConnectionLifecycle {
         };
         const saved = await store.saveConnection(next, connectionWriteGuard(preparation.current));
         if (!saved) throw generationConflict();
+        if (supersededGeneration) {
+          const retired: CredentialGenerationRecord = {
+            ...supersededGeneration,
+            encryptedCredentialEnvelope: undefined,
+            encryptedLegacyCredential: undefined,
+            state: "retired",
+            nextCleanupAttemptAt: undefined,
+            lastCleanupErrorCategory: undefined,
+            updatedAt: now,
+          };
+          if (
+            !(await store.updateCredentialGeneration(
+              retired,
+              "active",
+              supersededGeneration.cleanupAttempts,
+            ))
+          ) {
+            throw generationConflict();
+          }
+        }
         return { result: "refreshed", accountRebound };
       },
     );

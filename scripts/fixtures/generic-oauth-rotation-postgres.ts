@@ -141,10 +141,26 @@ SELECT custody_state, count(*)::int AS count
 FROM oauth_credential_generations
 WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
 GROUP BY custody_state
+ORDER BY custody_state
 `,
     ["jira", identity.issuer, identity.subject],
   );
-  assert.deepEqual(custody.rows, [{ custody_state: "active", count: 1 }]);
+  assert.deepEqual(custody.rows, [
+    { custody_state: "active", count: 1 },
+    { custody_state: "retired", count: 1 },
+  ]);
+  const retired = await pool.query(
+    `
+SELECT credential_envelope, encrypted_legacy_credential
+FROM oauth_credential_generations
+WHERE provider = $1 AND hop1_issuer = $2 AND hop1_subject = $3
+  AND custody_state = 'retired'
+`,
+    ["jira", identity.issuer, identity.subject],
+  );
+  assert.deepEqual(retired.rows, [
+    { credential_envelope: null, encrypted_legacy_credential: null },
+  ]);
   process.stdout.write("Generic OAuth rotating refresh PostgreSQL regression passed.\n");
 } finally {
   for (const table of [

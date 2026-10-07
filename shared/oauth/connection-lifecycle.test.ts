@@ -460,6 +460,31 @@ describe("provider-neutral connection lifecycle", () => {
     ).toBe(2);
   });
 
+  test("retires superseded credential custody after renewal activation", async () => {
+    const store = new InMemoryOAuthTokenStore();
+    const lifecycle = fixtureLifecycle(store, new FixtureAdapter());
+    await authorize(lifecycle, "expired-active", "renewal-1", new Date(Date.now() - 1));
+
+    expect(await lifecycle.getActiveCredential(identity, scopes)).toBe("active-1");
+
+    const generations = await store.listPrincipalCredentialGenerations(
+      "github",
+      identity.issuer,
+      identity.subject,
+    );
+    expect(generations).toHaveLength(2);
+    expect(generations[0]).toMatchObject({
+      generation: 1,
+      state: "retired",
+      encryptedCredentialEnvelope: undefined,
+      encryptedLegacyCredential: undefined,
+    });
+    expect(generations[1]).toMatchObject({
+      generation: 2,
+      state: "active",
+    });
+  });
+
   test("waiters honor replacement scopes without polling storage aggressively", async () => {
     const store = new InMemoryOAuthTokenStore();
     const adapter = new FixtureAdapter();
