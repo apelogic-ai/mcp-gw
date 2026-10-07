@@ -298,6 +298,7 @@ export function createGenericMcpProxyHandler(
     try {
       const scopes = tool?.grants.scopes ?? [];
       const credentialRequest = { identity, hop1Token, scopes };
+      const canAutomaticallyReplay = tool?.grants.actionClass === "read";
       let credential = await options.resolveCredential(credentialRequest);
       if (!credential && options.requireCredential) {
         await emitSafely(options.audit, {
@@ -342,6 +343,22 @@ export function createGenericMcpProxyHandler(
           );
           if (replacement) {
             credential = replacement;
+            if (!canAutomaticallyReplay) {
+              await emitProviderFailureAudit(
+                options.audit,
+                identity,
+                tool,
+                message.arguments,
+                started,
+                "provider_retry_required",
+              );
+              return providerFailure(
+                message.id,
+                "provider_retry_required",
+                "Provider credential was renewed; retry the request",
+                options,
+              );
+            }
             upstream = await options.transport.send({
               incomingRequest: request,
               body: upstreamBody,
@@ -369,6 +386,22 @@ export function createGenericMcpProxyHandler(
             );
             if (replacement) {
               credential = replacement;
+              if (!canAutomaticallyReplay) {
+                await emitProviderFailureAudit(
+                  options.audit,
+                  identity,
+                  tool,
+                  message.arguments,
+                  started,
+                  "provider_retry_required",
+                );
+                return providerFailure(
+                  message.id,
+                  "provider_retry_required",
+                  "Provider credential was renewed; retry the request",
+                  options,
+                );
+              }
               upstream = await options.transport.send({
                 incomingRequest: request,
                 body: upstreamBody,

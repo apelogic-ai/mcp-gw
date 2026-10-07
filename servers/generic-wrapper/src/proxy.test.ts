@@ -42,6 +42,24 @@ const catalog: GenericToolCatalog = {
   ],
 };
 
+const jiraWriteCatalog: GenericToolCatalog = {
+  ...catalog,
+  tools: [
+    {
+      exposedName: "jira_edit_issue",
+      upstreamName: "editJiraIssue",
+      description: "Edit a Jira issue.",
+      inputSchema: { type: "object", properties: { issueKey: { type: "string" } } },
+      annotations: { readOnlyHint: false },
+      grants: {
+        actionClass: "write",
+        operation: "jira.issues.edit",
+        scopes: ["write:jira:agent-interface"],
+      },
+    },
+  ],
+};
+
 const jiraDescriptor: GenericWrapperDescriptor = {
   ...descriptor,
   name: "jira",
@@ -396,6 +414,60 @@ describe("generic MCP proxy", () => {
       "rejected-token",
       "replacement-token",
     ]);
+  });
+
+  test("recovers a rejected Jira write credential without replaying the write", async () => {
+    const requests: GenericUpstreamRequest[] = [];
+    const recovered: string[] = [];
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession(sessionId, principalKey) {
+        void sessionId;
+        void principalKey;
+      },
+      send(request) {
+        requests.push(request);
+        return Promise.resolve(new Response("unauthorized", { status: 401 }));
+      },
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog: jiraWriteCatalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer rejected-token",
+          rawValue: "rejected-token",
+        }),
+      recoverCredential: (_request, rejectedCredential) => {
+        recovered.push(rejectedCredential);
+        return Promise.resolve({
+          header: "authorization",
+          value: "Bearer replacement-token",
+          rawValue: "replacement-token",
+        });
+      },
+    });
+
+    const response = await proxy(
+      mcpRequest("tools/call", { name: "jira_edit_issue", arguments: { issueKey: "TEST-1" } }, 24),
+    );
+
+    expect(recovered).toEqual(["rejected-token"]);
+    expect(requests).toHaveLength(1);
+    expect(await response.json()).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: {
+          error: "provider_retry_required",
+          provider: "jira",
+        },
+      },
+    });
   });
 
   test.each([

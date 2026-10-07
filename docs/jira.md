@@ -16,9 +16,9 @@ upstream tool merely because Atlassian adds it.
 ## Prerequisites
 
 - Jira Cloud. Jira Data Center is not supported by this provider.
-- A dedicated confidential Atlassian OAuth 2.0 (3LO) app for each environment.
-  Atlassian apps accept one callback URL, so do not reuse one app between local
-  development and a hosted deployment.
+- A dedicated confidential Atlassian OAuth 2.0 (3LO) app for MCP-GW. The same
+  app may serve multiple deployments when every deployment's exact callback is
+  registered in the Atlassian developer console.
 - These app scopes:
 
   ```text
@@ -171,6 +171,8 @@ The capture command stops if Atlassian exposes only the credit-bearing
 The wrapper returns stable, sanitized result categories for Atlassian failures:
 
 - `provider_oauth_required` after an invalid credential cannot be recovered;
+- `provider_retry_required` when a write credential was renewed but MCP-GW did
+  not automatically replay the write;
 - `provider_permission_denied` for provider authorization failures;
 - `provider_rate_limited` with a bounded `retryAfter` value when supplied;
 - `provider_unavailable` for transient server failures and Atlassian's opaque
