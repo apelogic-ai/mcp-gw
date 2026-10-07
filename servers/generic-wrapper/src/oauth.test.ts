@@ -48,6 +48,7 @@ const env = {
   OAUTH_CLIENT_ID: "wrapper-client",
   OAUTH_CLIENT_SECRET: "wrapper-secret",
   OAUTH_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"),
+  JIRA_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"),
   TOKEN_STORE_DSN: "postgresql://unused.example.com/oauth",
 };
 
@@ -177,7 +178,7 @@ describe("generic per-user OAuth", () => {
       authorizationUrl: "https://auth.atlassian.com/authorize",
       tokenUrl: "https://auth.atlassian.com/oauth/token",
       userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
-      redirectUri: "http://localhost:8788/oauth/jira/callback",
+      redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       scopes: [
         "read:jira-user",
         "read:jira:agent-interface",
@@ -185,6 +186,7 @@ describe("generic per-user OAuth", () => {
         "search:jira:agent-interface",
         "offline_access",
       ],
+      encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
       identity: {
         mode: "atlassian_jira_asserted_email",
         siteUrl: "https://example.atlassian.net",

@@ -180,6 +180,9 @@
 {{- if and (eq $wrapper.credential.mode "per_user_oauth") (not $.Values.connectionLifecycle.enabled) }}
 {{- fail "enabled per-user OAuth wrappers require connectionLifecycle.enabled=true and an allowed callback ingress caller" }}
 {{- end }}
+{{- if and (eq $wrapper.credential.mode "per_user_oauth") (not $.Values.oauthMigrations.enabled) }}
+{{- fail "enabled per-user OAuth wrappers require oauthMigrations.enabled=true" }}
+{{- end }}
 {{- $secretKeys := $wrapperSecretRef.envKeys | default (list) }}
 {{- $extraEnvNames := list }}
 {{- range $entry := $wrapper.extraEnv | default (list) }}

@@ -192,7 +192,7 @@ describe("generic wrapper descriptor", () => {
     ).toThrow("emailVerifiedField");
   });
 
-  test("accepts the exact localhost OAuth callback used by local provider development", () => {
+  test("accepts the exact loopback OAuth callback used by local provider development", () => {
     const parsed = parseGenericWrapperDescriptor({
       ...baseDescriptor,
       lifecycleRoutes: true,
@@ -202,11 +202,11 @@ describe("generic wrapper descriptor", () => {
         authorizationUrl: "https://auth.atlassian.com/authorize",
         tokenUrl: "https://auth.atlassian.com/oauth/token",
         userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
-        redirectUri: "http://localhost:8788/oauth/jira/callback",
+        redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
         scopes: ["read:jira-user", "read:jira:agent-interface", "offline_access"],
         clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
         clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
-        encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+        encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
         tokenStoreDsnEnv: "TOKEN_STORE_DSN",
         identity: {
           mode: "atlassian_jira_asserted_email",
@@ -218,7 +218,7 @@ describe("generic wrapper descriptor", () => {
 
     expect(parsed.credential).toMatchObject({
       providerId: "jira",
-      redirectUri: "http://localhost:8788/oauth/jira/callback",
+      redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       identity: {
         mode: "atlassian_jira_asserted_email",
         siteUrl: "https://example.atlassian.net",

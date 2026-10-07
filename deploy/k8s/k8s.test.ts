@@ -524,6 +524,12 @@ describe("Kubernetes production chart", () => {
         expected: "per-user OAuth wrappers require connectionLifecycle.enabled=true",
       },
       {
+        label: "missing OAuth migrations",
+        wrappers: [first],
+        extraArgs: lifecycleCallerArgs(false),
+        expected: "per-user OAuth wrappers require oauthMigrations.enabled=true",
+      },
+      {
         label: "tool scope omitted from consent",
         wrappers: [unavailableScope],
         extraArgs: lifecycleCallerArgs(),
@@ -565,7 +571,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: Ingress");
   });
 
-  test("renders the Jira asserted-identity contract with a localhost callback and stable alias", () => {
+  test("renders the Jira asserted-identity contract with a loopback callback and stable alias", () => {
     const wrapper = genericOAuthWrapper("jira", "jira", "jira");
     wrapper.credential = {
       mode: "per_user_oauth",
@@ -573,11 +579,11 @@ describe("Kubernetes production chart", () => {
       authorizationUrl: "https://auth.atlassian.com/authorize",
       tokenUrl: "https://auth.atlassian.com/oauth/token",
       userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
-      redirectUri: "http://localhost:8788/oauth/jira/callback",
+      redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       scopes: ["read:jira-user", "read:jira:agent-interface", "offline_access"],
       clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
       clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
-      encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+      encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
       tokenStoreDsnEnv: "TOKEN_STORE_DSN",
       identity: {
         mode: "atlassian_jira_asserted_email",
@@ -591,7 +597,7 @@ describe("Kubernetes production chart", () => {
       envKeys: [
         "JIRA_OAUTH_CLIENT_ID",
         "JIRA_OAUTH_CLIENT_SECRET",
-        "OAUTH_TOKEN_ENCRYPTION_KEY",
+        "JIRA_TOKEN_ENCRYPTION_KEY",
         "TOKEN_STORE_DSN",
       ],
     };
@@ -640,13 +646,43 @@ describe("Kubernetes production chart", () => {
 
     expect(parsedDescriptor.credential).toMatchObject({
       providerId: "jira",
-      redirectUri: "http://localhost:8788/oauth/jira/callback",
+      redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       identity: { mode: "atlassian_jira_asserted_email" },
     });
     expect(parsedCatalog.tools[0]).toMatchObject({
       upstreamName: "getJiraIssue",
       exposedName: "jira_get_issue",
     });
+  });
+
+  test("ships an exact-only Gateway API route for the Jira provider callback", async () => {
+    const example = await readExample("jira-provider-callback.example.yaml");
+    const [route] = parseAllDocuments(example).map(
+      (document) => document.toJSON() as Record<string, unknown>,
+    );
+    const rules = (route?.spec as { rules?: unknown[] } | undefined)?.rules;
+
+    expect(route?.kind).toBe("HTTPRoute");
+    expect(rules).toEqual([
+      {
+        matches: [
+          {
+            path: {
+              type: "Exact",
+              value: "/oauth/jira/callback",
+            },
+          },
+        ],
+        backendRefs: [
+          {
+            name: "mcp-gateway-generic-wrapper-jira",
+            port: 8080,
+          },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(route)).not.toContain("/connections/jira/");
+    expect(JSON.stringify(route)).not.toContain("PathPrefix");
   });
 
   test("rejects an enabled AgentGateway without a resource or backend target", () => {
@@ -3468,13 +3504,28 @@ function genericOAuthWrapper(
   };
 }
 
-function lifecycleCallerArgs(): string[] {
-  return [
+function lifecycleCallerArgs(includeMigrations = true): string[] {
+  const args = [
     "--set",
     "connectionLifecycle.enabled=true",
     "--set-json",
     'connectionLifecycle.allowedCallers=[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"gateway-system"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"public-gateway"}}}]',
   ];
+  if (includeMigrations) {
+    args.push(
+      "--set",
+      "oauthMigrations.enabled=true",
+      "--set-string",
+      "oauthMigrations.image.repository=ghcr.io/apelogic-ai/mcp-gw-generic-wrapper",
+      "--set-string",
+      `oauthMigrations.image.digest=sha256:${"e".repeat(64)}`,
+      "--set-string",
+      "oauthMigrations.secretKeyRef.name=generic-oauth",
+      "--set-string",
+      "oauthMigrations.secretKeyRef.key=TOKEN_STORE_DSN",
+    );
+  }
+  return args;
 }
 
 async function readExample(fileName: string): Promise<string> {
@@ -3495,6 +3546,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-google-policy.example.yaml",
     "values-customer-google-broker.example.yaml",
     "google-provider-callback.example.yaml",
+    "jira-provider-callback.example.yaml",
     "values-oauth-broker.example.yaml",
     "values-private-overlay.example.yaml",
     "values-production-bundle.example.yaml",

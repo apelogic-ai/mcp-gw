@@ -35,11 +35,11 @@ const descriptor: GenericOAuthCredentialDescriptor = {
   authorizationUrl: "https://auth.atlassian.com/authorize",
   tokenUrl: "https://auth.atlassian.com/oauth/token",
   userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
-  redirectUri: "http://localhost:8788/oauth/jira/callback",
+  redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
   scopes,
   clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
   clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
-  encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+  encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
   tokenStoreDsnEnv: "TOKEN_STORE_DSN",
   identity: {
     mode: "atlassian_jira_asserted_email",
@@ -52,7 +52,7 @@ const encryptionKey = Buffer.alloc(32, 31).toString("base64");
 const config = createGenericOAuthRuntimeConfig(descriptor, {
   JIRA_OAUTH_CLIENT_ID: "jira-client",
   JIRA_OAUTH_CLIENT_SECRET: "jira-secret",
-  OAUTH_TOKEN_ENCRYPTION_KEY: encryptionKey,
+  JIRA_TOKEN_ENCRYPTION_KEY: encryptionKey,
   TOKEN_STORE_DSN: connectionString,
 });
 let refreshCalls = 0;

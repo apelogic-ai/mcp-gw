@@ -1,0 +1,29 @@
+# Operator-owned public callback route for the opt-in Jira generic wrapper.
+#
+# The chart intentionally keeps every /connections/jira/* lifecycle route
+# private. Publish only this exact callback path. Replace the Gateway reference,
+# public hostname, release-derived Service name, and namespace for the target
+# environment. Configure the same data-plane proxy labels under
+# connectionLifecycle.allowedCallers so the wrapper NetworkPolicy admits the
+# route's traffic.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-gw-jira-provider-callback
+  namespace: <mcp-gateway-namespace>
+spec:
+  parentRefs:
+    - name: public-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - mcp.example.com
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /oauth/jira/callback
+      backendRefs:
+        - name: mcp-gateway-generic-wrapper-jira
+          port: 8080
