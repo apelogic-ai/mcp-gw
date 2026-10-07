@@ -32,6 +32,8 @@ external `/oauth/<providerId>/callback` route, and
 The chart does not publish generic callbacks or private lifecycle routes. See
 the [Generic wrapper](https://github.com/apelogic-ai/mcp-gw/blob/main/docs/adding-mcp-servers.md#generic-wrapper)
 examples for complete no-credential, API-key, OAuth, and stdio configurations.
+The bundled Jira provider contract and its dedicated-app prerequisites are
+documented in the [Jira Cloud provider guide](https://github.com/apelogic-ai/mcp-gw/blob/main/docs/jira.md).
 
 ## Install
 

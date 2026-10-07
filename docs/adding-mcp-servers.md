@@ -488,6 +488,11 @@ state and encrypted credentials to the immutable HOP-1 `(issuer, subject)`,
 validates the provider user-info email against the HOP-1 email, renews tokens,
 and revokes them when a revocation endpoint is configured.
 
+Jira Cloud uses a stricter named identity profile and rotating Atlassian
+credentials. Do not model it as a generic verified-email provider or invent a
+revocation URL. Follow the dedicated [Jira provider guide](jira.md), including
+its exact callback route, migration, scope, and full-catalog capture rules.
+
 ```yaml
 connectionLifecycle:
   enabled: true

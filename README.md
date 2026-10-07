@@ -130,6 +130,10 @@ backend, but production HOP-1 flows still need a credential bridge that maps the
 gateway principal to a GitHub bearer token before forwarding to the upstream GitHub server. See
 [servers/github-mcp/README.md](servers/github-mcp/README.md).
 
+The opt-in Jira Cloud provider fronts Atlassian's hosted v2 MCP endpoint with a
+per-user 3LO credential, a provider-specific identity binding, and a
+digest-pinned `jira_*` catalog. See [docs/jira.md](docs/jira.md).
+
 Downstream provider credentials can be connected by an external control plane, internal portal, or
 future built-in UI. See [docs/provider-connection-flows.md](docs/provider-connection-flows.md).
 For a typed Helm integration with an external token issuer, policy service, and
