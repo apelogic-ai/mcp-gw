@@ -90,6 +90,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('bun "$ROOT_DIR/shared/oauth/migrate.ts"');
     expect(smoke).toContain('bun "$ROOT_DIR/scripts/fixtures/oauth-custody-postgres.ts"');
     expect(smoke).toContain('bun "$ROOT_DIR/scripts/fixtures/oauth-scope-recovery-postgres.ts"');
+    expect(smoke).toContain('bun "$ROOT_DIR/scripts/fixtures/generic-oauth-rotation-postgres.ts"');
     expect(smoke).toContain("OAuth migrations did not complete.");
     expect(smoke.indexOf('bun "$ROOT_DIR/shared/oauth/migrate.ts"')).toBeLessThan(
       smoke.indexOf('bun "$ROOT_DIR/scripts/fixtures/refresh-token-race.ts"'),

@@ -33,7 +33,11 @@ import {
   loadGenericWrapperDescriptor,
   validateGenericWrapperConfiguration,
 } from "./descriptor";
-import { createGenericOAuthRuntimeConfig, startGenericOAuth } from "./oauth";
+import {
+  createGenericOAuthRuntimeConfig,
+  GenericOAuthConnectionAdapter,
+  startGenericOAuth,
+} from "./oauth";
 import { createGenericOAuthRouteHandler, validateGenericRedirectAfter } from "./oauth-routes";
 import { createGenericMcpProxyHandler } from "./proxy";
 import { createHttpUpstreamTransport, createStdioUpstreamTransport } from "./transport";
@@ -122,6 +126,7 @@ export function createGenericMainHandler(
     const tokenStore = new SqlOAuthTokenStore(queryClient);
     const stateStore = new SqlOAuthStateStore(queryClient);
     const lifecycle = oauthRuntime.lifecycle(tokenStore);
+    const oauthAdapter = new GenericOAuthConnectionAdapter(oauthRuntime);
     createRevocationWorker([lifecycle]).start();
     oauthRoutes = createGenericOAuthRouteHandler({
       authenticate,
@@ -168,6 +173,54 @@ export function createGenericMainHandler(
       catalog,
       authenticate,
       resolveCredential: (request) => credentialResolver.resolve(request),
+      recoverCredential: async (request, rejectedCredential) => {
+        try {
+          const token = await lifecycle.recoverFromProviderAuthenticationFailure(
+            request.identity,
+            request.scopes,
+            rejectedCredential,
+          );
+          return token
+            ? {
+                header: oauthDescriptor.header ?? "authorization",
+                value: `${oauthDescriptor.scheme ?? "Bearer"} ${token}`,
+                rawValue: token,
+              }
+            : null;
+        } catch (error) {
+          if (
+            error instanceof ProviderToolScopeError ||
+            (error instanceof ProviderLifecycleError &&
+              lifecycleErrorRequiresReauthorization(error))
+          ) {
+            return null;
+          }
+          throw error;
+        }
+      },
+      validateCredential: async (request, activeCredential) => {
+        try {
+          await oauthAdapter.validateIdentity(
+            {
+              provider: oauthDescriptor.providerId,
+              generation: 0,
+              credential: { activeCredential },
+              grantedScopes: request.scopes,
+            },
+            request.identity,
+          );
+          return "valid";
+        } catch (error) {
+          if (
+            error instanceof ProviderLifecycleError &&
+            (error.category === "invalid_active_credential" ||
+              error.category === "identity_mismatch")
+          ) {
+            return "invalid";
+          }
+          return "unavailable";
+        }
+      },
       transport,
       policy,
       audit,

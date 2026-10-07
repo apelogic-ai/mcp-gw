@@ -42,6 +42,32 @@ const catalog: GenericToolCatalog = {
   ],
 };
 
+const jiraDescriptor: GenericWrapperDescriptor = {
+  ...descriptor,
+  name: "jira",
+  toolPrefix: "jira",
+  lifecycleRoutes: true,
+  upstream: { transport: "http", url: "https://mcp.atlassian.com/v2/mcp?tools=all" },
+  credential: {
+    mode: "per_user_oauth",
+    providerId: "jira",
+    authorizationUrl: "https://auth.atlassian.com/authorize",
+    tokenUrl: "https://auth.atlassian.com/oauth/token",
+    userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
+    redirectUri: "http://localhost:8788/oauth/jira/callback",
+    scopes: ["read:jira-user", "read:jira:agent-interface", "offline_access"],
+    clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
+    clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
+    encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+    tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+    identity: {
+      mode: "atlassian_jira_asserted_email",
+      siteUrl: "https://example.atlassian.net",
+    },
+    tokenEndpointAuthMethod: "client_secret_post",
+  },
+};
+
 class RecordingTransport implements GenericUpstreamTransport {
   readonly requests: GenericUpstreamRequest[] = [];
   readonly issuedSessions: { id: string; principalKey: string }[] = [];
@@ -317,6 +343,231 @@ describe("generic MCP proxy", () => {
     expect(audit.events).toMatchObject([
       { category: "tool_call", status: "deny", tool: "search_oauth_start" },
     ]);
+  });
+
+  test("recovers one rejected Jira credential and retries with the rotated token", async () => {
+    const requests: GenericUpstreamRequest[] = [];
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession(sessionId, principalKey) {
+        void sessionId;
+        void principalKey;
+      },
+      send(request) {
+        requests.push(request);
+        return Promise.resolve(
+          requests.length === 1
+            ? new Response("unauthorized", { status: 401 })
+            : Response.json({ jsonrpc: "2.0", id: 20, result: { content: [] } }),
+        );
+      },
+    };
+    const recovered: string[] = [];
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer rejected-token",
+          rawValue: "rejected-token",
+        }),
+      recoverCredential: (_request, rejectedCredential) => {
+        recovered.push(rejectedCredential);
+        return Promise.resolve({
+          header: "authorization",
+          value: "Bearer replacement-token",
+          rawValue: "replacement-token",
+        });
+      },
+    });
+
+    const response = await proxy(
+      mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 20),
+    );
+
+    expect(response.status).toBe(200);
+    expect(recovered).toEqual(["rejected-token"]);
+    expect(requests.map((request) => request.credential?.rawValue)).toEqual([
+      "rejected-token",
+      "replacement-token",
+    ]);
+  });
+
+  test.each([
+    [401, "provider_oauth_required"],
+    [403, "provider_permission_denied"],
+    [429, "provider_rate_limited"],
+  ] as const)(
+    "maps Jira HTTP %d to %s without leaking the provider body",
+    async (status, error) => {
+      const audit = new InMemoryAuditSink();
+      const transport: GenericUpstreamTransport = {
+        issueSession(session) {
+          void session;
+        },
+        assertSession(sessionId, principalKey) {
+          void sessionId;
+          void principalKey;
+        },
+        send: () =>
+          Promise.resolve(
+            new Response("sensitive provider detail", {
+              status,
+              headers: status === 429 ? { "retry-after": "17" } : undefined,
+            }),
+          ),
+      };
+      const proxy = createGenericMcpProxyHandler({
+        descriptor: jiraDescriptor,
+        catalog,
+        authenticate: () => Promise.resolve(identity),
+        transport,
+        audit,
+        resolveCredential: () =>
+          Promise.resolve({
+            header: "authorization",
+            value: "Bearer provider-token",
+            rawValue: "provider-token",
+          }),
+        recoverCredential: () => Promise.resolve(null),
+      });
+
+      const response = await proxy(
+        mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 21),
+      );
+      const body = (await response.json()) as {
+        result: { structuredContent: Record<string, unknown> };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.result.structuredContent.error).toBe(error);
+      expect(JSON.stringify(body)).not.toContain("sensitive provider detail");
+      expect(audit.events).toMatchObject([
+        {
+          category: "tool_call",
+          status: "error",
+          event: "provider_failure",
+          tool: "search_query",
+          error,
+        },
+      ]);
+      if (status === 429) {
+        expect(response.headers.get("retry-after")).toBe("17");
+        expect(body.result.structuredContent.retryAfter).toBe("17");
+      }
+    },
+  );
+
+  test("classifies Atlassian's opaque error as transient after identity validation succeeds", async () => {
+    let validations = 0;
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession(sessionId, principalKey) {
+        void sessionId;
+        void principalKey;
+      },
+      send: () =>
+        Promise.resolve(
+          Response.json({
+            jsonrpc: "2.0",
+            id: 22,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: "We are having trouble completing this action" }],
+            },
+          }),
+        ),
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        }),
+      validateCredential: () => {
+        validations += 1;
+        return Promise.resolve("valid");
+      },
+    });
+
+    const response = await proxy(
+      mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 22),
+    );
+
+    expect(validations).toBe(1);
+    expect(await response.json()).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: { error: "provider_unavailable" },
+      },
+    });
+  });
+
+  test("renews and retries Atlassian's opaque error when identity validation rejects the token", async () => {
+    const requests: (string | undefined)[] = [];
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession(sessionId, principalKey) {
+        void sessionId;
+        void principalKey;
+      },
+      send(request) {
+        requests.push(request.credential?.rawValue);
+        return Promise.resolve(
+          requests.length === 1
+            ? Response.json({
+                jsonrpc: "2.0",
+                id: 23,
+                result: {
+                  isError: true,
+                  content: [{ type: "text", text: "We are having trouble completing this action" }],
+                },
+              })
+            : Response.json({ jsonrpc: "2.0", id: 23, result: { content: [] } }),
+        );
+      },
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer rejected-token",
+          rawValue: "rejected-token",
+        }),
+      validateCredential: () => Promise.resolve("invalid"),
+      recoverCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer replacement-token",
+          rawValue: "replacement-token",
+        }),
+    });
+
+    const response = await proxy(
+      mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 23),
+    );
+
+    expect(response.status).toBe(200);
+    expect(requests).toEqual(["rejected-token", "replacement-token"]);
+    expect(await response.json()).toMatchObject({ result: { content: [] } });
   });
 });
 

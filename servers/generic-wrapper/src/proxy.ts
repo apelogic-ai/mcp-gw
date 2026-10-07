@@ -32,6 +32,14 @@ export interface CreateGenericMcpProxyHandlerOptions {
   resolveCredential(
     request: ResolveGenericCredentialRequest,
   ): Promise<GenericUpstreamCredential | null>;
+  recoverCredential?(
+    request: ResolveGenericCredentialRequest,
+    rejectedCredential: string,
+  ): Promise<GenericUpstreamCredential | null>;
+  validateCredential?(
+    request: ResolveGenericCredentialRequest,
+    credential: string,
+  ): Promise<"valid" | "invalid" | "unavailable">;
   transport: GenericUpstreamTransport;
   policy?: ToolPolicy;
   audit?: AuditSink;
@@ -289,7 +297,8 @@ export function createGenericMcpProxyHandler(
 
     try {
       const scopes = tool?.grants.scopes ?? [];
-      const credential = await options.resolveCredential({ identity, hop1Token, scopes });
+      const credentialRequest = { identity, hop1Token, scopes };
+      let credential = await options.resolveCredential(credentialRequest);
       if (!credential && options.requireCredential) {
         await emitSafely(options.audit, {
           ts: new Date().toISOString(),
@@ -318,13 +327,100 @@ export function createGenericMcpProxyHandler(
         });
       }
       const upstreamBody = tool ? rewriteToolName(body, tool.upstreamName) : body;
-      const upstream = await options.transport.send({
+      let upstream = await options.transport.send({
         incomingRequest: request,
         body: upstreamBody,
         credential,
         principalKey: principalKey(identity),
       });
-      const responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
+      let responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
+      if (isJiraProvider(options.descriptor)) {
+        if (upstream.status === 401 && credential?.rawValue && options.recoverCredential) {
+          const replacement = await options.recoverCredential(
+            credentialRequest,
+            credential.rawValue,
+          );
+          if (replacement) {
+            credential = replacement;
+            upstream = await options.transport.send({
+              incomingRequest: request,
+              body: upstreamBody,
+              credential,
+              principalKey: principalKey(identity),
+            });
+            responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
+          }
+        }
+        if (
+          isAtlassianOpaqueFailure(responseBody) &&
+          credential?.rawValue &&
+          options.validateCredential
+        ) {
+          let validation: "valid" | "invalid" | "unavailable" = "unavailable";
+          try {
+            validation = await options.validateCredential(credentialRequest, credential.rawValue);
+          } catch {
+            validation = "unavailable";
+          }
+          if (validation === "invalid" && options.recoverCredential) {
+            const replacement = await options.recoverCredential(
+              credentialRequest,
+              credential.rawValue,
+            );
+            if (replacement) {
+              credential = replacement;
+              upstream = await options.transport.send({
+                incomingRequest: request,
+                body: upstreamBody,
+                credential,
+                principalKey: principalKey(identity),
+              });
+              responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
+            }
+          }
+          if (isAtlassianOpaqueFailure(responseBody)) {
+            const failure =
+              validation === "invalid"
+                ? {
+                    error: "provider_oauth_required",
+                    message: "Provider authorization is required",
+                  }
+                : {
+                    error: "provider_unavailable",
+                    message: "Provider is temporarily unavailable",
+                  };
+            await emitProviderFailureAudit(
+              options.audit,
+              identity,
+              tool,
+              message.arguments,
+              started,
+              failure.error,
+            );
+            return providerFailure(message.id, failure.error, failure.message, options);
+          }
+        }
+        const failure = jiraHttpFailure(upstream);
+        if (failure) {
+          await emitProviderFailureAudit(
+            options.audit,
+            identity,
+            tool,
+            message.arguments,
+            started,
+            failure.error,
+          );
+          const mapped = providerFailure(
+            message.id,
+            failure.error,
+            failure.message,
+            options,
+            failure.retryAfter,
+          );
+          if (failure.retryAfter) mapped.headers.set("retry-after", failure.retryAfter);
+          return mapped;
+        }
+      }
       if (tool) {
         await emitSafely(options.audit, {
           ts: new Date().toISOString(),
@@ -456,6 +552,95 @@ function forwardedResponseHeaders(response: Response): Headers {
     if (value) headers.set(name, value);
   }
   return headers;
+}
+
+function isJiraProvider(descriptor: GenericWrapperDescriptor): boolean {
+  return (
+    descriptor.credential.mode === "per_user_oauth" && descriptor.credential.providerId === "jira"
+  );
+}
+
+function isAtlassianOpaqueFailure(body: string): boolean {
+  return body.toLowerCase().includes("we are having trouble completing this action");
+}
+
+function jiraHttpFailure(
+  response: Response,
+): { error: string; message: string; retryAfter?: string } | undefined {
+  if (response.status === 401) {
+    return {
+      error: "provider_oauth_required",
+      message: "Provider authorization is required",
+    };
+  }
+  if (response.status === 403) {
+    return {
+      error: "provider_permission_denied",
+      message: "Provider permission was denied",
+    };
+  }
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after")?.trim();
+    return {
+      error: "provider_rate_limited",
+      message: "Provider rate limit exceeded",
+      ...(retryAfter ? { retryAfter } : {}),
+    };
+  }
+  if (response.status >= 500) {
+    return {
+      error: "provider_unavailable",
+      message: "Provider is temporarily unavailable",
+    };
+  }
+  return undefined;
+}
+
+async function emitProviderFailureAudit(
+  audit: AuditSink | undefined,
+  identity: Hop1Identity,
+  tool: GenericCatalogTool | undefined,
+  args: Record<string, unknown>,
+  started: number,
+  error: string,
+): Promise<void> {
+  if (!tool) return;
+  await emitSafely(audit, {
+    ts: new Date().toISOString(),
+    category: "tool_call",
+    principal: identity.email,
+    status: "error",
+    event: "provider_failure",
+    tool: tool.exposedName,
+    argDigest: digestArgs(args),
+    latencyMs: Date.now() - started,
+    error,
+  });
+}
+
+function providerFailure(
+  id: JsonRpcId,
+  error: string,
+  message: string,
+  options: CreateGenericMcpProxyHandlerOptions,
+  retryAfter?: string,
+): Response {
+  return mcpResult(id, {
+    isError: true,
+    content: [{ type: "text", text: message }],
+    structuredContent: {
+      error,
+      provider:
+        options.oauth?.providerId ??
+        (options.descriptor.credential.mode === "per_user_oauth"
+          ? options.descriptor.credential.providerId
+          : undefined),
+      ...(error === "provider_oauth_required"
+        ? { connectionHelper: `${options.descriptor.toolPrefix}_oauth_start` }
+        : {}),
+      ...(retryAfter ? { retryAfter } : {}),
+    },
+  });
 }
 
 function safeStreamingResponse(response: Response): Response {

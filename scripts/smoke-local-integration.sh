@@ -294,6 +294,8 @@ TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
   bun "$ROOT_DIR/scripts/fixtures/oauth-custody-postgres.ts"
 TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
   bun "$ROOT_DIR/scripts/fixtures/oauth-scope-recovery-postgres.ts"
+TOKEN_STORE_DSN="postgres://mcp:mcp@127.0.0.1:$TOKEN_STORE_PORT/mcp" \
+  bun "$ROOT_DIR/scripts/fixtures/generic-oauth-rotation-postgres.ts"
 
 assert_fixture_authorization_server
 TOKEN_RESPONSE="$(curl -sS -X POST "$FIXTURE_BASE_URL/token")"
