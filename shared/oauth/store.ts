@@ -8,6 +8,13 @@ import type {
 /** Stable provider identifier. Built-ins remain `google` and `github`; generic wrappers use a configured ID. */
 export type OAuthProvider = string;
 
+/** Shared storage/configuration contract for stable provider identifiers. */
+export const OAUTH_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{1,62}$/;
+
+export function isOAuthProvider(value: unknown): value is OAuthProvider {
+  return typeof value === "string" && OAUTH_PROVIDER_ID_PATTERN.test(value);
+}
+
 export interface OAuthStateRecord {
   /** Missing only on state rows written by replicas predating provider-scoped state. */
   provider?: OAuthProvider;

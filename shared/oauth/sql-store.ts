@@ -1,4 +1,5 @@
 import { hashState } from "./state";
+import { isOAuthProvider } from "./store";
 import type {
   ConnectionPhase,
   ConnectionRecord,
@@ -828,7 +829,7 @@ function rowToConnection(row: Record<string, unknown>): ConnectionRecord {
 
 function providerField(row: Record<string, unknown>, name: string): OAuthProvider {
   const value = stringField(row, name);
-  if (value !== "google" && value !== "github") {
+  if (!isOAuthProvider(value)) {
     throw new Error(`Expected SQL field ${name} to be a supported OAuth provider`);
   }
 
@@ -947,7 +948,7 @@ function optionalProviderField(
 ): OAuthProvider | undefined {
   const value = optionalStringField(row, name);
   if (value === undefined) return undefined;
-  if (value !== "google" && value !== "github") {
+  if (!isOAuthProvider(value)) {
     throw new Error(`Expected SQL field ${name} to be a supported OAuth provider`);
   }
   return value;

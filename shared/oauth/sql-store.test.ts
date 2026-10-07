@@ -280,6 +280,53 @@ describe("SQL OAuth token store", () => {
     expect(selected).toMatchObject({ phase: "authorizing", generation: 0 });
   });
 
+  test("maps configured generic provider IDs from authorization markers", async () => {
+    const updatedAt = new Date("2026-10-07T19:33:09.000Z");
+    const client = new RecordingSqlClient([
+      {
+        provider: "jira",
+        hop1_issuer: connection.hop1Issuer,
+        hop1_subject: connection.hop1Subject,
+        email: "",
+        scopes_granted: [],
+        encrypted_refresh_token: "",
+        credential_envelope: null,
+        credential_schema_version: null,
+        connection_generation: "0",
+        scopes_required: ["read:jira:agent-interface"],
+        active_credential_present: false,
+        renewal_credential_present: false,
+        active_credential_expires_at: null,
+        renewal_credential_expires_at: null,
+        last_authorized_at: null,
+        last_renewed_at: null,
+        last_validated_at: null,
+        local_disabled_at: null,
+        lifecycle_phase: "authorizing",
+        revocation_state: "none",
+        revocation_started_at: null,
+        revocation_completed_at: null,
+        lifecycle_error_category: null,
+        lifecycle_updated_at: updatedAt,
+        created_at: updatedAt,
+        updated_at: updatedAt,
+        revoked_at: null,
+      },
+    ]);
+
+    const selected = await new SqlOAuthTokenStore(client).getConnection(
+      "jira",
+      connection.hop1Issuer,
+      connection.hop1Subject,
+    );
+
+    expect(selected).toMatchObject({
+      provider: "jira",
+      phase: "authorizing",
+      generation: 0,
+    });
+  });
+
   test("marks accounts revoked", async () => {
     const client = new RecordingSqlClient();
     const store = new SqlOAuthTokenStore(client);
@@ -568,6 +615,37 @@ describe("SQL OAuth token store", () => {
     expect(client.calls[0]?.sql).toContain("RETURNING");
     expect(client.calls[0]?.params[1]).toBe(stateRecord.stateHash);
     expect(client.calls[0]?.params[2]).toBe("google");
+  });
+
+  test("consumes state records for configured generic provider IDs", async () => {
+    const jiraState = { ...stateRecord, provider: "jira" };
+    const consumedAt = new Date("2026-10-07T19:34:00.000Z");
+    const client = new RecordingSqlClient([
+      {
+        state_hash: jiraState.stateHash,
+        provider: jiraState.provider,
+        hop1_issuer: jiraState.hop1Issuer,
+        hop1_subject: jiraState.hop1Subject,
+        email: jiraState.email,
+        requested_scopes: jiraState.requestedScopes,
+        redirect_after: jiraState.redirectAfter,
+        expires_at: jiraState.expiresAt,
+        consumed_at: consumedAt,
+        connection_generation: null,
+        connection_locally_disabled: null,
+        connection_updated_at: null,
+      },
+    ]);
+
+    const consumed = await new SqlOAuthStateStore(client).consume("jira", "state");
+
+    expect(consumed).toEqual({
+      ...jiraState,
+      consumedAt,
+      connectionGeneration: undefined,
+      connectionLocallyDisabled: undefined,
+      connectionUpdatedAt: undefined,
+    });
   });
 });
 

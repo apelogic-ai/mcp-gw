@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 
+import { OAUTH_PROVIDER_ID_PATTERN } from "../../../shared/oauth/store";
+
 import type { PolicyActionClass } from "../../../shared/policy/policy";
 
 export const GENERIC_WRAPPER_SCHEMA_VERSION = "mcp-gateway.generic-wrapper/v1" as const;
@@ -380,7 +382,11 @@ function parseOAuthCredential(record: Record<string, unknown>): GenericOAuthCred
   ) {
     throw new Error("credential.tokenEndpointAuthMethod is invalid");
   }
-  const providerId = patternString(record.providerId, "credential.providerId", NAME_PATTERN);
+  const providerId = patternString(
+    record.providerId,
+    "credential.providerId",
+    OAUTH_PROVIDER_ID_PATTERN,
+  );
   if (identity.mode === "atlassian_jira_asserted_email" && providerId !== "jira") {
     throw new Error(
       "credential.identity mode atlassian_jira_asserted_email requires providerId jira",
