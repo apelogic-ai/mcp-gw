@@ -1,0 +1,57 @@
+schemaVersion: mcp-gateway.generic-catalog/v1
+catalogId: jira-cloud-rest-v3-read-only
+tools:
+  - name: getJiraCurrentUser
+    alias: get_current_user
+    description: Get the current Jira user's fixed public profile fields.
+    inputSchema:
+      type: object
+      properties: {}
+      required: []
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.user.current.get
+      scopes: [read:jira-user]
+  - name: searchJiraIssuesUsingJql
+    alias: search_issues
+    description: Search Jira issues with JQL and return fixed issue fields.
+    inputSchema:
+      type: object
+      properties:
+        jql:
+          type: string
+          maxLength: 4000
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 25
+      required: [jql]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.issue.search
+      scopes: [read:jira-work]
+  - name: getJiraIssue
+    alias: get_issue
+    description: Get fixed fields for one Jira issue by key or ID.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+      required: [issueKey]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.issue.get
+      scopes: [read:jira-work]

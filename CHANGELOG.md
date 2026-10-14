@@ -19,6 +19,8 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
+- Serve the `jira-read-only` preset's current-user, issue-search, and issue-get tools through Jira
+  Cloud REST with classic read scopes.
 - Request Atlassian's classic `read:jira-work` scope for Jira because hosted MCP data calls require
   it in addition to the agent-interface scopes.
 - Limit Task tool calls to the exact provider actions approved for that Task. Provider sign-in and

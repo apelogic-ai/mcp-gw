@@ -4,7 +4,11 @@ import { taskAuthority, withTaskAuthority } from "../../../test/support/task-aut
 import { InMemoryAuditSink } from "../../../shared/audit/audit";
 import type { Hop1Identity } from "../../../shared/identity/hop1";
 import { YamlPolicy } from "../../../shared/policy/policy";
-import type { GenericToolCatalog, GenericWrapperDescriptor } from "./descriptor";
+import {
+  loadGenericToolCatalog,
+  type GenericToolCatalog,
+  type GenericWrapperDescriptor,
+} from "./descriptor";
 import { createGenericMcpProxyHandler } from "./proxy";
 import type { GenericUpstreamRequest, GenericUpstreamTransport } from "./transport";
 
@@ -109,6 +113,11 @@ const jiraDescriptor: GenericWrapperDescriptor = {
     tokenEndpointAuthMethod: "client_secret_post",
   },
 };
+
+const jiraRestCatalog = loadGenericToolCatalog(
+  "servers/generic-wrapper/catalog/jira/read-only.yaml",
+  "jira",
+);
 
 class RecordingTransport implements GenericUpstreamTransport {
   readonly requests: GenericUpstreamRequest[] = [];
@@ -232,6 +241,55 @@ describe("generic MCP proxy", () => {
     expect(JSON.parse(transport.requests[0]?.body ?? "")).toMatchObject({
       params: { name: "editJiraIssue" },
     });
+  });
+
+  test("runs only Task-approved Jira REST tools and refuses removed aliases before REST", async () => {
+    const transport = new RecordingTransport();
+    let credentialCalls = 0;
+    const restCalls: Record<string, unknown>[] = [];
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog: jiraRestCatalog,
+      authenticate: () =>
+        Promise.resolve({
+          ...identity,
+          claims: withTaskAuthority({
+            ...taskAuthority,
+            tools: [{ provider: "jira", resource: "jira_get_issue", action: "read" }],
+          }),
+        }),
+      taskToolAuthorization: {},
+      transport,
+      resolveCredential: () => {
+        credentialCalls += 1;
+        return Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        });
+      },
+      executeJiraRestTool: (request) => {
+        restCalls.push(request.arguments);
+        return Promise.resolve(
+          Response.json({ jsonrpc: "2.0", id: request.id, result: { content: [] } }),
+        );
+      },
+    });
+
+    for (const name of ["jira_search_issues", "jira_list_projects"]) {
+      await proxy(mcpRequest("tools/call", { name, arguments: {} }, 106));
+    }
+    expect(restCalls).toHaveLength(0);
+    expect(credentialCalls).toBe(0);
+    expect(transport.requests).toHaveLength(0);
+
+    const allowed = await proxy(
+      mcpRequest("tools/call", { name: "jira_get_issue", arguments: { issueKey: "EX-1" } }, 107),
+    );
+    expect(allowed.status).toBe(200);
+    expect(restCalls).toEqual([{ issueKey: "EX-1" }]);
+    expect(credentialCalls).toBe(1);
+    expect(transport.requests).toHaveLength(0);
   });
 
   test("a Task without tool tuples sees only the generic connection helpers", async () => {

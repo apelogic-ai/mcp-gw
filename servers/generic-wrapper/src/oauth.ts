@@ -232,21 +232,7 @@ export class GenericOAuthConnectionAdapter implements DownstreamConnectionAdapte
     siteUrl: string,
     expectedPrincipal: Hop1Identity,
   ): Promise<ValidatedProviderIdentity> {
-    if (!Array.isArray(value)) throw malformedResponse();
-    const resources = value as unknown[];
-    const resource = resources.find((entry) => {
-      if (!isRecord(entry)) return false;
-      const url = nonEmptyString(entry.url);
-      return url ? normalizedOrigin(url) === siteUrl : false;
-    });
-    if (!isRecord(resource)) {
-      throw new ProviderLifecycleError(
-        "Configured Jira site is not authorized",
-        "identity_mismatch",
-      );
-    }
-    const cloudId = nonEmptyString(resource.id);
-    if (!cloudId) throw malformedResponse();
+    const cloudId = resolveAtlassianJiraSite(value, siteUrl);
     const profileResponse = await providerFetch(
       this.fetchImpl,
       `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}/rest/api/3/myself`,
@@ -343,6 +329,21 @@ export class GenericOAuthConnectionAdapter implements DownstreamConnectionAdapte
       `Basic ${Buffer.from(`${this.config.clientId}:${this.config.clientSecret}`).toString("base64")}`,
     );
   }
+}
+
+export function resolveAtlassianJiraSite(value: unknown, siteUrl: string): string {
+  if (!Array.isArray(value)) throw malformedResponse();
+  const matches = value.filter((entry) => {
+    if (!isRecord(entry)) return false;
+    const url = nonEmptyString(entry.url);
+    return url ? normalizedOrigin(url) === siteUrl : false;
+  });
+  if (matches.length !== 1 || !isRecord(matches[0])) {
+    throw new ProviderLifecycleError("Configured Jira site is not authorized", "identity_mismatch");
+  }
+  const cloudId = nonEmptyString(matches[0].id);
+  if (!cloudId) throw malformedResponse();
+  return cloudId;
 }
 
 export async function startGenericOAuth(

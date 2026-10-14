@@ -153,8 +153,13 @@
 {{- $requiredScopes := list "read:jira-work" "read:jira:agent-interface" "search:jira:agent-interface" }}
 {{- if eq $catalogPreset "jira" }}
 {{- $requiredScopes = append $requiredScopes "write:jira:agent-interface" }}
-{{- else if has "write:jira:agent-interface" $wrapper.credential.scopes }}
-{{- fail "Jira jira-read-only preset must not request OAuth consent scope write:jira:agent-interface" }}
+{{- else }}
+{{- $requiredScopes = list "read:jira-user" "read:jira-work" "offline_access" }}
+{{- range $scope := $wrapper.credential.scopes }}
+{{- if not (has $scope $requiredScopes) }}
+{{- fail (printf "Jira jira-read-only preset must not request OAuth consent scope %s" $scope) }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- range $scope := $requiredScopes }}
 {{- if not (has $scope $wrapper.credential.scopes) }}

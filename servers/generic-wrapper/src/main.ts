@@ -44,6 +44,7 @@ import {
 } from "./oauth";
 import { createGenericOAuthRouteHandler, validateGenericRedirectAfter } from "./oauth-routes";
 import { createGenericMcpProxyHandler } from "./proxy";
+import { createJiraRestToolExecutor } from "./jira-rest";
 import { createHttpUpstreamTransport, createStdioUpstreamTransport } from "./transport";
 
 export interface GenericMainConfig {
@@ -113,6 +114,10 @@ export function createGenericMainHandler(
           maxSessionsPerPrincipal: descriptor.sessions.maxPerPrincipal,
           sessionIdleTtlMs: descriptor.sessions.idleTtlMs,
         });
+  const executeJiraRestTool =
+    catalog.catalogId === "jira-cloud-rest-v3-read-only"
+      ? createJiraRestToolExecutor(descriptor)
+      : undefined;
 
   let oauthRoutes: ((request: Request) => Promise<Response>) | undefined;
   let oauthHelpers:
@@ -235,6 +240,7 @@ export function createGenericMainHandler(
         }
       },
       transport,
+      executeJiraRestTool,
       policy,
       audit,
       oauth: oauthHelpers,

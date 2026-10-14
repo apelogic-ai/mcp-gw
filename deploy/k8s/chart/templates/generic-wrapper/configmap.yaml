@@ -8,6 +8,9 @@
 {{- if $jiraPreset }}
 {{- $catalogPath = "/app/servers/generic-wrapper/catalog/jira/decisions.yaml" }}
 {{- end }}
+{{- if eq $catalogPreset "jira-read-only" }}
+{{- $catalogPath = "/app/servers/generic-wrapper/catalog/jira/read-only.yaml" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -21,10 +24,6 @@ data:
     name: {{ .name | quote }}
     toolPrefix: {{ .toolPrefix | quote }}
     catalogPath: {{ $catalogPath }}
-    {{- if eq $catalogPreset "jira-read-only" }}
-    catalogFilter:
-      actionClasses: [read]
-    {{- end }}
     lifecycleRoutes: {{ .lifecycleRoutes }}
     upstream:
 {{ omit .upstream "sidecar" | toYaml | nindent 6 }}
