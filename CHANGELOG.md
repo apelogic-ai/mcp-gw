@@ -8,50 +8,48 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-14
+
 ### Added
 
-- Add an opt-in Jira Cloud provider backed by Atlassian's hosted Rovo MCP server, with per-user
-  OAuth, site-bound identity validation, local credential lifecycle controls, and `jira` and
-  `jira-read-only` Helm catalog presets.
+- Add an opt-in Jira Cloud provider with per-user Atlassian sign-in, a full preset, and a recommended
+  read-only preset that leaves out write tools and write access.
+- Add an end-to-end check against the built gateway proving that a Task cannot call a provider tool
+  it was not approved to use and that the refused call never reaches the provider.
 
 ### Changed
 
-- Tool calls are now limited to tools approved for the Task.
-- Discover Jira tools live through the caller's credential and intersect every paginated response
-  with checked-in authority decisions. New or undecided upstream tools remain hidden, removed tools
-  disappear, and upstream discovery failures return only the Jira OAuth helpers without serving a
-  stale catalog.
-- Classify descriptor-driven generic-wrapper OAuth start and status helpers as read actions so
-  deny-by-default read-only policies can establish and inspect provider connections.
+- Limit Task tool calls to the exact provider actions approved for that Task. Provider sign-in and
+  status helpers remain available so users and agents can establish and inspect connections.
+- Build each Jira tool list from Atlassian's current response and MCP-GW's reviewed decisions. New
+  or undecided tools stay hidden, removed tools disappear, and discovery failures return only the
+  Jira sign-in helpers instead of an old tool list.
+- Bind each connection-status token to its named provider, so GitHub status authority cannot read
+  Jira status and Jira status authority cannot read GitHub status.
+- Forward GitHub calls using only validated fields. Caller-supplied metadata and unexpected
+  parameters are no longer sent upstream, and gateway health checks no longer depend on GitHub.
 
 ### Upgrade Notes
 
-- Task-scoped workload tokens now require the current version 3 authority contract and fail closed
-  when tool approvals are missing, malformed, or do not map to the wrapper's public catalog. Tokens
-  that carry approvals in authority version 1 or 2 also fail closed; the compatibility opt-out does
-  not ignore approvals from an unsupported version. Provider connection status/start helpers remain
-  available, and existing catalog and policy rules continue to narrow access. No database migration,
-  provider reconnect, or OAuth reauthorization is required.
-- The supported governing-platform issuer already emits version 3 with tool approvals. For one
-  compatibility release only, a custom legacy issuer that omits approvals may set
-  `taskToolAuthorization.allowLegacyUnscopedTaskTokens=true` (or the equivalent direct-wrapper
-  environment variable). This opt-out is unsafe, defaults to `false`, does not accept malformed or
-  empty approvals, and should be removed immediately after the issuer upgrade.
-- Task-approved-tool enforcement is owned by the wrappers, not AgentGateway. Route GitHub through
-  the enabled GitHub wrapper, and enable `dbMcp.wrapper.enabled=true` before exposing db-mcp to Task
-  tokens. Any other direct/unwrapped backend must enforce the Task approval contract itself.
-- Pinned GitHub tools now use their published action classes even when no governance catalog is
-  configured. Existing action-class policy rules can therefore decide affected tools differently.
-  Mixed-action tools without a recognized selector are refused rather than assigned a fallback
-  action.
-- The GitHub wrapper now answers `ping` directly. Forwarded GitHub tool calls retain validated
-  arguments but no longer include caller-supplied `_meta` values, including progress tokens, or
-  extra parameter keys.
-- Existing Google Workspace, GitHub, static generic-wrapper, Compose, and Helm values remain valid.
-  A policy that explicitly matched a descriptor-driven OAuth start helper as a write action must
-  match it as read after this release. Enabling Jira requires an Atlassian OAuth app, the documented
-  Secret values and exact callback route, and a migrated token store; no OAuth reconnect or new
-  value is required for existing providers.
+- Task tokens must use the version 3 authority format and include valid tool approvals. Missing,
+  malformed, old-version, or unknown approvals are refused. Existing provider sign-in and status
+  helpers continue to work, and existing policy rules can still narrow access.
+- The supported issuer already sends version 3 approvals. For this release only, a custom legacy
+  issuer that sends no approvals can use `taskToolAuthorization.allowLegacyUnscopedTaskTokens=true`
+  (or the matching wrapper environment variable). This unsafe setting is off by default, does not
+  accept malformed or empty approvals, and should be removed as soon as the issuer is upgraded.
+- Task approval checks run in the provider wrappers. Route GitHub through its wrapper and enable
+  `dbMcp.wrapper.enabled=true` before exposing db-mcp to Task tokens. Any direct backend must enforce
+  the same approval contract itself.
+- Pinned GitHub tools now keep their published read or write class even without a governance
+  catalog. Mixed-action tools are refused when their action cannot be identified safely.
+- GitHub clients that rely on forwarded progress metadata should no longer expect it to reach the
+  provider. Tool arguments continue to be forwarded after validation.
+- Existing Google Workspace, GitHub, custom-wrapper, Compose, and Helm settings remain valid. A
+  policy that treated a generic provider's sign-in helper as a write action must treat it as read.
+- Enabling Jira requires a dedicated Atlassian OAuth app, the documented Secret values and callback
+  route, the required Jira scopes, and the shared OAuth database migrations. Use `jira-read-only`
+  unless write access is explicitly required. Existing providers need no reconnect or new Secret.
 
 ## [0.5.7] - 2026-10-01
 
@@ -832,7 +830,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.7...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.7...v0.6.0
 [0.5.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.4...v0.5.5

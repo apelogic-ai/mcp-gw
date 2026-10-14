@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.5.7
-appVersion: "0.5.7"
+version: 0.6.0
+appVersion: "0.6.0"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,13 +21,13 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.5.7
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.6.0
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.5.7
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.6.0
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.5.7
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.6.0
     - name: mcp-gw-generic-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.5.7
+      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.6.0
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -36,12 +36,10 @@ annotations:
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
-      description: Add the opt-in descriptor-driven generic wrapper for HTTP and stdio MCP integrations.
+      description: Add an opt-in Jira Cloud provider with full and read-only presets.
     - kind: fixed
-      description: Align the Google Workspace CLI path across the image, chart, Compose, and runtime validation.
-    - kind: fixed
-      description: Recover remote JWKS after startup outages and refresh on unknown signing key IDs without restarting AgentGateway.
+      description: Refuse provider tools that were not approved for the Task before the provider is called.
     - kind: changed
-      description: Resolve apt dependencies from a dated Ubuntu snapshot and remove the unused Node.js runtime from wrapper images.
+      description: Bind connection-status authority to its named provider.
     - kind: security
-      description: Bind attestations to the tagged release workflow and verify the upstream GitHub MCP Server signature before mirroring.
+      description: Forward GitHub calls using only validated fields.

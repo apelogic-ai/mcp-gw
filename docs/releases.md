@@ -19,7 +19,26 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.5.7`.
+The current public release line is `v0.6.0`.
+
+### 0.6.0 upgrade notes
+
+- Jira Cloud is an opt-in provider. Before enabling it, configure a dedicated Atlassian OAuth app,
+  the documented Secret values and exact callback route, the required Jira scopes, and the shared
+  OAuth database migrations. Start with the `jira-read-only` preset unless write access is
+  explicitly required.
+- Task tokens must use the version 3 authority format with valid tool approvals. Missing, malformed,
+  old-version, or unknown approvals are refused, while provider sign-in and status helpers remain
+  available. A one-release compatibility setting exists only for custom legacy issuers that omit
+  approvals entirely; it is unsafe and off by default.
+- Task approval checks run in provider wrappers. GitHub must be routed through its wrapper, and
+  db-mcp must enable its wrapper before either backend is exposed to Task tokens. Direct backends
+  must enforce the same approval contract themselves.
+- Forwarded GitHub calls no longer include caller-supplied metadata or unexpected parameters. Tool
+  arguments continue to be forwarded after validation.
+- Existing Google Workspace, GitHub, custom-wrapper, Compose, and Helm settings remain valid.
+  Existing providers require no database migration, OAuth reconnect, reauthorization, Secret-format
+  change, chart value rename, or new required value.
 
 ### 0.5.7 upgrade notes
 
