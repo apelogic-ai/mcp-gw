@@ -26,7 +26,8 @@ const identity: Hop1Identity = {
 };
 
 class RouteAdapter implements DownstreamConnectionAdapter {
-  readonly providerId = "github" as const;
+  constructor(readonly providerId = "github") {}
+
   readonly capabilities = {
     interactiveAuthorization: true,
     activeCredentialExpiry: true,
@@ -213,6 +214,44 @@ describe("generic connection routes", () => {
     expect(await disconnect.json()).toMatchObject({ phase: "disconnected", connected: false });
   });
 
+  test("leaves the ordinary user authorize flow unchanged", async () => {
+    const { response, authorizeCalls } = await startConnection("github");
+
+    expect(response.status).toBe(200);
+    expect(authorizeCalls).toBe(1);
+  });
+
+  test("accepts provider-bound connection-start authority", async () => {
+    for (const provider of ["github", "jira"]) {
+      const { response, authorizeCalls } = await startConnection(
+        provider,
+        startAuthority(provider),
+      );
+
+      expect(response.status).toBe(200);
+      expect(authorizeCalls).toBe(1);
+    }
+  });
+
+  test("refuses cross-provider and status authority before starting authorization", async () => {
+    const cases = [
+      { routeProvider: "github", authority: startAuthority("jira") },
+      { routeProvider: "jira", authority: startAuthority("github") },
+      { routeProvider: "jira", authority: statusAuthority("jira") },
+    ];
+
+    for (const { routeProvider, authority } of cases) {
+      const { response, authorizeCalls } = await startConnection(routeProvider, authority);
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: "authorization_denied",
+        code: "oauth_authorization_denied",
+      });
+      expect(authorizeCalls).toBe(0);
+    }
+  });
+
   test("never accepts an unauthenticated principal", async () => {
     const lifecycle = new ConnectionLifecycle({
       adapter: new RouteAdapter(),
@@ -344,3 +383,56 @@ describe("generic connection routes", () => {
     }
   });
 });
+
+async function startConnection(
+  provider: string,
+  authority?: Record<string, unknown>,
+): Promise<{ response: Response; authorizeCalls: number }> {
+  let authorizeCalls = 0;
+  const handler = createConnectionRouteHandler({
+    authenticate: () => Promise.resolve(authority ? identityWithAuthority(authority) : identity),
+    lifecycle: new ConnectionLifecycle({
+      adapter: new RouteAdapter(provider),
+      store: new InMemoryOAuthTokenStore(),
+      credentialEncryptionKey: key,
+    }),
+    requiredScopes: ["repo"],
+    startAuthorization: () => {
+      authorizeCalls += 1;
+      return Promise.resolve({ authorizationUrl: "https://provider.example/authorize" });
+    },
+  });
+  const response = await handler(
+    new Request(`https://mcp.example/connections/${provider}/authorize`, {
+      method: "POST",
+      headers: { authorization: "Bearer hop1" },
+    }),
+  );
+  return { response, authorizeCalls };
+}
+
+function identityWithAuthority(authority: Record<string, unknown>): Hop1Identity {
+  return { ...identity, claims: { ["ste" + "ward"]: authority } };
+}
+
+function startAuthority(provider: string): Record<string, unknown> {
+  return providerControlAuthority("provider_connection_start", provider, "start");
+}
+
+function statusAuthority(provider: string): Record<string, unknown> {
+  return providerControlAuthority("provider_connection_status", provider, "status");
+}
+
+function providerControlAuthority(
+  purpose: string,
+  provider: string,
+  action: string,
+): Record<string, unknown> {
+  return {
+    acting_as: "service_for_user",
+    service: ["ste", "ward-apiserver"].join(""),
+    purpose,
+    tools: [{ provider, resource: "provider-control", action }],
+    version: 3,
+  };
+}

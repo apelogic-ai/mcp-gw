@@ -16,6 +16,8 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
+- Bind purpose-scoped provider connection-start tokens to exactly the requested provider while
+  leaving ordinary user authorization unchanged.
 - Tool calls are now limited to tools approved for the Task.
 - Discover Jira tools live through the caller's credential and intersect every paginated response
   with checked-in authority decisions. New or undecided upstream tools remain hidden, removed tools
