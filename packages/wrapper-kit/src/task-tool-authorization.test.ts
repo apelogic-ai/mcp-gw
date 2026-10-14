@@ -56,13 +56,7 @@ describe("Task tool authorization", () => {
       email: "alice@example.com",
     });
     const connectionStatus = parseTaskToolAuthorization(
-      withTaskAuthority({
-        acting_as: "service_for_user",
-        service: ["ste", "ward-apiserver"].join(""),
-        purpose: "provider_connection_status",
-        tools: [{ provider: "github", resource: "provider-control", action: "status" }],
-        version: 3,
-      }),
+      withTaskAuthority(connectionStatusClaims("github")),
     );
 
     expect(interactive.restricted).toBe(false);
@@ -89,6 +83,26 @@ describe("Task tool authorization", () => {
     ]) {
       expect(parseTaskToolAuthorization(withTaskAuthority(authority)).restricted).toBe(true);
     }
+  });
+
+  test("binds connection-status authority to exactly the requested provider", () => {
+    const github = parseTaskToolAuthorization(withTaskAuthority(connectionStatusClaims("github")));
+    const jira = parseTaskToolAuthorization(withTaskAuthority(connectionStatusClaims("jira")));
+    const githubStatus = {
+      provider: "github",
+      resource: "provider-control",
+      action: "status",
+    };
+    const jiraStatus = {
+      provider: "jira",
+      resource: "provider-control",
+      action: "status",
+    };
+
+    expect(github.allows(githubStatus)).toBe(true);
+    expect(github.allows(jiraStatus)).toBe(false);
+    expect(jira.allows(jiraStatus)).toBe(true);
+    expect(jira.allows(githubStatus)).toBe(false);
   });
 
   test("the temporary compatibility opt-out applies only to a missing tool claim", () => {
@@ -136,12 +150,12 @@ describe("Task tool authorization", () => {
   });
 });
 
-function connectionStatusClaims(): Record<string, unknown> {
+function connectionStatusClaims(provider = "github"): Record<string, unknown> {
   return {
     acting_as: "service_for_user",
     service: ["ste", "ward-apiserver"].join(""),
     purpose: "provider_connection_status",
-    tools: [{ provider: "github", resource: "provider-control", action: "status" }],
+    tools: [{ provider, resource: "provider-control", action: "status" }],
     version: 3,
   };
 }

@@ -100,8 +100,7 @@ function connectionStatusAuthorityGrant(
     authority.purpose === CONNECTION_STATUS_PURPOSE &&
     authority.runtime_uid === undefined &&
     authority.version === CURRENT_TASK_AUTHORITY_CLAIMS_VERSION &&
-    grant?.provider === "github" &&
-    grant.resource === "provider-control" &&
+    grant?.resource === "provider-control" &&
     grant.action === "status";
   return valid ? grant : undefined;
 }
