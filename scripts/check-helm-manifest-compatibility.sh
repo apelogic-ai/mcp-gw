@@ -69,6 +69,28 @@ is_explicit_legacy_default_only() {
   [[ "$names" -gt 0 && "$names" -eq "$values" ]]
 }
 
+normalize_required_jira_read_work_scope() {
+  local base_values="$BASE_TREE/deploy/k8s/examples/values-jira.example.yaml"
+  local head_values="$ROOT_DIR/deploy/k8s/examples/values-jira.example.yaml"
+  local exact_scope='        - read:jira-work'
+
+  if grep -Fqx "$exact_scope" "$base_values"; then
+    return
+  fi
+  if ! grep -Fqx "$exact_scope" "$head_values"; then
+    return
+  fi
+
+  # Normalize only this newly required scope in the archived base. The rendered
+  # comparison still rejects every unrelated manifest change.
+  perl -0pi -e 's/(        - read:jira-user\n)/$1        - read:jira-work\n/' "$base_values"
+  if ! grep -Fqx "$exact_scope" "$base_values"; then
+    echo "Failed to normalize the required Jira read:jira-work scope" >&2
+    return 1
+  fi
+  echo "Normalized the required Jira read:jira-work scope before Helm compatibility comparison"
+}
+
 compare_case() {
   local name="$1"
   shift
@@ -103,6 +125,7 @@ compare_case() {
   fi
 }
 
+normalize_required_jira_read_work_scope
 compare_case default
 for values_file in "$BASE_TREE"/deploy/k8s/examples/values-*.yaml; do
   file_name="$(basename "$values_file")"

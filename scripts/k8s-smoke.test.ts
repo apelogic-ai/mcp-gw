@@ -68,6 +68,11 @@ exit 0
     );
     expect(compatibility).toContain("'+              value: \"false\"'");
     expect(compatibility).toContain('[[ "$names" -gt 0 && "$names" -eq "$values" ]]');
+    expect(compatibility).toContain("normalize_required_jira_read_work_scope");
+    expect(compatibility).toContain(
+      'base_values="$BASE_TREE/deploy/k8s/examples/values-jira.example.yaml"',
+    );
+    expect(compatibility).toContain("exact_scope='        - read:jira-work'");
   });
 
   test("installs the chart and verifies unavailable issuers fail closed", async () => {
