@@ -73,6 +73,10 @@ spec:
                 name: {{ .Values.githubWrapper.secretRef.name }}
           {{- end }}
           env:
+            {{- if .Values.taskToolAuthorization.allowLegacyUnscopedTaskTokens }}
+            - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS
+              value: "true"
+            {{- end }}
             {{- range .Values.githubWrapper.secretRef.envKeys }}
             - name: {{ . }}
               valueFrom:

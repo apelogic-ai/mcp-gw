@@ -125,11 +125,14 @@ describe("GitHub governance release catalog", () => {
       ...identity,
       claims: {
         [MINT_AUTHORITY_CLAIM]: {
+          acting_as: "user",
+          runtime_uid: "catalog-runtime",
           tools: consumerCatalog.tools.map(({ provider, resource, action }) => ({
             provider,
             resource,
             action,
           })),
+          version: 3,
         },
       },
     };

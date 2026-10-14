@@ -100,6 +100,7 @@ export function createRuntimeWrapperHandler(
         fetch: options.fetch,
       }),
     governanceCatalogId: options.config.governanceCatalogId,
+    taskToolAuthorization: options.config.taskToolAuthorization,
     getOAuthStatus: providerOAuth
       ? async (identity) => {
           const status = await connectionLifecycle.status(identity, providerOAuth.scopes);

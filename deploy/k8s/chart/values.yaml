@@ -16,6 +16,11 @@ hop1:
 policy:
   opaUrl: ""
 
+# Unsafe, temporary compatibility switch for Task tokens minted before they
+# carried exact tool grants. Leave false to enforce Task-approved tools.
+taskToolAuthorization:
+  allowLegacyUnscopedTaskTokens: false
+
 # Opt-in private access to authenticated provider connection lifecycle routes.
 # Each caller selects a trusted namespace and may further restrict its Pods.
 # This only changes wrapper NetworkPolicies; it never creates a public route.

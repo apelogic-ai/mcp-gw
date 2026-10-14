@@ -27,6 +27,10 @@ import {
   createWrapperAuditSink,
   createWrapperPolicy,
 } from "../../../packages/wrapper-kit/src/configuration";
+import {
+  readTaskToolAuthorizationOptions,
+  type TaskToolAuthorizationOptions,
+} from "../../../packages/wrapper-kit/src/task-tool-authorization";
 import { createGenericCredentialResolver } from "./credentials";
 import {
   loadGenericToolSource,
@@ -45,6 +49,7 @@ import { createHttpUpstreamTransport, createStdioUpstreamTransport } from "./tra
 export interface GenericMainConfig {
   port: number;
   descriptorPath: string;
+  taskToolAuthorization?: Required<TaskToolAuthorizationOptions>;
 }
 
 export function loadGenericMainConfig(env: Record<string, string | undefined>): GenericMainConfig {
@@ -56,7 +61,11 @@ export function loadGenericMainConfig(env: Record<string, string | undefined>): 
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("PORT must be an integer between 1 and 65535");
   }
-  return { port, descriptorPath };
+  return {
+    port,
+    descriptorPath,
+    taskToolAuthorization: readTaskToolAuthorizationOptions(env),
+  };
 }
 
 export function createGenericMainHandler(
@@ -230,6 +239,7 @@ export function createGenericMainHandler(
       audit,
       oauth: oauthHelpers,
       requireCredential: true,
+      taskToolAuthorization: config.taskToolAuthorization,
     });
     return withHealthRoutes((request) => {
       const path = new URL(request.url).pathname;
@@ -250,6 +260,7 @@ export function createGenericMainHandler(
       transport,
       policy,
       audit,
+      taskToolAuthorization: config.taskToolAuthorization,
     }),
   );
 }

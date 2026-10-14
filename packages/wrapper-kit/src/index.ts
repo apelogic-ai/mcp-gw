@@ -3,6 +3,7 @@ export * from "./configuration";
 export * from "./credential-bridge";
 export * from "./errors";
 export * from "./lifecycle";
+export * from "./task-tool-authorization";
 export * from "./mcp/authenticated-http";
 export * from "./mcp/http";
 export * from "./mcp/proxy";

@@ -43,6 +43,11 @@ describe("GitHub MCP wrapper main config", () => {
         clientSecret: "github-secret",
         redirectUri: "https://mcp.example.com/oauth/github/callback",
         tokenEncryptionKey: Buffer.alloc(32, 1).toString("base64"),
+        authorizationUrl: undefined,
+        tokenUrl: undefined,
+        userUrl: undefined,
+        userEmailsUrl: undefined,
+        tokenRevocationUrl: undefined,
       },
       githubScopes: ["repo", "read:org", "workflow", "notifications", "user:email"],
       githubRedirectAfterAllowedOrigins: [],
@@ -60,7 +65,23 @@ describe("GitHub MCP wrapper main config", () => {
           subjectClaim: undefined,
         },
       ],
+      taskToolAuthorization: { allowLegacyUnscopedTaskTokens: false },
     });
+  });
+
+  test("loads only the explicit legacy Task-token compatibility opt-out", () => {
+    expect(
+      loadMainConfig({
+        ...baseEnv,
+        MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS: "true",
+      }).taskToolAuthorization,
+    ).toEqual({ allowLegacyUnscopedTaskTokens: true });
+    expect(() =>
+      loadMainConfig({
+        ...baseEnv,
+        MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS: "yes",
+      }),
+    ).toThrow("MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS must be true or false");
   });
 
   test("loads the exact configured upstream toolsets and rejects unknown or empty selections", () => {

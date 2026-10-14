@@ -212,7 +212,7 @@
 {{- fail (printf "wrappers[%d].extraEnv names must be unique" $index) }}
 {{- end }}
 {{- $extraEnvNames = append $extraEnvNames $entry.name }}
-{{- if or (has $entry.name (list "PORT" "GENERIC_WRAPPER_DESCRIPTOR_PATH" "HOP1_ISSUERS_JSON")) (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $entry.name) }}
+{{- if or (has $entry.name (list "PORT" "GENERIC_WRAPPER_DESCRIPTOR_PATH" "HOP1_ISSUERS_JSON" "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS")) (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $entry.name) }}
 {{- fail (printf "wrappers[%d].extraEnv must not override chart-managed %s" $index $entry.name) }}
 {{- end }}
 {{- if and $.Values.postgresql.caBundle.enabled (eq $entry.name "POSTGRES_CA_BUNDLE_PATH") }}
@@ -226,7 +226,7 @@
 {{- if has $key $extraEnvNames }}
 {{- fail (printf "wrappers[%d].secretRef.envKeys contains %s, which is also set in extraEnv" $index $key) }}
 {{- end }}
-{{- if or (has $key (list "PORT" "GENERIC_WRAPPER_DESCRIPTOR_PATH" "HOP1_ISSUERS_JSON")) (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $key) }}
+{{- if or (has $key (list "PORT" "GENERIC_WRAPPER_DESCRIPTOR_PATH" "HOP1_ISSUERS_JSON" "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS")) (hasPrefix "HOP1_INTROSPECTION_CREDENTIAL_" $key) }}
 {{- fail (printf "wrappers[%d].secretRef.envKeys contains chart-managed variable %s" $index $key) }}
 {{- end }}
 {{- if and $.Values.postgresql.caBundle.enabled (eq $key "POSTGRES_CA_BUNDLE_PATH") }}
@@ -313,6 +313,19 @@
 {{- if has "OPA_POLICY_URL" $backend.secretRef.envKeys }}
 {{- fail (printf "%s.secretRef.envKeys must not import chart-managed OPA_POLICY_URL" $backendName) }}
 {{- end }}
+{{- end }}
+{{- end }}
+
+{{- range $backendName := list "googleWorkspace" "githubWrapper" }}
+{{- $backend := index $.Values $backendName }}
+{{- if hasKey $backend.env "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS" }}
+{{- fail (printf "%s.env.MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS conflicts with taskToolAuthorization.allowLegacyUnscopedTaskTokens" $backendName) }}
+{{- end }}
+{{- range $backend.extraEnv }}
+{{- if eq .name "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS" }}{{- fail (printf "%s.extraEnv must not override chart-managed MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS" $backendName) }}{{- end }}
+{{- end }}
+{{- if has "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS" $backend.secretRef.envKeys }}
+{{- fail (printf "%s.secretRef.envKeys must not import chart-managed MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS" $backendName) }}
 {{- end }}
 {{- end }}
 

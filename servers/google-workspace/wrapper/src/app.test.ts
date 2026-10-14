@@ -45,7 +45,35 @@ describe("Google Workspace wrapper app", () => {
       oauth: {
         clientId: "client-id",
       },
+      taskToolAuthorization: { allowLegacyUnscopedTaskTokens: false },
     });
+  });
+
+  test("loads only the explicit legacy Task-token compatibility opt-out", () => {
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "https://dev.example.com/oauth/google/callback",
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      GWS_BINARY_PATH: "/usr/local/bin/gws",
+      HOP1_ISSUER: "https://accounts.google.com",
+      HOP1_AUDIENCE: "mcp-gateway-dev",
+      HOP1_EMAIL_CLAIM: "email",
+      HOP1_ALLOWED_ALGORITHMS: "RS256",
+      HOP1_JWKS_URL: "https://www.googleapis.com/oauth2/v3/certs",
+    };
+    expect(
+      loadWrapperConfig({
+        ...env,
+        MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS: "true",
+      }).taskToolAuthorization,
+    ).toEqual({ allowLegacyUnscopedTaskTokens: true });
+    expect(() =>
+      loadWrapperConfig({
+        ...env,
+        MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS: "yes",
+      }),
+    ).toThrow("MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS must be true or false");
   });
 
   test("enables only the exact opt-in governance catalog and rejects unknown pins", () => {

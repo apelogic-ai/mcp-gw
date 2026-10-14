@@ -5,7 +5,7 @@ import {
   type Hop1FailureReporter,
   type Hop1Identity,
 } from "../../../../shared/identity/hop1";
-import { digestArgs, type AuditSink } from "../../../../shared/audit/audit";
+import { digestArgs, type AuditEvent, type AuditSink } from "../../../../shared/audit/audit";
 import { GitHubOAuthError } from "../../../../shared/oauth/github";
 import {
   AllowAllPolicy,
@@ -18,6 +18,13 @@ import {
   type CredentialBridge,
 } from "../../../../packages/wrapper-kit/src/credential-bridge";
 import {
+  parseTaskToolAuthorization,
+  TASK_TOOL_DENIED_ERROR,
+  TASK_TOOL_DENIED_MESSAGE,
+  type TaskToolAuthorization,
+  type TaskToolAuthorizationOptions,
+} from "../../../../packages/wrapper-kit/src/task-tool-authorization";
+import {
   forwardedMcpResponseHeaders,
   forwardMcpRequest,
   withUpstreamProtocolMetadata,
@@ -25,6 +32,7 @@ import {
 import {
   GITHUB_MCP_CATALOG_ID,
   GITHUB_MCP_SHIPPED_TOOLSETS,
+  GITHUB_MCP_TOOL_GRANTS,
   classifyGithubToolAction,
   isPinnedGithubTool,
   listStableGithubTools,
@@ -54,6 +62,7 @@ export interface CreateGithubMcpProxyHandlerOptions {
   policy?: ToolPolicy;
   fetch?: GithubMcpProxyFetch;
   onAuthenticationFailure?: Hop1FailureReporter;
+  taskToolAuthorization?: TaskToolAuthorizationOptions;
 }
 
 export type GithubMcpProxyFetch = (request: Request) => Promise<Response>;
@@ -165,6 +174,10 @@ export function createGithubMcpProxyHandler(
       reportFailure(classifyHop1ValidationFailure(error));
       return unauthorized("invalid bearer token", 'Bearer error="invalid_token"');
     }
+    const taskAuthorization = parseTaskToolAuthorization(
+      identity.claims,
+      options.taskToolAuthorization,
+    );
 
     const body = await request.text();
     const method = parseMethod(body);
@@ -183,7 +196,12 @@ export function createGithubMcpProxyHandler(
     if (method?.method === "tools/list") {
       if (options.getOAuthStatus) {
         return mcpResult(method.id, {
-          tools: [...LOCAL_TOOLS, ...(oauthCatalog ?? [])],
+          tools: [
+            ...LOCAL_TOOLS,
+            ...(oauthCatalog ?? []).filter((tool) =>
+              taskAuthorization.allowsAny(githubToolGrants(tool.name, true)),
+            ),
+          ],
         });
       }
       return handleToolsList(
@@ -194,6 +212,7 @@ export function createGithubMcpProxyHandler(
         options,
         fetchImpl,
         credentialBridge,
+        taskAuthorization,
       );
     }
 
@@ -223,7 +242,7 @@ export function createGithubMcpProxyHandler(
           !isLocalTool(toolCall.toolName) &&
           !oauthCatalogNames.has(toolCall.toolName)))
     ) {
-      await options.audit?.emit({
+      await emitSafely(options.audit, {
         ts: new Date().toISOString(),
         category: "tool_call",
         principal: identity.email,
@@ -239,6 +258,29 @@ export function createGithubMcpProxyHandler(
         -32601,
         `GitHub MCP tool is not supported: ${toolCall.toolName}`,
       );
+    }
+    if (
+      toolCall &&
+      !isLocalTool(toolCall.toolName) &&
+      actionClass &&
+      !taskAuthorization.allows({
+        provider: "github",
+        resource: toolCall.toolName,
+        action: actionClass,
+      })
+    ) {
+      await emitSafely(options.audit, {
+        ts: new Date().toISOString(),
+        category: "tool_call",
+        principal: identity.email,
+        status: "deny",
+        event: "task_tool_not_approved",
+        tool: toolCall.toolName,
+        argDigest: digestArgs(toolCall.args),
+        latencyMs: Date.now() - started,
+        error: TASK_TOOL_DENIED_ERROR,
+      });
+      return taskToolDenied(toolCall.id);
     }
     if (toolCall && toolCall.toolName !== "github_oauth_status" && actionClass) {
       const decision = await policy.decide({
@@ -415,6 +457,7 @@ async function handleToolsList(
   options: CreateGithubMcpProxyHandlerOptions,
   fetchImpl: GithubMcpProxyFetch,
   credentialBridge: CredentialBridge<Hop1Identity, undefined, string | undefined>,
+  taskAuthorization: TaskToolAuthorization,
 ): Promise<Response> {
   const githubToken = await resolveGithubTokenOrUndefined(credentialBridge, identity);
   if (!githubToken) {
@@ -432,7 +475,11 @@ async function handleToolsList(
   const responseBody = await upstreamResponse.text();
 
   return new Response(
-    mergeToolsList(responseBody, options.governanceCatalogId === GITHUB_MCP_CATALOG_ID),
+    mergeToolsList(
+      responseBody,
+      options.governanceCatalogId === GITHUB_MCP_CATALOG_ID,
+      taskAuthorization,
+    ),
     {
       status: upstreamResponse.status,
       statusText: upstreamResponse.statusText,
@@ -540,18 +587,26 @@ function parseMethod(body: string):
   };
 }
 
-function mergeToolsList(body: string, enforceCatalog: boolean): string {
+function mergeToolsList(
+  body: string,
+  enforceCatalog: boolean,
+  taskAuthorization: TaskToolAuthorization,
+): string {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
   } catch {
-    return mergeSseToolsList(body, enforceCatalog) ?? body;
+    return mergeSseToolsList(body, enforceCatalog, taskAuthorization) ?? body;
   }
 
-  return JSON.stringify(mergeToolPayload(payload, enforceCatalog) ?? payload);
+  return JSON.stringify(mergeToolPayload(payload, enforceCatalog, taskAuthorization) ?? payload);
 }
 
-function mergeSseToolsList(body: string, enforceCatalog: boolean): string | undefined {
+function mergeSseToolsList(
+  body: string,
+  enforceCatalog: boolean,
+  taskAuthorization: TaskToolAuthorization,
+): string | undefined {
   let changed = false;
   const lines: string[] = [];
   for (const line of body.split(/\r?\n/)) {
@@ -574,7 +629,7 @@ function mergeSseToolsList(body: string, enforceCatalog: boolean): string | unde
       continue;
     }
 
-    const merged = mergeToolPayload(payload, enforceCatalog);
+    const merged = mergeToolPayload(payload, enforceCatalog, taskAuthorization);
     if (!merged) {
       lines.push(line);
       continue;
@@ -590,8 +645,9 @@ function mergeSseToolsList(body: string, enforceCatalog: boolean): string | unde
 function mergeToolPayload(
   payload: unknown,
   enforceCatalog: boolean,
+  taskAuthorization: TaskToolAuthorization,
 ): Record<string, unknown> | undefined {
-  const tools = toolsFromPayload(payload, enforceCatalog);
+  const tools = toolsFromPayload(payload, enforceCatalog, taskAuthorization);
   if (!tools || !isRecord(payload) || !isRecord(payload.result)) {
     return undefined;
   }
@@ -608,6 +664,7 @@ function mergeToolPayload(
 function toolsFromPayload(
   payload: unknown,
   enforceCatalog: boolean,
+  taskAuthorization: TaskToolAuthorization,
 ): readonly unknown[] | undefined {
   if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
     return undefined;
@@ -615,13 +672,30 @@ function toolsFromPayload(
   const upstreamTools = enforceCatalog
     ? (payload.result.tools as unknown[]).filter(isSupportedUpstreamTool)
     : (payload.result.tools as unknown[]);
+  const approvedTools = upstreamTools.filter((tool) => {
+    if (!isRecord(tool) || typeof tool.name !== "string") return false;
+    return taskAuthorization.allowsAny(githubToolGrants(tool.name, enforceCatalog));
+  });
   const existingNames = new Set(
-    upstreamTools
+    approvedTools
       .map((tool) => (isRecord(tool) && typeof tool.name === "string" ? tool.name : undefined))
       .filter((name): name is string => Boolean(name)),
   );
   const localTools = LOCAL_TOOLS.filter((tool) => !existingNames.has(tool.name));
-  return [...localTools, ...upstreamTools];
+  return [...localTools, ...approvedTools];
+}
+
+function githubToolGrants(toolName: string, governed: boolean) {
+  if (governed) {
+    return GITHUB_MCP_TOOL_GRANTS.filter((grant) => grant.resource === toolName);
+  }
+  return [
+    {
+      provider: "github",
+      resource: toolName,
+      action: classifyLegacyGithubToolAction(toolName),
+    },
+  ];
 }
 
 function isSupportedUpstreamTool(tool: unknown): boolean {
@@ -768,6 +842,22 @@ function mcpResult(id: JsonRpcId, result: Record<string, unknown>): Response {
       headers: JSON_HEADERS,
     },
   );
+}
+
+function taskToolDenied(id: JsonRpcId): Response {
+  return mcpResult(id, {
+    isError: true,
+    content: [{ type: "text", text: TASK_TOOL_DENIED_MESSAGE }],
+    structuredContent: { error: TASK_TOOL_DENIED_ERROR },
+  });
+}
+
+async function emitSafely(sink: AuditSink | undefined, event: AuditEvent): Promise<void> {
+  try {
+    await sink?.emit(event);
+  } catch {
+    // Audit availability must not change an authorization decision.
+  }
 }
 
 function unauthorized(message: string, challenge = 'Bearer error="invalid_token"'): Response {

@@ -13,6 +13,10 @@ import type { ToolPolicy } from "../../../../shared/policy/policy";
 import { createCredentialBridge } from "../../../../packages/wrapper-kit/src/credential-bridge";
 import { createAuthenticatedMcpHttpHandler } from "../../../../packages/wrapper-kit/src/mcp/authenticated-http";
 import {
+  readTaskToolAuthorizationOptions,
+  type TaskToolAuthorizationOptions,
+} from "../../../../packages/wrapper-kit/src/task-tool-authorization";
+import {
   GOOGLE_WORKSPACE_CATALOG_ID,
   type GoogleWorkspaceCatalogId,
 } from "./catalog/google-workspace";
@@ -36,6 +40,7 @@ export interface WrapperConfig {
   oauth: GoogleOAuthConfig;
   policy?: PolicyConfig;
   audit?: AuditConfig;
+  taskToolAuthorization?: Required<TaskToolAuthorizationOptions>;
 }
 
 export interface LoadWrapperConfigOptions {
@@ -69,6 +74,7 @@ export interface CreateGoogleWorkspaceWrapperHandlerOptions {
   tokenBroker: AccessTokenBroker;
   executor: WorkspaceToolExecutor;
   governanceCatalogId?: GoogleWorkspaceCatalogId;
+  taskToolAuthorization?: TaskToolAuthorizationOptions;
 }
 
 export function createGoogleWorkspaceWrapperHandler(
@@ -100,6 +106,7 @@ export function createGoogleWorkspaceWrapperHandler(
       return createGoogleWorkspaceRegistry({
         identity,
         governanceCatalogId: options.governanceCatalogId,
+        taskToolAuthorization: options.taskToolAuthorization,
         audit: options.audit,
         metrics: options.metrics,
         policy: options.policy,
@@ -161,6 +168,7 @@ export function loadWrapperConfig(
           }
         : undefined,
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
+    taskToolAuthorization: readTaskToolAuthorizationOptions(env),
   };
 }
 

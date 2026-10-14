@@ -30,9 +30,11 @@ export interface ToolResult {
 
 export interface ToolRegistry {
   listTools(): ToolDefinition[];
+  supportsTool?(name: string): boolean;
   callTool(name: string, args: Record<string, unknown>): Promise<ToolResult>;
 }
 
 export function hasTool(registry: ToolRegistry, name: string): boolean {
+  if (registry.supportsTool) return registry.supportsTool(name);
   return registry.listTools().some((tool) => tool.name === name);
 }

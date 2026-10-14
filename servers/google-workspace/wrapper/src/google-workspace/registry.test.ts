@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  taskAuthority,
+  withTaskAuthority,
+} from "../../../../../test/support/task-authority-fixture";
 
 import type { Hop1Identity } from "../../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../../shared/audit/audit";
@@ -54,6 +58,104 @@ async function expectPolicyRejection(result: Promise<unknown>, message: string):
 }
 
 describe("Google Workspace request registry", () => {
+  test("lists and executes only exact Task-approved Google tool tuples", async () => {
+    let policyCalls = 0;
+    let brokerCalls = 0;
+    let executorCalls = 0;
+    const taskIdentity: Hop1Identity = {
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [
+          {
+            provider: "drive",
+            resource: "gws_drive_files_list",
+            action: "read",
+          },
+        ],
+      }),
+    };
+    const registry = createGoogleWorkspaceRegistry({
+      identity: taskIdentity,
+      taskToolAuthorization: {},
+      oauth: {
+        status: {
+          connected: true,
+          scopesRequired: ["https://www.googleapis.com/auth/drive"],
+          scopesGranted: ["https://www.googleapis.com/auth/drive"],
+          missingScopes: [],
+        },
+        startOAuth: () => Promise.resolve({ authorizationUrl: "https://example.com" }),
+      },
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      tokenBroker: {
+        getAccessToken: () => {
+          brokerCalls += 1;
+          return Promise.resolve("access-token");
+        },
+      },
+      executor: () => {
+        executorCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    const names = registry.listTools().map((tool) => tool.name);
+    expect(names).toContain("google_oauth_status");
+    expect(names).toContain("google_oauth_start");
+    expect(names).toContain("gws_drive_files_list");
+    expect(names).not.toContain("gws_drive_files_get");
+    expect(names).not.toContain("gws_drive_files_update");
+
+    expect(await registry.callTool("gws_drive_files_list", {})).toMatchObject({
+      content: [{ type: "text" }],
+    });
+    for (const denied of ["gws_drive_files_get", "gws_drive_files_update"]) {
+      expect(await registry.callTool(denied, {})).toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: "Tool is not approved for this Task" }],
+        structuredContent: { error: "task_tool_not_approved" },
+      });
+    }
+    expect(policyCalls).toBe(1);
+    expect(brokerCalls).toBe(1);
+    expect(executorCalls).toBe(1);
+  });
+
+  test("requires the published Google resource prefix and does not let raw gws bypass it", async () => {
+    const taskIdentity: Hop1Identity = {
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [{ provider: "drive", resource: "drive_files_list", action: "read" }],
+      }),
+    };
+    const registry = createGoogleWorkspaceRegistry({
+      identity: taskIdentity,
+      taskToolAuthorization: {},
+      tokenBroker: {
+        getAccessToken: () => Promise.reject(new Error("broker must not run")),
+      },
+      executor: () => Promise.reject(new Error("executor must not run")),
+    });
+
+    expect(registry.listTools().map((tool) => tool.name)).not.toContain("gws_drive_files_list");
+    expect(await registry.callTool("gws_drive_files_list", {})).toMatchObject({
+      structuredContent: { error: "task_tool_not_approved" },
+    });
+    expect(
+      await registry.callTool("google_workspace_gws", {
+        argv: ["drive", "files", "list"],
+        scopes: ["https://www.googleapis.com/auth/drive"],
+      }),
+    ).toMatchObject({ structuredContent: { error: "task_tool_not_approved" } });
+  });
+
   test("pins every send-capable Gmail catalog route to the recipient guard", () => {
     const sendCapable = GWS_GENERATED_TOOLS.filter(
       (tool) =>

@@ -10,6 +10,7 @@
     "./credential-bridge": "./src/credential-bridge.ts",
     "./errors": "./src/errors.ts",
     "./lifecycle": "./src/lifecycle.ts",
+    "./task-tool-authorization": "./src/task-tool-authorization.ts",
     "./mcp/http": "./src/mcp/http.ts",
     "./mcp/authenticated-http": "./src/mcp/authenticated-http.ts",
     "./mcp/proxy": "./src/mcp/proxy.ts",

@@ -9,6 +9,13 @@ import {
   type Hop1Identity,
 } from "../../../shared/identity/hop1";
 import { AllowAllPolicy, type ToolPolicy } from "../../../shared/policy/policy";
+import {
+  parseTaskToolAuthorization,
+  TASK_TOOL_DENIED_ERROR,
+  TASK_TOOL_DENIED_MESSAGE,
+  type TaskToolAuthorization,
+  type TaskToolAuthorizationOptions,
+} from "../../../packages/wrapper-kit/src/task-tool-authorization";
 import { listUpstreamCatalog, type CapturedUpstreamTool } from "./catalog-capture";
 import type { GenericUpstreamCredential } from "./credentials";
 import {
@@ -54,6 +61,7 @@ export interface CreateGenericMcpProxyHandlerOptions {
   };
   requireCredential?: boolean;
   onAuthenticationFailure?: Hop1FailureReporter;
+  taskToolAuthorization?: TaskToolAuthorizationOptions;
 }
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -80,6 +88,10 @@ export function createGenericMcpProxyHandler(
       reportFailure(classifyHop1ValidationFailure(error));
       return unauthorized("invalid bearer token", 'Bearer error="invalid_token"');
     }
+    const taskAuthorization = parseTaskToolAuthorization(
+      identity.claims,
+      options.taskToolAuthorization,
+    );
 
     if (request.method === "DELETE") {
       const invalidSession = validateRequestSession(options.transport, request, identity);
@@ -161,12 +173,14 @@ export function createGenericMcpProxyHandler(
       if (isLiveToolCatalog(options.catalog)) {
         const invalidSession = validateRequestSession(options.transport, request, identity);
         if (invalidSession) return invalidSession;
-        return liveToolsList(options, request, message.id, identity, hop1Token);
+        return liveToolsList(options, request, message.id, identity, hop1Token, taskAuthorization);
       }
       return mcpResult(message.id, {
         tools: [
           ...oauthToolDefinitions(options),
-          ...options.catalog.tools.map(publicToolDefinition),
+          ...options.catalog.tools
+            .filter((tool) => taskAuthorization.allows(genericTaskToolGrant(options, tool)))
+            .map(publicToolDefinition),
         ],
       });
     }
@@ -196,6 +210,20 @@ export function createGenericMcpProxyHandler(
         -32601,
         `Unsupported MCP tool: ${message.toolName ?? "<missing>"}`,
       );
+    }
+    if (tool && !taskAuthorization.allows(genericTaskToolGrant(options, tool))) {
+      await emitSafely(options.audit, {
+        ts: new Date().toISOString(),
+        category: "tool_call",
+        principal: identity.email,
+        status: "deny",
+        event: "task_tool_not_approved",
+        tool: tool.exposedName,
+        argDigest: digestArgs(message.arguments),
+        latencyMs: Date.now() - started,
+        error: TASK_TOOL_DENIED_ERROR,
+      });
+      return taskToolDenied(message.id);
     }
     if (tool) {
       message.arguments = effectiveToolArguments(options.descriptor, message.arguments);
@@ -588,11 +616,18 @@ async function liveToolsList(
   id: JsonRpcId,
   identity: Hop1Identity,
   hop1Token: string,
+  taskAuthorization: TaskToolAuthorization,
 ): Promise<Response> {
   if (!isLiveToolCatalog(options.catalog)) {
     throw new Error("liveToolsList requires a live tool-decisions catalog");
   }
   const helpers = oauthToolDefinitions(options);
+  const approvedDecisions = options.catalog.tools.filter((tool) =>
+    taskAuthorization.allows(genericTaskToolGrant(options, tool)),
+  );
+  if (approvedDecisions.length === 0) {
+    return mcpResult(id, { tools: helpers });
+  }
   let credential: GenericUpstreamCredential | null;
   try {
     credential = await options.resolveCredential({ identity, hop1Token, scopes: [] });
@@ -612,7 +647,7 @@ async function liveToolsList(
       principalKey: principalKey(identity),
     });
     const decisions = new Map(
-      options.catalog.tools.map((decision) => [decision.upstreamName, decision]),
+      approvedDecisions.map((decision) => [decision.upstreamName, decision]),
     );
     const tools = upstream.tools.flatMap((tool) => {
       const decision = decisions.get(tool.name);
@@ -622,6 +657,20 @@ async function liveToolsList(
   } catch {
     return liveCatalogUnavailable(id, helpers, "Upstream tool discovery is unavailable");
   }
+}
+
+function genericTaskToolGrant(
+  options: CreateGenericMcpProxyHandlerOptions,
+  tool: GenericGovernedTool,
+) {
+  return {
+    provider:
+      options.descriptor.credential.mode === "per_user_oauth"
+        ? options.descriptor.credential.providerId
+        : options.descriptor.name,
+    resource: tool.exposedName,
+    action: tool.grants.actionClass,
+  };
 }
 
 function liveCatalogUnavailable(
@@ -893,6 +942,14 @@ function mcpResult(id: JsonRpcId, result: unknown): Response {
   return new Response(JSON.stringify({ jsonrpc: "2.0", id, result }), {
     status: 200,
     headers: JSON_HEADERS,
+  });
+}
+
+function taskToolDenied(id: JsonRpcId): Response {
+  return mcpResult(id, {
+    isError: true,
+    content: [{ type: "text", text: TASK_TOOL_DENIED_MESSAGE }],
+    structuredContent: { error: TASK_TOOL_DENIED_ERROR },
   });
 }
 

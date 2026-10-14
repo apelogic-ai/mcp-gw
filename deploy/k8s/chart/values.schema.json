@@ -168,6 +168,14 @@
       }
     },
     "policy": { "$ref": "#/$defs/policy" },
+    "taskToolAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowLegacyUnscopedTaskTokens"],
+      "properties": {
+        "allowLegacyUnscopedTaskTokens": { "type": "boolean" }
+      }
+    },
     "connectionLifecycle": { "$ref": "#/$defs/connectionLifecycle" },
     "trustBundle": { "$ref": "#/$defs/caBundle" },
     "postgresql": { "$ref": "#/$defs/postgresql" },

@@ -159,6 +159,64 @@ describe("Kubernetes production chart", () => {
     );
   });
 
+  test("enforces Task-approved tools by default with one explicit legacy-token opt-out", () => {
+    const production = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+    ]);
+    for (const name of ["mcp-gateway-google-workspace", "mcp-gateway-github-wrapper"]) {
+      expect(renderedResource(production, "Deployment", name)).not.toContain(
+        "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+      );
+    }
+
+    const optedOut = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-production-bundle.example.yaml",
+      "--set",
+      "taskToolAuthorization.allowLegacyUnscopedTaskTokens=true",
+    ]);
+    for (const name of ["mcp-gateway-google-workspace", "mcp-gateway-github-wrapper"]) {
+      expect(
+        deploymentEnvValue(
+          renderedResource(optedOut, "Deployment", name),
+          "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+        ),
+      ).toBe("true");
+    }
+
+    const generic = helmTemplate([
+      ...genericWrapperArgs(),
+      "--set",
+      "taskToolAuthorization.allowLegacyUnscopedTaskTokens=true",
+    ]);
+    expect(
+      deploymentEnvValue(
+        renderedResource(generic, "Deployment", "mcp-gateway-generic-wrapper-public-search"),
+        "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+      ),
+    ).toBe("true");
+
+    const wrappedDb = helmTemplate([
+      ...dbMcpWrappedArgs(),
+      "--set",
+      "taskToolAuthorization.allowLegacyUnscopedTaskTokens=true",
+    ]);
+    expect(
+      deploymentEnvValue(
+        renderedResource(wrappedDb, "Deployment", "mcp-gateway-db-mcp"),
+        "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+      ),
+    ).toBe("true");
+
+    const invalid = helmTemplateResult([
+      "--set-string",
+      "taskToolAuthorization.allowLegacyUnscopedTaskTokens=yes",
+    ]);
+    assertHelmRejected(invalid);
+    expect(invalid.stderr.toString()).toContain("allowLegacyUnscopedTaskTokens");
+  });
+
   test("keeps db-mcp direct by default and renders its wrapper only when explicitly enabled", () => {
     const direct = helmTemplate(dbMcpArgs());
     const directDeployment = renderedResource(direct, "Deployment", "mcp-gateway-db-mcp");
@@ -3285,6 +3343,7 @@ describe("Kubernetes production chart", () => {
 
     for (const content of [guide, chartReadme]) {
       expect(content).toContain("policy.opaUrl");
+      expect(content).toContain("taskToolAuthorization.allowLegacyUnscopedTaskTokens");
       expect(content).toContain("githubWrapper.oauth.redirectAfterAllowedOrigins");
       expect(content).toContain("connectionLifecycle.allowedCallers");
       expect(content).toContain("introspection.credentialSecretKeyRef");
@@ -3293,6 +3352,8 @@ describe("Kubernetes production chart", () => {
       expect(content).toContain("identity_mismatch");
     }
     expect(guide).toContain("provider + hop1_issuer + hop1_subject");
+    expect(guide).toContain("google_workspace_gws");
+    expect(guide).toContain("jira_...");
     expect(guide).toContain("mcp-gateway-workload");
     expect(guide).toContain("values-external-platform-issuer.example.yaml");
   });

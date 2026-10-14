@@ -287,6 +287,22 @@ an introspection credential is selected from an existing Secret through
 `(issuer, subject)` must be presented to the lifecycle routes and later MCP
 tool calls.
 
+Task tokens are restricted at each wrapper to the governing platform's exact
+approved tools. Both discovery and calls are filtered, while provider
+status/start helpers remain available under the wrapper's existing policy.
+Missing or malformed Task approvals fail closed. For one upgrade window only,
+an older issuer that omits approvals can use the explicitly unsafe bridge:
+
+```yaml
+taskToolAuthorization:
+  allowLegacyUnscopedTaskTokens: true
+```
+
+Enforcement is the default. Upgrade the issuer promptly and return the value
+to `false`; empty or malformed approvals never use the opt-out. See the
+[external governing platform contract](../../../docs/external-platform-issuer.md#task-approved-tool-boundary)
+for provider/resource mapping and compatibility behavior.
+
 For GitHub consent, the issuer's resolved `emailClaim` must case-insensitively
 match one of the user's verified GitHub email addresses. A mismatch consumes
 the one-time OAuth state, revokes or queues cleanup of any issued credential,
@@ -448,6 +464,7 @@ and are left in place.
 | `agentgateway.enabled`                                            | `false`                                             | Deploy the `/mcp` front door.                                                                                           |
 | `agentgateway.image.tag`                                          | `""`                                                | Agentgateway image tag (or set `image.digest`).                                                                         |
 | `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                                               |
+| `taskToolAuthorization.allowLegacyUnscopedTaskTokens`             | `false`                                             | Unsafe temporary opt-out only for otherwise valid legacy Task tokens that omit tool approvals.                          |
 | `agentgateway.backends`                                           | Google Workspace, db-mcp, github-mcp (all disabled) | Backend routing targets behind the shared endpoint.                                                                     |
 | `wrappers`                                                        | `[]`                                                | Optional descriptor-driven wrapper workloads and generated AgentGateway targets; every image must be digest-pinned.     |
 | `wrappers[].catalog.preset`                                       | unset                                               | Use `jira-read-only` or `jira` for decision-filtered live Jira discovery; otherwise provide an inline static catalog.   |

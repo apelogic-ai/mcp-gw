@@ -56,6 +56,54 @@ diagnostic category. Operators should correct the governing-platform login
 email or add and verify that address in GitHub before starting a new consent
 flow.
 
+## Task-approved tool boundary
+
+When the governing platform identifies a bearer token as a Task token,
+MCP-GW limits both `tools/list` and `tools/call` to that Task's exact approved
+tools. Enforcement happens in every authenticated wrapper, including direct
+wrapper access, so bypassing AgentGateway does not widen authority. The
+wrapper's checked-in catalog and policy remain additional narrowing barriers;
+neither can add authority absent from the Task approval.
+
+Approval coordinates map to public MCP tools as follows:
+
+- GitHub uses provider `github`, the canonical GitHub tool name as the
+  resource, and the resolved catalog action. A compatibility alias is
+  authorized by its canonical target, not by the alias.
+- Google Workspace uses the catalog service as the provider, the exact exposed
+  tool name (including its `gws_` or `google_` prefix) as the resource, and the
+  catalog action. The low-level `google_workspace_gws` tool requires its own
+  explicit approval and cannot borrow approval for the command it carries.
+- Generic wrappers use the OAuth `providerId` (or descriptor name when no
+  provider ID exists), the final prefixed/aliased MCP name, and the governed
+  catalog action. For example, a Jira decision alias is approved under its
+  exposed `jira_...` name, not the upstream vendor name.
+
+Connection helpers (`*_oauth_status` and `*_oauth_start`) remain visible and
+callable so a Task can diagnose or establish a provider connection. Existing
+wrapper policy still governs those helpers, and they do not grant provider
+data access. Interactive tokens without Task authority and the purpose-bound
+provider-connection status bridge retain their existing behavior.
+
+Task tokens with missing, malformed, or unmapped tool approvals fail closed:
+only the connection helpers are exposed. During one compatibility release,
+operators upgrading an older governing platform may explicitly opt out:
+
+```yaml
+taskToolAuthorization:
+  # Unsafe temporary bridge: upgrade the Task-token issuer, then remove this.
+  allowLegacyUnscopedTaskTokens: true
+```
+
+The chart value
+`taskToolAuthorization.allowLegacyUnscopedTaskTokens` defaults to `false`.
+The opt-out applies only to otherwise valid legacy Task tokens that omit tool
+approvals; malformed or empty approvals still fail closed. Direct Compose
+deployments can set the equivalently loud
+`MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS=true` environment variable. Changing
+either setting updates wrapper environment and requires the affected Pods or
+containers to restart.
+
 ## External policy endpoint
 
 Set the chart-wide typed value `policy.opaUrl` to one OPA-compatible decision

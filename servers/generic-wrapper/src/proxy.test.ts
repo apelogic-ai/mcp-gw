@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { taskAuthority, withTaskAuthority } from "../../../test/support/task-authority-fixture";
 
 import { InMemoryAuditSink } from "../../../shared/audit/audit";
 import type { Hop1Identity } from "../../../shared/identity/hop1";
@@ -38,6 +39,29 @@ const catalog: GenericToolCatalog = {
       inputSchema: { type: "object", properties: { q: { type: "string" } } },
       annotations: { readOnlyHint: true },
       grants: { actionClass: "read", operation: "search.query", scopes: ["search.read"] },
+    },
+  ],
+};
+
+const taskCatalog: GenericToolCatalog = {
+  ...catalog,
+  tools: [
+    ...catalog.tools,
+    {
+      exposedName: "search_metadata",
+      upstreamName: "metadata",
+      description: "Read search metadata.",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      grants: { actionClass: "read", operation: "search.metadata", scopes: [] },
+    },
+    {
+      exposedName: "search_reindex",
+      upstreamName: "reindex",
+      description: "Rebuild the search index.",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: false },
+      grants: { actionClass: "write", operation: "search.reindex", scopes: [] },
     },
   ],
 };
@@ -113,6 +137,130 @@ class RecordingTransport implements GenericUpstreamTransport {
 }
 
 describe("generic MCP proxy", () => {
+  test("lists and executes only exact Task-approved generic tool tuples", async () => {
+    const transport = new RecordingTransport();
+    let credentialCalls = 0;
+    let policyCalls = 0;
+    const taskIdentity: Hop1Identity = {
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [{ provider: "hosted-search", resource: "search_query", action: "read" }],
+      }),
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor,
+      catalog: taskCatalog,
+      authenticate: () => Promise.resolve(taskIdentity),
+      taskToolAuthorization: {},
+      transport,
+      policy: {
+        decide: () => {
+          policyCalls += 1;
+          return Promise.resolve({ kind: "allow" });
+        },
+      },
+      resolveCredential: () => {
+        credentialCalls += 1;
+        return Promise.resolve(null);
+      },
+    });
+
+    const listed = await proxy(mcpRequest("tools/list", {}, 101));
+    expect(
+      ((await listed.json()) as { result: { tools: { name: string }[] } }).result.tools.map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(["search_query"]);
+
+    expect(
+      await (
+        await proxy(
+          mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 102),
+        )
+      ).json(),
+    ).toMatchObject({ result: { content: [{ type: "text", text: "ok" }] } });
+
+    for (const denied of ["search_metadata", "search_reindex"]) {
+      expect(
+        await (await proxy(mcpRequest("tools/call", { name: denied, arguments: {} }, 103))).json(),
+      ).toMatchObject({
+        result: {
+          isError: true,
+          content: [{ type: "text", text: "Tool is not approved for this Task" }],
+          structuredContent: { error: "task_tool_not_approved" },
+        },
+      });
+    }
+    expect(policyCalls).toBe(1);
+    expect(credentialCalls).toBe(1);
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  test("maps Jira authority to the prefixed alias, not the upstream tool name", async () => {
+    const transport = new RecordingTransport();
+    const claimsFor = (resource: string): Hop1Identity => ({
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [{ provider: "jira", resource, action: "write" }],
+      }),
+    });
+    const create = (resource: string) =>
+      createGenericMcpProxyHandler({
+        descriptor: jiraDescriptor,
+        catalog: jiraWriteCatalog,
+        authenticate: () => Promise.resolve(claimsFor(resource)),
+        taskToolAuthorization: {},
+        transport,
+        resolveCredential: () =>
+          Promise.resolve({ header: "authorization", value: "Bearer provider-token" }),
+      });
+
+    const denied = await create("editJiraIssue")(
+      mcpRequest("tools/call", { name: "jira_edit_issue", arguments: {} }, 104),
+    );
+    expect(await denied.json()).toMatchObject({
+      result: { structuredContent: { error: "task_tool_not_approved" } },
+    });
+    expect(transport.requests).toHaveLength(0);
+
+    const allowed = await create("jira_edit_issue")(
+      mcpRequest("tools/call", { name: "jira_edit_issue", arguments: {} }, 105),
+    );
+    expect(await allowed.json()).toMatchObject({ result: { content: [{ text: "ok" }] } });
+    expect(JSON.parse(transport.requests[0]?.body ?? "")).toMatchObject({
+      params: { name: "editJiraIssue" },
+    });
+  });
+
+  test("a Task without tool tuples sees only the generic connection helpers", async () => {
+    const taskIdentity: Hop1Identity = {
+      ...identity,
+      claims: withTaskAuthority({ ...taskAuthority, tools: undefined }),
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog: jiraWriteCatalog,
+      authenticate: () => Promise.resolve(taskIdentity),
+      taskToolAuthorization: {},
+      transport: new RecordingTransport(),
+      resolveCredential: () => Promise.reject(new Error("credential lookup must not run")),
+      oauth: {
+        providerId: "jira",
+        status: () => Promise.resolve({ connected: false }),
+        start: () => Promise.resolve({ authorizationUrl: "https://auth.example.com/start" }),
+      },
+    });
+
+    const listed = await proxy(mcpRequest("tools/list", {}, 106));
+    expect(
+      ((await listed.json()) as { result: { tools: { name: string }[] } }).result.tools.map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(["jira_oauth_status", "jira_oauth_start"]);
+  });
+
   test("owns initialization so provider authorization can start before upstream access", async () => {
     const transport = new RecordingTransport();
     let credentialCalls = 0;

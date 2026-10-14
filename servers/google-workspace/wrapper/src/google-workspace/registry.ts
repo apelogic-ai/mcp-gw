@@ -24,6 +24,12 @@ import type {
   ToolResult,
 } from "../../../../../packages/wrapper-kit/src/mcp/registry";
 import {
+  parseTaskToolAuthorization,
+  TASK_TOOL_DENIED_ERROR,
+  TASK_TOOL_DENIED_MESSAGE,
+  type TaskToolAuthorizationOptions,
+} from "../../../../../packages/wrapper-kit/src/task-tool-authorization";
+import {
   getGoogleWorkspaceTool,
   listGoogleWorkspaceTools,
   type GoogleWorkspaceCatalogId,
@@ -73,24 +79,39 @@ export interface CreateGoogleWorkspaceRegistryOptions {
   oauth?: GoogleOAuthTools;
   tokenBroker: AccessTokenBroker;
   executor: WorkspaceToolExecutor;
+  taskToolAuthorization?: TaskToolAuthorizationOptions;
 }
 
 export function createGoogleWorkspaceRegistry(
   options: CreateGoogleWorkspaceRegistryOptions,
 ): ToolRegistry {
   const policy: ToolPolicy = options.policy ?? new AllowAllPolicy();
+  const taskAuthorization = parseTaskToolAuthorization(
+    options.identity.claims,
+    options.taskToolAuthorization,
+  );
+  const catalogTools = listGoogleWorkspaceTools(options.governanceCatalogId);
+  const supportedNames = new Set([
+    ...(options.oauth ? GOOGLE_OAUTH_TOOL_DEFINITIONS.map((tool) => tool.name) : []),
+    ...catalogTools.map((tool) => tool.name),
+  ]);
 
   return {
     listTools: () => {
+      const dataTools = catalogTools.filter((tool) =>
+        taskAuthorization.allows({
+          provider: tool.service,
+          resource: tool.name,
+          action: tool.actionClass,
+        }),
+      );
       if (!options.oauth) {
-        return listGoogleWorkspaceTools(options.governanceCatalogId);
+        return dataTools;
       }
 
-      return [
-        ...GOOGLE_OAUTH_TOOL_DEFINITIONS,
-        ...listGoogleWorkspaceTools(options.governanceCatalogId),
-      ];
+      return [...GOOGLE_OAUTH_TOOL_DEFINITIONS, ...dataTools];
     },
+    supportsTool: (name) => supportedNames.has(name),
     callTool: async (name, args) => {
       const diagnosticId = randomUUID();
       if (name === "google_oauth_start" && options.oauth) {
@@ -123,6 +144,15 @@ export function createGoogleWorkspaceRegistry(
 
       const started = Date.now();
       const tool = getGoogleWorkspaceTool(name, options.governanceCatalogId);
+      if (
+        !taskAuthorization.allows({
+          provider: tool.service,
+          resource: tool.name,
+          action: tool.actionClass,
+        })
+      ) {
+        return taskToolDeniedResult();
+      }
       if (
         options.oauth &&
         !options.oauth.status.connected &&
@@ -195,6 +225,14 @@ export function createGoogleWorkspaceRegistry(
         return reportToolError(error, tool, resolved.args, started, options, diagnosticId);
       }
     },
+  };
+}
+
+function taskToolDeniedResult(): ToolResult {
+  return {
+    isError: true,
+    content: [{ type: "text", text: TASK_TOOL_DENIED_MESSAGE }],
+    structuredContent: { error: TASK_TOOL_DENIED_ERROR },
   };
 }
 

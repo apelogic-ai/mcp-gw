@@ -1,0 +1,20 @@
+{
+  "iss": "https://identity.example.org",
+  "aud": ["mcp-workload"],
+  "azp": "spiffe://example.org/ns/control-plane/sa/task-runner",
+  "sub": "usr_abcdefabcdefabcdefabcdefabcdefab",
+  "email": "alice@example.com",
+  "jti": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "steward": {
+    "acting_as": "user",
+    "runtime_uid": "runtime-uid-a",
+    "tools": [
+      {
+        "provider": "github",
+        "resource": "list_commits",
+        "action": "read"
+      }
+    ],
+    "version": 3
+  }
+}

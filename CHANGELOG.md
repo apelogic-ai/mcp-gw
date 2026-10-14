@@ -16,6 +16,7 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
+- Tool calls are now limited to tools approved for the Task.
 - Discover Jira tools live through the caller's credential and intersect every paginated response
   with checked-in authority decisions. New or undecided upstream tools remain hidden, removed tools
   disappear, and upstream discovery failures return only the Jira OAuth helpers without serving a
@@ -25,6 +26,15 @@ records the human-maintained compatibility summary.
 
 ### Upgrade Notes
 
+- Task-scoped workload tokens now fail closed when tool approvals are missing, malformed, or do not
+  map to the wrapper's public catalog. Provider connection status/start helpers remain available,
+  and existing catalog and policy rules continue to narrow access. No database migration, provider
+  reconnect, or OAuth reauthorization is required.
+- Upgrade the Task-token issuer before deploying this release. For one compatibility release only,
+  an older issuer that omits approvals may set
+  `taskToolAuthorization.allowLegacyUnscopedTaskTokens=true` (or the equivalent direct-wrapper
+  environment variable). This opt-out is unsafe, defaults to `false`, does not accept malformed or
+  empty approvals, and should be removed immediately after the issuer upgrade.
 - Existing Google Workspace, GitHub, static generic-wrapper, Compose, and Helm values remain valid.
   A policy that explicitly matched a descriptor-driven OAuth start helper as a write action must
   match it as read after this release. Enabling Jira requires an Atlassian OAuth app, the documented

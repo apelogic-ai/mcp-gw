@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { taskAuthority, withTaskAuthority } from "../../../test/support/task-authority-fixture";
 
 import type { Hop1Identity } from "../../../shared/identity/hop1";
 import { YamlPolicy } from "../../../shared/policy/policy";
@@ -156,6 +157,59 @@ describe("generic wrapper live tool discovery", () => {
     ]);
   });
 
+  test("intersects live Jira discovery with exact Task-approved tools", async () => {
+    const proxy = liveHandler({
+      identity: {
+        ...identity,
+        claims: withTaskAuthority({
+          ...taskAuthority,
+          tools: [{ provider: "jira", resource: "jira_get_issue", action: "read" }],
+        }),
+      },
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        }),
+    });
+    const sessionId = await initialize(proxy);
+
+    const listed = await proxy(mcpRequest("tools/list", {}, 20, sessionId));
+    const listedBody = (await listed.json()) as { result: { tools: { name: string }[] } };
+    expect(listedBody.result.tools.map((tool) => tool.name)).toEqual([
+      "jira_oauth_status",
+      "jira_oauth_start",
+      "jira_get_issue",
+    ]);
+
+    const allowed = await proxy(
+      mcpRequest(
+        "tools/call",
+        { name: "jira_get_issue", arguments: { issueKey: "EXAMPLE-1" } },
+        21,
+        sessionId,
+      ),
+    );
+    expect(await allowed.text()).toContain("called:getIssue");
+
+    const denied = await proxy(
+      mcpRequest(
+        "tools/call",
+        { name: "jira_edit_issue", arguments: { issueKey: "EXAMPLE-1" } },
+        22,
+        sessionId,
+      ),
+    );
+    expect(await denied.json()).toMatchObject({
+      result: {
+        isError: true,
+        content: [{ type: "text", text: "Tool is not approved for this Task" }],
+        structuredContent: { error: "task_tool_not_approved" },
+      },
+    });
+  });
+
   test("keeps lifecycle controls usable under read-only policy and denies writes plainly", async () => {
     const proxy = liveHandler({
       policy: new YamlPolicy({
@@ -203,6 +257,7 @@ function liveHandler(options: {
     rawValue: string;
   }>;
   policy?: YamlPolicy;
+  identity?: Hop1Identity;
 }): (request: Request) => Promise<Response> {
   const upstream = { transport: "http" as const, url: upstreamUrl };
   const descriptor: GenericWrapperDescriptor = {
@@ -240,7 +295,7 @@ function liveHandler(options: {
   return createGenericMcpProxyHandler({
     descriptor,
     catalog: decisions,
-    authenticate: () => Promise.resolve(identity),
+    authenticate: () => Promise.resolve(options.identity ?? identity),
     resolveCredential: options.resolveCredential,
     transport: createHttpUpstreamTransport(upstream, {
       serverInfo: descriptor.serverInfo,

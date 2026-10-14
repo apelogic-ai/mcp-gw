@@ -88,6 +88,10 @@ spec:
           env:
             - name: PORT
               value: {{ .Values.dbMcp.wrapper.port | quote }}
+            {{- if .Values.taskToolAuthorization.allowLegacyUnscopedTaskTokens }}
+            - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS
+              value: "true"
+            {{- end }}
             - name: GENERIC_WRAPPER_DESCRIPTOR_PATH
               value: /etc/mcp-gw/db-mcp-wrapper/descriptor.yaml
             - name: HOP1_ISSUERS_JSON

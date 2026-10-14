@@ -30,6 +30,10 @@ import {
   ConnectionLifecycle,
   githubOAuthCompatibilityStatus,
 } from "../../../../packages/wrapper-kit/src/lifecycle";
+import {
+  readTaskToolAuthorizationOptions,
+  type TaskToolAuthorizationOptions,
+} from "../../../../packages/wrapper-kit/src/task-tool-authorization";
 import { createGitHubOAuthRouteHandler } from "./oauth-routes";
 import {
   GITHUB_MCP_CATALOG_ID,
@@ -53,6 +57,7 @@ export interface MainConfig {
   policy?: PolicyConfig;
   audit?: AuditConfig;
   hop1Issuers: Hop1IssuerConfig[];
+  taskToolAuthorization: Required<TaskToolAuthorizationOptions>;
 }
 
 export interface PolicyConfig {
@@ -100,6 +105,7 @@ export function loadMainConfig(env: Record<string, string | undefined>): MainCon
         : undefined,
     audit: env.AUDIT_LOG_PATH ? { jsonlPath: env.AUDIT_LOG_PATH } : undefined,
     hop1Issuers: loadHop1Issuers(env),
+    taskToolAuthorization: readTaskToolAuthorizationOptions(env),
   };
 }
 
@@ -181,6 +187,7 @@ export function createMainHandler(config: MainConfig): (request: Request) => Pro
     aliases: config.aliases,
     audit,
     policy: createWrapperPolicy({ config: config.policy }),
+    taskToolAuthorization: config.taskToolAuthorization,
   });
 
   return (request) => {
