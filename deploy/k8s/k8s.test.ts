@@ -3354,6 +3354,8 @@ describe("Kubernetes production chart", () => {
     expect(guide).toContain("provider + hop1_issuer + hop1_subject");
     expect(guide).toContain("google_workspace_gws");
     expect(guide).toContain("jira_...");
+    expect(guide).toContain("AgentGateway routing by itself does not inspect");
+    expect(chartReadme).toContain("dbMcp.wrapper.enabled=true");
     expect(guide).toContain("mcp-gateway-workload");
     expect(guide).toContain("values-external-platform-issuer.example.yaml");
   });

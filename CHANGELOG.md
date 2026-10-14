@@ -26,15 +26,20 @@ records the human-maintained compatibility summary.
 
 ### Upgrade Notes
 
-- Task-scoped workload tokens now fail closed when tool approvals are missing, malformed, or do not
-  map to the wrapper's public catalog. Provider connection status/start helpers remain available,
-  and existing catalog and policy rules continue to narrow access. No database migration, provider
-  reconnect, or OAuth reauthorization is required.
-- Upgrade the Task-token issuer before deploying this release. For one compatibility release only,
-  an older issuer that omits approvals may set
+- Task-scoped workload tokens now require the current version 3 authority contract and fail closed
+  when tool approvals are missing, malformed, or do not map to the wrapper's public catalog. Tokens
+  that carry approvals in authority version 1 or 2 also fail closed; the compatibility opt-out does
+  not ignore approvals from an unsupported version. Provider connection status/start helpers remain
+  available, and existing catalog and policy rules continue to narrow access. No database migration,
+  provider reconnect, or OAuth reauthorization is required.
+- The supported governing-platform issuer already emits version 3 with tool approvals. For one
+  compatibility release only, a custom legacy issuer that omits approvals may set
   `taskToolAuthorization.allowLegacyUnscopedTaskTokens=true` (or the equivalent direct-wrapper
   environment variable). This opt-out is unsafe, defaults to `false`, does not accept malformed or
   empty approvals, and should be removed immediately after the issuer upgrade.
+- Task-approved-tool enforcement is owned by the wrappers, not AgentGateway. Route GitHub through
+  the enabled GitHub wrapper, and enable `dbMcp.wrapper.enabled=true` before exposing db-mcp to Task
+  tokens. Any other direct/unwrapped backend must enforce the Task approval contract itself.
 - Existing Google Workspace, GitHub, static generic-wrapper, Compose, and Helm values remain valid.
   A policy that explicitly matched a descriptor-driven OAuth start helper as a write action must
   match it as read after this release. Enabling Jira requires an Atlassian OAuth app, the documented

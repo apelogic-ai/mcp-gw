@@ -109,11 +109,17 @@ export function createGoogleWorkspaceRegistry(
         return dataTools;
       }
 
-      return [...GOOGLE_OAUTH_TOOL_DEFINITIONS, ...dataTools];
+      return [
+        ...(taskAuthorization.allowsConnectionHelpers ? GOOGLE_OAUTH_TOOL_DEFINITIONS : []),
+        ...dataTools,
+      ];
     },
     supportsTool: (name) => supportedNames.has(name),
     callTool: async (name, args) => {
       const diagnosticId = randomUUID();
+      if (isGoogleOAuthTool(name) && !taskAuthorization.allowsConnectionHelpers) {
+        return taskToolDeniedResult();
+      }
       if (name === "google_oauth_start" && options.oauth) {
         const started = Date.now();
         const decision = await policy.decide({
@@ -314,6 +320,10 @@ const GOOGLE_OAUTH_TOOL_DEFINITIONS = [
     annotations: { readOnlyHint: false },
   },
 ];
+
+function isGoogleOAuthTool(name: string): boolean {
+  return GOOGLE_OAUTH_TOOL_DEFINITIONS.some((tool) => tool.name === name);
+}
 
 async function callGoogleOAuthTool(
   name: string,

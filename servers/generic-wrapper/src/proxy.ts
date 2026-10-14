@@ -177,7 +177,7 @@ export function createGenericMcpProxyHandler(
       }
       return mcpResult(message.id, {
         tools: [
-          ...oauthToolDefinitions(options),
+          ...(taskAuthorization.allowsConnectionHelpers ? oauthToolDefinitions(options) : []),
           ...options.catalog.tools
             .filter((tool) => taskAuthorization.allows(genericTaskToolGrant(options, tool)))
             .map(publicToolDefinition),
@@ -210,6 +210,9 @@ export function createGenericMcpProxyHandler(
         -32601,
         `Unsupported MCP tool: ${message.toolName ?? "<missing>"}`,
       );
+    }
+    if (oauthTool && !taskAuthorization.allowsConnectionHelpers) {
+      return taskToolDenied(message.id);
     }
     if (tool && !taskAuthorization.allows(genericTaskToolGrant(options, tool))) {
       await emitSafely(options.audit, {
@@ -621,7 +624,7 @@ async function liveToolsList(
   if (!isLiveToolCatalog(options.catalog)) {
     throw new Error("liveToolsList requires a live tool-decisions catalog");
   }
-  const helpers = oauthToolDefinitions(options);
+  const helpers = taskAuthorization.allowsConnectionHelpers ? oauthToolDefinitions(options) : [];
   const approvedDecisions = options.catalog.tools.filter((tool) =>
     taskAuthorization.allows(genericTaskToolGrant(options, tool)),
   );

@@ -24,7 +24,12 @@ const INTERNAL_PRODUCT_NAMES = [
   `semantic-${"grid"}`,
   `ob${"server"}`,
 ];
-const PUBLIC_CONTRACT_IDENTIFIERS = ["steward.capability-catalog/v2", '"steward":'];
+const PUBLIC_CONTRACT_IDENTIFIERS = [
+  "steward.capability-catalog/v2",
+  '"steward":',
+  "`steward`",
+  "`steward-apiserver`",
+];
 const PRIVATE_ENVIRONMENT_PATTERNS = [
   /apelogic\.io/i,
   new RegExp(["arn", "aws"].join(":"), "i"),

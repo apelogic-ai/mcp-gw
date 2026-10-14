@@ -49,7 +49,7 @@ describe("Task tool authorization", () => {
     }
   });
 
-  test("does not narrow interactive tokens or the purpose-bound connection-status bridge", () => {
+  test("leaves interactive tokens unrestricted and limits the connection-status bridge", () => {
     const interactive = parseTaskToolAuthorization({
       iss: "https://identity.example.com",
       sub: "user-123",
@@ -66,7 +66,19 @@ describe("Task tool authorization", () => {
     );
 
     expect(interactive.restricted).toBe(false);
-    expect(connectionStatus.restricted).toBe(false);
+    expect(interactive.allowsConnectionHelpers).toBe(true);
+    expect(connectionStatus.restricted).toBe(true);
+    expect(connectionStatus.allowsConnectionHelpers).toBe(false);
+    expect(
+      connectionStatus.allows({
+        provider: "github",
+        resource: "provider-control",
+        action: "status",
+      }),
+    ).toBe(true);
+    expect(
+      connectionStatus.allows({ provider: "github", resource: "list_commits", action: "read" }),
+    ).toBe(false);
     for (const authority of [
       { ...connectionStatusClaims(), service: "other-service" },
       { ...connectionStatusClaims(), tools: [] },
@@ -80,7 +92,7 @@ describe("Task tool authorization", () => {
   });
 
   test("the temporary compatibility opt-out applies only to a missing tool claim", () => {
-    const missing = withTaskAuthority({ ...taskAuthority, tools: undefined, version: 2 });
+    const missing = withTaskAuthority({ ...taskAuthority, tools: undefined });
     const malformed = withTaskAuthority({
       ...taskAuthority,
       tools: [{ provider: "github" }],
@@ -92,6 +104,19 @@ describe("Task tool authorization", () => {
     expect(
       parseTaskToolAuthorization(malformed, { allowLegacyUnscopedTaskTokens: true }).restricted,
     ).toBe(true);
+  });
+
+  test("older claim versions fail closed even when they carry tool approvals", () => {
+    for (const version of [1, 2]) {
+      const authorization = parseTaskToolAuthorization(
+        withTaskAuthority({ ...taskAuthority, version }),
+        { allowLegacyUnscopedTaskTokens: true },
+      );
+      expect(authorization.restricted).toBe(true);
+      expect(
+        authorization.allows({ provider: "github", resource: "list_commits", action: "read" }),
+      ).toBe(false);
+    }
   });
 
   test("reads the legacy opt-out strictly and defaults to enforcement", () => {

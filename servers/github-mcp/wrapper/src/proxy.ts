@@ -179,8 +179,18 @@ export function createGithubMcpProxyHandler(
       options.taskToolAuthorization,
     );
 
+    if (taskAuthorization.restricted && request.method !== "POST") {
+      return mcpError(null, -32601, `Unsupported MCP method: ${request.method}`);
+    }
+
     const body = await request.text();
-    const method = parseMethod(body);
+    if (request.method === "POST" && !singleJsonRpcObject(body)) {
+      return mcpError(null, -32600, "Invalid Request");
+    }
+    const method = request.method === "POST" ? parseMethod(body) : undefined;
+    if (taskAuthorization.restricted && !method) {
+      return mcpError(null, -32600, "Invalid Request");
+    }
     if (method?.isNotification) {
       return new Response(null, { status: 202 });
     }
@@ -193,13 +203,26 @@ export function createGithubMcpProxyHandler(
         serverInfo: SERVER_INFO,
       });
     }
+    if (method?.method === "ping") {
+      return mcpResult(method.id, {});
+    }
+    if (
+      taskAuthorization.restricted &&
+      method?.method !== "tools/list" &&
+      method?.method !== "tools/call"
+    ) {
+      return mcpError(method?.id ?? null, -32601, `Unsupported MCP method: ${method?.method}`);
+    }
     if (method?.method === "tools/list") {
+      if (taskAuthorization.restricted && !taskAuthorization.allowsConnectionHelpers) {
+        return mcpResult(method.id, { tools: [] });
+      }
       if (options.getOAuthStatus) {
         return mcpResult(method.id, {
           tools: [
-            ...LOCAL_TOOLS,
+            ...(taskAuthorization.allowsConnectionHelpers ? LOCAL_TOOLS : []),
             ...(oauthCatalog ?? []).filter((tool) =>
-              taskAuthorization.allowsAny(githubToolGrants(tool.name, true)),
+              taskAuthorization.allowsAny(githubToolGrants(tool.name)),
             ),
           ],
         });
@@ -234,6 +257,9 @@ export function createGithubMcpProxyHandler(
     }
 
     const toolCall = parseToolCall(body, options.aliases ?? {}, options.governanceCatalogId);
+    if (method?.method === "tools/call" && !toolCall) {
+      return mcpError(method.id, -32600, "Invalid Request");
+    }
     const actionClass = toolCall?.actionClass;
     if (
       toolCall &&
@@ -261,13 +287,14 @@ export function createGithubMcpProxyHandler(
     }
     if (
       toolCall &&
-      !isLocalTool(toolCall.toolName) &&
       actionClass &&
-      !taskAuthorization.allows({
-        provider: "github",
-        resource: toolCall.toolName,
-        action: actionClass,
-      })
+      ((isLocalTool(toolCall.toolName) && !taskAuthorization.allowsConnectionHelpers) ||
+        (!isLocalTool(toolCall.toolName) &&
+          !taskAuthorization.allows({
+            provider: "github",
+            resource: toolCall.toolName,
+            action: actionClass,
+          })))
     ) {
       await emitSafely(options.audit, {
         ts: new Date().toISOString(),
@@ -674,19 +701,21 @@ function toolsFromPayload(
     : (payload.result.tools as unknown[]);
   const approvedTools = upstreamTools.filter((tool) => {
     if (!isRecord(tool) || typeof tool.name !== "string") return false;
-    return taskAuthorization.allowsAny(githubToolGrants(tool.name, enforceCatalog));
+    return taskAuthorization.allowsAny(githubToolGrants(tool.name));
   });
   const existingNames = new Set(
     approvedTools
       .map((tool) => (isRecord(tool) && typeof tool.name === "string" ? tool.name : undefined))
       .filter((name): name is string => Boolean(name)),
   );
-  const localTools = LOCAL_TOOLS.filter((tool) => !existingNames.has(tool.name));
+  const localTools = taskAuthorization.allowsConnectionHelpers
+    ? LOCAL_TOOLS.filter((tool) => !existingNames.has(tool.name))
+    : [];
   return [...localTools, ...approvedTools];
 }
 
-function githubToolGrants(toolName: string, governed: boolean) {
-  if (governed) {
+function githubToolGrants(toolName: string) {
+  if (isPinnedGithubTool(toolName)) {
     return GITHUB_MCP_TOOL_GRANTS.filter((grant) => grant.resource === toolName);
   }
   return [
@@ -793,11 +822,19 @@ function parseToolCall(
     toolName,
     args,
     actionClass:
-      governanceCatalogId === GITHUB_MCP_CATALOG_ID
+      governanceCatalogId === GITHUB_MCP_CATALOG_ID || isPinnedGithubTool(toolName)
         ? classifyGithubToolAction(toolName, args)
         : classifyLegacyGithubToolAction(toolName),
     body: JSON.stringify(rewritten),
   };
+}
+
+function singleJsonRpcObject(body: string): boolean {
+  try {
+    return isRecord(JSON.parse(body) as unknown);
+  } catch {
+    return false;
+  }
 }
 
 function classifyLegacyGithubToolAction(toolName: string): PolicyActionClass {

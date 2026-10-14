@@ -19,12 +19,14 @@ export interface TaskToolAuthorizationOptions {
 
 export interface TaskToolAuthorization {
   readonly restricted: boolean;
+  readonly allowsConnectionHelpers: boolean;
   allows(grant: TaskToolGrant): boolean;
   allowsAny(grants: readonly TaskToolGrant[]): boolean;
 }
 
 const UNRESTRICTED: TaskToolAuthorization = {
   restricted: false,
+  allowsConnectionHelpers: true,
   allows: () => true,
   allowsAny: () => true,
 };
@@ -36,7 +38,8 @@ export function parseTaskToolAuthorization(
   if (!(TASK_AUTHORITY_CLAIM in claims)) return UNRESTRICTED;
 
   const authority = record(claims[TASK_AUTHORITY_CLAIM]);
-  if (isConnectionStatusAuthority(authority)) return UNRESTRICTED;
+  const connectionStatusGrant = connectionStatusAuthorityGrant(authority);
+  if (connectionStatusGrant) return restrictedAuthorization([connectionStatusGrant], false);
 
   const taskMarkerIsValid = isCurrentTaskMarker(authority);
   if (
@@ -73,19 +76,25 @@ export function readTaskToolAuthorizationOptions(
   throw new Error(`${LEGACY_OPT_OUT_ENV} must be true or false`);
 }
 
-function restrictedAuthorization(grants: readonly TaskToolGrant[]): TaskToolAuthorization {
+function restrictedAuthorization(
+  grants: readonly TaskToolGrant[],
+  allowsConnectionHelpers = true,
+): TaskToolAuthorization {
   const allowed = new Set(grants.map(grantKey));
   return {
     restricted: true,
+    allowsConnectionHelpers,
     allows: (grant) => allowed.has(grantKey(grant)),
     allowsAny: (candidates) => candidates.some((grant) => allowed.has(grantKey(grant))),
   };
 }
 
-function isConnectionStatusAuthority(authority: Record<string, unknown> | undefined): boolean {
+function connectionStatusAuthorityGrant(
+  authority: Record<string, unknown> | undefined,
+): TaskToolGrant | undefined {
   const tools = authority?.tools;
   const grant = Array.isArray(tools) && tools.length === 1 ? parseGrant(tools[0]) : undefined;
-  return (
+  const valid =
     authority?.acting_as === "service_for_user" &&
     authority.service === CONTROL_PLANE_SERVICE &&
     authority.purpose === CONNECTION_STATUS_PURPOSE &&
@@ -93,8 +102,8 @@ function isConnectionStatusAuthority(authority: Record<string, unknown> | undefi
     authority.version === CURRENT_TASK_AUTHORITY_CLAIMS_VERSION &&
     grant?.provider === "github" &&
     grant.resource === "provider-control" &&
-    grant.action === "status"
-  );
+    grant.action === "status";
+  return valid ? grant : undefined;
 }
 
 function isCurrentTaskMarker(authority: Record<string, unknown> | undefined): boolean {

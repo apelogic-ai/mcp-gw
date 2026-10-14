@@ -303,6 +303,13 @@ to `false`; empty or malformed approvals never use the opt-out. See the
 [external governing platform contract](../../../docs/external-platform-issuer.md#task-approved-tool-boundary)
 for provider/resource mapping and compatibility behavior.
 
+This boundary is implemented by authenticated wrappers, not by AgentGateway
+routing alone. Keep the built-in GitHub backend pointed at `github-wrapper`.
+Set `dbMcp.wrapper.enabled=true` before exposing db-mcp to Task tokens. A
+custom backend connected directly through `agentgateway.backends` must enforce
+the same approval contract itself; the chart cannot infer that capability from
+an arbitrary remote endpoint.
+
 For GitHub consent, the issuer's resolved `emailClaim` must case-insensitively
 match one of the user's verified GitHub email addresses. A mismatch consumes
 the one-time OAuth state, revokes or queues cleanup of any issued credential,
