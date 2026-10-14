@@ -82,10 +82,10 @@ Approval coordinates map to public MCP tools as follows:
 Connection helpers (`*_oauth_status` and `*_oauth_start`) remain visible and
 callable so a Task can diagnose or establish a provider connection. Existing
 wrapper policy still governs those helpers, and they do not grant provider
-data access. Interactive tokens without Task authority and the purpose-bound
-provider-connection status bridge retain their existing HTTP behavior; the
-bridge is restricted to its exact status grant when presented to an MCP
-wrapper.
+data access. Interactive tokens without Task authority retain their existing
+HTTP behavior. Purpose-bound provider-connection status and start tokens are
+restricted to their exact provider-control grant. A start token can call only
+the requested provider's `POST /connections/{provider}/authorize` route.
 
 The shared reader pins each governing-platform value deliberately:
 
@@ -97,6 +97,8 @@ The shared reader pins each governing-platform value deliberately:
 | A non-empty `runtime_uid` and no `purpose` on Task tokens                                                                                        | `isLegacyTaskMarker`             | Distinguishes executable Task authority from purpose-bound service authority.    |
 | Status bridge service `steward-apiserver`, `acting_as: service_for_user`, `purpose: provider_connection_status`, no `runtime_uid`, and version 3 | `connectionStatusAuthorityGrant` | Prevents another service or purpose from receiving the status bridge exception.  |
 | Exactly one status bridge tuple `{ provider: <requested>, resource: provider-control, action: status }`                                          | `connectionStatusAuthorityGrant` | Limits each provider status route to the exact provider authority it was issued. |
+| Start bridge service `steward-apiserver`, `acting_as: service_for_user`, `purpose: provider_connection_start`, no `runtime_uid`, and version 3   | `allowsConnectionStart`          | Prevents another service or purpose from starting provider authorization.        |
+| Exactly one start bridge tuple `{ provider: <requested>, resource: provider-control, action: start }`                                            | `allowsConnectionStart`          | Binds authorization start to the provider named by the grant.                    |
 | Exact tuple keys `provider`, `resource`, and `action`, each a non-empty string                                                                   | `parseGrant`                     | Rejects partial, extended, or ambiguous tool approvals.                          |
 
 Task tokens with missing, malformed, or unmapped tool approvals fail closed:

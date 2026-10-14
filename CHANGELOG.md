@@ -26,6 +26,8 @@ records the human-maintained compatibility summary.
   Jira sign-in helpers instead of an old tool list.
 - Bind each connection-status token to its named provider, so GitHub status authority cannot read
   Jira status and Jira status authority cannot read GitHub status.
+- Bind each connection-start token to its named provider while leaving ordinary user authorization
+  unchanged.
 - Forward GitHub calls using only validated fields. Caller-supplied metadata and unexpected
   parameters are no longer sent upstream, and gateway health checks no longer depend on GitHub.
 

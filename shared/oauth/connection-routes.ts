@@ -45,6 +45,10 @@ export interface CreateConnectionRouteHandlerOptions {
 }
 
 const JSON_HEADERS = { "content-type": "application/json" };
+const TASK_AUTHORITY_CLAIM = ["ste", "ward"].join("");
+const CONTROL_PLANE_SERVICE = ["ste", "ward-apiserver"].join("");
+const CONNECTION_START_PURPOSE = "provider_connection_start";
+const CURRENT_TASK_AUTHORITY_CLAIMS_VERSION = 3;
 
 export function createConnectionRouteHandler(
   options: CreateConnectionRouteHandlerOptions,
@@ -90,6 +94,13 @@ export function createConnectionRouteHandler(
         }
       }
       if (request.method === "POST" && pathname === `${prefix}/authorize`) {
+        if (!allowsConnectionStart(identity, options.lifecycle.providerId)) {
+          return reportedErrorResponse(options, request, identity, {
+            status: 403,
+            error: "authorization_denied",
+            code: "oauth_authorization_denied",
+          });
+        }
         const body = await readJsonObject(request);
         const redirectAfter =
           typeof body.redirectAfter === "string" && body.redirectAfter.length > 0
@@ -112,6 +123,26 @@ export function createConnectionRouteHandler(
       return reportedErrorResponse(options, request, identity, connectionErrorDetails(error));
     }
   };
+}
+
+function allowsConnectionStart(identity: Hop1Identity, provider: string): boolean {
+  const authority = record(identity.claims[TASK_AUTHORITY_CLAIM]);
+  if (authority?.purpose === undefined) return true;
+
+  const tools = authority.tools;
+  const grant = Array.isArray(tools) && tools.length === 1 ? record(tools[0]) : undefined;
+  return (
+    authority.acting_as === "service_for_user" &&
+    authority.service === CONTROL_PLANE_SERVICE &&
+    authority.purpose === CONNECTION_START_PURPOSE &&
+    authority.runtime_uid === undefined &&
+    authority.version === CURRENT_TASK_AUTHORITY_CLAIMS_VERSION &&
+    grant !== undefined &&
+    Object.keys(grant).length === 3 &&
+    grant.provider === provider &&
+    grant.resource === "provider-control" &&
+    grant.action === "start"
+  );
 }
 
 export function withConnectionErrorMapping(
@@ -273,4 +304,10 @@ function lifecycleHttpStatus(error: ProviderLifecycleError): number {
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
