@@ -19,6 +19,8 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
+- Request Atlassian's classic `read:jira-work` scope for Jira because hosted MCP data calls require
+  it in addition to the agent-interface scopes.
 - Limit Task tool calls to the exact provider actions approved for that Task. Provider sign-in and
   status helpers remain available so users and agents can establish and inspect connections.
 - Build each Jira tool list from Atlassian's current response and MCP-GW's reviewed decisions. New

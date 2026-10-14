@@ -31,10 +31,13 @@ policy constrains every caller allowed to reach the gateway.
 
   ```text
   read:jira-user
+  read:jira-work
   read:jira:agent-interface
   search:jira:agent-interface
   ```
 
+  Atlassian authorizes hosted MCP Jira data calls with the classic
+  `read:jira-work` scope in addition to the agent-interface scopes.
   MCP-GW additionally requests `offline_access` during authorization so it can
   retain and rotate the refresh credential. The full `jira` preset additionally
   requires `write:jira:agent-interface`. Neither preset requests

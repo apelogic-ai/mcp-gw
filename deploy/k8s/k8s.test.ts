@@ -668,6 +668,7 @@ describe("Kubernetes production chart", () => {
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       scopes: [
         "read:jira-user",
+        "read:jira-work",
         "read:jira:agent-interface",
         "write:jira:agent-interface",
         "search:jira:agent-interface",
@@ -723,6 +724,14 @@ describe("Kubernetes production chart", () => {
     expect(parsedDescriptor.credential).toMatchObject({
       providerId: "jira",
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
+      scopes: [
+        "read:jira-user",
+        "read:jira-work",
+        "read:jira:agent-interface",
+        "write:jira:agent-interface",
+        "search:jira:agent-interface",
+        "offline_access",
+      ],
       identity: { mode: "atlassian_jira_asserted_email" },
     });
     expect(isLiveToolCatalog(parsedCatalog)).toBeTrue();
@@ -748,6 +757,19 @@ describe("Kubernetes production chart", () => {
     expect(data).not.toHaveProperty("catalog.yaml");
     expect(parsedDescriptor.catalogPath).toBe(
       "/app/servers/generic-wrapper/catalog/jira/decisions.yaml",
+    );
+
+    const credential = wrapper.credential as { scopes: string[] };
+    credential.scopes = credential.scopes.filter((scope) => scope !== "read:jira-work");
+    const missingReadWork = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    assertHelmRejected(missingReadWork);
+    expect(missingReadWork.stderr.toString()).toContain(
+      "Jira jira preset requires OAuth consent scope read:jira-work",
     );
   });
 
@@ -783,6 +805,7 @@ describe("Kubernetes production chart", () => {
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       scopes: [
         "read:jira-user",
+        "read:jira-work",
         "read:jira:agent-interface",
         "search:jira:agent-interface",
         "offline_access",
@@ -843,6 +866,7 @@ describe("Kubernetes production chart", () => {
     expect(descriptor.credential).toMatchObject({
       scopes: [
         "read:jira-user",
+        "read:jira-work",
         "read:jira:agent-interface",
         "search:jira:agent-interface",
         "offline_access",
@@ -870,6 +894,19 @@ describe("Kubernetes production chart", () => {
     );
 
     const credential = wrapper.credential as { scopes: string[] };
+    const requiredScopeIndex = credential.scopes.indexOf("read:jira-work");
+    credential.scopes.splice(requiredScopeIndex, 1);
+    const missingReadWork = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    assertHelmRejected(missingReadWork);
+    expect(missingReadWork.stderr.toString()).toContain(
+      "Jira jira-read-only preset requires OAuth consent scope read:jira-work",
+    );
+    credential.scopes.splice(requiredScopeIndex, 0, "read:jira-work");
     credential.scopes.push("write:jira:agent-interface");
     const excessiveAuthority = helmTemplateResult([
       ...genericWrapperBaseArgs(),
