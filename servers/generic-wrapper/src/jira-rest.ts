@@ -4,6 +4,7 @@ import { resolveAtlassianJiraSite } from "./oauth";
 
 type JsonRpcId = string | number | null;
 type JiraFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+const JIRA_ISSUE_KEY_OR_ID = /^(?:[A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$/;
 
 export interface JiraRestToolRequest {
   id: JsonRpcId;
@@ -91,7 +92,7 @@ function jiraTarget(
   }
   if (name === "getJiraIssue" && exactKeys(args, ["issueKey"])) {
     const issueKey = boundedString(args.issueKey, 128);
-    if (!issueKey) return invalidArguments(id);
+    if (!issueKey || !JIRA_ISSUE_KEY_OR_ID.test(issueKey)) return invalidArguments(id);
     return (base) =>
       withSearch(new URL(`${base}/issue/${encodeURIComponent(issueKey)}`), {
         fields: "summary,status",

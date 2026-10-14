@@ -83,7 +83,8 @@ describe("Jira REST tools", () => {
     const calls = [
       ["jira_get_current_user", {}],
       ["jira_search_issues", { jql: "project = EX", maxResults: 2 }],
-      ["jira_get_issue", { issueKey: "EX/1" }],
+      ["jira_get_issue", { issueKey: "EX-1" }],
+      ["jira_get_issue", { issueKey: "10001" }],
     ] as const;
     for (const [name, args] of calls) {
       const response = await execute({ id: 1, tool: tool(name), arguments: args, credential });
@@ -98,7 +99,9 @@ describe("Jira REST tools", () => {
       "https://api.atlassian.com/oauth/token/accessible-resources",
       "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/search/jql?jql=project+%3D+EX&maxResults=2&fields=summary%2Cstatus",
       "https://api.atlassian.com/oauth/token/accessible-resources",
-      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/EX%2F1?fields=summary%2Cstatus",
+      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/EX-1?fields=summary%2Cstatus",
+      "https://api.atlassian.com/oauth/token/accessible-resources",
+      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/10001?fields=summary%2Cstatus",
     ]);
     expect(
       requests.every((request) => request.headers.get("authorization") === "Bearer secret-token"),
@@ -133,6 +136,19 @@ describe("Jira REST tools", () => {
     expect(await refused.json()).toMatchObject({
       result: { structuredContent: { error: "invalid_arguments" } },
     });
+    expect(calls).toBe(0);
+
+    for (const issueKey of ["..", ".", "ABC-1/../x", "abc"]) {
+      const invalidIssue = await noRouting({
+        id: 3,
+        tool: issueTool,
+        arguments: { issueKey },
+        credential,
+      });
+      expect(await invalidIssue.json()).toMatchObject({
+        result: { structuredContent: { error: "invalid_arguments" } },
+      });
+    }
     expect(calls).toBe(0);
 
     const search = tool("jira_search_issues");
