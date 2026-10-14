@@ -20,7 +20,7 @@ data:
     schemaVersion: mcp-gateway.generic-wrapper/v1
     name: {{ .name | quote }}
     toolPrefix: {{ .toolPrefix | quote }}
-    catalogPath: {{ $catalogPath | quote }}
+    catalogPath: {{ $catalogPath }}
     {{- if eq $catalogPreset "jira-read-only" }}
     catalogFilter:
       actionClasses: [read]

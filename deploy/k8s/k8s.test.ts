@@ -784,7 +784,7 @@ describe("Kubernetes production chart", () => {
     );
 
     expect(config).toContain(
-      'catalogPath: "/app/servers/generic-wrapper/catalog/jira/decisions.yaml"',
+      "catalogPath: /app/servers/generic-wrapper/catalog/jira/decisions.yaml",
     );
     expect(config).toContain("actionClasses: [read]");
     expect(config).not.toContain("catalog.yaml");
