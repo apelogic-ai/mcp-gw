@@ -180,15 +180,24 @@ export function createGithubMcpProxyHandler(
     );
 
     if (taskAuthorization.restricted && request.method !== "POST") {
+      await auditMcpRequestRefusal(
+        options.audit,
+        identity,
+        started,
+        `http:${request.method}`,
+        "unsupported_http_method",
+      );
       return mcpError(null, -32601, `Unsupported MCP method: ${request.method}`);
     }
 
     const body = await request.text();
     if (request.method === "POST" && !singleJsonRpcObject(body)) {
+      await auditMcpRequestRefusal(options.audit, identity, started, "request", "invalid_body");
       return mcpError(null, -32600, "Invalid Request");
     }
     const method = request.method === "POST" ? parseMethod(body) : undefined;
     if (taskAuthorization.restricted && !method) {
+      await auditMcpRequestRefusal(options.audit, identity, started, "request", "invalid_message");
       return mcpError(null, -32600, "Invalid Request");
     }
     if (method?.isNotification) {
@@ -211,6 +220,13 @@ export function createGithubMcpProxyHandler(
       method?.method !== "tools/list" &&
       method?.method !== "tools/call"
     ) {
+      await auditMcpRequestRefusal(
+        options.audit,
+        identity,
+        started,
+        boundedRequestTarget(method?.method),
+        "unsupported_mcp_method",
+      );
       return mcpError(
         method?.id ?? null,
         -32601,
@@ -262,6 +278,13 @@ export function createGithubMcpProxyHandler(
 
     const toolCall = parseToolCall(body, options.aliases ?? {}, options.governanceCatalogId);
     if (method?.method === "tools/call" && !toolCall) {
+      await auditMcpRequestRefusal(
+        options.audit,
+        identity,
+        started,
+        "tools/call",
+        "invalid_tool_call",
+      );
       return mcpError(method.id, -32600, "Invalid Request");
     }
     const actionClass = toolCall?.actionClass;
@@ -505,18 +528,20 @@ async function handleToolsList(
   });
   const responseBody = await upstreamResponse.text();
 
-  return new Response(
-    mergeToolsList(
-      responseBody,
-      options.governanceCatalogId === GITHUB_MCP_CATALOG_ID,
-      taskAuthorization,
-    ),
-    {
-      status: upstreamResponse.status,
-      statusText: upstreamResponse.statusText,
-      headers: forwardedMcpResponseHeaders(upstreamResponse),
-    },
+  const merged = mergeToolsList(
+    responseBody,
+    options.governanceCatalogId === GITHUB_MCP_CATALOG_ID,
+    taskAuthorization,
   );
+  if (merged === undefined) {
+    return mcpError(id, -32000, "GitHub MCP tool discovery failed");
+  }
+
+  return new Response(merged, {
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+    headers: forwardedMcpResponseHeaders(upstreamResponse),
+  });
 }
 
 async function resolveGithubTokenOrUndefined(
@@ -622,15 +647,16 @@ function mergeToolsList(
   body: string,
   enforceCatalog: boolean,
   taskAuthorization: TaskToolAuthorization,
-): string {
+): string | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(body) as unknown;
   } catch {
-    return mergeSseToolsList(body, enforceCatalog, taskAuthorization) ?? body;
+    return mergeSseToolsList(body, enforceCatalog, taskAuthorization);
   }
 
-  return JSON.stringify(mergeToolPayload(payload, enforceCatalog, taskAuthorization) ?? payload);
+  const merged = mergeToolPayload(payload, enforceCatalog, taskAuthorization);
+  return merged ? JSON.stringify(merged) : undefined;
 }
 
 function mergeSseToolsList(
@@ -656,14 +682,12 @@ function mergeSseToolsList(
     try {
       payload = JSON.parse(data) as unknown;
     } catch {
-      lines.push(line);
-      continue;
+      return undefined;
     }
 
     const merged = mergeToolPayload(payload, enforceCatalog, taskAuthorization);
     if (!merged) {
-      lines.push(line);
-      continue;
+      return undefined;
     }
 
     changed = true;
@@ -809,19 +833,19 @@ function parseToolCall(
 
   const toolName = aliases[name] ?? name;
   const args = isRecord(payload.params.arguments) ? payload.params.arguments : {};
-  const rewritten =
-    toolName === name
-      ? payload
-      : {
-          ...payload,
-          params: {
-            ...payload.params,
-            name: toolName,
-          },
-        };
+  const id = jsonRpcId(payload.id);
+  const rewritten = {
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: {
+      name: toolName,
+      arguments: args,
+    },
+  };
 
   return {
-    id: jsonRpcId(payload.id),
+    id,
     originalName: name,
     toolName,
     args,
@@ -899,6 +923,29 @@ async function emitSafely(sink: AuditSink | undefined, event: AuditEvent): Promi
   } catch {
     // Audit availability must not change an authorization decision.
   }
+}
+
+async function auditMcpRequestRefusal(
+  sink: AuditSink | undefined,
+  identity: Hop1Identity,
+  started: number,
+  target: string,
+  classification: string,
+): Promise<void> {
+  await emitSafely(sink, {
+    ts: new Date().toISOString(),
+    category: "tool_call",
+    principal: identity.email,
+    status: "deny",
+    event: "mcp_request_refused",
+    tool: boundedRequestTarget(target),
+    latencyMs: Date.now() - started,
+    error: classification,
+  });
+}
+
+function boundedRequestTarget(value: string | undefined): string {
+  return value !== undefined && /^[A-Za-z0-9._:/-]{1,96}$/u.test(value) ? value : "unclassified";
 }
 
 function unauthorized(message: string, challenge = 'Bearer error="invalid_token"'): Response {

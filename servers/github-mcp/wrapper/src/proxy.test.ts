@@ -242,6 +242,127 @@ describe("GitHub MCP proxy wrapper", () => {
     expect(upstreamCalls).toBe(0);
   });
 
+  test("audits rejected request shapes, verbs, methods, and malformed tool calls", async () => {
+    const audit = new InMemoryAuditSink();
+    const taskIdentity: Hop1Identity = {
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [{ provider: "github", resource: "get_file_contents", action: "read" }],
+      }),
+    };
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(taskIdentity),
+      resolveGithubToken: () => Promise.resolve("provider-token"),
+      audit,
+      fetch: () => {
+        throw new Error("refused requests must not reach the upstream");
+      },
+    });
+
+    await handler(
+      new Request("http://wrapper/mcp", {
+        method: "GET",
+        headers: { authorization: "Bearer hop1-token" },
+      }),
+    );
+    await handler(
+      new Request("http://wrapper/mcp", {
+        method: "POST",
+        headers: { authorization: "Bearer hop1-token", "content-type": "application/json" },
+        body: "[]",
+      }),
+    );
+    await rpc(handler, { jsonrpc: "2.0", id: "missing-method" });
+    await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "method",
+      method: "resources/read",
+      params: { uri: "repo://example/readme" },
+    });
+    await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "tool-call",
+      method: "tools/call",
+      params: {},
+    });
+
+    expect(audit.events.map(({ event, tool, error }) => ({ event, tool, error }))).toEqual([
+      {
+        event: "mcp_request_refused",
+        tool: "http:GET",
+        error: "unsupported_http_method",
+      },
+      { event: "mcp_request_refused", tool: "request", error: "invalid_body" },
+      { event: "mcp_request_refused", tool: "request", error: "invalid_message" },
+      {
+        event: "mcp_request_refused",
+        tool: "resources/read",
+        error: "unsupported_mcp_method",
+      },
+      {
+        event: "mcp_request_refused",
+        tool: "tools/call",
+        error: "invalid_tool_call",
+      },
+    ]);
+  });
+
+  test("forwards tool calls rebuilt only from validated fields", async () => {
+    const taskIdentity: Hop1Identity = {
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [{ provider: "github", resource: "get_file_contents", action: "read" }],
+      }),
+    };
+    let forwarded: Record<string, unknown> | undefined;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      governanceCatalogId: GITHUB_MCP_CATALOG_ID,
+      githubToolsets: ["repos"],
+      authenticate: () => Promise.resolve(taskIdentity),
+      resolveGithubToken: () => Promise.resolve("provider-token"),
+      fetch: async (request) => {
+        forwarded = (await request.json()) as Record<string, unknown>;
+        return Response.json({ jsonrpc: "2.0", id: "canonical", result: { ok: true } });
+      },
+    });
+
+    const response = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "canonical",
+      method: "tools/call",
+      extension: "drop-root",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "example", repo: "demo", path: "README.md" },
+        extension: "drop-params",
+        _meta: { caller: "drop-meta" },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(forwarded).toEqual({
+      jsonrpc: "2.0",
+      id: "canonical",
+      method: "tools/call",
+      params: {
+        name: "get_file_contents",
+        arguments: { owner: "example", repo: "demo", path: "README.md" },
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+          "io.modelcontextprotocol/clientInfo": {
+            name: "github-mcp-wrapper",
+            version: "0.1.0",
+          },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    });
+  });
+
   test("keeps non-POST transport requests available to unrestricted callers", async () => {
     const forwardedMethods: string[] = [];
     const handler = createGithubMcpProxyHandler({
@@ -1019,6 +1140,47 @@ describe("GitHub MCP proxy wrapper", () => {
       "github_oauth_start",
       "actions_list",
     ]);
+  });
+
+  test("returns a stable error when an upstream tool list cannot be validated", async () => {
+    for (const upstream of [
+      { body: "not-json", contentType: "text/plain" },
+      {
+        body: JSON.stringify({ jsonrpc: "2.0", id: "list", result: {} }),
+        contentType: "application/json",
+      },
+      {
+        body: 'data: {"jsonrpc":"2.0","id":"list","result":{}}\n\n',
+        contentType: "text/event-stream",
+      },
+      {
+        body: 'data: {"jsonrpc":"2.0","id":"list","result":{"tools":[]}}\n\ndata: not-json\n\n',
+        contentType: "text/event-stream",
+      },
+    ]) {
+      const handler = createGithubMcpProxyHandler({
+        upstreamUrl: "http://github-mcp:8082/mcp",
+        authenticate: () => Promise.resolve(identity),
+        resolveGithubToken: () => Promise.resolve("provider-token"),
+        fetch: () =>
+          Promise.resolve(
+            new Response(upstream.body, { headers: { "content-type": upstream.contentType } }),
+          ),
+      });
+
+      const response = await rpc(handler, {
+        jsonrpc: "2.0",
+        id: "list",
+        method: "tools/list",
+        params: {},
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        jsonrpc: "2.0",
+        id: "list",
+        error: { code: -32000, message: "GitHub MCP tool discovery failed" },
+      });
+    }
   });
 
   test("rejects an empty request body before resolving GitHub credentials", async () => {
