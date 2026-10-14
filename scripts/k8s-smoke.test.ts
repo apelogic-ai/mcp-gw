@@ -62,6 +62,17 @@ exit 0
     expect(compatibility).toContain("<line>:<column>");
     expect(compatibility).toContain("diff -u");
     expect(compatibility).toContain("--kube-version 1.32.0");
+    expect(compatibility).toContain("normalize_release_coordinates");
+    expect(compatibility).toContain(
+      'git -C "$ROOT_DIR" archive "$BASE_REF" package.json deploy/k8s/chart deploy/k8s/examples',
+    );
+    expect(compatibility).toContain("Base package/chart/app versions must be exact SemVer values");
+    expect(compatibility).toContain("Head package/chart/app versions must be exact SemVer values");
+    expect(compatibility).toContain("Base package/chart/app versions must match");
+    expect(compatibility).toContain("Head package/chart/app versions must match");
+    expect(compatibility).toContain(
+      '"$BASE_TREE/deploy/k8s/chart/Chart.yaml" "$BASE_TREE"/deploy/k8s/examples/values-*.yaml',
+    );
     expect(compatibility).toContain("is_explicit_legacy_default_only");
     expect(compatibility).toContain(
       "'+            - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS'",

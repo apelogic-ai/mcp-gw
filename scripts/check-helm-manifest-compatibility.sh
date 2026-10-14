@@ -13,7 +13,71 @@ trap cleanup EXIT
 
 git -C "$ROOT_DIR" rev-parse --verify "$BASE_REF^{commit}" >/dev/null
 mkdir -p "$BASE_TREE"
-git -C "$ROOT_DIR" archive "$BASE_REF" deploy/k8s/chart deploy/k8s/examples | tar -x -C "$BASE_TREE"
+git -C "$ROOT_DIR" archive "$BASE_REF" package.json deploy/k8s/chart deploy/k8s/examples | tar -x -C "$BASE_TREE"
+
+package_version() {
+  sed -nE 's/^  "version": "([0-9]+\.[0-9]+\.[0-9]+)",$/\1/p' "$1"
+}
+
+chart_version() {
+  sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' "$1"
+}
+
+chart_app_version() {
+  sed -nE 's/^appVersion: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' "$1"
+}
+
+normalize_release_coordinates() {
+  local base_package_version
+  local base_chart_version
+  local base_app_version
+  local head_package_version
+  local head_chart_version
+  local head_app_version
+  base_package_version="$(package_version "$BASE_TREE/package.json")"
+  base_chart_version="$(chart_version "$BASE_TREE/deploy/k8s/chart/Chart.yaml")"
+  base_app_version="$(chart_app_version "$BASE_TREE/deploy/k8s/chart/Chart.yaml")"
+  head_package_version="$(package_version "$ROOT_DIR/package.json")"
+  head_chart_version="$(chart_version "$ROOT_DIR/deploy/k8s/chart/Chart.yaml")"
+  head_app_version="$(chart_app_version "$ROOT_DIR/deploy/k8s/chart/Chart.yaml")"
+
+  if [[ -z "$base_package_version" || -z "$base_chart_version" || -z "$base_app_version" ]]; then
+    echo "Base package/chart/app versions must be exact SemVer values" >&2
+    return 1
+  fi
+  if [[ -z "$head_package_version" || -z "$head_chart_version" || -z "$head_app_version" ]]; then
+    echo "Head package/chart/app versions must be exact SemVer values" >&2
+    return 1
+  fi
+  if ! [[ "$base_package_version" == "$base_chart_version" && "$base_package_version" == "$base_app_version" ]]; then
+    echo "Base package/chart/app versions must match before Helm compatibility comparison" >&2
+    return 1
+  fi
+  if ! [[ "$head_package_version" == "$head_chart_version" && "$head_package_version" == "$head_app_version" ]]; then
+    echo "Head package/chart/app versions must match before Helm compatibility comparison" >&2
+    return 1
+  fi
+  if [[ "$base_package_version" == "$head_package_version" ]]; then
+    return
+  fi
+
+  # This reader rewrites only coordinated release coordinates in the archived
+  # base. It prevents a version-only release from failing compatibility while
+  # leaving every other rendered manifest difference visible to the gate.
+  BASE_RELEASE_VERSION="$base_package_version" HEAD_RELEASE_VERSION="$head_package_version" perl -pi -e '
+    my $base = quotemeta $ENV{BASE_RELEASE_VERSION};
+    my $head = $ENV{HEAD_RELEASE_VERSION};
+    if ($ARGV =~ m{/Chart\.yaml$}) {
+      s/^version: $base$/version: $head/;
+      s/^appVersion: "$base"$/appVersion: "$head"/;
+    } else {
+      s/^(\s+tag:\s+"?)$base("?\s*)$/$1$head$2/;
+    }
+  ' "$BASE_TREE/deploy/k8s/chart/Chart.yaml" "$BASE_TREE"/deploy/k8s/examples/values-*.yaml
+  echo "Normalized release coordinates from $base_package_version to $head_package_version before Helm compatibility comparison"
+}
+
+normalize_release_coordinates
 
 render_case() {
   local chart_dir="$1"
