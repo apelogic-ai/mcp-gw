@@ -234,6 +234,17 @@ export function createGithubMcpProxyHandler(
       );
     }
     if (method?.method === "tools/list") {
+      const toolListBody = canonicalToolsListBody(body);
+      if (!toolListBody) {
+        await auditMcpRequestRefusal(
+          options.audit,
+          identity,
+          started,
+          "tools/list",
+          "invalid_tool_list",
+        );
+        return mcpError(method.id, -32600, "Invalid Request");
+      }
       if (taskAuthorization.restricted && !taskAuthorization.allowsConnectionHelpers) {
         return mcpResult(method.id, { tools: [] });
       }
@@ -249,7 +260,7 @@ export function createGithubMcpProxyHandler(
       }
       return handleToolsList(
         request,
-        body,
+        toolListBody,
         identity,
         method.id,
         options,
@@ -855,6 +866,34 @@ function parseToolCall(
         : classifyLegacyGithubToolAction(toolName),
     body: JSON.stringify(rewritten),
   };
+}
+
+function canonicalToolsListBody(body: string): string | undefined {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(payload) || payload.method !== "tools/list") {
+    return undefined;
+  }
+  if ("params" in payload && !isRecord(payload.params)) {
+    return undefined;
+  }
+
+  const cursor = isRecord(payload.params) ? payload.params.cursor : undefined;
+  if (cursor !== undefined && typeof cursor !== "string") {
+    return undefined;
+  }
+
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id: jsonRpcId(payload.id),
+    method: "tools/list",
+    params: typeof cursor === "string" ? { cursor } : {},
+  });
 }
 
 function singleJsonRpcObject(body: string): boolean {

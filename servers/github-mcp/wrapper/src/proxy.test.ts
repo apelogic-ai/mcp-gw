@@ -363,6 +363,56 @@ describe("GitHub MCP proxy wrapper", () => {
     });
   });
 
+  test("forwards tool listings rebuilt from the optional validated cursor", async () => {
+    let forwarded: Record<string, unknown> | undefined;
+    let forwardedHeaders: Headers | undefined;
+    const handler = createGithubMcpProxyHandler({
+      upstreamUrl: "http://github-mcp:8082/mcp",
+      authenticate: () => Promise.resolve(identity),
+      resolveGithubToken: () => Promise.resolve("provider-token"),
+      fetch: async (request) => {
+        forwarded = (await request.json()) as Record<string, unknown>;
+        forwardedHeaders = request.headers;
+        return Response.json({ jsonrpc: "2.0", id: "list", result: { tools: [] } });
+      },
+    });
+
+    const response = await rpc(handler, {
+      jsonrpc: "2.0",
+      id: "list",
+      method: "tools/list",
+      extension: "drop-root",
+      params: {
+        cursor: "next-page",
+        name: "drop-name",
+        arguments: { owner: "drop-argument-header" },
+        extension: "drop-params",
+        _meta: { caller: "drop-meta" },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(forwarded).toEqual({
+      jsonrpc: "2.0",
+      id: "list",
+      method: "tools/list",
+      params: {
+        cursor: "next-page",
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2025-06-18",
+          "io.modelcontextprotocol/clientInfo": {
+            name: "github-mcp-wrapper",
+            version: "0.1.0",
+          },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    });
+    expect(forwardedHeaders?.get("mcp-method")).toBe("tools/list");
+    expect(forwardedHeaders?.get("mcp-name")).toBeNull();
+    expect(forwardedHeaders?.get("mcp-param-owner")).toBeNull();
+  });
+
   test("keeps non-POST transport requests available to unrestricted callers", async () => {
     const forwardedMethods: string[] = [];
     const handler = createGithubMcpProxyHandler({

@@ -44,6 +44,9 @@ records the human-maintained compatibility summary.
   configured. Existing action-class policy rules can therefore decide affected tools differently.
   Mixed-action tools without a recognized selector are refused rather than assigned a fallback
   action.
+- The GitHub wrapper now answers `ping` directly. Forwarded GitHub tool calls retain validated
+  arguments but no longer include caller-supplied `_meta` values, including progress tokens, or
+  extra parameter keys.
 - Existing Google Workspace, GitHub, static generic-wrapper, Compose, and Helm values remain valid.
   A policy that explicitly matched a descriptor-driven OAuth start helper as a write action must
   match it as read after this release. Enabling Jira requires an Atlassian OAuth app, the documented
