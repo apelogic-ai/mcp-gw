@@ -18,6 +18,7 @@ import {
 } from "../../../packages/wrapper-kit/src/task-tool-authorization";
 import { listUpstreamCatalog, type CapturedUpstreamTool } from "./catalog-capture";
 import type { GenericUpstreamCredential } from "./credentials";
+import type { JiraRestToolExecutor } from "./jira-rest";
 import {
   isLiveToolCatalog,
   type GenericCatalogTool,
@@ -52,6 +53,7 @@ export interface CreateGenericMcpProxyHandlerOptions {
     credential: string,
   ): Promise<"valid" | "invalid" | "unavailable">;
   transport: GenericUpstreamTransport;
+  executeJiraRestTool?: JiraRestToolExecutor;
   policy?: ToolPolicy;
   audit?: AuditSink;
   oauth?: {
@@ -229,7 +231,11 @@ export function createGenericMcpProxyHandler(
       return taskToolDenied(message.id);
     }
     if (tool) {
-      message.arguments = effectiveToolArguments(options.descriptor, message.arguments);
+      message.arguments = effectiveToolArguments(
+        options.descriptor,
+        message.arguments,
+        options.executeJiraRestTool !== undefined,
+      );
     }
     if (oauthTool && options.oauth) {
       const decision = await policy.decide({
@@ -373,12 +379,26 @@ export function createGenericMcpProxyHandler(
       const upstreamBody = tool
         ? rewriteToolCall(body, tool.upstreamName, message.arguments)
         : body;
-      let upstream = await options.transport.send({
-        incomingRequest: request,
-        body: upstreamBody,
-        credential,
-        principalKey: principalKey(identity),
-      });
+      const send = async (): Promise<Response> => {
+        if (tool && options.executeJiraRestTool) {
+          if (!credential) {
+            throw new Error("Jira REST tool executor is unavailable");
+          }
+          return options.executeJiraRestTool({
+            id: message.id,
+            tool,
+            arguments: message.arguments,
+            credential,
+          });
+        }
+        return options.transport.send({
+          incomingRequest: request,
+          body: upstreamBody,
+          credential,
+          principalKey: principalKey(identity),
+        });
+      };
+      let upstream = await send();
       let responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
       if (isJiraProvider(options.descriptor)) {
         if (upstream.status === 401 && credential?.rawValue && options.recoverCredential) {
@@ -404,12 +424,7 @@ export function createGenericMcpProxyHandler(
                 options,
               );
             }
-            upstream = await options.transport.send({
-              incomingRequest: request,
-              body: upstreamBody,
-              credential,
-              principalKey: principalKey(identity),
-            });
+            upstream = await send();
             responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
           }
         }
@@ -444,12 +459,7 @@ export function createGenericMcpProxyHandler(
                   options,
                 );
               }
-              upstream = await options.transport.send({
-                incomingRequest: request,
-                body: upstreamBody,
-                credential,
-                principalKey: principalKey(identity),
-              });
+              upstream = await send();
               responseBody = await readBoundedText(upstream, MAX_UPSTREAM_RESPONSE_BYTES);
               opaqueFailure = atlassianOpaqueFailure(responseBody);
             }
@@ -747,12 +757,14 @@ function rewriteToolCall(
 function effectiveToolArguments(
   descriptor: GenericWrapperDescriptor,
   args: Record<string, unknown>,
+  jiraRest: boolean,
 ): Record<string, unknown> {
   const credential = descriptor.credential;
   if (
     credential.mode === "per_user_oauth" &&
     credential.providerId === "jira" &&
-    credential.identity.mode === "atlassian_jira_asserted_email"
+    credential.identity.mode === "atlassian_jira_asserted_email" &&
+    !jiraRest
   ) {
     return { ...args, cloudId: credential.identity.siteUrl };
   }

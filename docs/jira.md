@@ -164,7 +164,7 @@ exclude decision for each tool reviewed by this project. Included decisions
 carry the stable `jira_*` alias, action class, operation, and OAuth scopes; the
 file intentionally contains no Atlassian-owned description or input schema.
 
-At runtime, `tools/list` uses the caller's Jira credential to fetch every page
+For the full `jira` preset, `tools/list` uses the caller's Jira credential to fetch every page
 from the exact v2 `?tools=all` endpoint. MCP-GW intersects that live list with
 included decisions, applies stable aliases, removes the caller-controlled
 `cloudId` field, and returns the current upstream description and schema. A new
@@ -204,13 +204,13 @@ decisions whose upstream tool disappeared, and exits nonzero on either class of
 drift. It is a manual authenticated check rather than a scheduled public CI job
 because it requires a live per-user Jira credential.
 
-The chart points `catalog.preset: jira` at the decisions file bundled in the
-generic-wrapper image. `catalog.preset: jira-read-only` applies an action-class
-filter to the same file, needs no write scope, and rejects values that request
-`write:jira:agent-interface`. Write tools are absent from
-read-only discovery and direct calls fail as unknown tools before credential
-lookup or upstream access. Both presets require provider ID `jira`, tool prefix
-`jira`, and the exact Atlassian v2 `?tools=all` upstream.
+The chart points `catalog.preset: jira` at the live decisions file bundled in
+the generic-wrapper image. `catalog.preset: jira-read-only` instead uses a
+static three-tool catalog backed by Jira Cloud REST v3: current user, JQL issue
+search, and issue lookup. It requests only `read:jira-user`, `read:jira-work`,
+and `offline_access`. The other read aliases and all writes are absent, and
+direct calls fail before credential lookup or provider access. Both presets
+require provider ID `jira` and tool prefix `jira`.
 
 For a deny-by-default wrapper policy, an `actionClass: read` allow rule permits
 read/search tools and the `jira_oauth_status` and `jira_oauth_start` lifecycle

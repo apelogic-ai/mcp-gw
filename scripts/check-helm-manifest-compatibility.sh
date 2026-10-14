@@ -69,6 +69,30 @@ is_explicit_legacy_default_only() {
   [[ "$names" -gt 0 && "$names" -eq "$values" ]]
 }
 
+is_jira_read_only_rest_only() {
+  local diff_file="$1"
+  local old_catalog=0 new_catalog=0 filter=0 scopes=0 old_checksum=0 new_checksum=0 line
+  while IFS= read -r line; do
+    case "$line" in
+      '--- '*|'+++ '*|'@@ '*|' '*) ;;
+      '-    catalogPath: /app/servers/generic-wrapper/catalog/jira/decisions.yaml') old_catalog=$((old_catalog + 1)) ;;
+      '+    catalogPath: /app/servers/generic-wrapper/catalog/jira/read-only.yaml') new_catalog=$((new_catalog + 1)) ;;
+      '-    catalogFilter:'|'-      actionClasses: [read]') filter=$((filter + 1)) ;;
+      '-      - read:jira:agent-interface'|'-      - search:jira:agent-interface') scopes=$((scopes + 1)) ;;
+      '-        checksum/generic-wrapper-config: '*)
+        [[ "${line##*: }" =~ ^[0-9a-f]{64}$ ]] || return 1
+        old_checksum=$((old_checksum + 1))
+        ;;
+      '+        checksum/generic-wrapper-config: '*)
+        [[ "${line##*: }" =~ ^[0-9a-f]{64}$ ]] || return 1
+        new_checksum=$((new_checksum + 1))
+        ;;
+      *) return 1 ;;
+    esac
+  done <"$diff_file"
+  [[ "$old_catalog" -eq 1 && "$new_catalog" -eq 1 && "$filter" -eq 2 && "$scopes" -eq 2 && "$old_checksum" -eq 1 && "$new_checksum" -eq 1 ]]
+}
+
 normalize_required_jira_read_work_scope() {
   local base_values="$BASE_TREE/deploy/k8s/examples/values-jira.example.yaml"
   local head_values="$ROOT_DIR/deploy/k8s/examples/values-jira.example.yaml"
@@ -118,6 +142,8 @@ compare_case() {
     cat "$diff_file"
     if is_explicit_legacy_default_only "$diff_file"; then
       echo "Accepted explicit false Task-token compatibility setting for $name"
+    elif [[ "$name" == "values-jira.example" ]] && is_jira_read_only_rest_only "$diff_file"; then
+      echo "Accepted the exact Jira read-only REST preset manifest change for $name"
     else
       echo "Existing Helm manifest contract changed for $name" >&2
       return 1

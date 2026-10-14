@@ -803,13 +803,7 @@ describe("Kubernetes production chart", () => {
       tokenUrl: "https://auth.atlassian.com/oauth/token",
       userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
-      scopes: [
-        "read:jira-user",
-        "read:jira-work",
-        "read:jira:agent-interface",
-        "search:jira:agent-interface",
-        "offline_access",
-      ],
+      scopes: ["read:jira-user", "read:jira-work", "offline_access"],
       clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
       clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
       encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
@@ -858,28 +852,21 @@ describe("Kubernetes production chart", () => {
     const data = configObject?.data as Record<string, string> | undefined;
     const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
     const catalog = loadGenericToolSource(
-      "servers/generic-wrapper/catalog/jira/decisions.yaml",
+      "servers/generic-wrapper/catalog/jira/read-only.yaml",
       descriptor.toolPrefix,
-      descriptor.catalogFilter,
     );
 
     expect(descriptor.credential).toMatchObject({
-      scopes: [
-        "read:jira-user",
-        "read:jira-work",
-        "read:jira:agent-interface",
-        "search:jira:agent-interface",
-        "offline_access",
-      ],
+      scopes: ["read:jira-user", "read:jira-work", "offline_access"],
     });
-    expect(isLiveToolCatalog(catalog)).toBeTrue();
-    expect(catalog.catalogId).toBe("atlassian-rovo-v2-live");
-    expect(catalog.tools).toHaveLength(27);
-    expect(catalog.tools.map((tool) => tool.exposedName)).toContain("jira_get_current_user");
-    expect(catalog.tools.map((tool) => tool.exposedName)).toContain("jira_search_issues");
-    expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_create_issue");
-    expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_edit_issue");
-    expect(config).not.toContain("write:jira:agent-interface");
+    expect(isLiveToolCatalog(catalog)).toBeFalse();
+    expect(catalog.catalogId).toBe("jira-cloud-rest-v3-read-only");
+    expect(catalog.tools.map((tool) => tool.exposedName)).toEqual([
+      "jira_get_current_user",
+      "jira_search_issues",
+      "jira_get_issue",
+    ]);
+    expect(config).not.toContain("jira:agent-interface");
     expect(data).not.toHaveProperty("catalog.yaml");
 
     const missingMigrations = helmTemplateResult([
@@ -939,11 +926,10 @@ describe("Kubernetes production chart", () => {
     );
 
     expect(config).toContain(
-      "catalogPath: /app/servers/generic-wrapper/catalog/jira/decisions.yaml",
+      "catalogPath: /app/servers/generic-wrapper/catalog/jira/read-only.yaml",
     );
-    expect(config).toContain("actionClasses: [read]");
     expect(config).not.toContain("catalog.yaml");
-    expect(config).not.toContain("write:jira:agent-interface");
+    expect(config).not.toContain("jira:agent-interface");
     expect(config).not.toMatch(/^\s+- name: search$/m);
     expect(config).not.toContain("name: uploadAttachmentToJiraIssue");
     expect(config).toContain("id: allow-read-only");
