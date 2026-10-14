@@ -52,10 +52,8 @@ spec:
                 name: {{ .Values.googleWorkspace.secretRef.name }}
           {{- end }}
           env:
-            {{- if .Values.taskToolAuthorization.allowLegacyUnscopedTaskTokens }}
             - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS
-              value: "true"
-            {{- end }}
+              value: {{ .Values.taskToolAuthorization.allowLegacyUnscopedTaskTokens | quote }}
             {{- range .Values.googleWorkspace.secretRef.envKeys }}
             - name: {{ . }}
               valueFrom:

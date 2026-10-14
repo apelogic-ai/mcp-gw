@@ -62,6 +62,12 @@ exit 0
     expect(compatibility).toContain("<line>:<column>");
     expect(compatibility).toContain("diff -u");
     expect(compatibility).toContain("--kube-version 1.32.0");
+    expect(compatibility).toContain("is_explicit_legacy_default_only");
+    expect(compatibility).toContain(
+      "'+            - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS'",
+    );
+    expect(compatibility).toContain("'+              value: \"false\"'");
+    expect(compatibility).toContain('[[ "$names" -gt 0 && "$names" -eq "$values" ]]');
   });
 
   test("installs the chart and verifies unavailable issuers fail closed", async () => {

@@ -41,7 +41,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(manifestGoldenDigest(rendered)).toBe(
-      "1e2227d0283cd85962dee76de861cc1e6417ed6a0a9e401738499eec117215a8",
+      "929916bfe36635accecf019ebaa46cdce322a889ded4d5607735e35a380bdae4",
     );
   });
 
@@ -165,9 +165,12 @@ describe("Kubernetes production chart", () => {
       "deploy/k8s/examples/values-production-bundle.example.yaml",
     ]);
     for (const name of ["mcp-gateway-google-workspace", "mcp-gateway-github-wrapper"]) {
-      expect(renderedResource(production, "Deployment", name)).not.toContain(
-        "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
-      );
+      expect(
+        deploymentEnvValue(
+          renderedResource(production, "Deployment", name),
+          "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+        ),
+      ).toBe("false");
     }
 
     const optedOut = helmTemplate([
@@ -197,6 +200,14 @@ describe("Kubernetes production chart", () => {
       ),
     ).toBe("true");
 
+    const genericDefault = helmTemplate(genericWrapperArgs());
+    expect(
+      deploymentEnvValue(
+        renderedResource(genericDefault, "Deployment", "mcp-gateway-generic-wrapper-public-search"),
+        "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+      ),
+    ).toBe("false");
+
     const wrappedDb = helmTemplate([
       ...dbMcpWrappedArgs(),
       "--set",
@@ -208,6 +219,14 @@ describe("Kubernetes production chart", () => {
         "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
       ),
     ).toBe("true");
+
+    const wrappedDbDefault = helmTemplate(dbMcpWrappedArgs());
+    expect(
+      deploymentEnvValue(
+        renderedResource(wrappedDbDefault, "Deployment", "mcp-gateway-db-mcp"),
+        "MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS",
+      ),
+    ).toBe("false");
 
     const invalid = helmTemplateResult([
       "--set-string",

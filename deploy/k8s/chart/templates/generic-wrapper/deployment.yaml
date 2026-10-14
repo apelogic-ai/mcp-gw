@@ -50,10 +50,8 @@ spec:
           env:
             - name: PORT
               value: {{ .port | default 8080 | quote }}
-            {{- if $.Values.taskToolAuthorization.allowLegacyUnscopedTaskTokens }}
             - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS
-              value: "true"
-            {{- end }}
+              value: {{ $.Values.taskToolAuthorization.allowLegacyUnscopedTaskTokens | quote }}
             - name: GENERIC_WRAPPER_DESCRIPTOR_PATH
               value: /etc/mcp-gw/descriptor.yaml
             - name: HOP1_ISSUERS_JSON

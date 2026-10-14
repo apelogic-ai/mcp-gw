@@ -37,6 +37,38 @@ render_case() {
   } >"$output_file"
 }
 
+is_explicit_legacy_default_only() {
+  local diff_file="$1"
+  local names=0
+  local values=0
+  local line
+  local line_number=0
+
+  while IFS= read -r line; do
+    line_number=$((line_number + 1))
+    if [[ "$line_number" -eq 1 && "$line" == '--- '* ]]; then
+      continue
+    fi
+    if [[ "$line_number" -eq 2 && "$line" == '+++ '* ]]; then
+      continue
+    fi
+    case "$line" in
+      '@@ '*|' '*) ;;
+      '+            - name: MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS')
+        names=$((names + 1))
+        ;;
+      '+              value: "false"')
+        values=$((values + 1))
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done <"$diff_file"
+
+  [[ "$names" -gt 0 && "$names" -eq "$values" ]]
+}
+
 compare_case() {
   local name="$1"
   shift
@@ -58,10 +90,16 @@ compare_case() {
     render_case \
       "$ROOT_DIR/deploy/k8s/chart" "$TMP_DIR/$name.head.yaml" "$ROOT_DIR" "${head_values[@]}"
   fi
+  local diff_file="$TMP_DIR/$name.diff"
   if ! diff -u --label "$name ($BASE_REF)" --label "$name (HEAD)" \
-    "$TMP_DIR/$name.base.yaml" "$TMP_DIR/$name.head.yaml"; then
-    echo "Existing Helm manifest contract changed for $name" >&2
-    return 1
+    "$TMP_DIR/$name.base.yaml" "$TMP_DIR/$name.head.yaml" >"$diff_file"; then
+    cat "$diff_file"
+    if is_explicit_legacy_default_only "$diff_file"; then
+      echo "Accepted explicit false Task-token compatibility setting for $name"
+    else
+      echo "Existing Helm manifest contract changed for $name" >&2
+      return 1
+    fi
   fi
 }
 
@@ -75,4 +113,4 @@ compare_case \
   deploy/k8s/examples/values-oauth-broker.example.yaml \
   deploy/k8s/examples/values-gateway-api-broker.example.yaml
 
-echo "Existing Helm manifests match $BASE_REF for the default chart, every pre-existing values example, and documented layered overlays."
+echo "Existing Helm manifests satisfy the compatibility contract against $BASE_REF for the default chart, every pre-existing values example, and documented layered overlays."
