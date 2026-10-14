@@ -2,6 +2,8 @@
 
 interface Args {
   gatewayUrl: string;
+  githubWrapperUrl: string;
+  providerFixtureUrl: string;
   tokenFile: string;
 }
 
@@ -28,6 +30,31 @@ if (toolNames.includes(deniedGatewayName)) {
   throw new Error(`Task-unapproved tool ${deniedGatewayName} was exposed by the gateway`);
 }
 
+await connectGithub(`${approvedGatewayName.slice(0, -APPROVED_TOOL.length)}github_oauth_start`);
+
+const approvedPayload = await decodeRpcResponse(
+  await rpcRequest(
+    {
+      jsonrpc: "2.0",
+      id: "task-tool-approved",
+      method: "tools/call",
+      params: {
+        name: approvedGatewayName,
+        arguments: { owner: "example", repo: "fixture" },
+      },
+    },
+    sessionId,
+  ),
+);
+if (approvedPayload.error || approvedPayload.result?.isError === true) {
+  throw new Error(`Task-approved tool failed: ${JSON.stringify(approvedPayload)}`);
+}
+if (!JSON.stringify(approvedPayload).includes("Fixture commits")) {
+  throw new Error(
+    `Task-approved tool did not reach the fixture: ${JSON.stringify(approvedPayload)}`,
+  );
+}
+
 const deniedResponse = await rpcRequest(
   {
     jsonrpc: "2.0",
@@ -38,17 +65,76 @@ const deniedResponse = await rpcRequest(
   sessionId,
 );
 const deniedPayload = await decodeRpcResponse(deniedResponse);
-if (
-  deniedResponse.status !== 500 ||
-  deniedPayload.error?.code !== -32603 ||
-  !deniedPayload.error.message?.toLowerCase().includes("unknown tool")
-) {
+const taskDenied =
+  deniedResponse.status === 200 &&
+  deniedPayload.result?.isError === true &&
+  isRecord(deniedPayload.result.structuredContent) &&
+  deniedPayload.result.structuredContent.error === "task_tool_not_approved";
+const gatewayDenied =
+  deniedResponse.status === 500 &&
+  deniedPayload.error?.code === -32603 &&
+  deniedPayload.error.message?.toLowerCase().includes("unknown tool") === true;
+if (!taskDenied && !gatewayDenied) {
   throw new Error(
-    `Expected gateway unknown-tool refusal for ${deniedGatewayName}; received HTTP ${String(deniedResponse.status)} ${JSON.stringify(deniedPayload)}`,
+    `Expected Task-tool refusal for ${deniedGatewayName}; received HTTP ${String(deniedResponse.status)} ${JSON.stringify(deniedPayload)}`,
   );
 }
 
-console.log("Task-unapproved provider tool was refused by the gateway.");
+const providerCallsResponse = await fetch(`${args.providerFixtureUrl}/github-mcp/calls`);
+if (!providerCallsResponse.ok) {
+  throw new Error(`Provider fixture call log failed (${String(providerCallsResponse.status)})`);
+}
+const providerCalls = (await providerCallsResponse.json()) as { tools?: unknown };
+if (
+  !Array.isArray(providerCalls.tools) ||
+  providerCalls.tools.length !== 1 ||
+  providerCalls.tools[0] !== APPROVED_TOOL
+) {
+  throw new Error(
+    `Provider fixture received unexpected tool calls: ${JSON.stringify(providerCalls.tools)}`,
+  );
+}
+
+console.log("Task-approved tool succeeded and the unapproved tool was refused before upstream.");
+
+async function connectGithub(oauthStartTool: string): Promise<void> {
+  const startPayload = await decodeRpcResponse(
+    await rpcRequest(
+      {
+        jsonrpc: "2.0",
+        id: "task-tool-oauth-start",
+        method: "tools/call",
+        params: { name: oauthStartTool, arguments: {} },
+      },
+      sessionId,
+    ),
+  );
+  const content = startPayload.result?.content;
+  const text = Array.isArray(content)
+    ? content.find(
+        (item) => isRecord(item) && item.type === "text" && typeof item.text === "string",
+      )
+    : undefined;
+  if (!isRecord(text) || typeof text.text !== "string") {
+    throw new Error(`GitHub OAuth start returned no text result: ${JSON.stringify(startPayload)}`);
+  }
+  const start = JSON.parse(text.text) as { authorizationUrl?: unknown };
+  if (typeof start.authorizationUrl !== "string") {
+    throw new Error(`GitHub OAuth start returned no authorization URL: ${text.text}`);
+  }
+  const state = new URL(start.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("GitHub OAuth authorization URL contained no state");
+
+  const callback = new URL("/oauth/github/callback", args.githubWrapperUrl);
+  callback.searchParams.set("code", "fixture-code");
+  callback.searchParams.set("state", state);
+  const response = await fetch(callback, { redirect: "manual" });
+  if (!response.ok) {
+    throw new Error(
+      `GitHub OAuth callback failed (${String(response.status)}): ${await response.text()}`,
+    );
+  }
+}
 
 async function createSession(): Promise<string> {
   const response = await rpcRequest(
@@ -131,6 +217,8 @@ function parseArgs(argv: string[]): Args {
   }
   return {
     gatewayUrl: required(values, "gateway-url"),
+    githubWrapperUrl: required(values, "github-wrapper-url"),
+    providerFixtureUrl: required(values, "provider-fixture-url"),
     tokenFile: required(values, "token-file"),
   };
 }

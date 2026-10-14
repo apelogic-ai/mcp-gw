@@ -8,6 +8,7 @@ const githubScopes = process.env.FIXTURE_GITHUB_SCOPES ?? "repo read:org";
 const GOOGLE_ACCESS_TOKEN = "fixture-google-provider-token";
 const GOOGLE_REFRESH_TOKEN = "fixture-google-refresh-token";
 const GITHUB_ACCESS_TOKEN = "fixture-github-provider-token";
+const githubMcpToolCalls: string[] = [];
 
 Bun.serve({
   port,
@@ -87,6 +88,10 @@ Bun.serve({
         : Response.json({ error: "invalid_token" }, { status: 400 });
     }
 
+    if (request.method === "GET" && url.pathname === "/github-mcp/calls") {
+      return Response.json({ tools: githubMcpToolCalls });
+    }
+
     if (request.method === "POST" && url.pathname === "/github-mcp") {
       return requireProviderToken(request, GITHUB_ACCESS_TOKEN, async () => {
         const payload = (await request.json()) as Record<string, unknown>;
@@ -116,6 +121,20 @@ Bun.serve({
                 },
                 annotations: { readOnlyHint: true, idempotentHint: false },
               },
+              {
+                name: "list_commits",
+                description: "List fixture commits without external side effects.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    owner: { type: "string" },
+                    repo: { type: "string" },
+                  },
+                  required: ["owner", "repo"],
+                  additionalProperties: false,
+                },
+                annotations: { readOnlyHint: true, idempotentHint: false },
+              },
             ],
           });
         }
@@ -125,11 +144,26 @@ Bun.serve({
         if (payload.method === "resources/list") {
           return rpcResult(id, { resources: [] });
         }
-        if (
-          payload.method === "tools/call" &&
-          isRecord(payload.params) &&
-          payload.params.name === "get_file_contents"
-        ) {
+        if (payload.method === "tools/call" && isRecord(payload.params)) {
+          const toolName = payload.params.name;
+          if (typeof toolName !== "string") {
+            return Response.json(
+              { jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid params" } },
+              { status: 400 },
+            );
+          }
+          githubMcpToolCalls.push(toolName);
+          if (toolName === "list_commits") {
+            return rpcResult(id, {
+              content: [{ type: "text", text: "Fixture commits" }],
+            });
+          }
+          if (toolName !== "get_file_contents") {
+            return Response.json(
+              { jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" } },
+              { status: 404 },
+            );
+          }
           return rpcResult(id, {
             content: [
               {

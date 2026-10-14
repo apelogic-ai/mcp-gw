@@ -10,6 +10,7 @@ JWKS_PORT="${JWKS_PORT:-38080}"
 BROKER_JWKS_PORT="${BROKER_JWKS_PORT:-38082}"
 GOOGLE_WRAPPER_PORT="${GOOGLE_WRAPPER_PORT:-38083}"
 GITHUB_WRAPPER_PORT="${GITHUB_WRAPPER_PORT:-38085}"
+GITHUB_FIXTURE_PORT="${GITHUB_FIXTURE_PORT:-38086}"
 GOOGLE_OIDC_PORT="${GOOGLE_OIDC_PORT:-38084}"
 GATEWAY_PORT="${GATEWAY_PORT:-38081}"
 TOKEN_STORE_PORT="${TOKEN_STORE_PORT:-35432}"
@@ -20,6 +21,7 @@ BROKER_ISSUER="${BROKER_ISSUER_INPUT%/}"
 BROKER_FIXTURE_BASE_URL="http://127.0.0.1:$BROKER_JWKS_PORT"
 BROKER_BASE_URL="http://127.0.0.1:$GOOGLE_WRAPPER_PORT/oauth"
 GOOGLE_OIDC_FIXTURE_BASE_URL="http://127.0.0.1:$GOOGLE_OIDC_PORT"
+GITHUB_FIXTURE_BASE_URL="http://127.0.0.1:$GITHUB_FIXTURE_PORT"
 AUDIENCE="https://mcp.example.com/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
 BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"
@@ -57,6 +59,9 @@ cleanup() {
   if [[ -n "${GOOGLE_OIDC_FIXTURE_PID:-}" ]]; then
     kill "$GOOGLE_OIDC_FIXTURE_PID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${GITHUB_FIXTURE_PID:-}" ]]; then
+    kill "$GITHUB_FIXTURE_PID" >/dev/null 2>&1 || true
+  fi
   if [[ "${KEEP_LOCAL_INTEGRATION:-0}" != "1" ]]; then
     chmod 700 "$BROKER_SIGNING_JWKS_DIR" >/dev/null 2>&1 || true
     rm -f "$BROKER_SIGNING_JWKS_FILE"
@@ -89,6 +94,12 @@ PORT="$GOOGLE_OIDC_PORT" bun "$ROOT_DIR/scripts/fixtures/google-oidc-fixture.ts"
   >"$WORK_DIR/google-oidc-fixture.log" 2>&1 &
 GOOGLE_OIDC_FIXTURE_PID=$!
 
+if [[ "$INCLUDE_GITHUB" == "1" ]]; then
+  PORT="$GITHUB_FIXTURE_PORT" bun "$ROOT_DIR/scripts/fixtures/provider-fixture.ts" \
+    >"$WORK_DIR/github-provider-fixture.log" 2>&1 &
+  GITHUB_FIXTURE_PID=$!
+fi
+
 broker_signing_jwks_ready() {
   [[ -s "$BROKER_SIGNING_JWKS_FILE" ]] && \
     BROKER_SIGNING_JWKS_FILE="$BROKER_SIGNING_JWKS_FILE" bun -e '
@@ -102,7 +113,9 @@ for _ in {1..30}; do
     broker_signing_jwks_ready && \
     curl -sS "$FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
     curl -sS "$BROKER_FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
-    curl -sS "$GOOGLE_OIDC_FIXTURE_BASE_URL/health" >/dev/null 2>&1; then
+    curl -sS "$GOOGLE_OIDC_FIXTURE_BASE_URL/health" >/dev/null 2>&1 && \
+    { [[ "$INCLUDE_GITHUB" != "1" ]] || \
+      curl -sS "$GITHUB_FIXTURE_BASE_URL/health" >/dev/null 2>&1; }; then
     break
   fi
   sleep 1
@@ -162,6 +175,7 @@ GITHUB_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 GITHUB_OAUTH_CLIENT_ID=local-github-client
 GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
 GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
+GITHUB_FIXTURE_PORT=$GITHUB_FIXTURE_PORT
 GITHUB_SMOKE_HOP1_ISSUERS_JSON=[{"name":"local","issuer":"$ISSUER","jwksUrl":"$ISSUER/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"mail","subjectClaim":"oid"},{"name":"broker","issuer":"$BROKER_ISSUER","jwksUrl":"http://host.docker.internal:$BROKER_JWKS_PORT/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"}]
 ENV
 
@@ -350,6 +364,8 @@ for _ in {1..60}; do
     if [[ "$INCLUDE_GITHUB" == "1" ]]; then
       bun "$ROOT_DIR/scripts/fixtures/task-tool-refusal-client.ts" \
         --gateway-url "http://127.0.0.1:$GATEWAY_PORT/mcp" \
+        --github-wrapper-url "http://127.0.0.1:$GITHUB_WRAPPER_PORT" \
+        --provider-fixture-url "$GITHUB_FIXTURE_BASE_URL" \
         --token-file "$TOKEN_FILE"
     fi
     BROKER_JOURNEY_ARGS=(

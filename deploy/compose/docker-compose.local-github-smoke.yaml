@@ -9,4 +9,10 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
+      GITHUB_MCP_GOVERNANCE_CATALOG: github-mcp-server@1.6.0/all
+      GITHUB_MCP_UPSTREAM_URL: http://host.docker.internal:${GITHUB_FIXTURE_PORT:-38086}/github-mcp
+      GITHUB_OAUTH_AUTHORIZATION_URL: http://127.0.0.1:${GITHUB_FIXTURE_PORT:-38086}/github/authorize
+      GITHUB_OAUTH_TOKEN_URL: http://host.docker.internal:${GITHUB_FIXTURE_PORT:-38086}/github/token
+      GITHUB_OAUTH_USER_EMAILS_URL: http://host.docker.internal:${GITHUB_FIXTURE_PORT:-38086}/github/emails
+      GITHUB_OAUTH_USER_URL: http://host.docker.internal:${GITHUB_FIXTURE_PORT:-38086}/github/user
       HOP1_ISSUERS_JSON: ${GITHUB_SMOKE_HOP1_ISSUERS_JSON}
