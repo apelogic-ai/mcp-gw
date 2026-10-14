@@ -1,0 +1,98 @@
+# Generic per-user OAuth wrapper whose token-store migrations are applied by
+# the operator before upgrade instead of by this chart's migration hook.
+hop1:
+  issuers:
+    - name: workforce
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+
+agentgateway:
+  enabled: true
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
+    tag: ""
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  mcpAuthentication:
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+  backends: []
+
+connectionLifecycle:
+  enabled: true
+  allowedCallers:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: gateway-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: public-gateway
+
+# The existing database has already received the bundled forward-only
+# migrations through an environment-owned migration process.
+oauthMigrations:
+  enabled: false
+
+wrappers:
+  - name: hosted-search
+    enabled: true
+    image:
+      repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
+      tag: ""
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    toolPrefix: hosted_search
+    lifecycleRoutes: true
+    upstream:
+      transport: http
+      url: https://mcp.search-provider.example/mcp
+    credential:
+      mode: per_user_oauth
+      providerId: search-provider
+      authorizationUrl: https://identity.example.com/oauth/authorize
+      tokenUrl: https://identity.example.com/oauth/token
+      userInfoUrl: https://identity.example.com/oauth/userinfo
+      revocationUrl: https://identity.example.com/oauth/revoke
+      redirectUri: https://mcp.example.com/oauth/search-provider/callback
+      scopes:
+        - search.read
+      clientIdEnv: SEARCH_OAUTH_CLIENT_ID
+      clientSecretEnv: SEARCH_OAUTH_CLIENT_SECRET
+      encryptionKeyEnv: SEARCH_TOKEN_ENCRYPTION_KEY
+      tokenStoreDsnEnv: TOKEN_STORE_DSN
+      identity:
+        idField: sub
+        emailField: email
+        emailVerifiedField: email_verified
+    secretRef:
+      name: hosted-search-oauth
+      envKeys:
+        - SEARCH_OAUTH_CLIENT_ID
+        - SEARCH_OAUTH_CLIENT_SECRET
+        - SEARCH_TOKEN_ENCRYPTION_KEY
+        - TOKEN_STORE_DSN
+    serverInfo:
+      name: hosted-search-wrapper
+      version: "1.0.0"
+    catalog:
+      catalogId: hosted-search@1
+      tools:
+        - name: query
+          description: Search indexed documents.
+          inputSchema:
+            type: object
+            properties:
+              query:
+                type: string
+            required:
+              - query
+            additionalProperties: false
+          annotations:
+            readOnlyHint: true
+          grants:
+            actionClass: read
+            operation: search.query
+            scopes:
+              - search.read

@@ -730,9 +730,23 @@ function isJiraProvider(descriptor: GenericWrapperDescriptor): boolean {
 }
 
 function atlassianOpaqueFailure(body: string): "transient" | "access_verification" | undefined {
-  const normalized = body.toLowerCase();
-  if (normalized.includes("we are having trouble completing this action")) return "transient";
-  if (normalized.includes("we couldn't verify your access")) return "access_verification";
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(body) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(envelope) || !isRecord(envelope.result) || envelope.result.isError !== true) {
+    return undefined;
+  }
+  const content = envelope.result.content;
+  if (!Array.isArray(content)) return undefined;
+  for (const item of content) {
+    if (!isRecord(item) || item.type !== "text" || typeof item.text !== "string") continue;
+    const normalized = item.text.trimStart().toLowerCase();
+    if (normalized.startsWith("we are having trouble completing this action")) return "transient";
+    if (normalized.startsWith("we couldn't verify your access")) return "access_verification";
+  }
   return undefined;
 }
 

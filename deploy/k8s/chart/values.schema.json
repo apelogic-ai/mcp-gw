@@ -454,7 +454,7 @@
             "revocationUrl": { "type": "string", "pattern": "^https://[^#]+$" },
             "redirectUri": {
               "type": "string",
-              "pattern": "^(?:https://[^#]+|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?/[^#]*)$"
+              "pattern": "^(?:https://[^#]+|http://(?:127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?/[^#]*)$"
             },
             "scopes": {
               "type": "array",

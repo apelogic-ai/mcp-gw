@@ -153,6 +153,8 @@
 {{- $requiredScopes := list "read:jira:agent-interface" "search:jira:agent-interface" }}
 {{- if eq $catalogPreset "jira" }}
 {{- $requiredScopes = append $requiredScopes "write:jira:agent-interface" }}
+{{- else if has "write:jira:agent-interface" $wrapper.credential.scopes }}
+{{- fail "Jira jira-read-only preset must not request OAuth consent scope write:jira:agent-interface" }}
 {{- end }}
 {{- range $scope := $requiredScopes }}
 {{- if not (has $scope $wrapper.credential.scopes) }}
@@ -200,8 +202,8 @@
 {{- if and (eq $wrapper.credential.mode "per_user_oauth") (not $.Values.connectionLifecycle.enabled) }}
 {{- fail "enabled per-user OAuth wrappers require connectionLifecycle.enabled=true and an allowed callback ingress caller" }}
 {{- end }}
-{{- if and (eq $wrapper.credential.mode "per_user_oauth") (not $.Values.oauthMigrations.enabled) }}
-{{- fail "enabled per-user OAuth wrappers require oauthMigrations.enabled=true" }}
+{{- if and $jiraPreset (not $.Values.oauthMigrations.enabled) }}
+{{- fail "Jira catalog presets require oauthMigrations.enabled=true" }}
 {{- end }}
 {{- $secretKeys := $wrapperSecretRef.envKeys | default (list) }}
 {{- $extraEnvNames := list }}

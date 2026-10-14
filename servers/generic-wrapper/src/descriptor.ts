@@ -881,10 +881,7 @@ function httpsOrLoopbackUrl(value: unknown, name: string): string {
   const url = new URL(result);
   if (
     url.protocol !== "https:" &&
-    !(
-      url.protocol === "http:" &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1")
-    )
+    !(url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "::1"))
   ) {
     throw new Error(`${name} must use HTTPS or explicit loopback HTTP`);
   }

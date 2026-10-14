@@ -182,8 +182,9 @@ JQL search is distinct from generic Rovo search. It is governed by
 alias. Included writes are classified as `write`.
 
 Live discovery is deliberately not cached. Each `tools/list` obtains a complete
-fresh set, so a prior successful response is never served after the upstream
-fails or changes. If the caller is not connected, the response contains only
+fresh set and therefore consumes provider request quota, so clients should not
+poll discovery unnecessarily. A prior successful response is never served after
+the upstream fails or changes. If the caller is not connected, the response contains only
 `jira_oauth_status` and `jira_oauth_start` plus a sanitized authorization
 status in `_meta`. If upstream discovery fails or times out, it contains only
 those helpers plus `Upstream tool discovery is unavailable`; provider bodies
@@ -202,7 +203,8 @@ because it requires a live per-user Jira credential.
 
 The chart points `catalog.preset: jira` at the decisions file bundled in the
 generic-wrapper image. `catalog.preset: jira-read-only` applies an action-class
-filter to the same file and needs no write scope. Write tools are absent from
+filter to the same file, needs no write scope, and rejects values that request
+`write:jira:agent-interface`. Write tools are absent from
 read-only discovery and direct calls fail as unknown tools before credential
 lookup or upstream access. Both presets require provider ID `jira`, tool prefix
 `jira`, and the exact Atlassian v2 `?tools=all` upstream.

@@ -225,6 +225,16 @@ describe("generic wrapper descriptor", () => {
         siteUrl: "https://example.atlassian.net",
       },
     });
+    expect(() =>
+      parseGenericWrapperDescriptor({
+        ...baseDescriptor,
+        lifecycleRoutes: true,
+        credential: {
+          ...parsed.credential,
+          redirectUri: "http://localhost:28080/oauth/jira/callback",
+        },
+      }),
+    ).toThrow("explicit loopback HTTP");
   });
 
   test("pins the Atlassian asserted-email mode to provider jira and its first-party resource API", () => {

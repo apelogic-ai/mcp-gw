@@ -526,12 +526,6 @@ describe("Kubernetes production chart", () => {
         expected: "per-user OAuth wrappers require connectionLifecycle.enabled=true",
       },
       {
-        label: "missing OAuth migrations",
-        wrappers: [first],
-        extraArgs: lifecycleCallerArgs(false),
-        expected: "per-user OAuth wrappers require oauthMigrations.enabled=true",
-      },
-      {
         label: "tool scope omitted from consent",
         wrappers: [unavailableScope],
         extraArgs: lifecycleCallerArgs(),
@@ -571,6 +565,19 @@ describe("Kubernetes production chart", () => {
     expect(policy).toContain("app.kubernetes.io/name: public-gateway");
     expect(rendered).not.toContain("kind: HTTPRoute");
     expect(rendered).not.toContain("kind: Ingress");
+  });
+
+  test("renders a generic per-user OAuth wrapper when migrations are applied separately", () => {
+    const wrapper = genericOAuthWrapper("search-one", "search_one", "search-provider");
+    const rendered = helmTemplate([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(false),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+
+    expect(rendered).toContain("mcp-gateway-generic-wrapper-search-one");
+    expect(rendered).not.toContain("kind: Job");
   });
 
   test("renders the Jira asserted-identity contract with a loopback callback and stable alias", () => {
@@ -773,6 +780,40 @@ describe("Kubernetes production chart", () => {
     expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_edit_issue");
     expect(config).not.toContain("write:jira:agent-interface");
     expect(data).not.toHaveProperty("catalog.yaml");
+
+    const missingMigrations = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(false),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    assertHelmRejected(missingMigrations);
+    expect(missingMigrations.stderr.toString()).toContain(
+      "Jira catalog presets require oauthMigrations.enabled=true",
+    );
+
+    const credential = wrapper.credential as { scopes: string[] };
+    credential.scopes.push("write:jira:agent-interface");
+    const excessiveAuthority = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    assertHelmRejected(excessiveAuthority);
+    expect(excessiveAuthority.stderr.toString()).toContain(
+      "Jira jira-read-only preset must not request OAuth consent scope write:jira:agent-interface",
+    );
+  });
+
+  test("renders the generic per-user OAuth example with externally applied migrations", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-generic-oauth-existing-migrations.example.yaml",
+    ]);
+
+    expect(rendered).toContain("mcp-gateway-generic-wrapper-hosted-search");
+    expect(rendered).not.toContain("kind: Job");
   });
 
   test("renders the opt-in Jira values example with the governed catalog", () => {
@@ -3685,6 +3726,7 @@ async function readAllExampleFiles(): Promise<Map<string, string>> {
     "values-enterprise-contract.example.yaml",
     "values-github-mcp.example.yaml",
     "values-generic-wrappers.example.yaml",
+    "values-generic-oauth-existing-migrations.example.yaml",
     "values-jira.example.yaml",
     "values-db-mcp-wrapped.example.yaml",
     "values-google-policy.example.yaml",

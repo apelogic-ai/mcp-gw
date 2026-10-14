@@ -625,6 +625,55 @@ describe("generic MCP proxy", () => {
     });
   });
 
+  test("preserves a successful result that quotes Atlassian's opaque error text", async () => {
+    let validations = 0;
+    const providerResult = {
+      jsonrpc: "2.0",
+      id: 24,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "The issue says: We are having trouble completing this action",
+          },
+        ],
+      },
+    };
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession(sessionId, principalKey) {
+        void sessionId;
+        void principalKey;
+      },
+      send: () => Promise.resolve(Response.json(providerResult)),
+    };
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport,
+      resolveCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        }),
+      validateCredential: () => {
+        validations += 1;
+        return Promise.resolve("valid");
+      },
+    });
+
+    const response = await proxy(
+      mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 24),
+    );
+
+    expect(validations).toBe(0);
+    expect(await response.json()).toEqual(providerResult);
+  });
+
   test("classifies Atlassian's access-verification error as permission denied for a valid credential", async () => {
     let validations = 0;
     const transport: GenericUpstreamTransport = {
