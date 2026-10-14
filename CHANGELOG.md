@@ -40,6 +40,10 @@ records the human-maintained compatibility summary.
 - Task-approved-tool enforcement is owned by the wrappers, not AgentGateway. Route GitHub through
   the enabled GitHub wrapper, and enable `dbMcp.wrapper.enabled=true` before exposing db-mcp to Task
   tokens. Any other direct/unwrapped backend must enforce the Task approval contract itself.
+- Pinned GitHub tools now use their published action classes even when no governance catalog is
+  configured. Existing action-class policy rules can therefore decide affected tools differently.
+  Mixed-action tools without a recognized selector are refused rather than assigned a fallback
+  action.
 - Existing Google Workspace, GitHub, static generic-wrapper, Compose, and Helm values remain valid.
   A policy that explicitly matched a descriptor-driven OAuth start helper as a write action must
   match it as read after this release. Enabling Jira requires an Atlassian OAuth app, the documented
