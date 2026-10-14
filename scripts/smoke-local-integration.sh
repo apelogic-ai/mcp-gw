@@ -70,6 +70,7 @@ bun "$ROOT_DIR/scripts/fixtures/hop1-fixture.ts" \
   --issuer "$ISSUER" \
   --audience "$AUDIENCE" \
   --token-file "$TOKEN_FILE" \
+  --claims-file "$ROOT_DIR/test/fixtures/task-authority-hop1-v3.json" \
   --email-claim "mail" \
   --subject-claim "oid" \
   >"$WORK_DIR/hop1-fixture.log" 2>&1 &
@@ -346,6 +347,11 @@ for _ in {1..60}; do
   fi
 
   if [[ "$http_code" == "200" ]] && has_expected_tools; then
+    if [[ "$INCLUDE_GITHUB" == "1" ]]; then
+      bun "$ROOT_DIR/scripts/fixtures/task-tool-refusal-client.ts" \
+        --gateway-url "http://127.0.0.1:$GATEWAY_PORT/mcp" \
+        --token-file "$TOKEN_FILE"
+    fi
     BROKER_JOURNEY_ARGS=(
       --broker-base-url "$BROKER_BASE_URL"
       --expected-data-tools "$EXPECTED_DATA_TOOLS_CSV"

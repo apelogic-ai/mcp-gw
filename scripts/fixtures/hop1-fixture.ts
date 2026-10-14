@@ -10,6 +10,7 @@ interface Args {
   issuer: string;
   audience: string;
   tokenFile: string;
+  claimsFile?: string;
   signingJwksFile?: string;
   email: string;
   emailClaim: string;
@@ -18,6 +19,7 @@ interface Args {
 }
 
 const args = parseArgs(process.argv.slice(2));
+const fixtureClaims = await readFixtureClaims(args.claimsFile);
 const keyPair = await generateKeyPair("RS256", { extractable: true });
 const wrongAlgorithmKeyPair = await generateKeyPair("ES256", { extractable: true });
 const invalidKeyPair = await generateKeyPair("RS256");
@@ -125,7 +127,10 @@ interface TokenOverrides {
 }
 
 async function signToken(overrides: TokenOverrides): Promise<string> {
-  const customClaims: Record<string, string> = { [args.emailClaim]: args.email };
+  const customClaims: Record<string, unknown> = {
+    ...fixtureClaims,
+    [args.emailClaim]: args.email,
+  };
   if (args.subjectClaim !== "sub") {
     customClaims[args.subjectClaim] = "local-hop1-user";
   }
@@ -161,12 +166,28 @@ function parseArgs(argv: string[]): Args {
     issuer: required(values, "issuer"),
     audience: required(values, "audience"),
     tokenFile: required(values, "token-file"),
+    claimsFile: values.get("claims-file"),
     signingJwksFile: values.get("signing-jwks-file"),
     email: values.get("email") ?? "local.user@example.com",
     emailClaim: values.get("email-claim") ?? "email",
     subjectClaim: values.get("subject-claim") ?? "sub",
     kid: values.get("kid") ?? "local-hop1",
   };
+}
+
+async function readFixtureClaims(path: string | undefined): Promise<Record<string, unknown>> {
+  if (!path) return {};
+
+  const value = (await Bun.file(path).json()) as unknown;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("--claims-file must contain a JSON object");
+  }
+
+  const claims = { ...(value as Record<string, unknown>) };
+  for (const registeredClaim of ["iss", "aud", "sub", "jti", "iat", "nbf", "exp"]) {
+    delete claims[registeredClaim];
+  }
+  return claims;
 }
 
 function required(values: Map<string, string>, key: string): string {

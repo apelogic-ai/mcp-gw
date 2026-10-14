@@ -77,6 +77,7 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain("HOP1_SUBJECT_CLAIM=oid");
     expect(smoke).toContain('--email-claim "mail"');
     expect(smoke).toContain('--subject-claim "oid"');
+    expect(smoke).toContain('--claims-file "$ROOT_DIR/test/fixtures/task-authority-hop1-v3.json"');
     expect(smoke).toContain('"emailClaim":"mail","subjectClaim":"oid"');
     expect(smoke).toContain('"emailClaim":"email","subjectClaim":"sub"');
     expect(smoke).toContain(
@@ -125,6 +126,13 @@ describe("local Docker integration smoke", () => {
     expect(smoke).toContain('BROKER_ISSUER="${BROKER_ISSUER_INPUT%/}"');
     expect(smoke).toContain("MCP_AUTHORIZATION_ISSUER=$BROKER_ISSUER_INPUT");
     expect(smoke).toContain("broker-journey-client.ts");
+    expect(smoke).toContain("task-tool-refusal-client.ts");
+    const refusalClient = await readFile("scripts/fixtures/task-tool-refusal-client.ts", "utf8");
+    expect(refusalClient).toContain('const APPROVED_TOOL = "list_commits"');
+    expect(refusalClient).toContain('const DENIED_TOOL = "actions_get"');
+    expect(refusalClient).toContain("deniedResponse.status !== 500");
+    expect(refusalClient).toContain("deniedPayload.error?.code !== -32603");
+    expect(refusalClient).toContain('includes("unknown tool")');
     expect(await readFile("scripts/fixtures/broker-journey-client.ts", "utf8")).toContain(
       '"mail" in claims || "oid" in claims',
     );
