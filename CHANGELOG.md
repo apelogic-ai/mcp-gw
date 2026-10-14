@@ -19,10 +19,12 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
-- Serve the `jira-read-only` preset's current-user, issue-search, and issue-get tools through Jira
-  Cloud REST with classic read scopes.
-- Request Atlassian's classic `read:jira-work` scope for Jira because hosted MCP data calls require
-  it in addition to the agent-interface scopes.
+- Serve only current-user, issue-search, and issue-get tools in the `jira-read-only` preset through
+  the Jira Cloud REST API. It requests exactly `read:jira-user`, `read:jira-work`, and
+  `offline_access`, with no agent-interface scopes. The full `jira` preset stays on Atlassian's
+  hosted MCP service.
+- Request Atlassian's classic `read:jira-work` scope for the full `jira` preset because hosted MCP
+  data calls require it in addition to the agent-interface scopes.
 - Limit Task tool calls to the exact provider actions approved for that Task. Provider sign-in and
   status helpers remain available so users and agents can establish and inspect connections.
 - Build each Jira tool list from Atlassian's current response and MCP-GW's reviewed decisions. New
@@ -54,8 +56,11 @@ records the human-maintained compatibility summary.
 - Existing Google Workspace, GitHub, custom-wrapper, Compose, and Helm settings remain valid. A
   policy that treated a generic provider's sign-in helper as a write action must treat it as read.
 - Enabling Jira requires a dedicated Atlassian OAuth app, the documented Secret values and callback
-  route, the required Jira scopes, and the shared OAuth database migrations. Use `jira-read-only`
-  unless write access is explicitly required. Existing providers need no reconnect or new Secret.
+  route, and the shared OAuth database migrations. The recommended `jira-read-only` preset serves
+  only current-user, issue-search, and issue-get through the Jira Cloud REST API and requires
+  exactly `read:jira-user`, `read:jira-work`, and `offline_access`; it must not request
+  agent-interface scopes. The full `jira` preset stays on Atlassian's hosted MCP service and uses
+  its documented agent-interface scopes. Existing providers need no reconnect or new Secret.
 
 ## [0.5.7] - 2026-10-01
 
