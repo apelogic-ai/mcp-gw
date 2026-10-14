@@ -211,7 +211,11 @@ export function createGithubMcpProxyHandler(
       method?.method !== "tools/list" &&
       method?.method !== "tools/call"
     ) {
-      return mcpError(method?.id ?? null, -32601, `Unsupported MCP method: ${method?.method}`);
+      return mcpError(
+        method?.id ?? null,
+        -32601,
+        `Unsupported MCP method: ${method?.method ?? "<missing>"}`,
+      );
     }
     if (method?.method === "tools/list") {
       if (taskAuthorization.restricted && !taskAuthorization.allowsConnectionHelpers) {
