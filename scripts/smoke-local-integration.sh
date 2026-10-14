@@ -22,6 +22,7 @@ BROKER_FIXTURE_BASE_URL="http://127.0.0.1:$BROKER_JWKS_PORT"
 BROKER_BASE_URL="http://127.0.0.1:$GOOGLE_WRAPPER_PORT/oauth"
 GOOGLE_OIDC_FIXTURE_BASE_URL="http://127.0.0.1:$GOOGLE_OIDC_PORT"
 GITHUB_FIXTURE_BASE_URL="http://127.0.0.1:$GITHUB_FIXTURE_PORT"
+GITHUB_OAUTH_SCOPES="$(sed -n 's/^GITHUB_OAUTH_SCOPES=//p' "$ROOT_DIR/deploy/compose/.env.example")"
 AUDIENCE="https://mcp.example.com/mcp"
 TOKEN_FILE="$WORK_DIR/hop1.jwt"
 BROKER_TOKEN_FILE="$WORK_DIR/broker.jwt"
@@ -95,7 +96,8 @@ PORT="$GOOGLE_OIDC_PORT" bun "$ROOT_DIR/scripts/fixtures/google-oidc-fixture.ts"
 GOOGLE_OIDC_FIXTURE_PID=$!
 
 if [[ "$INCLUDE_GITHUB" == "1" ]]; then
-  PORT="$GITHUB_FIXTURE_PORT" bun "$ROOT_DIR/scripts/fixtures/provider-fixture.ts" \
+  FIXTURE_GITHUB_SCOPES="$GITHUB_OAUTH_SCOPES" \
+    PORT="$GITHUB_FIXTURE_PORT" bun "$ROOT_DIR/scripts/fixtures/provider-fixture.ts" \
     >"$WORK_DIR/github-provider-fixture.log" 2>&1 &
   GITHUB_FIXTURE_PID=$!
 fi
@@ -175,6 +177,7 @@ GITHUB_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 GITHUB_OAUTH_CLIENT_ID=local-github-client
 GITHUB_OAUTH_CLIENT_SECRET=local-github-secret
 GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:$GATEWAY_PORT/oauth/github/callback
+GITHUB_OAUTH_SCOPES=$GITHUB_OAUTH_SCOPES
 GITHUB_FIXTURE_PORT=$GITHUB_FIXTURE_PORT
 GITHUB_SMOKE_HOP1_ISSUERS_JSON=[{"name":"local","issuer":"$ISSUER","jwksUrl":"$ISSUER/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"mail","subjectClaim":"oid"},{"name":"broker","issuer":"$BROKER_ISSUER","jwksUrl":"http://host.docker.internal:$BROKER_JWKS_PORT/.well-known/jwks.json","audiences":["$AUDIENCE"],"allowedAlgorithms":["RS256"],"emailClaim":"email","subjectClaim":"sub"}]
 ENV
