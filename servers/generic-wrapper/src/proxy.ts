@@ -9,11 +9,15 @@ import {
   type Hop1Identity,
 } from "../../../shared/identity/hop1";
 import { AllowAllPolicy, type ToolPolicy } from "../../../shared/policy/policy";
+import { listUpstreamCatalog, type CapturedUpstreamTool } from "./catalog-capture";
 import type { GenericUpstreamCredential } from "./credentials";
-import type {
-  GenericCatalogTool,
-  GenericToolCatalog,
-  GenericWrapperDescriptor,
+import {
+  isLiveToolCatalog,
+  type GenericCatalogTool,
+  type GenericGovernedTool,
+  type GenericIncludedToolDecision,
+  type GenericToolSource,
+  type GenericWrapperDescriptor,
 } from "./descriptor";
 import type { GenericUpstreamTransport } from "./transport";
 
@@ -27,7 +31,7 @@ export interface ResolveGenericCredentialRequest {
 
 export interface CreateGenericMcpProxyHandlerOptions {
   descriptor: GenericWrapperDescriptor;
-  catalog: GenericToolCatalog;
+  catalog: GenericToolSource;
   authenticate(token: string): Promise<Hop1Identity>;
   resolveCredential(
     request: ResolveGenericCredentialRequest,
@@ -154,6 +158,11 @@ export function createGenericMcpProxyHandler(
       return new Response(null, { status: 202 });
     }
     if (message.method === "tools/list") {
+      if (isLiveToolCatalog(options.catalog)) {
+        const invalidSession = validateRequestSession(options.transport, request, identity);
+        if (invalidSession) return invalidSession;
+        return liveToolsList(options, request, message.id, identity, hop1Token);
+      }
       return mcpResult(message.id, {
         tools: [
           ...oauthToolDefinitions(options),
@@ -198,7 +207,7 @@ export function createGenericMcpProxyHandler(
         tool: message.toolName ?? "",
         operation: `${options.descriptor.name}.oauth.${oauthTool}`,
         service: options.descriptor.name,
-        actionClass: oauthTool === "status" ? "read" : "write",
+        actionClass: "read",
         scopes: [],
         args: message.arguments,
       });
@@ -573,6 +582,103 @@ function publicToolDefinition(tool: GenericCatalogTool): Record<string, unknown>
   };
 }
 
+async function liveToolsList(
+  options: CreateGenericMcpProxyHandlerOptions,
+  request: Request,
+  id: JsonRpcId,
+  identity: Hop1Identity,
+  hop1Token: string,
+): Promise<Response> {
+  if (!isLiveToolCatalog(options.catalog)) {
+    throw new Error("liveToolsList requires a live tool-decisions catalog");
+  }
+  const helpers = oauthToolDefinitions(options);
+  let credential: GenericUpstreamCredential | null;
+  try {
+    credential = await options.resolveCredential({ identity, hop1Token, scopes: [] });
+  } catch {
+    return liveCatalogUnavailable(id, helpers, "Upstream tool discovery is unavailable");
+  }
+  if (!credential) {
+    return liveCatalogUnavailable(id, helpers, "Provider authorization is required", {
+      connectionHelper: `${options.descriptor.toolPrefix}_oauth_start`,
+    });
+  }
+  try {
+    const upstream = await listUpstreamCatalog({
+      transport: options.transport,
+      incomingRequest: request,
+      credential,
+      principalKey: principalKey(identity),
+    });
+    const decisions = new Map(
+      options.catalog.tools.map((decision) => [decision.upstreamName, decision]),
+    );
+    const tools = upstream.tools.flatMap((tool) => {
+      const decision = decisions.get(tool.name);
+      return decision ? [publicLiveToolDefinition(options.descriptor, decision, tool)] : [];
+    });
+    return mcpResult(id, { tools: [...helpers, ...tools] });
+  } catch {
+    return liveCatalogUnavailable(id, helpers, "Upstream tool discovery is unavailable");
+  }
+}
+
+function liveCatalogUnavailable(
+  id: JsonRpcId,
+  tools: Record<string, unknown>[],
+  message: string,
+  details: Record<string, unknown> = {},
+): Response {
+  return mcpResult(id, {
+    tools,
+    _meta: {
+      "mcp-gw/catalog": {
+        status: "unavailable",
+        error: message,
+        ...details,
+      },
+    },
+  });
+}
+
+function publicLiveToolDefinition(
+  descriptor: GenericWrapperDescriptor,
+  decision: GenericIncludedToolDecision,
+  upstream: CapturedUpstreamTool,
+): Record<string, unknown> {
+  if (typeof upstream.description !== "string" || upstream.description.length === 0) {
+    throw new Error(`Upstream tool ${upstream.name} has no description`);
+  }
+  if (!isRecord(upstream.inputSchema)) {
+    throw new Error(`Upstream tool ${upstream.name} has no input schema`);
+  }
+  return {
+    name: decision.exposedName,
+    description: upstream.description,
+    inputSchema: publicLiveInputSchema(descriptor, upstream.inputSchema),
+    annotations: {
+      readOnlyHint: decision.grants.actionClass === "read",
+      ...(decision.grants.actionClass === "destructive" ? { destructiveHint: true } : {}),
+    },
+  };
+}
+
+function publicLiveInputSchema(
+  descriptor: GenericWrapperDescriptor,
+  inputSchema: Record<string, unknown>,
+): Record<string, unknown> {
+  const schema = structuredClone(inputSchema);
+  if (!isJiraProvider(descriptor)) return schema;
+  if (isRecord(schema.properties)) delete schema.properties.cloudId;
+  if (Array.isArray(schema.required)) {
+    const required = schema.required.filter((name) => name !== "cloudId");
+    if (required.length > 0) schema.required = required;
+    else delete schema.required;
+  }
+  return schema;
+}
+
 function rewriteToolCall(
   body: string,
   upstreamName: string,
@@ -665,7 +771,7 @@ function jiraHttpFailure(
 async function emitProviderFailureAudit(
   audit: AuditSink | undefined,
   identity: Hop1Identity,
-  tool: GenericCatalogTool | undefined,
+  tool: GenericGovernedTool | undefined,
   args: Record<string, unknown>,
   started: number,
   error: string,

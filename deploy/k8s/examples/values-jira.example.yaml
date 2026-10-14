@@ -91,8 +91,17 @@ wrappers:
     serverInfo:
       name: jira-wrapper
       version: "0.7.0"
-    # The chart expands this into the read-only subset of the digest-pinned,
-    # reviewed Jira catalog. Use `jira` and add write:jira:agent-interface only
-    # when the caller's approved tool authority is enforced end to end.
+    # The wrapper filters live Jira discovery through its reviewed decisions and
+    # keeps only read/search tools. Use `jira` and add
+    # write:jira:agent-interface only when approved tool authority is enforced
+    # end to end.
     catalog:
       preset: jira-read-only
+    policy:
+      yaml: |
+        default: deny
+        rules:
+          - id: allow-read-only
+            effect: allow
+            match:
+              actionClass: read

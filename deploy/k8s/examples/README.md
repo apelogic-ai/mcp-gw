@@ -33,7 +33,7 @@ The opt-in Jira provider uses that same generic-wrapper path. Its public OAuth
 surface is one exact `/oauth/jira/callback` route; keep every
 `/connections/jira/*` route private. Start from
 `values-jira.example.yaml` for the complete wrapper, Secret references,
-migration hook, and pinned catalog preset. Add
+migration hook, and live decision-filtered catalog preset. Add
 `jira-provider-callback.example.yaml` when the environment uses Gateway API,
 and configure `connectionLifecycle.allowedCallers` with the observed data-plane
 proxy Namespace/Pod labels that deliver the route.

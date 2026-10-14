@@ -10,8 +10,11 @@ MCP client --HOP-1--> AgentGateway --HOP-1--> generic wrapper (jira)
 generic wrapper --per-user Atlassian bearer--> https://mcp.atlassian.com/v2/mcp?tools=all
 ```
 
-The wrapper publishes only the checked-in `jira_*` catalog. It never exposes an
-upstream tool merely because Atlassian adds it.
+The wrapper keeps only MCP-GW's allow/deny decisions, aliases, action classes,
+operations, and scopes. On each authenticated `tools/list`, it fetches every
+upstream page and combines current Atlassian descriptions and input schemas
+with those local decisions. It never exposes a tool merely because Atlassian
+adds it, and it does not copy Atlassian's catalog into this repository.
 
 MCP-GW does not yet consume caller-specific Jira tool authority tuples from an
 external control plane. Until [that boundary](https://github.com/apelogic-ai/mcp-gw/issues/128)
@@ -152,16 +155,19 @@ Connected Apps or an administrator action by uninstalling the app.
 
 ## Catalog and policy boundary
 
-The catalog is captured from every paginated `tools/list` page at the exact v2
-`?tools=all` endpoint through MCP-GW's own connected credential. Generation is
-digest-bound and requires an explicit include or exclude decision for every
-captured tool.
+[`decisions.yaml`](../servers/generic-wrapper/catalog/jira/decisions.yaml) is
+the sole checked-in Jira catalog artifact. It contains an explicit include or
+exclude decision for each tool reviewed by this project. Included decisions
+carry the stable `jira_*` alias, action class, operation, and OAuth scopes; the
+file intentionally contains no Atlassian-owned description or input schema.
 
-The initial 2026-10-07 capture contains 44 tools on one page and has canonical
-SHA-256 digest
-`442c35b390f60b725e6f05eb1f17aa31437190fbc829ccd4b14ea36738e3fa9c`.
-The reviewed catalog includes 41 tools and excludes the generic Rovo `search`
-tool plus the upload and download attachment tools.
+At runtime, `tools/list` uses the caller's Jira credential to fetch every page
+from the exact v2 `?tools=all` endpoint. MCP-GW intersects that live list with
+included decisions, applies stable aliases, removes the caller-controlled
+`cloudId` field, and returns the current upstream description and schema. A new
+upstream tool remains hidden until it has a decision. A decided tool removed by
+Atlassian disappears from discovery. Direct calls to undecided tools are
+rejected before credential resolution or upstream access.
 
 The default catalog excludes:
 
@@ -173,40 +179,50 @@ The default catalog excludes:
 
 JQL search is distinct from generic Rovo search. It is governed by
 `search:jira:agent-interface` and may be included under a stable `jira_*`
-alias. Included writes are classified as `write`. If Atlassian marks an
-explicitly reviewed non-delete operation as destructive, the generated catalog
-preserves that annotation so clients and policy can require the appropriate
-confirmation.
+alias. Included writes are classified as `write`.
 
-To refresh the catalog for a future release:
+Live discovery is deliberately not cached. Each `tools/list` obtains a complete
+fresh set, so a prior successful response is never served after the upstream
+fails or changes. If the caller is not connected, the response contains only
+`jira_oauth_status` and `jira_oauth_start` plus a sanitized authorization
+status in `_meta`. If upstream discovery fails or times out, it contains only
+those helpers plus `Upstream tool discovery is unavailable`; provider bodies
+are not returned.
 
-1. connect the dedicated test account through `jira_oauth_start`;
-2. capture all pages without printing credentials:
+To check drift after connecting a dedicated test account, run:
 
-   ```bash
-   bun run catalog:capture:oauth -- \
-     --descriptor /absolute/path/to/jira-descriptor.yaml \
-     --output servers/generic-wrapper/catalog/jira/capture-v2-YYYY-MM-DD.json
-   ```
+```bash
+bun run catalog:check:oauth -- --descriptor /absolute/path/to/jira-descriptor.yaml
+```
 
-3. review every upstream tool and update the decision file;
-4. generate the pinned catalog:
+The command stores nothing. It reports upstream tools without a decision and
+decisions whose upstream tool disappeared, and exits nonzero on either class of
+drift. It is a manual authenticated check rather than a scheduled public CI job
+because it requires a live per-user Jira credential.
 
-   ```bash
-   bun run catalog:generate:jira -- \
-     --capture servers/generic-wrapper/catalog/jira/capture-v2-YYYY-MM-DD.json \
-     --decisions servers/generic-wrapper/catalog/jira/decisions.yaml \
-     --output deploy/k8s/chart/files/catalogs/jira.yaml
-   ```
+The chart points `catalog.preset: jira` at the decisions file bundled in the
+generic-wrapper image. `catalog.preset: jira-read-only` applies an action-class
+filter to the same file and needs no write scope. Write tools are absent from
+read-only discovery and direct calls fail as unknown tools before credential
+lookup or upstream access. Both presets require provider ID `jira`, tool prefix
+`jira`, and the exact Atlassian v2 `?tools=all` upstream.
 
-The capture command stops if Atlassian exposes only the credit-bearing
-`search` fallback. A digest mismatch or an undecided tool also stops generation.
-The chart expands `catalog.preset: jira` to this checked-in artifact and
-`catalog.preset: jira-read-only` to its 27 read/search tools. The read-only
-preset does not request `write:jira:agent-interface`; write tools are absent
-from discovery and direct calls fail as unknown tools before credential lookup
-or upstream access. Both presets require provider ID `jira`, tool prefix
-`jira`, and the exact pinned Atlassian v2 `?tools=all` upstream.
+For a deny-by-default wrapper policy, an `actionClass: read` allow rule permits
+read/search tools and the `jira_oauth_status` and `jira_oauth_start` lifecycle
+helpers. A decided write tool is refused locally with `Tool call denied by
+policy`. Disconnect is the authenticated `POST /connections/jira/disconnect`
+control route, not an MCP tool, and is not governed by data-tool policy.
+
+```yaml
+policy:
+  yaml: |
+    default: deny
+    rules:
+      - id: allow-read-only
+        effect: allow
+        match:
+          actionClass: read
+```
 
 ## Provider failures and quotas
 

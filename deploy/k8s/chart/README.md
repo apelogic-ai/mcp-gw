@@ -17,8 +17,8 @@ credential wrapper is required, and the authentication and compatibility
 contract behind `agentgateway.backends`.
 
 For governed custom integrations, prefer the optional `wrappers[]` list. Each
-enabled entry deploys the released generic-wrapper image, a descriptor/catalog
-ConfigMap, Service, ServiceAccount, NetworkPolicy, and matching AgentGateway
+enabled entry deploys the released generic-wrapper image, configuration,
+Service, ServiceAccount, NetworkPolicy, and matching AgentGateway
 target. Supported upstreams are Streamable HTTP and a stdio command packaged
 in the same image; an HTTP server may instead run as a pinned sidecar. Supported
 credential modes are none, an existing Secret-backed static header, token
@@ -450,7 +450,7 @@ and are left in place.
 | `agentgateway.mcpAuthentication.resourceMetadata.resource`        | `""`                                                | Public MCP URL advertised in protected-resource metadata.                                                               |
 | `agentgateway.backends`                                           | Google Workspace, db-mcp, github-mcp (all disabled) | Backend routing targets behind the shared endpoint.                                                                     |
 | `wrappers`                                                        | `[]`                                                | Optional descriptor-driven wrapper workloads and generated AgentGateway targets; every image must be digest-pinned.     |
-| `wrappers[].catalog.preset`                                       | unset                                               | Use `jira-read-only` or `jira` for the checked-in, digest-bound Jira catalog; otherwise provide an inline catalog.      |
+| `wrappers[].catalog.preset`                                       | unset                                               | Use `jira-read-only` or `jira` for decision-filtered live Jira discovery; otherwise provide an inline static catalog.   |
 | `wrappers[].sessions`                                             | 64 total / 4 per principal / 30m idle               | Optional global, per-principal, and idle limits for wrapper-issued MCP sessions.                                        |
 | `agentgateway.ingress.enabled`                                    | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                                                     |
 | `agentgateway.gatewayApi.brokerHttpRoute.enabled`                 | `false`                                             | Create only the broker's exact public HTTPRoute; requires an externally owned `/mcp` route and disables chart Ingress.  |

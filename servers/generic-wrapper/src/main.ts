@@ -29,7 +29,7 @@ import {
 } from "../../../packages/wrapper-kit/src/configuration";
 import { createGenericCredentialResolver } from "./credentials";
 import {
-  loadGenericToolCatalog,
+  loadGenericToolSource,
   loadGenericWrapperDescriptor,
   validateGenericWrapperConfiguration,
 } from "./descriptor";
@@ -64,7 +64,11 @@ export function createGenericMainHandler(
   env: Record<string, string | undefined> = process.env,
 ): (request: Request) => Promise<Response> {
   const descriptor = loadGenericWrapperDescriptor(config.descriptorPath);
-  const catalog = loadGenericToolCatalog(descriptor.catalogPath, descriptor.toolPrefix);
+  const catalog = loadGenericToolSource(
+    descriptor.catalogPath,
+    descriptor.toolPrefix,
+    descriptor.catalogFilter,
+  );
   validateGenericWrapperConfiguration(descriptor, catalog);
   const audit = createWrapperAuditSink(descriptor.audit?.jsonlPath);
   const policy = createWrapperPolicy({

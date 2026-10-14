@@ -132,7 +132,7 @@ gateway principal to a GitHub bearer token before forwarding to the upstream Git
 
 The opt-in Jira Cloud provider fronts Atlassian's hosted v2 MCP endpoint with a
 per-user 3LO credential, a provider-specific identity binding, and a
-digest-pinned `jira_*` catalog. Start from
+decision-filtered live `jira_*` catalog. Start from
 [deploy/k8s/examples/values-jira.example.yaml](deploy/k8s/examples/values-jira.example.yaml)
 and see [docs/jira.md](docs/jira.md).
 

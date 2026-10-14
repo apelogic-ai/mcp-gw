@@ -8,6 +8,8 @@ import {
   NONPUBLIC_SPECIAL_USE_IPV4_HOSTS,
 } from "../../shared/oauth/public-host-fixtures";
 import {
+  isLiveToolCatalog,
+  loadGenericToolSource,
   parseGenericToolCatalog,
   parseGenericWrapperDescriptor,
 } from "../../servers/generic-wrapper/src/descriptor";
@@ -629,8 +631,8 @@ describe("Kubernetes production chart", () => {
       );
     const data = configObject?.data as Record<string, string> | undefined;
     const parsedDescriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
-    const parsedCatalog = parseGenericToolCatalog(
-      parse(data?.["catalog.yaml"] ?? ""),
+    const parsedCatalog = loadGenericToolSource(
+      "servers/generic-wrapper/catalog/jira/decisions.yaml",
       parsedDescriptor.toolPrefix,
     );
 
@@ -639,7 +641,8 @@ describe("Kubernetes production chart", () => {
       redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
       identity: { mode: "atlassian_jira_asserted_email" },
     });
-    expect(parsedCatalog.catalogId).toBe("atlassian-rovo-v2@2026-10-07+442c35b3");
+    expect(isLiveToolCatalog(parsedCatalog)).toBeTrue();
+    expect(parsedCatalog.catalogId).toBe("atlassian-rovo-v2-live");
     expect(parsedCatalog.tools).toHaveLength(41);
     expect(parsedCatalog.tools).toContainEqual(
       expect.objectContaining({
@@ -651,12 +654,16 @@ describe("Kubernetes production chart", () => {
       expect.objectContaining({
         upstreamName: "manageJiraSprint",
         exposedName: "jira_manage_sprint",
-        annotations: expect.objectContaining({ destructiveHint: true }),
+        grants: expect.objectContaining({ actionClass: "write" }),
       }),
     );
     expect(parsedCatalog.tools.map((tool) => tool.upstreamName)).not.toContain("search");
     expect(parsedCatalog.tools.map((tool) => tool.upstreamName)).not.toContain(
       "downloadJiraIssueAttachment",
+    );
+    expect(data).not.toHaveProperty("catalog.yaml");
+    expect(parsedDescriptor.catalogPath).toBe(
+      "/app/servers/generic-wrapper/catalog/jira/decisions.yaml",
     );
   });
 
@@ -743,9 +750,10 @@ describe("Kubernetes production chart", () => {
       );
     const data = configObject?.data as Record<string, string> | undefined;
     const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
-    const catalog = parseGenericToolCatalog(
-      parse(data?.["catalog.yaml"] ?? ""),
+    const catalog = loadGenericToolSource(
+      "servers/generic-wrapper/catalog/jira/decisions.yaml",
       descriptor.toolPrefix,
+      descriptor.catalogFilter,
     );
 
     expect(descriptor.credential).toMatchObject({
@@ -756,13 +764,15 @@ describe("Kubernetes production chart", () => {
         "offline_access",
       ],
     });
-    expect(catalog.catalogId).toBe("atlassian-rovo-v2@2026-10-07+442c35b3/read-only");
+    expect(isLiveToolCatalog(catalog)).toBeTrue();
+    expect(catalog.catalogId).toBe("atlassian-rovo-v2-live");
     expect(catalog.tools).toHaveLength(27);
     expect(catalog.tools.map((tool) => tool.exposedName)).toContain("jira_get_current_user");
     expect(catalog.tools.map((tool) => tool.exposedName)).toContain("jira_search_issues");
     expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_create_issue");
     expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_edit_issue");
     expect(config).not.toContain("write:jira:agent-interface");
+    expect(data).not.toHaveProperty("catalog.yaml");
   });
 
   test("renders the opt-in Jira values example with the governed catalog", () => {
@@ -773,12 +783,16 @@ describe("Kubernetes production chart", () => {
       "mcp-gateway-generic-wrapper-jira-config",
     );
 
-    expect(config).toContain('catalogId: "atlassian-rovo-v2@2026-10-07+442c35b3/read-only"');
-    expect(config).toContain("alias: search_issues");
-    expect(config).not.toContain("alias: create_issue");
+    expect(config).toContain(
+      'catalogPath: "/app/servers/generic-wrapper/catalog/jira/decisions.yaml"',
+    );
+    expect(config).toContain("actionClasses: [read]");
+    expect(config).not.toContain("catalog.yaml");
     expect(config).not.toContain("write:jira:agent-interface");
     expect(config).not.toMatch(/^\s+- name: search$/m);
     expect(config).not.toContain("name: uploadAttachmentToJiraIssue");
+    expect(config).toContain("id: allow-read-only");
+    expect(config).toContain("actionClass: read");
     expect(rendered).not.toContain("/connections/jira/");
     expect(rendered).not.toContain("kind: HTTPRoute");
     expect(rendered).not.toContain("kind: Ingress");

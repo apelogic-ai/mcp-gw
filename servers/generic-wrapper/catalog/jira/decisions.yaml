@@ -1,6 +1,5 @@
-schemaVersion: mcp-gw.jira-catalog-decisions/v1
-catalogId: atlassian-rovo-v2@2026-10-07+442c35b3
-captureSha256: 442c35b390f60b725e6f05eb1f17aa31437190fbc829ccd4b14ea36738e3fa9c
+schemaVersion: mcp-gateway.generic-tool-decisions/v1
+catalogId: atlassian-rovo-v2-live
 tools:
   - name: addOrEditJiraIssueComment
     disposition: include

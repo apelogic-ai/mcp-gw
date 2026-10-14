@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   parseGenericToolCatalog,
+  parseGenericToolDecisions,
   parseGenericWrapperDescriptor,
   validateGenericWrapperConfiguration,
 } from "./descriptor";
@@ -365,6 +366,52 @@ describe("generic wrapper catalog", () => {
       upstreamName: "searchJiraIssuesUsingJql",
       exposedName: "jira_search_issues",
     });
+  });
+
+  test("parses live decisions without vendor descriptions or schemas", () => {
+    const decisions = parseGenericToolDecisions(
+      {
+        schemaVersion: "mcp-gateway.generic-tool-decisions/v1",
+        catalogId: "provider-live",
+        tools: [
+          {
+            name: "getIssue",
+            disposition: "include",
+            alias: "get_issue",
+            actionClass: "read",
+            operation: "jira.issue.get",
+            scopes: ["read:jira:agent-interface"],
+          },
+          { name: "deleteIssue", disposition: "exclude", reason: "delete" },
+          {
+            name: "editIssue",
+            disposition: "include",
+            alias: "edit_issue",
+            actionClass: "write",
+            operation: "jira.issue.edit",
+            scopes: ["write:jira:agent-interface"],
+          },
+        ],
+      },
+      "jira",
+      { actionClasses: ["read"] },
+    );
+
+    expect(decisions.mode).toBe("live");
+    expect(decisions.decisions).toHaveLength(3);
+    expect(decisions.tools).toEqual([
+      {
+        upstreamName: "getIssue",
+        exposedName: "jira_get_issue",
+        alias: "get_issue",
+        disposition: "include",
+        grants: {
+          actionClass: "read",
+          operation: "jira.issue.get",
+          scopes: ["read:jira:agent-interface"],
+        },
+      },
+    ]);
   });
 
   test("rejects duplicate exposed names and unclassified tools", () => {

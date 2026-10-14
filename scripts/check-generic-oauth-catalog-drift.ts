@@ -1,5 +1,4 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { Pool } from "pg";
 
@@ -10,22 +9,29 @@ import {
 } from "../shared/oauth/postgres-client";
 import { SqlOAuthTokenStore } from "../shared/oauth/sql-store";
 import { captureUpstreamCatalog } from "../servers/generic-wrapper/src/catalog-capture";
-import { loadGenericWrapperDescriptor } from "../servers/generic-wrapper/src/descriptor";
+import { compareCatalogDecisions } from "../servers/generic-wrapper/src/catalog-drift";
+import {
+  isLiveToolCatalog,
+  loadGenericToolSource,
+  loadGenericWrapperDescriptor,
+} from "../servers/generic-wrapper/src/descriptor";
 import { createGenericOAuthRuntimeConfig } from "../servers/generic-wrapper/src/oauth";
 import { createHttpUpstreamTransport } from "../servers/generic-wrapper/src/transport";
-import { catalogCaptureSha256 } from "./generic-catalog-capture-artifact";
 
 const descriptorPath = resolve(requiredArg(process.argv.slice(2), "descriptor"));
-const outputPath = resolve(requiredArg(process.argv.slice(2), "output"));
 const descriptor = loadGenericWrapperDescriptor(descriptorPath);
 if (descriptor.credential.mode !== "per_user_oauth") {
-  throw new Error("Catalog capture requires a per_user_oauth descriptor");
+  throw new Error("Catalog drift checks require a per_user_oauth descriptor");
 }
 if (descriptor.upstream.transport !== "http") {
-  throw new Error("Catalog capture requires an HTTP upstream");
+  throw new Error("Catalog drift checks require an HTTP upstream");
+}
+const decisions = loadGenericToolSource(descriptor.catalogPath, descriptor.toolPrefix);
+if (!isLiveToolCatalog(decisions)) {
+  throw new Error("Catalog drift checks require a live tool-decisions catalog");
 }
 const identity: Hop1Identity = {
-  profile: "catalog-capture",
+  profile: "catalog-drift",
   issuer: requiredEnv("CAPTURE_HOP1_ISSUER"),
   subject: requiredEnv("CAPTURE_HOP1_SUBJECT"),
   email: requiredEnv("CAPTURE_HOP1_EMAIL"),
@@ -42,7 +48,7 @@ try {
     identity,
     descriptor.credential.scopes,
   );
-  const capture = await captureUpstreamCatalog({
+  const upstream = await captureUpstreamCatalog({
     transport: createHttpUpstreamTransport(descriptor.upstream, {
       serverInfo: descriptor.serverInfo,
       maxSessions: 1,
@@ -56,23 +62,22 @@ try {
     },
     principalKey: `${identity.issuer}\n${identity.subject}`,
   });
-  const artifact = {
-    schemaVersion: "mcp-gateway.generic-catalog-capture/v1",
-    provider: descriptor.credential.providerId,
-    upstream: descriptor.upstream.url,
-    capturedAt: new Date().toISOString(),
-    pages: capture.pages,
-    tools: capture.tools,
-  };
-  const digest = catalogCaptureSha256(artifact);
-  await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
-  await writeFile(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
-  await chmod(outputPath, 0o600);
-  process.stdout.write(
-    `Captured ${String(capture.tools.length)} tools across ${String(capture.pages)} pages; sha256:${digest}\n`,
+  const { withoutDecision, missingUpstream } = compareCatalogDecisions(
+    decisions.decisions,
+    upstream.tools,
   );
+
+  printGroup("Upstream tools without a decision", withoutDecision);
+  printGroup("Decisions without an upstream tool", missingUpstream);
+  if (withoutDecision.length > 0 || missingUpstream.length > 0) process.exitCode = 1;
+  else process.stdout.write("No catalog drift detected.\n");
 } finally {
   await pool.end();
+}
+
+function printGroup(label: string, names: string[]): void {
+  process.stdout.write(`${label}: ${String(names.length)}\n`);
+  for (const name of names) process.stdout.write(`- ${name}\n`);
 }
 
 function requiredArg(argv: string[], name: string): string {
