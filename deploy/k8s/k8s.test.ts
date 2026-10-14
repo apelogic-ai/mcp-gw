@@ -681,6 +681,90 @@ describe("Kubernetes production chart", () => {
     );
   });
 
+  test("renders the Jira read-only preset without write authority or tools", () => {
+    const wrapper = genericOAuthWrapper("jira", "jira", "jira");
+    wrapper.credential = {
+      mode: "per_user_oauth",
+      providerId: "jira",
+      authorizationUrl: "https://auth.atlassian.com/authorize",
+      tokenUrl: "https://auth.atlassian.com/oauth/token",
+      userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
+      redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
+      scopes: [
+        "read:jira-user",
+        "read:jira:agent-interface",
+        "search:jira:agent-interface",
+        "offline_access",
+      ],
+      clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
+      clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
+      encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
+      tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+      identity: {
+        mode: "atlassian_jira_asserted_email",
+        siteUrl: "https://example.atlassian.net",
+      },
+      authorizationParams: { audience: "api.atlassian.com", prompt: "consent" },
+      tokenEndpointAuthMethod: "client_secret_post",
+    };
+    wrapper.secretRef = {
+      name: "jira-oauth",
+      envKeys: [
+        "JIRA_OAUTH_CLIENT_ID",
+        "JIRA_OAUTH_CLIENT_SECRET",
+        "JIRA_TOKEN_ENCRYPTION_KEY",
+        "TOKEN_STORE_DSN",
+      ],
+    };
+    wrapper.upstream = {
+      transport: "http",
+      url: "https://mcp.atlassian.com/v2/mcp?tools=all",
+    };
+    wrapper.catalog = { preset: "jira-read-only" };
+
+    const rendered = helmTemplate([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    const config = renderedResource(
+      rendered,
+      "ConfigMap",
+      "mcp-gateway-generic-wrapper-jira-config",
+    );
+    const configObject = parseAllDocuments(rendered)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "ConfigMap" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-generic-wrapper-jira-config",
+      );
+    const data = configObject?.data as Record<string, string> | undefined;
+    const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
+    const catalog = parseGenericToolCatalog(
+      parse(data?.["catalog.yaml"] ?? ""),
+      descriptor.toolPrefix,
+    );
+
+    expect(descriptor.credential).toMatchObject({
+      scopes: [
+        "read:jira-user",
+        "read:jira:agent-interface",
+        "search:jira:agent-interface",
+        "offline_access",
+      ],
+    });
+    expect(catalog.catalogId).toBe("atlassian-rovo-v2@2026-10-07+442c35b3/read-only");
+    expect(catalog.tools).toHaveLength(27);
+    expect(catalog.tools.map((tool) => tool.exposedName)).toContain("jira_get_current_user");
+    expect(catalog.tools.map((tool) => tool.exposedName)).toContain("jira_search_issues");
+    expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_create_issue");
+    expect(catalog.tools.map((tool) => tool.exposedName)).not.toContain("jira_edit_issue");
+    expect(config).not.toContain("write:jira:agent-interface");
+  });
+
   test("renders the opt-in Jira values example with the governed catalog", () => {
     const rendered = helmTemplate(["--values", "deploy/k8s/examples/values-jira.example.yaml"]);
     const config = renderedResource(
@@ -689,8 +773,10 @@ describe("Kubernetes production chart", () => {
       "mcp-gateway-generic-wrapper-jira-config",
     );
 
-    expect(config).toContain('catalogId: "atlassian-rovo-v2@2026-10-07+442c35b3"');
+    expect(config).toContain('catalogId: "atlassian-rovo-v2@2026-10-07+442c35b3/read-only"');
     expect(config).toContain("alias: search_issues");
+    expect(config).not.toContain("alias: create_issue");
+    expect(config).not.toContain("write:jira:agent-interface");
     expect(config).not.toMatch(/^\s+- name: search$/m);
     expect(config).not.toContain("name: uploadAttachmentToJiraIssue");
     expect(rendered).not.toContain("/connections/jira/");

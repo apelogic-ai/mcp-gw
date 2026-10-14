@@ -530,7 +530,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["preset"],
-          "properties": { "preset": { "const": "jira" } }
+          "properties": { "preset": { "enum": ["jira", "jira-read-only"] } }
         },
         {
           "type": "object",

@@ -2,8 +2,19 @@
 {{- if .enabled }}
 {{- $component := printf "generic-wrapper-%s" .name }}
 {{- $catalog := .catalog }}
-{{- if eq ($catalog.preset | default "") "jira" }}
+{{- $catalogPreset := $catalog.preset | default "" }}
+{{- if has $catalogPreset (list "jira" "jira-read-only") }}
 {{- $catalog = $.Files.Get "files/catalogs/jira.yaml" | fromYaml }}
+{{- if eq $catalogPreset "jira-read-only" }}
+{{- $readOnlyTools := list }}
+{{- range $tool := $catalog.tools }}
+{{- if eq $tool.grants.actionClass "read" }}
+{{- $readOnlyTools = append $readOnlyTools $tool }}
+{{- end }}
+{{- end }}
+{{- $_ := set $catalog "catalogId" (printf "%s/read-only" $catalog.catalogId) }}
+{{- $_ := set $catalog "tools" $readOnlyTools }}
+{{- end }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap

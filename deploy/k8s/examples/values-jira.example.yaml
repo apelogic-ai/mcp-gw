@@ -67,7 +67,6 @@ wrappers:
       scopes:
         - read:jira-user
         - read:jira:agent-interface
-        - write:jira:agent-interface
         - search:jira:agent-interface
         - offline_access
       clientIdEnv: JIRA_OAUTH_CLIENT_ID
@@ -92,6 +91,8 @@ wrappers:
     serverInfo:
       name: jira-wrapper
       version: "0.7.0"
-    # The chart expands this into the digest-pinned, reviewed Jira catalog.
+    # The chart expands this into the read-only subset of the digest-pinned,
+    # reviewed Jira catalog. Use `jira` and add write:jira:agent-interface only
+    # when the caller's approved tool authority is enforced end to end.
     catalog:
-      preset: jira
+      preset: jira-read-only

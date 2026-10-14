@@ -13,27 +13,33 @@ generic wrapper --per-user Atlassian bearer--> https://mcp.atlassian.com/v2/mcp?
 The wrapper publishes only the checked-in `jira_*` catalog. It never exposes an
 upstream tool merely because Atlassian adds it.
 
+MCP-GW does not yet consume caller-specific Jira tool authority tuples from an
+external control plane. Until [that boundary](https://github.com/apelogic-ai/mcp-gw/issues/128)
+is enforced end to end, use `jira-read-only` unless an equivalent upstream
+policy constrains every caller allowed to reach the gateway.
+
 ## Prerequisites
 
 - Jira Cloud. Jira Data Center is not supported by this provider.
 - A dedicated confidential Atlassian OAuth 2.0 (3LO) app for MCP-GW. The same
   app may serve multiple deployments when every deployment's exact callback is
   registered in the Atlassian developer console.
-- These app scopes:
+- For the recommended read-only preset, these app scopes:
 
   ```text
   read:jira-user
   read:jira:agent-interface
-  write:jira:agent-interface
   search:jira:agent-interface
   ```
 
   MCP-GW additionally requests `offline_access` during authorization so it can
-  retain and rotate the refresh credential. It does not request
+  retain and rotate the refresh credential. The full `jira` preset additionally
+  requires `write:jira:agent-interface`. Neither preset requests
   `delete:jira:agent-interface` or `manage:jira:agent-interface`.
 
-- The organization's Rovo MCP access and Jira read/write/search permission
-  groups enabled. Keep delete/manage disabled for the default catalog.
+- The organization's Rovo MCP access and Jira read/search permission groups
+  enabled. Enable the write group only with the full preset. Keep delete/manage
+  disabled for both presets.
 - App **Sharing** enabled before accounts other than the app owner connect.
 - Stable gateway egress addresses included in any Atlassian organization IP
   allowlist.
@@ -195,9 +201,12 @@ To refresh the catalog for a future release:
 
 The capture command stops if Atlassian exposes only the credit-bearing
 `search` fallback. A digest mismatch or an undecided tool also stops generation.
-The chart expands `catalog.preset: jira` to this checked-in artifact and rejects
-the preset unless the wrapper uses provider ID `jira`, tool prefix `jira`, and
-the exact pinned Atlassian v2 `?tools=all` upstream.
+The chart expands `catalog.preset: jira` to this checked-in artifact and
+`catalog.preset: jira-read-only` to its 27 read/search tools. The read-only
+preset does not request `write:jira:agent-interface`; write tools are absent
+from discovery and direct calls fail as unknown tools before credential lookup
+or upstream access. Both presets require provider ID `jira`, tool prefix
+`jira`, and the exact pinned Atlassian v2 `?tools=all` upstream.
 
 ## Provider failures and quotas
 

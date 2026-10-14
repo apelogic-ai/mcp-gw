@@ -94,11 +94,22 @@
 {{- end }}
 {{- $wrapperPrefixes = append $wrapperPrefixes $wrapper.toolPrefix }}
 {{- $catalog := $wrapper.catalog }}
-{{- if eq ($catalog.preset | default "") "jira" }}
+{{- $catalogPreset := $catalog.preset | default "" }}
+{{- if has $catalogPreset (list "jira" "jira-read-only") }}
 {{- if or (ne $wrapper.toolPrefix "jira") (ne $wrapper.credential.mode "per_user_oauth") (ne ($wrapper.credential.providerId | default "") "jira") (ne $wrapper.upstream.transport "http") (ne ($wrapper.upstream.url | default "") "https://mcp.atlassian.com/v2/mcp?tools=all") }}
 {{- fail (printf "wrappers[%d] Jira catalog preset requires toolPrefix jira, OAuth providerId jira, and the pinned Atlassian v2 tools=all upstream" $index) }}
 {{- end }}
 {{- $catalog = $.Files.Get "files/catalogs/jira.yaml" | fromYaml }}
+{{- if eq $catalogPreset "jira-read-only" }}
+{{- $readOnlyTools := list }}
+{{- range $tool := $catalog.tools }}
+{{- if eq $tool.grants.actionClass "read" }}
+{{- $readOnlyTools = append $readOnlyTools $tool }}
+{{- end }}
+{{- end }}
+{{- $_ := set $catalog "catalogId" (printf "%s/read-only" $catalog.catalogId) }}
+{{- $_ := set $catalog "tools" $readOnlyTools }}
+{{- end }}
 {{- end }}
 {{- with $wrapper.sessions }}
 {{- if and .maxTotal .maxPerPrincipal (gt (int .maxPerPrincipal) (int .maxTotal)) }}
