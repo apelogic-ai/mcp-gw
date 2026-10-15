@@ -24,6 +24,12 @@ describe("release artifacts", () => {
     );
     expect(kubernetesSmoke).toContain("bun run integration:external");
     expect(kubernetesSmoke).toContain("bun run integration:k8s");
+    expect(kubernetesSmoke).toContain("bun run integration:k8s:broker");
+    expect(kubernetesSmoke).toContain(
+      "K8S_BROKER_SMOKE_AGENTGATEWAY_REPOSITORY: mcp-gw-agentgateway",
+    );
+    expect(kubernetesSmoke).toContain("K8S_BROKER_SMOKE_IMAGE_TAG: smoke");
+    expect(kubernetesSmoke).toContain("kind load docker-image postgres:16-alpine");
     expect(kubernetesSmoke).toContain("bun run integration:bundle");
     expect(
       kubernetesSmoke.match(/LOCAL_AGENTGATEWAY_IMAGE: mcp-gw-agentgateway:smoke/g),

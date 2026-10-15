@@ -224,6 +224,21 @@ set and upstream sync procedure.
    publishes and attests the OCI artifacts, verifies anonymous access, and creates the GitHub
    Release.
 
+### Recovering an incomplete publication
+
+Do not treat container images published under a version as a release until the matching chart and
+GitHub Release exist and the workflow is green. Inspect the failed job and the completed publish
+jobs before retrying.
+
+- For a transient failure on the unchanged tagged commit, rerun only failed jobs. Successful image
+  publication jobs remain complete, and the workflow resumes the downstream chart and release
+  gates.
+- If recovery requires a code change, merge the fix and cut the next patch version. Do not move or
+  reuse the failed version tag; record that version as incomplete in the next release's upgrade
+  notes.
+- Consumers must ignore an incomplete version's standalone images and use only the complete release
+  handoff from a green release.
+
 ## GitOps Consumption
 
 External GitOps repositories should reference the OCI Helm chart version and maintain a private
