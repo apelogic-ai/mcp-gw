@@ -10,6 +10,10 @@ GOOGLE_IMAGE="${K8S_SMOKE_GOOGLE_IMAGE:-mcp-gw-google-workspace}"
 GITHUB_IMAGE="${K8S_SMOKE_GITHUB_IMAGE:-mcp-gw-github-wrapper}"
 IMAGE_TAG="${K8S_SMOKE_WRAPPER_TAG:-smoke}"
 
+log_step() {
+  printf '\n==> %s\n' "$1"
+}
+
 current_github_wrapper_pod() {
   local hash
   hash="$(kubectl get replicaset \
@@ -21,6 +25,23 @@ current_github_wrapper_pod() {
     --namespace "$NAMESPACE" \
     -l "app.kubernetes.io/component=github-wrapper,pod-template-hash=$hash" \
     -o jsonpath='{.items[0].metadata.name}'
+}
+
+wait_for_sidecar_mcp() {
+  local deadline=$((SECONDS + 60))
+  local pod="$1"
+  while ((SECONDS < deadline)); do
+    if kubectl exec "pod/$pod" \
+      --namespace "$NAMESPACE" \
+      --container github-wrapper -- \
+      bun -e 'const response = await fetch("http://127.0.0.1:8082/mcp", { signal: AbortSignal.timeout(2000) }); if (response.status < 100) process.exit(1)' \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "GitHub MCP sidecar endpoint did not become reachable within 60 seconds" >&2
+  return 1
 }
 
 wait_for_current_github_wrapper_pod() {
@@ -167,15 +188,18 @@ kubectl rollout status \
   --namespace "$NAMESPACE" \
   --timeout=120s
 
+log_step "Verify OAuth migrations completed"
 MIGRATION_COUNT="$(kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
   psql -U postgres -tAc 'SELECT count(*) FROM oauth_schema_migrations')"
 [[ "$MIGRATION_COUNT" -ge 1 ]]
 
+log_step "Verify provider wrappers run as the non-root user"
 GOOGLE_UID="$(kubectl exec "deployment/$RELEASE_NAME-google-workspace" --namespace "$NAMESPACE" -- id -u)"
 GITHUB_UID="$(kubectl exec "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" -- id -u)"
 [[ "$GOOGLE_UID" == "10001" ]]
 [[ "$GITHUB_UID" == "10001" ]]
 
+log_step "Verify the Google Workspace CLI version"
 GWS_VERSION_OUTPUT="$(kubectl exec "deployment/$RELEASE_NAME-google-workspace" \
   --namespace "$NAMESPACE" -- sh -c '"$GWS_BINARY_PATH" --version')"
 GWS_VERSION="${GWS_VERSION_OUTPUT%%$'\n'*}"
@@ -184,6 +208,7 @@ if [[ "$GWS_VERSION" != "gws 0.22.5" ]]; then
   exit 1
 fi
 
+log_step "Verify the standalone GitHub MCP security context"
 GITHUB_MCP_UID="$(kubectl get deployment "$RELEASE_NAME-github-mcp" \
   --namespace "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].securityContext.runAsUser}')"
@@ -217,11 +242,19 @@ INSERT INTO oauth_accounts (
 SQL
 
 assert_topology_sentinel() {
-  local count
-  count="$(kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
-    psql -U postgres -tAc \
-      "SELECT count(*) FROM oauth_accounts WHERE provider = 'github' AND hop1_subject = 'github-mcp-topology-sentinel'")"
-  [[ "$count" == "1" ]]
+  local count=""
+  local deadline=$((SECONDS + 60))
+  while ((SECONDS < deadline)); do
+    if count="$(kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
+      psql -U postgres -tAc \
+        "SELECT count(*) FROM oauth_accounts WHERE provider = 'github' AND hop1_subject = 'github-mcp-topology-sentinel'" \
+      2>/dev/null)" && [[ "$count" == "1" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Topology sentinel query did not return 1 within 60 seconds (last result: ${count:-none})" >&2
+  return 1
 }
 
 upgrade_github_topology() {
@@ -241,49 +274,62 @@ upgrade_github_topology() {
     --timeout 3m
 }
 
+log_step "Switch GitHub MCP topology to sidecar"
 upgrade_github_topology sidecar
+log_step "Wait for the sidecar GitHub wrapper rollout"
 kubectl rollout status \
   "deployment/$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+log_step "Wait for the sole ready GitHub wrapper Pod"
 GITHUB_WRAPPER_POD="$(wait_for_current_github_wrapper_pod)"
+log_step "Verify the standalone GitHub MCP Deployment is absent"
 if kubectl get deployment "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null 2>&1; then
   echo "Standalone GitHub MCP Deployment still exists in sidecar topology" >&2
   exit 1
 fi
+log_step "Verify the standalone GitHub MCP Service is absent"
 if kubectl get service "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null 2>&1; then
   echo "Standalone GitHub MCP Service still exists in sidecar topology" >&2
   exit 1
 fi
+log_step "Verify the sidecar binds only to loopback"
 SIDECAR_LISTEN_HOST="$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].args}')"
 [[ "$SIDECAR_LISTEN_HOST" == *"--listen-host 127.0.0.1"* ]]
-kubectl exec "pod/$GITHUB_WRAPPER_POD" \
-  --namespace "$NAMESPACE" \
-  --container github-wrapper -- \
-  bun -e 'const response = await fetch("http://127.0.0.1:8082/mcp"); if (response.status < 100) process.exit(1)'
+log_step "Wait for the in-Pod GitHub MCP sidecar endpoint"
+wait_for_sidecar_mcp "$GITHUB_WRAPPER_POD"
+log_step "Verify the sidecar endpoint is isolated from other Pods"
 GITHUB_WRAPPER_POD_IP="$(kubectl get pod "$GITHUB_WRAPPER_POD" \
   --namespace "$NAMESPACE" \
   -o jsonpath='{.status.podIP}')"
 kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
   sh -c 'if nc -z -w 2 "$1" 8082; then exit 1; fi' -- "$GITHUB_WRAPPER_POD_IP"
+log_step "Verify the topology sentinel after the sidecar switch"
 assert_topology_sentinel
 
+log_step "Switch GitHub MCP topology back to separate"
 upgrade_github_topology separate
+log_step "Wait for the separate GitHub wrapper rollout"
 kubectl rollout status \
   "deployment/$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+log_step "Wait for the sole ready separate GitHub wrapper Pod"
 GITHUB_WRAPPER_POD="$(wait_for_current_github_wrapper_pod)"
+log_step "Wait for the standalone GitHub MCP rollout"
 kubectl rollout status \
   "deployment/$RELEASE_NAME-github-mcp" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+log_step "Verify the GitHub MCP sidecar is absent"
 [[ "$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].name}')" == "" ]]
+log_step "Verify the standalone GitHub MCP Service exists"
 kubectl get service "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null
+log_step "Verify the topology sentinel after the separate switch"
 assert_topology_sentinel
 
 echo "Provider runtime Kubernetes smoke passed."

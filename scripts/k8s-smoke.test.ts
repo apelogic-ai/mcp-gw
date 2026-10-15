@@ -255,9 +255,15 @@ exit 0
     expect(smoke).toContain("upgrade_github_topology sidecar");
     expect(smoke).toContain("wait_for_current_github_wrapper_pod");
     expect(smoke).toContain("awk '$1 > 0");
-    expect(smoke).toContain('kubectl exec "pod/$GITHUB_WRAPPER_POD"');
+    expect(smoke).toContain('kubectl exec "pod/$pod"');
     expect(smoke).toContain('kubectl get pod "$GITHUB_WRAPPER_POD"');
     expect(smoke).toContain("127.0.0.1:8082");
+    expect(smoke).toContain("wait_for_sidecar_mcp");
+    expect(smoke).toContain("AbortSignal.timeout(2000)");
+    expect(smoke).toContain("SECONDS + 60");
+    expect(smoke).toContain('log_step "Wait for the in-Pod GitHub MCP sidecar endpoint"');
+    expect(smoke).toContain('log_step "Verify the topology sentinel after the sidecar switch"');
+    expect(smoke).toContain('log_step "Verify the topology sentinel after the separate switch"');
     expect(smoke).toContain("github-mcp-topology-sentinel");
     expect(smoke).toContain("upgrade_github_topology separate");
     expect(smoke).toContain('kubectl get deployment "$RELEASE_NAME-github-mcp"');
