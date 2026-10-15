@@ -253,6 +253,10 @@ exit 0
     expect(smoke).toContain('[[ "$GITHUB_MCP_UID" == "10001" ]]');
     expect(smoke).toContain('[[ "$GITHUB_MCP_GID" == "10001" ]]');
     expect(smoke).toContain("upgrade_github_topology sidecar");
+    expect(smoke).toContain("wait_for_current_github_wrapper_pod");
+    expect(smoke).toContain("awk '$1 > 0");
+    expect(smoke).toContain('kubectl exec "pod/$GITHUB_WRAPPER_POD"');
+    expect(smoke).toContain('kubectl get pod "$GITHUB_WRAPPER_POD"');
     expect(smoke).toContain("127.0.0.1:8082");
     expect(smoke).toContain("github-mcp-topology-sentinel");
     expect(smoke).toContain("upgrade_github_topology separate");

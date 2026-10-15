@@ -142,9 +142,11 @@ describe("local Docker integration smoke", () => {
     expect(refusalClient).toContain("providerCalls.tools.length !== 1");
     expect(providerFixture).toContain('url.pathname === "/github-mcp/calls"');
     expect(providerFixture).toContain('name: "list_commits"');
-    expect(await readFile("scripts/fixtures/broker-journey-client.ts", "utf8")).toContain(
-      '"mail" in claims || "oid" in claims',
-    );
+    const brokerJourney = await readFile("scripts/fixtures/broker-journey-client.ts", "utf8");
+    expect(brokerJourney).toContain('"mail" in claims || "oid" in claims');
+    expect(brokerJourney).toContain("rpcRequestToWhenReady");
+    expect(brokerJourney).toContain("attempt <= 20");
+    expect(brokerJourney).toContain("readiness deadline");
     expect(smoke).toContain('--google-wrapper-url "http://127.0.0.1:$GOOGLE_WRAPPER_PORT/mcp"');
     expect(smoke).toContain('--github-wrapper-url "http://127.0.0.1:$GITHUB_WRAPPER_PORT/mcp"');
     expect(smoke).toContain("google-oidc-fixture.ts");

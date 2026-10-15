@@ -10,18 +10,65 @@ GOOGLE_IMAGE="${K8S_SMOKE_GOOGLE_IMAGE:-mcp-gw-google-workspace}"
 GITHUB_IMAGE="${K8S_SMOKE_GITHUB_IMAGE:-mcp-gw-github-wrapper}"
 IMAGE_TAG="${K8S_SMOKE_WRAPPER_TAG:-smoke}"
 
+current_github_wrapper_pod() {
+  local hash
+  hash="$(kubectl get replicaset \
+    --namespace "$NAMESPACE" \
+    -l app.kubernetes.io/component=github-wrapper \
+    -o jsonpath='{range .items[*]}{.spec.replicas}{"\t"}{.metadata.labels.pod-template-hash}{"\n"}{end}' | \
+    awk '$1 > 0 { hash = $2 } END { print hash }')"
+  kubectl get pod \
+    --namespace "$NAMESPACE" \
+    -l "app.kubernetes.io/component=github-wrapper,pod-template-hash=$hash" \
+    -o jsonpath='{.items[0].metadata.name}'
+}
+
+wait_for_current_github_wrapper_pod() {
+  local all_pods current_pod ready
+  for _ in {1..120}; do
+    if ! current_pod="$(current_github_wrapper_pod 2>/dev/null)" || [[ -z "$current_pod" ]]; then
+      sleep 1
+      continue
+    fi
+    if ! all_pods="$(kubectl get pod \
+      --namespace "$NAMESPACE" \
+      -l app.kubernetes.io/component=github-wrapper \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"; then
+      sleep 1
+      continue
+    fi
+    if ! ready="$(kubectl get pod "$current_pod" \
+      --namespace "$NAMESPACE" \
+      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"; then
+      sleep 1
+      continue
+    fi
+    if [[ "$ready" == "True" ]] && [[ "$all_pods" == "$current_pod" ]]; then
+      printf '%s' "$current_pod"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Current GitHub wrapper Pod did not become the sole ready Pod" >&2
+  return 1
+}
+
 cleanup() {
   helm uninstall "$RELEASE_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1 || true
   kubectl delete namespace "$NAMESPACE" --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
 
 diagnose() {
+  local github_wrapper_pod
+  github_wrapper_pod="$(current_github_wrapper_pod 2>/dev/null || true)"
   echo "Provider runtime Kubernetes smoke failed; collecting diagnostics" >&2
   kubectl get all --namespace "$NAMESPACE" -o wide >&2 || true
   kubectl get events --namespace "$NAMESPACE" --sort-by=.lastTimestamp >&2 || true
   kubectl logs "deployment/$RELEASE_NAME-google-workspace" --namespace "$NAMESPACE" --tail=200 >&2 || true
-  kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --tail=200 >&2 || true
-  kubectl logs "deployment/$RELEASE_NAME-github-wrapper" --namespace "$NAMESPACE" --container github-mcp --tail=200 >&2 || true
+  if [[ -n "$github_wrapper_pod" ]]; then
+    kubectl logs "pod/$github_wrapper_pod" --namespace "$NAMESPACE" --tail=200 >&2 || true
+    kubectl logs "pod/$github_wrapper_pod" --namespace "$NAMESPACE" --container github-mcp --tail=200 >&2 || true
+  fi
   kubectl logs "deployment/$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" --tail=200 >&2 || true
   kubectl logs --namespace "$NAMESPACE" -l app.kubernetes.io/component=oauth-migrations --tail=200 >&2 || true
 }
@@ -199,6 +246,7 @@ kubectl rollout status \
   "deployment/$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+GITHUB_WRAPPER_POD="$(wait_for_current_github_wrapper_pod)"
 if kubectl get deployment "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev/null 2>&1; then
   echo "Standalone GitHub MCP Deployment still exists in sidecar topology" >&2
   exit 1
@@ -211,14 +259,13 @@ SIDECAR_LISTEN_HOST="$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].args}')"
 [[ "$SIDECAR_LISTEN_HOST" == *"--listen-host 127.0.0.1"* ]]
-kubectl exec "deployment/$RELEASE_NAME-github-wrapper" \
+kubectl exec "pod/$GITHUB_WRAPPER_POD" \
   --namespace "$NAMESPACE" \
   --container github-wrapper -- \
   bun -e 'const response = await fetch("http://127.0.0.1:8082/mcp"); if (response.status < 100) process.exit(1)'
-GITHUB_WRAPPER_POD_IP="$(kubectl get pod \
+GITHUB_WRAPPER_POD_IP="$(kubectl get pod "$GITHUB_WRAPPER_POD" \
   --namespace "$NAMESPACE" \
-  -l app.kubernetes.io/component=github-wrapper \
-  -o jsonpath='{.items[0].status.podIP}')"
+  -o jsonpath='{.status.podIP}')"
 kubectl exec deployment/postgres --namespace "$NAMESPACE" -- \
   sh -c 'if nc -z -w 2 "$1" 8082; then exit 1; fi' -- "$GITHUB_WRAPPER_POD_IP"
 assert_topology_sentinel
@@ -228,6 +275,7 @@ kubectl rollout status \
   "deployment/$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+GITHUB_WRAPPER_POD="$(wait_for_current_github_wrapper_pod)"
 kubectl rollout status \
   "deployment/$RELEASE_NAME-github-mcp" \
   --namespace "$NAMESPACE" \

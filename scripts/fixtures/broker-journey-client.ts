@@ -23,6 +23,15 @@ interface RpcEnvelope {
   error?: { code?: number; message?: string };
 }
 
+class McpRequestError extends Error {
+  constructor(
+    readonly status: number,
+    body: string,
+  ) {
+    super(`MCP request failed (${String(status)}): ${body}`);
+  }
+}
+
 const args = parseArgs(process.argv.slice(2));
 const redirectUri = "https://client.example.com/oauth/callback";
 const verifier = "v".repeat(64);
@@ -131,7 +140,7 @@ if (args.githubWrapperUrl) {
   ]);
 }
 
-const initialize = await rpcRequest(
+const initialize = await rpcRequestWhenReady(
   {
     jsonrpc: "2.0",
     id: 1,
@@ -223,7 +232,8 @@ async function expectPreConsentSurface(
   accessToken: string,
   expectedTools: string[],
 ): Promise<void> {
-  const initialize = await rpcRequestTo(
+  const isGoogle = expectedTools.includes("google_oauth_start");
+  const initialize = await rpcRequestToWhenReady(
     url,
     {
       jsonrpc: "2.0",
@@ -236,6 +246,7 @@ async function expectPreConsentSurface(
       },
     },
     accessToken,
+    `${isGoogle ? "Google" : "GitHub"} wrapper`,
   );
   await decodeRpcResponse(initialize);
 
@@ -261,7 +272,6 @@ async function expectPreConsentSurface(
       );
     }
   }
-  const isGoogle = expectedTools.includes("google_oauth_start");
   const dataTool = isGoogle ? "google_drive_files_list" : "get_file_contents";
   if (!toolNames.includes(dataTool)) {
     throw new Error(`Direct wrapper stable catalog omitted ${dataTool}`);
@@ -295,6 +305,33 @@ async function rpcRequest(
   return rpcRequestTo(args.gatewayUrl, body, accessToken, sessionId);
 }
 
+async function rpcRequestWhenReady(body: unknown, accessToken: string): Promise<Response> {
+  return rpcRequestToWhenReady(args.gatewayUrl, body, accessToken, "AgentGateway");
+}
+
+async function rpcRequestToWhenReady(
+  url: string,
+  body: unknown,
+  accessToken: string,
+  label: string,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    try {
+      return await rpcRequestTo(url, body, accessToken);
+    } catch (error) {
+      if (error instanceof McpRequestError && ![401, 502, 503, 504].includes(error.status)) {
+        throw error;
+      }
+      lastError = error;
+      if (attempt < 20) await Bun.sleep(250);
+    }
+  }
+  throw new Error(`${label} did not accept the broker token before the readiness deadline`, {
+    cause: lastError,
+  });
+}
+
 async function rpcRequestTo(
   url: string,
   body: unknown,
@@ -314,7 +351,7 @@ async function rpcRequestTo(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`MCP request failed (${String(response.status)}): ${await response.text()}`);
+    throw new McpRequestError(response.status, await response.text());
   }
   return response;
 }
