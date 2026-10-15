@@ -12,7 +12,11 @@ const CHECK_MODE = process.argv.includes("--check");
 const SERVERS_DIR = "servers";
 // Reusable runtimes are instantiated from deployment configuration and have
 // no single source-tree host or tool prefix to register.
-const RUNTIME_ONLY_SERVER_DIRECTORIES = new Set(["generic-wrapper"]);
+const RUNTIME_ONLY_SERVER_DIRECTORIES = new Set([
+  "generic-wrapper",
+  // Remove this exemption when the first CLI and deployable backend descriptor land.
+  "governed-cli",
+]);
 const BASE_CONFIG_PATH = "gateway/agentgateway/base.yaml";
 const FEDERATED_CONFIG_PATH = "gateway/agentgateway/federated.yaml";
 
