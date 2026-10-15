@@ -96,6 +96,9 @@
 {{- $catalog := $wrapper.catalog }}
 {{- $catalogPreset := $catalog.preset | default "" }}
 {{- $jiraPreset := has $catalogPreset (list "jira" "jira-read-only") }}
+{{- if and (eq $catalogPreset "jira") (not ($catalog.experimental | default false)) }}
+{{- fail (printf "wrappers[%d] catalog.preset jira does not work with custom OAuth apps; use jira-read-only, or set catalog.experimental=true to opt in to the unsupported full preset" $index) }}
+{{- end }}
 {{- if $jiraPreset }}
 {{- if or (ne $wrapper.toolPrefix "jira") (ne $wrapper.credential.mode "per_user_oauth") (ne ($wrapper.credential.providerId | default "") "jira") (ne $wrapper.upstream.transport "http") (ne ($wrapper.upstream.url | default "") "https://mcp.atlassian.com/v2/mcp?tools=all") }}
 {{- fail (printf "wrappers[%d] Jira catalog preset requires toolPrefix jira, OAuth providerId jira, and the Atlassian v2 tools=all upstream" $index) }}

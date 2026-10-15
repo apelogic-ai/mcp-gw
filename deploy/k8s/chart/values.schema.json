@@ -538,7 +538,10 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["preset"],
-          "properties": { "preset": { "enum": ["jira", "jira-read-only"] } }
+          "properties": {
+            "preset": { "enum": ["jira", "jira-read-only"] },
+            "experimental": { "type": "boolean", "default": false }
+          }
         },
         {
           "type": "object",

@@ -1,5 +1,11 @@
 # Jira Cloud provider
 
+> **Warning:** The full `catalog.preset: jira` path is not currently supported
+> with customer-managed Atlassian OAuth apps. Consent can succeed while hosted
+> MCP data calls fail. Use `jira-read-only`. The chart refuses the full preset
+> unless `catalog.experimental: true` explicitly opts in to this unsupported
+> path.
+
 MCP-GW can front Atlassian's hosted MCP server with a per-user Atlassian OAuth
 2.0 (3LO) credential. Jira is opt-in and uses the descriptor-driven generic
 wrapper with provider ID `jira`; enabling it does not change Google Workspace,
@@ -27,31 +33,37 @@ policy constrains every caller allowed to reach the gateway.
 - A dedicated confidential Atlassian OAuth 2.0 (3LO) app for MCP-GW. The same
   app may serve multiple deployments when every deployment's exact callback is
   registered in the Atlassian developer console.
-- For the recommended read-only preset, these app scopes:
+- For the supported read-only preset, these app scopes:
 
   ```text
   read:jira-user
   read:jira-work
-  read:jira:agent-interface
-  search:jira:agent-interface
+  offline_access
   ```
 
-  Atlassian authorizes hosted MCP Jira data calls with the classic
-  `read:jira-work` scope in addition to the agent-interface scopes.
-  MCP-GW additionally requests `offline_access` during authorization so it can
-  retain and rotate the refresh credential. The full `jira` preset additionally
-  requires `write:jira:agent-interface`. Neither preset requests
-  `delete:jira:agent-interface` or `manage:jira:agent-interface`.
+  MCP-GW requests `offline_access` during authorization so it can retain and
+  rotate the refresh credential. The read-only preset does not request
+  agent-interface write, delete, or manage scopes.
 
-- The organization's Rovo MCP access and Jira read/search permission groups
-  enabled. Enable the write group only with the full preset. Keep delete/manage
-  disabled for both presets.
 - App **Sharing** enabled before accounts other than the app owner connect.
 - Stable gateway egress addresses included in any Atlassian organization IP
   allowlist.
 - PostgreSQL reachable by the wrapper and the chart's OAuth migration Job.
 
 The API-token authentication toggle is unrelated to this OAuth 3LO path.
+
+## Full preset (not currently supported)
+
+The full `catalog.preset: jira` path targets Atlassian's hosted MCP service,
+which currently rejects tokens issued through a customer-managed OAuth app.
+Do not use it for a working deployment; use `jira-read-only` instead.
+
+Keeping the full path available makes it possible to retest if Atlassian adds
+custom-app support. That test-only setup requires `catalog.experimental: true`,
+the read-only scopes plus `read:jira:agent-interface`,
+`search:jira:agent-interface`, and `write:jira:agent-interface`, and the
+organization's Rovo MCP read/search/write permission groups. Keep delete and
+manage permissions disabled.
 
 ## Callback URLs
 

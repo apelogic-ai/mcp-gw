@@ -698,7 +698,7 @@ describe("Kubernetes production chart", () => {
       transport: "http",
       url: "https://mcp.atlassian.com/v2/mcp?tools=all",
     };
-    wrapper.catalog = { preset: "jira" };
+    wrapper.catalog = { preset: "jira", experimental: true };
 
     const rendered = helmTemplate([
       ...genericWrapperBaseArgs(),
@@ -779,7 +779,7 @@ describe("Kubernetes production chart", () => {
       transport: "http",
       url: "https://mcp.atlassian.com/v2/mcp?tools=all",
     };
-    wrapper.catalog = { preset: "jira" };
+    wrapper.catalog = { preset: "jira", experimental: true };
 
     const result = helmTemplateResult([
       ...genericWrapperBaseArgs(),
