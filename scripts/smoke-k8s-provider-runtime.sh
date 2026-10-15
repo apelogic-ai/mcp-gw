@@ -294,10 +294,14 @@ if kubectl get service "$RELEASE_NAME-github-mcp" --namespace "$NAMESPACE" >/dev
   exit 1
 fi
 log_step "Verify the sidecar binds only to loopback"
-SIDECAR_LISTEN_HOST="$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
+SIDECAR_ARGS="$(kubectl get deployment "$RELEASE_NAME-github-wrapper" \
   --namespace "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[?(@.name=="github-mcp")].args}')"
-[[ "$SIDECAR_LISTEN_HOST" == *"--listen-host 127.0.0.1"* ]]
+  -o jsonpath='{range .spec.template.spec.containers[?(@.name=="github-mcp")].args[*]}{@}{"\n"}{end}')"
+if ! awk 'previous == "--listen-host" && $0 == "127.0.0.1" { found = 1 } { previous = $0 } END { exit !found }' <<<"$SIDECAR_ARGS"; then
+  echo "GitHub MCP sidecar args do not bind --listen-host to 127.0.0.1; actual args:" >&2
+  printf '%s\n' "$SIDECAR_ARGS" >&2
+  exit 1
+fi
 log_step "Wait for the in-Pod GitHub MCP sidecar endpoint"
 wait_for_sidecar_mcp "$GITHUB_WRAPPER_POD"
 log_step "Verify the sidecar endpoint is isolated from other Pods"

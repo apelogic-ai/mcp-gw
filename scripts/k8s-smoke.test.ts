@@ -262,6 +262,10 @@ exit 0
     expect(smoke).toContain("AbortSignal.timeout(2000)");
     expect(smoke).toContain("SECONDS + 60");
     expect(smoke).toContain('log_step "Wait for the in-Pod GitHub MCP sidecar endpoint"');
+    expect(smoke).toContain('.args[*]}{@}{"\\n"}{end}');
+    expect(smoke).toContain('previous == "--listen-host" && $0 == "127.0.0.1"');
+    expect(smoke).toContain("actual args:");
+    expect(smoke).not.toContain('[[ "$SIDECAR_LISTEN_HOST" == *"--listen-host 127.0.0.1"* ]]');
     expect(smoke).toContain('log_step "Verify the topology sentinel after the sidecar switch"');
     expect(smoke).toContain('log_step "Verify the topology sentinel after the separate switch"');
     expect(smoke).toContain("github-mcp-topology-sentinel");
