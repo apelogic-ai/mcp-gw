@@ -16,6 +16,11 @@ const identity: Hop1Identity = {
   email: "user@example.com",
   claims: {},
 };
+const otherIdentity: Hop1Identity = {
+  ...identity,
+  subject: "subject-2",
+  email: "other@example.com",
+};
 const descriptor: GenericOAuthCredentialDescriptor = {
   mode: "per_user_oauth",
   providerId: "search-provider",
@@ -125,5 +130,70 @@ describe("generic OAuth routes", () => {
     );
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: "not_found", code: "oauth_route_not_found" });
+  });
+
+  test("advertises disconnect and removes only the authenticated principal's credential", async () => {
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const stateStore = new InMemoryOAuthStateStore();
+    const lifecycle = config.lifecycle(tokenStore);
+    for (const [principal, activeCredential] of [
+      [identity, "active-1"],
+      [otherIdentity, "active-2"],
+    ] as const) {
+      await lifecycle.activateAuthorizedGeneration(principal, descriptor.scopes, {
+        credential: { activeCredential, renewalCredential: `renewal-${principal.subject}` },
+        displayAccountIdentity: principal.email,
+        providerAccount: { id: principal.subject },
+        grantedScopes: descriptor.scopes,
+        activeCredentialExpiresAt: new Date(Date.now() + 3_600_000),
+        validatedAt: new Date(),
+      });
+    }
+    const handler = createGenericOAuthRouteHandler({
+      authenticate: (token) => {
+        if (token === "alice") return Promise.resolve(identity);
+        if (token === "bob") return Promise.resolve(otherIdentity);
+        return Promise.reject(new Error("invalid bearer"));
+      },
+      config,
+      tokenStore,
+      stateStore,
+    });
+    const request = (path: string, bearer: string, method = "GET") =>
+      handler(
+        new Request(`https://gateway.example.com${path}`, {
+          method,
+          headers: { authorization: `Bearer ${bearer}` },
+        }),
+      );
+
+    const connected = await request("/connections/search-provider/status", "alice");
+    expect(await connected.json()).toMatchObject({
+      phase: "connected",
+      connected: true,
+      actions: ["disconnect"],
+    });
+
+    const disconnected = await request("/connections/search-provider/disconnect", "alice", "POST");
+    expect(await disconnected.json()).toMatchObject({
+      phase: "disconnected",
+      connected: false,
+      actions: ["disconnect"],
+    });
+    expect(lifecycle.getActiveCredential(identity, descriptor.scopes)).rejects.toBeInstanceOf(
+      Error,
+    );
+    expect(await lifecycle.getActiveCredential(otherIdentity, descriptor.scopes)).toBe("active-2");
+
+    const otherStatus = await request("/connections/search-provider/status", "bob");
+    expect(await otherStatus.json()).toMatchObject({ phase: "connected", connected: true });
+
+    const unauthorized = await request(
+      "/connections/search-provider/disconnect",
+      "outside",
+      "POST",
+    );
+    expect(unauthorized.status).toBe(401);
+    expect(await lifecycle.getActiveCredential(otherIdentity, descriptor.scopes)).toBe("active-2");
   });
 });

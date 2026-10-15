@@ -110,6 +110,7 @@ export function createGenericOAuthRuntimeConfig(
 export class GenericOAuthConnectionAdapter implements DownstreamConnectionAdapter {
   readonly providerId: string;
   readonly capabilities: ProviderConnectionCapabilities;
+  readonly statusActions = ["disconnect"] as const;
   private readonly fetchImpl: GenericOAuthFetch;
 
   constructor(
