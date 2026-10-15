@@ -23,8 +23,6 @@ records the human-maintained compatibility summary.
   the Jira Cloud REST API. It requests exactly `read:jira-user`, `read:jira-work`, and
   `offline_access`, with no agent-interface scopes. The full `jira` preset stays on Atlassian's
   hosted MCP service.
-- Request Atlassian's classic `read:jira-work` scope for the full `jira` preset because hosted MCP
-  data calls require it in addition to the agent-interface scopes.
 - Limit Task tool calls to the exact provider actions approved for that Task. Provider sign-in and
   status helpers remain available so users and agents can establish and inspect connections.
 - Build each Jira tool list from Atlassian's current response and MCP-GW's reviewed decisions. New
@@ -60,7 +58,9 @@ records the human-maintained compatibility summary.
   only current-user, issue-search, and issue-get through the Jira Cloud REST API and requires
   exactly `read:jira-user`, `read:jira-work`, and `offline_access`; it must not request
   agent-interface scopes. The full `jira` preset stays on Atlassian's hosted MCP service and uses
-  its documented agent-interface scopes. Existing providers need no reconnect or new Secret.
+  its documented agent-interface scopes. Known limitation: the full preset currently fails
+  Atlassian's access check when used with a custom OAuth app; use `jira-read-only`. Existing
+  providers need no reconnect or new Secret.
 
 ## [0.5.7] - 2026-10-01
 
