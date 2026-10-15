@@ -1936,6 +1936,7 @@ function statusFromRecord(
     lastValidatedAt: iso(record.lastValidatedAt),
     statusUpdatedAt: iso(record.updatedAt),
     capabilities: { ...adapter.capabilities },
+    ...(adapter.statusActions ? { actions: [...adapter.statusActions] } : {}),
     errorCategory,
   };
 }
@@ -1961,6 +1962,7 @@ function disconnectedStatus(
     lastValidatedAt: null,
     statusUpdatedAt: null,
     capabilities: { ...adapter.capabilities },
+    ...(adapter.statusActions ? { actions: [...adapter.statusActions] } : {}),
   };
 }
 

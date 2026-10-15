@@ -640,6 +640,19 @@ describe("Kubernetes production chart", () => {
     expect(deployment).toContain("name: SEARCH_OAUTH_CLIENT_ID");
     expect(deployment).toContain("name: SEARCH_TOKEN_ENCRYPTION_KEY");
     expect(policy).toContain("app.kubernetes.io/name: public-gateway");
+    const policySpec = (parse(policy) as { spec?: { ingress?: unknown[] } }).spec;
+    expect(policySpec?.ingress).toHaveLength(2);
+    expect(policySpec?.ingress?.[1]).toEqual({
+      from: [
+        {
+          namespaceSelector: {
+            matchLabels: { "kubernetes.io/metadata.name": "gateway-system" },
+          },
+          podSelector: { matchLabels: { "app.kubernetes.io/name": "public-gateway" } },
+        },
+      ],
+      ports: [{ protocol: "TCP", port: 8080 }],
+    });
     expect(rendered).not.toContain("kind: HTTPRoute");
     expect(rendered).not.toContain("kind: Ingress");
   });

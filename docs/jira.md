@@ -164,7 +164,9 @@ activates it only after the identity checks succeed. Access tokens renew
 silently with serialized, rotating-refresh-token custody.
 
 Disconnect immediately disables the local connection and destroys its
-encrypted credentials. Atlassian does not publish a 3LO token-revocation
+encrypted credentials. Jira connection status advertises the `disconnect`
+action so clients do not have to assume that a generic provider supports it.
+Atlassian does not publish a 3LO token-revocation
 endpoint. Removing the provider-side grant remains a user action under
 Connected Apps or an administrator action by uninstalling the app.
 

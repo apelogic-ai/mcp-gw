@@ -45,6 +45,65 @@ function tool(name: string) {
 }
 
 describe("Jira REST tools", () => {
+  test("logs one sanitized structured line for successful and refused upstream calls", async () => {
+    const logs: string[] = [];
+    const responses = [
+      Response.json({ issues: [{ id: "response-account-id", fields: {} }] }),
+      Response.json({ error: "sensitive-response-body" }, { status: 403 }),
+    ];
+    const execute = createJiraRestToolExecutor(
+      descriptor,
+      (input) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        return Promise.resolve(
+          url.endsWith("/accessible-resources")
+            ? Response.json([{ id: "sensitive-cloud-id", url: "https://site.atlassian.net" }])
+            : (responses.shift() ?? new Response(null, { status: 500 })),
+        );
+      },
+      (line) => logs.push(line),
+    );
+    const search = tool("jira_search_issues");
+    const arguments_ = { jql: "project = SENSITIVE_QUERY", maxResults: 2 };
+
+    expect(
+      await execute({ id: 1, tool: search, arguments: arguments_, credential }),
+    ).toHaveProperty("status", 200);
+    expect(logs).toHaveLength(1);
+    expect(
+      await execute({ id: 2, tool: search, arguments: arguments_, credential }),
+    ).toHaveProperty("status", 403);
+    expect(logs).toHaveLength(2);
+
+    const events = logs.map(parseLogLine);
+    expect(events[0]).toMatchObject({
+      type: "mcp_gw_jira_upstream_request",
+      tool: "jira_search_issues",
+      status: 200,
+      errorClass: "none",
+    });
+    expect(events[1]).toMatchObject({
+      type: "mcp_gw_jira_upstream_request",
+      tool: "jira_search_issues",
+      status: 403,
+      errorClass: "provider_permission_denied",
+    });
+    for (const event of events) {
+      expect(Object.keys(event).sort()).toEqual(
+        ["durationMs", "errorClass", "requestId", "status", "tool", "type"].sort(),
+      );
+      expect(typeof event.durationMs).toBe("number");
+      expect(String(event.requestId)).toMatch(/^[0-9a-f-]{36}$/);
+    }
+    for (const line of logs) {
+      expect(line).not.toContain("secret-token");
+      expect(line).not.toContain("SENSITIVE_QUERY");
+      expect(line).not.toContain("sensitive-response-body");
+      expect(line).not.toContain("response-account-id");
+      expect(line).not.toContain("sensitive-cloud-id");
+    }
+  });
+
   test("binds all three tools to the configured cloud and returns only fixed fields", async () => {
     const requests: Request[] = [];
     const execute = createJiraRestToolExecutor(descriptor, (input, init) => {
@@ -184,3 +243,11 @@ describe("Jira REST tools", () => {
     expect(missingCalls).toBe(1);
   });
 });
+
+function parseLogLine(line: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(line);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Expected a structured Jira request log line");
+  }
+  return value as Record<string, unknown>;
+}

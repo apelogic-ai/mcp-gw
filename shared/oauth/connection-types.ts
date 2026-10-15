@@ -37,6 +37,8 @@ export type ProviderRevocationResult =
 
 export type RevocationState = "none" | "pending" | "complete" | "permanent_failure";
 
+export type ProviderConnectionAction = "disconnect";
+
 export interface ProviderConnectionCapabilities {
   interactiveAuthorization: boolean;
   activeCredentialExpiry: boolean;
@@ -151,6 +153,8 @@ export interface CompleteAuthorizationRequest {
 export interface DownstreamConnectionAdapter {
   readonly providerId: OAuthProvider;
   readonly capabilities: ProviderConnectionCapabilities;
+  /** Provider-specific lifecycle actions that clients may offer. */
+  readonly statusActions?: readonly ProviderConnectionAction[];
   hasRequiredScopes?(granted: string[], required: string[]): boolean;
   startAuthorization?(request: StartAuthorizationRequest): Promise<AuthorizationContinuation>;
   completeAuthorization?(
@@ -263,6 +267,7 @@ export interface ConnectionStatusV1 {
   lastValidatedAt: string | null;
   statusUpdatedAt: string | null;
   capabilities: ProviderConnectionCapabilities;
+  actions?: ProviderConnectionAction[];
   errorCategory?: LifecycleErrorCategory;
 }
 
@@ -291,6 +296,7 @@ export interface ConnectionStatusV2 extends Omit<ConnectionStatusV1, "version" |
   lastValidatedAt: string | null;
   statusUpdatedAt: string | null;
   capabilities: ProviderConnectionCapabilities;
+  actions?: ProviderConnectionAction[];
   errorCategory?: LifecycleErrorCategory;
 }
 

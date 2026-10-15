@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import type { GenericUpstreamCredential } from "./credentials";
 import type { GenericGovernedTool, GenericWrapperDescriptor } from "./descriptor";
 import { resolveAtlassianJiraSite } from "./oauth";
 
 type JsonRpcId = string | number | null;
 type JiraFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type JiraRequestLog = (line: string) => void;
 const JIRA_ISSUE_KEY_OR_ID = /^(?:[A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$/;
 
 export interface JiraRestToolRequest {
@@ -18,6 +21,7 @@ export type JiraRestToolExecutor = (request: JiraRestToolRequest) => Promise<Res
 export function createJiraRestToolExecutor(
   descriptor: GenericWrapperDescriptor,
   fetchImpl: JiraFetch = fetch,
+  writeLog: JiraRequestLog = (line) => console.info(line),
 ): JiraRestToolExecutor {
   const credential = descriptor.credential;
   if (
@@ -35,29 +39,70 @@ export function createJiraRestToolExecutor(
     if (target instanceof Response) return target;
     const token = request.credential.rawValue;
     if (!token) throw new Error("Jira REST tools require a raw OAuth credential");
-    const resourceResponse = await providerResponse(
-      fetchImpl,
-      new URL(jiraCredential.userInfoUrl),
-      token,
-      timeoutMs,
-    );
-    if (!resourceResponse.ok) return sanitizedFailure(resourceResponse);
-    const resources: unknown = await resourceResponse.json();
-    const cloudId = resolveAtlassianJiraSite(resources, siteUrl);
-    const base = `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}/rest/api/3`;
-    const response = await providerResponse(fetchImpl, target(base), token, timeoutMs);
-    if (!response.ok) return sanitizedFailure(response);
-    const body = await response.json();
-    const result = trimResult(request.tool.upstreamName, body);
-    return Response.json({
-      jsonrpc: "2.0",
-      id: request.id,
-      result: {
-        content: [{ type: "text", text: JSON.stringify(result) }],
-        structuredContent: result,
-      },
-    });
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    let status: number | null = null;
+    let errorClass = "transport_error";
+    try {
+      const resourceResponse = await providerResponse(
+        fetchImpl,
+        new URL(jiraCredential.userInfoUrl),
+        token,
+        timeoutMs,
+      );
+      status = resourceResponse.status;
+      errorClass = jiraErrorClass(resourceResponse);
+      if (!resourceResponse.ok) return sanitizedFailure(resourceResponse);
+      errorClass = "site_resolution_error";
+      const resources: unknown = await resourceResponse.json();
+      const cloudId = resolveAtlassianJiraSite(resources, siteUrl);
+      const base = `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}/rest/api/3`;
+      status = null;
+      errorClass = "transport_error";
+      const response = await providerResponse(fetchImpl, target(base), token, timeoutMs);
+      status = response.status;
+      errorClass = jiraErrorClass(response);
+      if (!response.ok) return sanitizedFailure(response);
+      errorClass = "invalid_response";
+      const body = await response.json();
+      const result = trimResult(request.tool.upstreamName, body);
+      errorClass = "none";
+      return Response.json({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{ type: "text", text: JSON.stringify(result) }],
+          structuredContent: result,
+        },
+      });
+    } finally {
+      emitJiraRequestLog(writeLog, {
+        type: "mcp_gw_jira_upstream_request",
+        tool: request.tool.exposedName,
+        status,
+        errorClass,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        requestId,
+      });
+    }
   };
+}
+
+function jiraErrorClass(response: Response): string {
+  if (response.ok) return "none";
+  if (response.status === 401) return "provider_oauth_required";
+  if (response.status === 403) return "provider_permission_denied";
+  if (response.status === 429) return "provider_rate_limited";
+  if (response.status >= 500) return "provider_unavailable";
+  return "provider_rejected";
+}
+
+function emitJiraRequestLog(write: JiraRequestLog, event: Record<string, unknown>): void {
+  try {
+    write(JSON.stringify(event));
+  } catch {
+    // Logging must not change provider request handling.
+  }
 }
 
 function jiraTarget(
