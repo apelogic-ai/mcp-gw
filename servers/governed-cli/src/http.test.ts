@@ -41,7 +41,7 @@ const requestLimits = {
   maxArgs: 64,
   maxArgBytes: 4 * 1024,
 };
-const jobLimits = { maxJobs: 8, retentionSeconds: 60 };
+const jobLimits = { maxJobs: 8, maxRunningJobsPerOwner: 4, retentionSeconds: 60 };
 
 function identity(
   actions: string[],
@@ -416,15 +416,52 @@ describe("governed CLI HTTP", () => {
     expect(`${view}${replay}`).not.toContain("provider-secret");
   });
 
-  test("enforces configured capacity before credentials and admits after retention", async () => {
-    let current = Date.parse("2026-10-15T12:00:00Z");
+  test("limits running jobs per owner without blocking another Task", async () => {
     let credentials = 0;
+    const handler = createCliRunHandler({
+      authenticate: (token) =>
+        Promise.resolve(
+          identity(["read"], true, token === "other" ? "runtime-uid-b" : "runtime-uid-a"),
+        ),
+      requestLimits,
+      jobLimits: { maxJobs: 3, maxRunningJobsPerOwner: 1, retentionSeconds: 60 },
+      targets: [
+        {
+          ...target,
+          credentialEnv: () => {
+            credentials += 1;
+            return Promise.resolve({});
+          },
+        },
+      ],
+      execute: () => new Promise(() => undefined),
+    });
+    const create = (token = "run-token") =>
+      handler(
+        apiRequest("/cli/jobs", {
+          method: "POST",
+          body: { cli: "fixture", args: ["inspect"] },
+          token,
+        }),
+      );
+
+    expect(await create()).toMatchObject({ status: 202 });
+    expect(await create()).toMatchObject({ status: 503 });
+    expect(await create("other")).toMatchObject({ status: 202 });
+    expect(credentials).toBe(2);
+  });
+
+  test("evicts finished jobs but refuses when running jobs fill global capacity", async () => {
+    let credentials = 0;
+    let executions = 0;
     let nextId = 0;
     const handler = createCliRunHandler({
-      authenticate: () => Promise.resolve(identity(["read"])),
+      authenticate: (token) =>
+        Promise.resolve(
+          identity(["read"], true, token === "other" ? "runtime-uid-b" : "runtime-uid-a"),
+        ),
       requestLimits,
-      jobLimits: { maxJobs: 1, retentionSeconds: 60 },
-      now: () => current,
+      jobLimits: { maxJobs: 1, maxRunningJobsPerOwner: 1, retentionSeconds: 60 },
       jobId: () => `job-${String(++nextId)}`,
       targets: [
         {
@@ -435,8 +472,10 @@ describe("governed CLI HTTP", () => {
           },
         },
       ],
-      execute: (_config, _args, commandClass) =>
-        Promise.resolve({
+      execute: (_config, _args, commandClass) => {
+        executions += 1;
+        if (executions > 1) return new Promise(() => undefined);
+        return Promise.resolve({
           exit_code: 0,
           stdout: "",
           stderr: "",
@@ -444,22 +483,23 @@ describe("governed CLI HTTP", () => {
           stderr_truncated: false,
           duration_ms: 1,
           class: commandClass,
-        }),
+        });
+      },
     });
-    const create = () =>
+    const create = (token = "run-token") =>
       handler(
         apiRequest("/cli/jobs", {
           method: "POST",
           body: { cli: "fixture", args: ["inspect"] },
+          token,
         }),
       );
 
     expect(await create()).toMatchObject({ status: 202 });
     await Bun.sleep(0);
-    expect(await create()).toMatchObject({ status: 503 });
-    expect(credentials).toBe(1);
-    current += 60_001;
     expect(await create()).toMatchObject({ status: 202 });
+    expect(await handler(apiRequest("/cli/jobs/job-1"))).toMatchObject({ status: 404 });
+    expect(await create("other")).toMatchObject({ status: 503 });
     expect(credentials).toBe(2);
   });
 });

@@ -36,6 +36,7 @@ export interface CreateCliRunHandlerOptions {
   };
   jobLimits: {
     maxJobs: number;
+    maxRunningJobsPerOwner: number;
     retentionSeconds: number;
   };
   execute?: typeof executeCli;
@@ -80,6 +81,7 @@ export function createCliRunHandler(
   const nextJobId = options.jobId ?? randomUUID;
   const jobs = new Map<string, Job>();
   let admissions = 0;
+  const admissionsByOwner = new Map<string, number>();
 
   const authenticate = async (
     request: Request,
@@ -222,6 +224,36 @@ export function createCliRunHandler(
     }
   };
 
+  const admit = (owner: string): boolean => {
+    prune();
+    const ownerRunning = [...jobs.values()].filter(
+      (job) => job.owner === owner && job.status === "running",
+    ).length;
+    if (
+      ownerRunning + (admissionsByOwner.get(owner) ?? 0) >=
+      options.jobLimits.maxRunningJobsPerOwner
+    ) {
+      return false;
+    }
+    while (jobs.size + admissions >= options.jobLimits.maxJobs) {
+      const oldestFinished = [...jobs.values()]
+        .filter((job) => job.completedAt !== undefined)
+        .sort((left, right) => (left.completedAt ?? 0) - (right.completedAt ?? 0))[0];
+      if (!oldestFinished) return false;
+      jobs.delete(oldestFinished.id);
+    }
+    admissions += 1;
+    admissionsByOwner.set(owner, (admissionsByOwner.get(owner) ?? 0) + 1);
+    return true;
+  };
+
+  const releaseAdmission = (owner: string): void => {
+    admissions -= 1;
+    const remaining = (admissionsByOwner.get(owner) ?? 1) - 1;
+    if (remaining) admissionsByOwner.set(owner, remaining);
+    else admissionsByOwner.delete(owner);
+  };
+
   const emit = (job: Job, event: StreamEvent): void => {
     if (event.type === "stdout" || event.type === "stderr") {
       const previous = job.events.at(-1);
@@ -354,18 +386,16 @@ export function createCliRunHandler(
       if (!prepared.ok) return prepared.response;
       const owner = taskOwner(prepared.run.identity);
       if (!owner) return taskDenied();
-      prune();
-      if (jobs.size + admissions >= options.jobLimits.maxJobs) {
+      if (!admit(owner)) {
         return errorResponse(503, "job_capacity_exceeded", "CLI job capacity is exhausted");
       }
-      admissions += 1;
       try {
         const credentialEnv = await credentials(prepared.run);
         if (!credentialEnv.ok) return credentialEnv.response;
         const job = startJob(prepared.run, owner, credentialEnv.value);
         return Response.json({ job_id: job.id, status: job.status }, { status: 202 });
       } finally {
-        admissions -= 1;
+        releaseAdmission(owner);
       }
     }
 

@@ -31,7 +31,11 @@ describe("CLI pack", () => {
       targetEnv: "KUBECONFIG",
     });
     expect(pack.runner.env).not.toHaveProperty("KUBECONFIG");
-    expect(pack.jobLimits).toEqual({ maxJobs: 32, retentionSeconds: 300 });
+    expect(pack.jobLimits).toEqual({
+      maxJobs: 32,
+      maxRunningJobsPerOwner: 4,
+      retentionSeconds: 300,
+    });
   });
 
   test("refuses non-read RBAC verbs", async () => {

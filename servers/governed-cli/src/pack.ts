@@ -32,7 +32,7 @@ export interface CliPack {
   credential: { provider: string; sourceEnv: string; targetEnv: string };
   runner: CliRunnerConfig;
   requestLimits: { maxBodyBytes: number; maxArgs: number; maxArgBytes: number };
-  jobLimits: { maxJobs: number; retentionSeconds: number };
+  jobLimits: { maxJobs: number; maxRunningJobsPerOwner: number; retentionSeconds: number };
   operations: Readonly<Record<string, CliPackOperation>>;
   outputFormats: ReadonlySet<string>;
   secretOverlay: {
@@ -100,6 +100,7 @@ export function parseCliPack(source: string): CliPack {
     "maxTimeoutSeconds",
     "outputBytes",
     "maxJobs",
+    "maxRunningJobsPerOwner",
     "jobRetentionSeconds",
   ]);
   const timeoutSeconds = positive(limits.timeoutSeconds, "pack.runner.limits.timeoutSeconds");
@@ -159,6 +160,10 @@ export function parseCliPack(source: string): CliPack {
     },
     jobLimits: {
       maxJobs: positive(limits.maxJobs, "pack.runner.limits.maxJobs"),
+      maxRunningJobsPerOwner: positive(
+        limits.maxRunningJobsPerOwner,
+        "pack.runner.limits.maxRunningJobsPerOwner",
+      ),
       retentionSeconds: positive(
         limits.jobRetentionSeconds,
         "pack.runner.limits.jobRetentionSeconds",

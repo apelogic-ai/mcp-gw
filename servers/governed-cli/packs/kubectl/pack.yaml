@@ -24,6 +24,7 @@ runner:
     maxTimeoutSeconds: 60
     outputBytes: 1048576
     maxJobs: 32
+    maxRunningJobsPerOwner: 4
     jobRetentionSeconds: 300
 operations:
   get:
