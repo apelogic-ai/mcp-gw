@@ -17,13 +17,14 @@ Current implementation status:
 
 ## Governed catalog contract
 
-The selectable provider catalog is
-`google-workspace-cli@0.22.5/visible-v1/actions-v1`: exactly 280 grants (110 `read`, 120 `write`,
-and 50 `destructive`). Its canonical grant-list digest is
-`sha256:3e333e2776e9686279c357f78b362c12e727692fa3f96121d78d7cb0ab76e482`.
+The current selectable provider catalog is
+`google-workspace-cli@0.22.5/visible-v1/actions-v2`: exactly 280 grants (102 `read`, 9
+`secret-read`, 119 `write`, and 50 `destructive`). Its canonical grant-list digest is
+`sha256:cdcc53d0edbdcb78f3981b434628942098a7001b82f891972a01120498af8acb`.
+The earlier `actions-v1` pin remains accepted with its original action classes.
 
 Enable it explicitly with
-`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG=google-workspace-cli@0.22.5/visible-v1/actions-v1`.
+`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG=google-workspace-cli@0.22.5/visible-v1/actions-v2`.
 With that variable absent, the wrapper retains its legacy tools/list, annotations, action classes,
 and policy inputs unchanged. Any other catalog ID is rejected at startup.
 
