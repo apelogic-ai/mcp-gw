@@ -28,10 +28,25 @@ describe("remote shell configuration", () => {
     expect(config).toMatchObject({
       port: 8080,
       awsCliPath: "/usr/local/bin/aws",
+      runTagKey: "hypershell:run-id",
       maxTimeoutSeconds: 60,
       maxOutputBytes: 24 * 1024,
       bindings: [binding],
     });
+  });
+
+  test("loads an operator-configured run tag key and rejects an oversized key", () => {
+    const env = {
+      HOP1_ISSUERS_JSON: JSON.stringify([issuer]),
+      REMOTE_SHELL_BINDINGS_JSON: JSON.stringify([binding]),
+    };
+
+    expect(
+      loadRemoteShellConfig({ ...env, REMOTE_SHELL_RUN_TAG_KEY: "platform:runtime" }).runTagKey,
+    ).toBe("platform:runtime");
+    expect(() =>
+      loadRemoteShellConfig({ ...env, REMOTE_SHELL_RUN_TAG_KEY: "x".repeat(129) }),
+    ).toThrow("REMOTE_SHELL_RUN_TAG_KEY must be at most 128 bytes");
   });
 
   test("rejects malformed, duplicate, or address-shaped bindings", () => {

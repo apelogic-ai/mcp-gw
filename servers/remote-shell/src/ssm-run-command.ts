@@ -11,6 +11,7 @@ export interface AwsCliRunner {
 
 export interface SsmRunRequest {
   instanceId: string;
+  runtimeUid: string;
   command: string;
   timeoutSeconds: number;
 }
@@ -28,7 +29,12 @@ export interface SsmRunResult extends Record<string, unknown> {
 
 export class SsmRunCommandError extends Error {
   constructor(
-    public readonly code: "aws_cli_failed" | "invalid_response" | "invocation_pending" | "timeout",
+    public readonly code:
+      | "aws_cli_failed"
+      | "invalid_response"
+      | "invocation_pending"
+      | "target_not_run_bound"
+      | "timeout",
   ) {
     super(code);
     this.name = "SsmRunCommandError";
@@ -84,6 +90,7 @@ export function createAwsCliRunner(
 export function createSsmRunCommand(options: {
   runner: AwsCliRunner;
   region?: string;
+  runTagKey: string;
   outputLimitBytes: number;
   credentialValues?: readonly string[];
   pollIntervalMs?: number;
@@ -94,6 +101,13 @@ export function createSsmRunCommand(options: {
   const sleep = options.sleep ?? Bun.sleep;
 
   return async (request: SsmRunRequest): Promise<SsmRunResult> => {
+    await assertRunBound(
+      options.runner,
+      request.instanceId,
+      options.runTagKey,
+      request.runtimeUid,
+      options.region,
+    );
     const started = now();
     const parameters = JSON.stringify({
       commands: [request.command],
@@ -170,6 +184,41 @@ export function createSsmRunCommand(options: {
     }
     throw new SsmRunCommandError("timeout");
   };
+}
+
+async function assertRunBound(
+  runner: AwsCliRunner,
+  instanceId: string,
+  runTagKey: string,
+  runtimeUid: string,
+  region: string | undefined,
+): Promise<void> {
+  try {
+    const filters = JSON.stringify([
+      { Name: "resource-id", Values: [instanceId] },
+      { Name: "key", Values: [runTagKey] },
+    ]);
+    const response = await runJson(
+      runner,
+      regional(
+        ["ec2", "describe-tags", "--filters", filters, "--output", "json", "--no-cli-pager"],
+        region,
+      ),
+    );
+    const tags = Array.isArray(response.Tags) ? response.Tags : [];
+    const matches = tags.some((value) => {
+      const tag = record(value);
+      return (
+        tag?.ResourceId === instanceId &&
+        tag.ResourceType === "instance" &&
+        tag.Key === runTagKey &&
+        tag.Value === runtimeUid
+      );
+    });
+    if (!matches) throw new SsmRunCommandError("target_not_run_bound");
+  } catch {
+    throw new SsmRunCommandError("target_not_run_bound");
+  }
 }
 
 export function credentialValues(env: Readonly<Record<string, string | undefined>>): string[] {

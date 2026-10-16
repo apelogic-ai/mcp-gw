@@ -11,7 +11,7 @@ import type {
   ToolRegistry,
   ToolResult,
 } from "../../../packages/wrapper-kit/src/mcp/registry";
-import type { SsmRunRequest, SsmRunResult } from "./ssm-run-command";
+import { SsmRunCommandError, type SsmRunRequest, type SsmRunResult } from "./ssm-run-command";
 
 export const REMOTE_SHELL_TOOL_NAME = "remote_shell_run" as const;
 const REMOTE_SHELL_GRANT = {
@@ -117,6 +117,7 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
       try {
         const result = await options.execute({
           instanceId,
+          runtimeUid,
           command: parsed.command,
           timeoutSeconds: parsed.timeoutSeconds,
         });
@@ -139,7 +140,23 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: { ...result },
         };
-      } catch {
+      } catch (error) {
+        if (error instanceof SsmRunCommandError && error.code === "target_not_run_bound") {
+          await emit(
+            options.audit,
+            refusalEvent(
+              options.identity,
+              runtimeUid,
+              "remote_shell_target_not_run_bound",
+              parsed.target,
+              parsed.command,
+            ),
+          );
+          return errorResult(
+            "remote_shell_target_not_run_bound",
+            "Target is not bound to this run",
+          );
+        }
         await emit(options.audit, {
           category: "remote_shell_command",
           ts: new Date().toISOString(),

@@ -31,11 +31,13 @@ const INSTANCE_ID_PATTERN = /^i-[0-9a-f]{8}(?:[0-9a-f]{9})?$/;
 const ROLE_PATTERN = /^[a-z][a-z0-9-]{0,62}$/;
 const DEFAULT_MAX_TIMEOUT_SECONDS = 60;
 const DEFAULT_MAX_OUTPUT_BYTES = 24 * 1024;
+const DEFAULT_RUN_TAG_KEY = "hypershell:run-id";
 
 export interface RemoteShellConfig {
   port: number;
   awsCliPath: string;
   awsRegion?: string;
+  runTagKey: string;
   maxTimeoutSeconds: number;
   maxOutputBytes: number;
   hop1Issuers: Hop1IssuerConfig[];
@@ -57,6 +59,7 @@ export function loadRemoteShellConfig(
     port: positiveInteger(env.PORT, "PORT", 8080, 65_535),
     awsCliPath: optionalString(env.REMOTE_SHELL_AWS_CLI_PATH) ?? "/usr/local/bin/aws",
     awsRegion: optionalString(env.AWS_REGION ?? env.AWS_DEFAULT_REGION),
+    runTagKey: parseRunTagKey(env.REMOTE_SHELL_RUN_TAG_KEY),
     maxTimeoutSeconds: positiveInteger(
       env.REMOTE_SHELL_MAX_TIMEOUT_SECONDS,
       "REMOTE_SHELL_MAX_TIMEOUT_SECONDS",
@@ -210,6 +213,14 @@ function requiredEnv(env: Readonly<Record<string, string | undefined>>, name: st
   return value;
 }
 
+function parseRunTagKey(value: string | undefined): string {
+  const parsed = optionalString(value) ?? DEFAULT_RUN_TAG_KEY;
+  if (Buffer.byteLength(parsed) > 128) {
+    throw new Error("REMOTE_SHELL_RUN_TAG_KEY must be at most 128 bytes");
+  }
+  return parsed;
+}
+
 function positiveInteger(
   value: string | undefined,
   name: string,
@@ -253,6 +264,7 @@ if (import.meta.main) {
   const execute = createSsmRunCommand({
     runner,
     region: config.awsRegion,
+    runTagKey: config.runTagKey,
     outputLimitBytes: config.maxOutputBytes,
     credentialValues: credentialValues(process.env),
   });

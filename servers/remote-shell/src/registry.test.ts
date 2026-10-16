@@ -6,7 +6,7 @@ import {
   REMOTE_SHELL_TOOL_NAME,
   type RemoteShellAuditEvent,
 } from "./registry";
-import type { SsmRunRequest, SsmRunResult } from "./ssm-run-command";
+import { SsmRunCommandError, type SsmRunRequest, type SsmRunResult } from "./ssm-run-command";
 
 const binding = {
   issuer: "https://identity.example.com",
@@ -55,6 +55,7 @@ describe("remote shell registry", () => {
     expect(requests).toEqual([
       {
         instanceId: "i-0123456789abcdef0",
+        runtimeUid: "runtime-a",
         command: "pwd && printf '%s\\n' ok",
         timeoutSeconds: 20,
       },
@@ -130,7 +131,7 @@ describe("remote shell registry", () => {
     expect(executed).toBe(false);
   });
 
-  test("refuses caller-controlled document, instance, and out-of-range timeout fields", async () => {
+  test("refuses caller-controlled document, instance, run-tag key, and timeout fields", async () => {
     let executed = false;
     const registry = createRemoteShellRegistry({
       identity: taskIdentity("write"),
@@ -145,6 +146,7 @@ describe("remote shell registry", () => {
     for (const args of [
       { target: "controller", command: "true", document_name: "CustomDocument" },
       { target: "controller", command: "true", instance_id: "i-0123456789abcdef0" },
+      { target: "controller", command: "true", run_tag_key: "attacker-controlled" },
       { target: "controller", command: "true", timeout_seconds: 9 },
       { target: "controller", command: "true", timeout_seconds: 61 },
     ]) {
@@ -152,6 +154,34 @@ describe("remote shell registry", () => {
       expect(result.structuredContent).toEqual({ error: "remote_shell_invalid_arguments" });
     }
     expect(executed).toBe(false);
+  });
+
+  test("returns a structured denial and deny audit when the target is not run-bound", async () => {
+    const events: RemoteShellAuditEvent[] = [];
+    const registry = createRemoteShellRegistry({
+      identity: taskIdentity("write"),
+      bindings: [binding],
+      maxTimeoutSeconds: 60,
+      execute: () => Promise.reject(new SsmRunCommandError("target_not_run_bound")),
+      audit: auditInto(events),
+    });
+
+    const result = await registry.callTool(REMOTE_SHELL_TOOL_NAME, {
+      target: "controller",
+      command: "true",
+    });
+    const serialized = JSON.stringify({ result, events });
+
+    expect(result.structuredContent).toEqual({ error: "remote_shell_target_not_run_bound" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      status: "deny",
+      runtime_uid: "runtime-a",
+      target_role: "controller",
+      error: "remote_shell_target_not_run_bound",
+    });
+    expect(serialized).not.toContain("i-0123456789abcdef0");
+    expect(serialized).not.toContain('"command":"true"');
   });
 
   test("returns a generic execution error and records no command, output, or credential", async () => {
