@@ -221,23 +221,26 @@ export function createSsmRunCommand(options: {
   };
 
   const cancel = async (job: SsmCommandJob): Promise<void> => {
-    await runJson(
-      options.runner,
-      regional(
-        [
-          "ssm",
-          "cancel-command",
-          "--command-id",
-          job.commandId,
-          "--instance-ids",
-          job.instanceId,
-          "--output",
-          "json",
-          "--no-cli-pager",
-        ],
-        options.region,
-      ),
-    );
+    try {
+      await options.runner.run(
+        regional(
+          [
+            "ssm",
+            "cancel-command",
+            "--command-id",
+            job.commandId,
+            "--instance-ids",
+            job.instanceId,
+            "--output",
+            "json",
+            "--no-cli-pager",
+          ],
+          options.region,
+        ),
+      );
+    } catch {
+      throw new SsmRunCommandError("aws_cli_failed");
+    }
   };
 
   return Object.assign(

@@ -64,11 +64,12 @@ describe("Systems Manager Run Command transport", () => {
 
   test("returns the SSM command ID and cancels it only on the bound instance", async () => {
     const calls: string[][] = [];
-    const responses = [runTagResponse(), { Command: { CommandId: "cmd-owned" } }, {}];
+    const responses = [runTagResponse(), { Command: { CommandId: "cmd-owned" } }, null];
     const runner: AwsCliRunner = {
       run: (args) => {
         calls.push(args);
-        return Promise.resolve(JSON.stringify(responses.shift()));
+        const response = responses.shift();
+        return Promise.resolve(response === null ? "" : JSON.stringify(response));
       },
     };
     const execute = createSsmRunCommand({ runner, runTagKey, outputLimitBytes: 1024 });
