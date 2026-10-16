@@ -74,6 +74,7 @@ export async function createGovernedCliHandler(
     authenticate,
     targets: [createKubectlTarget(pack, env)],
     requestLimits: pack.requestLimits,
+    jobLimits: pack.jobLimits,
   });
   return (request) => {
     const path = new URL(request.url).pathname;

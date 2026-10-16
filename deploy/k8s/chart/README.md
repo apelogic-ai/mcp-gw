@@ -390,6 +390,13 @@ aligned with the wrapper's identity scopes (`openid`, `email` by default).
 Expose the endpoint by enabling `agentgateway.ingress` or fronting the
 ClusterIP Service with your own gateway.
 
+### Governed CLI async jobs
+
+Keep `governedCli.replicas: 1` when the governed CLI is enabled. Async job
+state and bounded output replay are held in process memory, so another replica
+cannot inspect, stream, or cancel a job. Scale beyond one replica only after a
+shared job store is implemented.
+
 ## Upgrade
 
 ```bash
