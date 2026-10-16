@@ -1,0 +1,52 @@
+schemaVersion: mcp-gateway.cli-pack/v1
+cli: kubectl
+parser: kubectl
+binary:
+  path: /usr/local/bin/kubectl
+  version: v1.37.1
+  sha256:
+    amd64: 65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+    arm64: ff749f4b78d9c4f1ec87307df9b50119ed819e2094aa9810cb9acffc3286c8c7
+credential:
+  provider: kubernetes
+  sourceEnv: GOVERNED_CLI_KUBECONFIG
+  targetEnv: KUBECONFIG
+runner:
+  cwd: /tmp
+  env:
+    HOME: /tmp
+    PATH: /usr/local/bin:/usr/bin:/bin
+  limits:
+    requestBodyBytes: 65536
+    args: 64
+    argBytes: 4096
+    timeoutSeconds: 30
+    maxTimeoutSeconds: 60
+    outputBytes: 1048576
+operations:
+  get:
+    rbacVerbs: [get, list]
+    rbacResources: ["*"]
+    flags:
+      value: [--namespace, -n, --selector, -l, --field-selector, --sort-by]
+      boolean: [--all-namespaces, -A, --show-labels, --ignore-not-found]
+      output: [--output, -o]
+  describe:
+    rbacVerbs: [get, list]
+    rbacResources: ["*"]
+    flags:
+      value: [--namespace, -n, --selector, -l]
+      boolean: [--all-namespaces, -A, --show-events]
+      output: []
+  logs:
+    rbacVerbs: [get]
+    rbacResources: [pods/log]
+    flags:
+      value: [--namespace, -n, --container, -c, --since, --since-time, --tail, --limit-bytes]
+      boolean: [--timestamps, --prefix, --previous, -p, --all-containers]
+      output: []
+outputFormats: [wide, name, json, yaml]
+secretOverlay:
+  operations: [get, describe]
+  resources: [secret, secrets]
+  class: secret-read
