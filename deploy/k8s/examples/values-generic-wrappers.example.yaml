@@ -14,7 +14,7 @@ agentgateway:
   enabled: true
   image:
     repository: ghcr.io/apelogic-ai/mcp-gw-agentgateway
-    tag: "0.6.0"
+    tag: "0.6.1"
   mcpAuthentication:
     resourceMetadata:
       resource: https://mcp.example.com/mcp

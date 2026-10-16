@@ -8,15 +8,49 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-16
+
+### Added
+
+- Add an opt-in governed CLI HTTP service with streamed, buffered, and asynchronous execution,
+  run-bound job ownership, bounded redacted output, and a checksum-pinned kubectl pack whose
+  operations are classified from reviewed decisions.
+- Add governed remote-shell HTTP routes backed by AWS Systems Manager Run Command. The source-built
+  server binds each request to an exact Task grant, runtime, configured role, and run-tagged target,
+  and supports owned asynchronous jobs and cancellation.
+- Advertise and verify credential disconnect for generic per-user OAuth providers such as Jira.
+- Emit one sanitized structured event for each Jira REST request, including status, duration, error
+  class, and a correlation ID without request data or provider identity.
+
 ### Changed
 
-- Serve governed remote-shell commands and asynchronous jobs on dedicated `/shell` HTTP routes;
-  remote shell is no longer exposed as an MCP tool.
+- Require an explicit experimental catalog opt-in before rendering the full hosted-MCP Jira preset;
+  the recommended `jira-read-only` preset is unchanged.
+- Classify selected Gmail and Drive content reads as `secret-read` under the opt-in Google Workspace
+  `actions-v2` catalog pin. The existing `actions-v1` pin remains behaviorally unchanged.
+- Run the broker and signing-key recovery smoke against candidate images before publishing any
+  versioned image, while retaining the post-publication verification before the chart is released.
 
 ### Fixed
 
 - Let repeated Task runs reuse a user's generic-wrapper session capacity by replacing that user's
   least-recently-used idle session while preserving global and cross-user limits.
+
+### Upgrade Notes
+
+- Governed CLI is disabled by default. Enabling it requires a configured kubeconfig Secret, HOP-1
+  issuer, direct `/cli` route, and exact Task grants. Keep one replica because asynchronous job state
+  is process-local; released charts pin the governed CLI image digest.
+- The governed remote-shell server is not wired into the chart or release image set. Operators who
+  build it from source must configure role bindings, instance run-tag enforcement, and the exact
+  `remote-shell / remote_shell_run / write` grant.
+- Generic OAuth disconnect deletes only the caller's credential from MCP-GW. Revoke the upstream
+  Atlassian grant separately in Connected Apps when required.
+- Full Jira remains unsupported with customer-managed OAuth apps and now requires
+  `catalog.experimental=true`; use `jira-read-only` for the supported path.
+- Existing deployments are unchanged while governed CLI and `actions-v2` are off. This release
+  requires no database migration, OAuth reconnect, provider reauthorization, Secret-format change,
+  or change to existing `actions-v1` grants.
 
 ## [0.6.0] - 2026-10-14
 
@@ -851,7 +885,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.7...v0.6.0
 [0.5.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.5...v0.5.6

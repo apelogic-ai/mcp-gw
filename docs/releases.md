@@ -19,7 +19,27 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.6.0`.
+The current public release line is `v0.6.1`.
+
+### 0.6.1 upgrade notes
+
+- Governed CLI is opt-in. Enabling it requires a kubeconfig Secret, HOP-1 issuer, direct `/cli`
+  route, and exact Task grants. Keep it at one replica because asynchronous job state is
+  process-local; the released chart pins its image digest.
+- The governed remote-shell HTTP server is available from source but is not wired into the chart or
+  release image set. A source deployment must configure role bindings, instance run-tag
+  enforcement, and the exact `remote-shell / remote_shell_run / write` Task grant.
+- The opt-in Google Workspace `actions-v2` catalog classifies selected Gmail and Drive content reads
+  as `secret-read`. Existing `actions-v1` grants and behavior are unchanged.
+- The full hosted-MCP Jira preset now requires `catalog.experimental=true` and remains unsupported
+  with customer-managed OAuth apps. Use `jira-read-only` for the supported path. Jira disconnect
+  removes the caller's MCP-GW credential but does not revoke the Atlassian grant.
+- Repeated Task runs can reuse a user's generic-wrapper session capacity by evicting that user's
+  least-recently-used idle session. Global limits, busy sessions, and cross-user isolation remain
+  fail-closed.
+- Existing deployments are unchanged while governed CLI and `actions-v2` are off. No database
+  migration, OAuth reconnect, provider reauthorization, Secret-format change, or change to existing
+  required values is introduced.
 
 ### 0.6.0 upgrade notes
 
