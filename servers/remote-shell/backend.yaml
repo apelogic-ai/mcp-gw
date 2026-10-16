@@ -1,4 +1,0 @@
-name: remote-shell
-host: http://remote-shell:8080/mcp
-toolPrefix: remote_shell
-enabledByDefault: false

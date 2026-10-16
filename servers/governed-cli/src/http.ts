@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 
+import type { Hop1Identity } from "../../../shared/identity/hop1";
 import {
-  classifyHop1ValidationFailure,
-  reportHop1AuthenticationFailure,
-  type Hop1Identity,
-} from "../../../shared/identity/hop1";
-import {
-  parseTaskToolAuthorization,
   type TaskToolAuthorization,
   type TaskToolGrant,
 } from "../../../packages/wrapper-kit/src/task-tool-authorization";
+import {
+  authenticateTaskRequest,
+  jsonError as errorResponse,
+  ndjsonLine,
+  readBoundedJson,
+  taskOwner,
+} from "../../../packages/wrapper-kit/src/governed-http";
 import type { CliDecisionCatalog } from "./catalog";
 import { CommandRefusedError, type CommandClassifier } from "./classifier";
 import {
@@ -70,8 +72,6 @@ interface Job {
   abort: AbortController;
 }
 
-const TASK_AUTHORITY_CLAIM = ["ste", "ward"].join("");
-
 export function createCliRunHandler(
   options: CreateCliRunHandlerOptions,
 ): (request: Request) => Promise<Response> {
@@ -89,25 +89,7 @@ export function createCliRunHandler(
     | { ok: true; identity: Hop1Identity; authorization: TaskToolAuthorization }
     | { ok: false; response: Response }
   > => {
-    const token = bearerToken(request);
-    if (!token) {
-      reportHop1AuthenticationFailure("missing_bearer");
-      return { ok: false, response: unauthorized("bearer token is required", "Bearer") };
-    }
-    try {
-      const identity = await options.authenticate(token);
-      return {
-        ok: true,
-        identity,
-        authorization: parseTaskToolAuthorization(identity.claims),
-      };
-    } catch (error) {
-      reportHop1AuthenticationFailure(classifyHop1ValidationFailure(error));
-      return {
-        ok: false,
-        response: unauthorized("invalid bearer token", 'Bearer error="invalid_token"'),
-      };
-    }
+    return authenticateTaskRequest(request, (token) => options.authenticate(token));
   };
 
   const prepare = async (
@@ -434,7 +416,7 @@ function directStream(
       const emit = (event: StreamEvent) => {
         if (!open) return;
         try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          controller.enqueue(encoder.encode(ndjsonLine(event)));
         } catch {
           open = false;
           abort.abort();
@@ -475,7 +457,7 @@ function jobStream(job: Job): Response {
       const write = (event: StreamEvent) => {
         if (!open) return;
         try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          controller.enqueue(encoder.encode(ndjsonLine(event)));
         } catch {
           open = false;
           if (listener) job.listeners.delete(listener);
@@ -509,82 +491,10 @@ function jobView(job: Job): Record<string, unknown> {
   };
 }
 
-function taskOwner(identity: Hop1Identity): string | undefined {
-  const authority = identity.claims[TASK_AUTHORITY_CLAIM];
-  if (!isRecord(authority) || typeof authority.runtime_uid !== "string") return undefined;
-  const runtimeUid = authority.runtime_uid.trim();
-  return runtimeUid ? JSON.stringify([identity.issuer, identity.subject, runtimeUid]) : undefined;
-}
-
-function bearerToken(request: Request): string | undefined {
-  const [scheme, token] = request.headers.get("authorization")?.split(" ") ?? [];
-  return scheme === "Bearer" && token ? token : undefined;
-}
-
-function unauthorized(message: string, challenge: string): Response {
-  return errorResponse(401, "unauthorized", message, { "www-authenticate": challenge });
-}
-
 function taskDenied(): Response {
   return errorResponse(403, "task_tool_not_approved", "CLI is not approved for this Task");
 }
 
-function errorResponse(
-  status: number,
-  error: string,
-  message: string,
-  headers: Record<string, string> = {},
-): Response {
-  return Response.json({ error, message }, { status, headers });
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function readBoundedJson(
-  request: Request,
-  maxBytes: number,
-): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
-  const declaredBytes = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
-    return {
-      ok: false,
-      response: errorResponse(413, "request_too_large", "Request body is too large"),
-    };
-  }
-  if (!request.body) {
-    return {
-      ok: false,
-      response: errorResponse(400, "invalid_request", "Request body must be JSON"),
-    };
-  }
-  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  let chunk = await reader.read();
-  while (!chunk.done) {
-    const { value } = chunk;
-    bytes += value.byteLength;
-    if (bytes > maxBytes) {
-      await reader.cancel();
-      return {
-        ok: false,
-        response: errorResponse(413, "request_too_large", "Request body is too large"),
-      };
-    }
-    chunks.push(value);
-    chunk = await reader.read();
-  }
-  try {
-    return {
-      ok: true,
-      value: JSON.parse(new TextDecoder().decode(Buffer.concat(chunks))) as unknown,
-    };
-  } catch {
-    return {
-      ok: false,
-      response: errorResponse(400, "invalid_request", "Request body must be JSON"),
-    };
-  }
 }

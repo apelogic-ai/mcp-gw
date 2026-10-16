@@ -1,9 +1,19 @@
-# Remote shell MCP server
+# Remote shell HTTP server
 
-This opt-in first slice exposes one write-class tool, `remote_shell_run`, which runs one stateless
-command through AWS Systems Manager Run Command. The agent names a configured role such as
-`controller`; it never supplies an instance ID, address, SSM document, region, tag key, or cloud
-credential.
+This opt-in server runs one stateless command through AWS Systems Manager Run Command. It is a
+governed HTTP endpoint, not an MCP backend. The agent names a configured role such as `controller`;
+it never supplies an instance ID, address, SSM document, region, tag key, or cloud credential.
+
+- `POST /shell/run` accepts `{target, command, timeout_seconds}` and returns buffered NDJSON after
+  the command finishes. Add `?wait=full` for one `{exit_code, stdout, stderr}` JSON response.
+- `POST /shell/jobs` starts an asynchronous command and returns the SSM command ID as `job_id`.
+  `GET /shell/jobs/{job_id}` reads its status, and `POST /shell/jobs/{job_id}/cancel` cancels it.
+- Jobs are visible only when the server itself recorded the same verified issuer, subject, and
+  `runtime_uid`. A valid SSM command ID from another run or another caller returns 404.
+
+Systems Manager does not expose incremental command output unless output is sent elsewhere, such
+as CloudWatch Logs. This slice therefore has no live stream endpoint; its NDJSON is emitted only
+after the command finishes.
 
 The server accepts only verified Task tokens with a non-empty `runtime_uid` and the exact grant
 `remote-shell / remote_shell_run / write`. `REMOTE_SHELL_BINDINGS_JSON` binds the verified HOP-1
@@ -32,8 +42,9 @@ and a command digest, never the command, instance ID, output, bearer token, or A
 
 ## IAM backstops
 
-Allow `ec2:DescribeTags`, the fixed SSM document, bound instances, and command-result reads. For a
-per-run session tagged with `hypershell:run-id`, restrict `ssm:SendCommand` on each instance with:
+Allow `ec2:DescribeTags`, `ssm:GetCommandInvocation`, the fixed SSM document, and only the bound
+instances for `ssm:SendCommand`. For a per-run session tagged with `hypershell:run-id`, restrict
+`ssm:SendCommand` on each instance with:
 
 ```json
 "Condition": {
@@ -42,6 +53,12 @@ per-run session tagged with `hypershell:run-id`, restrict `ssm:SendCommand` on e
   }
 }
 ```
+
+Cancellation also requires `ssm:CancelCommand`. AWS does not support resource-level ARNs or
+service-specific condition keys for that action, so its IAM statement must use `Resource: "*"`.
+The server narrows every cancellation request to the instance ID in its own authorized job record;
+it never accepts an instance ID from the HTTP request. Keep this permission on the remote-shell
+workload role only, and use organization guardrails where broader control is required.
 
 Also deny `ec2:CreateTags` and `ec2:DeleteTags` for this key except to the trusted provisioner:
 

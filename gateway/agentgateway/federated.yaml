@@ -35,9 +35,3 @@ binds:
                           passthrough: {}
                       mcp:
                         host: http://github-wrapper:8080/mcp
-                    - name: remote_shell
-                      policies:
-                        backendAuth:
-                          passthrough: {}
-                      mcp:
-                        host: http://remote-shell:8080/mcp

@@ -16,6 +16,8 @@ const RUNTIME_ONLY_SERVER_DIRECTORIES = new Set([
   "generic-wrapper",
   // The plain HTTP CLI endpoint is routed directly, never registered as an MCP backend.
   "governed-cli",
+  // Remote shell is a governed HTTP endpoint, not an MCP backend.
+  "remote-shell",
 ]);
 const BASE_CONFIG_PATH = "gateway/agentgateway/base.yaml";
 const FEDERATED_CONFIG_PATH = "gateway/agentgateway/federated.yaml";

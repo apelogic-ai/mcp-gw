@@ -29,11 +29,13 @@ describe("backend registry config generation", () => {
       readFile("gateway/agentgateway/federated.yaml", "utf8"),
     ]);
 
-    for (const runtime of ["generic-wrapper", "governed-cli"]) {
+    for (const runtime of ["generic-wrapper", "governed-cli", "remote-shell"]) {
       expect(generator).toContain(`"${runtime}"`);
       expect(base).not.toContain(`name: ${runtime}`);
       expect(federated).not.toContain(`name: ${runtime}`);
     }
+    expect(federated).not.toContain("name: remote_shell");
+    expect(federated).not.toContain("remote-shell:8080/mcp");
   });
 
   test("renders agentgateway multiplex controls for optional backend resilience", async () => {

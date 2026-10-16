@@ -8,6 +8,11 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Changed
+
+- Serve governed remote-shell commands and asynchronous jobs on dedicated `/shell` HTTP routes;
+  remote shell is no longer exposed as an MCP tool.
+
 ### Fixed
 
 - Let repeated Task runs reuse a user's generic-wrapper session capacity by replacing that user's

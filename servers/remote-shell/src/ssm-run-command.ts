@@ -27,6 +27,20 @@ export interface SsmRunResult extends Record<string, unknown> {
   duration_ms: number;
 }
 
+export interface SsmCommandJob {
+  commandId: string;
+  instanceId: string;
+  startedAt: number;
+  deadline: number;
+}
+
+export interface SsmRunCommand {
+  (request: SsmRunRequest): Promise<SsmRunResult>;
+  start(request: SsmRunRequest): Promise<SsmCommandJob>;
+  wait(job: SsmCommandJob): Promise<SsmRunResult>;
+  cancel(job: SsmCommandJob): Promise<void>;
+}
+
 export class SsmRunCommandError extends Error {
   constructor(
     public readonly code:
@@ -96,11 +110,11 @@ export function createSsmRunCommand(options: {
   pollIntervalMs?: number;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
-}) {
+}): SsmRunCommand {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? Bun.sleep;
 
-  return async (request: SsmRunRequest): Promise<SsmRunResult> => {
+  const start = async (request: SsmRunRequest): Promise<SsmCommandJob> => {
     const filters = JSON.stringify([
       { Name: "resource-id", Values: [request.instanceId] },
       { Name: "key", Values: [options.runTagKey] },
@@ -148,8 +162,16 @@ export function createSsmRunCommand(options: {
     const commandId = string(record(sent.Command)?.CommandId);
     if (!commandId) throw new SsmRunCommandError("invalid_response");
 
-    const deadline = started + request.timeoutSeconds * 1000 + 15_000;
-    while (now() <= deadline) {
+    return {
+      commandId,
+      instanceId: request.instanceId,
+      startedAt: started,
+      deadline: started + request.timeoutSeconds * 1000 + 15_000,
+    };
+  };
+
+  const wait = async (job: SsmCommandJob): Promise<SsmRunResult> => {
+    while (now() <= job.deadline) {
       let invocation: Record<string, unknown>;
       try {
         invocation = await runJson(
@@ -159,9 +181,9 @@ export function createSsmRunCommand(options: {
               "ssm",
               "get-command-invocation",
               "--command-id",
-              commandId,
+              job.commandId,
               "--instance-id",
-              request.instanceId,
+              job.instanceId,
               "--output",
               "json",
               "--no-cli-pager",
@@ -190,13 +212,38 @@ export function createSsmRunCommand(options: {
           exit_code: number(invocation.ResponseCode) ?? (status === "Success" ? 0 : 1),
           ...limitedOutput("stdout", stdout, options.outputLimitBytes),
           ...limitedOutput("stderr", stderr, options.outputLimitBytes),
-          duration_ms: Math.max(0, now() - started),
+          duration_ms: Math.max(0, now() - job.startedAt),
         } as SsmRunResult;
       }
       await sleep(options.pollIntervalMs ?? 250);
     }
     throw new SsmRunCommandError("timeout");
   };
+
+  const cancel = async (job: SsmCommandJob): Promise<void> => {
+    await runJson(
+      options.runner,
+      regional(
+        [
+          "ssm",
+          "cancel-command",
+          "--command-id",
+          job.commandId,
+          "--instance-ids",
+          job.instanceId,
+          "--output",
+          "json",
+          "--no-cli-pager",
+        ],
+        options.region,
+      ),
+    );
+  };
+
+  return Object.assign(
+    async (request: SsmRunRequest): Promise<SsmRunResult> => wait(await start(request)),
+    { start, wait, cancel },
+  );
 }
 
 export function credentialValues(env: Readonly<Record<string, string | undefined>>): string[] {

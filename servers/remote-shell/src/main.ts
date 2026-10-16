@@ -1,25 +1,10 @@
-import {
-  validateHop1IssuerProfiles,
-  type Hop1IssuerConfig,
-  type Hop1Identity,
-} from "../../../shared/identity/hop1";
+import { validateHop1IssuerProfiles, type Hop1IssuerConfig } from "../../../shared/identity/hop1";
 import {
   createAuthenticator,
   createRemoteJwksProvider,
 } from "../../../packages/wrapper-kit/src/authenticator";
-import { createAuthenticatedMcpHttpHandler } from "../../../packages/wrapper-kit/src/mcp/authenticated-http";
-import {
-  createRemoteShellRegistry,
-  type RemoteShellAuditSink,
-  type RemoteShellBinding,
-} from "./registry";
-import {
-  createAwsCliRunner,
-  createSsmRunCommand,
-  credentialValues,
-  type SsmRunRequest,
-  type SsmRunResult,
-} from "./ssm-run-command";
+import { createRemoteShellHttpHandler, type RemoteShellBinding } from "./http";
+import { createAwsCliRunner, createSsmRunCommand, credentialValues } from "./ssm-run-command";
 
 const INSTANCE_ID = /^i-[0-9a-f]{8}(?:[0-9a-f]{9})?$/;
 const ROLE = /^[a-z][a-z0-9-]{0,62}$/;
@@ -66,20 +51,6 @@ export function loadRemoteShellConfig(
     hop1Issuers,
     bindings: validBindings,
   };
-}
-
-export function createRemoteShellHandler(options: {
-  authenticate(token: string): Promise<Hop1Identity>;
-  bindings: readonly RemoteShellBinding[];
-  maxTimeoutSeconds: number;
-  execute(request: SsmRunRequest): Promise<SsmRunResult>;
-  audit?: RemoteShellAuditSink;
-}): (request: Request) => Promise<Response> {
-  return createAuthenticatedMcpHttpHandler({
-    serverInfo: { name: "remote-shell", version: "0.1.0" },
-    authenticate: (token) => options.authenticate(token),
-    registryFor: (identity) => createRemoteShellRegistry({ ...options, identity }),
-  });
 }
 
 function issuerWithCredential(
@@ -160,11 +131,11 @@ if (import.meta.main) {
         : {}),
     })),
   });
-  const handler = createRemoteShellHandler({
+  const handler = createRemoteShellHttpHandler({
     authenticate,
     bindings: config.bindings,
     maxTimeoutSeconds: config.maxTimeoutSeconds,
-    execute: createSsmRunCommand({
+    ssm: createSsmRunCommand({
       runner,
       region: config.awsRegion,
       runTagKey: config.runTagKey,

@@ -62,6 +62,32 @@ describe("Systems Manager Run Command transport", () => {
     expect(JSON.stringify({ sent, result })).not.toContain("server-secret");
   });
 
+  test("returns the SSM command ID and cancels it only on the bound instance", async () => {
+    const calls: string[][] = [];
+    const responses = [runTagResponse(), { Command: { CommandId: "cmd-owned" } }, {}];
+    const runner: AwsCliRunner = {
+      run: (args) => {
+        calls.push(args);
+        return Promise.resolve(JSON.stringify(responses.shift()));
+      },
+    };
+    const execute = createSsmRunCommand({ runner, runTagKey, outputLimitBytes: 1024 });
+
+    const job = await execute.start({
+      instanceId,
+      runtimeUid,
+      command: "true",
+      timeoutSeconds: 20,
+    });
+    expect(job.commandId).toBe("cmd-owned");
+    await execute.cancel(job);
+
+    const cancel = calls[2] ?? [];
+    expect(cancel.slice(0, 2)).toEqual(["ssm", "cancel-command"]);
+    expect(cancel[cancel.indexOf("--command-id") + 1]).toBe("cmd-owned");
+    expect(cancel[cancel.indexOf("--instance-ids") + 1]).toBe(instanceId);
+  });
+
   test("truncates stdout and stderr independently and reports original byte counts", async () => {
     const responses = [
       runTagResponse(),
