@@ -45,6 +45,9 @@
 {{- fail "governedCli.gatewayApi.httpRoute.enabled requires governedCli.enabled=true" }}
 {{- end }}
 {{- if .Values.governedCli.enabled }}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.governedCli.image.digest) }}
+{{- fail "governedCli.enabled requires image.digest as a lowercase sha256 digest" }}
+{{- end }}
 {{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
 {{- fail "governedCli.enabled requires at least one HOP-1 issuer" }}
 {{- end }}

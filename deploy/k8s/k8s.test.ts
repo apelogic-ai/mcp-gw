@@ -150,6 +150,15 @@ describe("Kubernetes production chart", () => {
     expect(disabledRoute.stderr.toString()).toContain("requires governedCli.enabled=true");
 
     for (const [name, overrides] of [
+      [
+        "tag without digest",
+        [
+          "--set-string",
+          "governedCli.image.digest=",
+          "--set-string",
+          "governedCli.image.tag=0.6.1",
+        ],
+      ],
       ["missing kubeconfig", ["--set-string", "governedCli.kubeconfigSecretRef.name="]],
       ["missing ingress peer", ["--set-json", "governedCli.networkPolicy.ingressPeers=[]"]],
       ["missing issuer", ["--set-json", "hop1.issuers=[]"]],
@@ -3728,6 +3737,8 @@ function governedCliArgs(): string[] {
   return [
     "--set",
     "governedCli.enabled=true",
+    "--set-string",
+    `governedCli.image.digest=sha256:${"d".repeat(64)}`,
     "--set-string",
     "governedCli.kubeconfigSecretRef.name=runner-kubeconfig",
     "--set-string",

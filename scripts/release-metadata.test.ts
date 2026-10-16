@@ -154,6 +154,9 @@ describe("release metadata", () => {
     expect(chart.annotations["artifacthub.io/images"]).toContain(
       `ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:${packageVersion}`,
     );
+    expect(chart.annotations["artifacthub.io/images"]).toContain(
+      `ghcr.io/apelogic-ai/mcp-gw-governed-cli:${packageVersion}`,
+    );
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: changed");
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: security");
   });

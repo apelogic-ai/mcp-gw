@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Rewrite the `artifacthub.io/images` annotation in the chart's Chart.yaml so
- * the images Artifact Hub scans are pinned to immutable digests rather than
- * floating tags. Run at release time, after the component images are published,
- * with the digests recorded by the publish-images job (dist/<component>.digest).
+ * Pin release chart image metadata after the component images are published.
+ * Artifact Hub receives immutable image coordinates, and the opt-in governed
+ * CLI receives its required runtime digest in the packaged values.
  *
  * The first-party `mcp-gw-*` images and the reviewed upstream GitHub MCP
  * Server are repinned by digest. The committed Chart.yaml keeps tag-based
@@ -23,6 +22,7 @@ function arg(name: string): string | undefined {
 }
 
 const chartPath = arg("chart") ?? "deploy/k8s/chart/Chart.yaml";
+const valuesPath = arg("values") ?? "deploy/k8s/chart/values.yaml";
 
 // Map of image `name:` in the annotation -> digest (sha256:...) to pin it to.
 const digestByName: Record<string, string | undefined> = {
@@ -30,6 +30,7 @@ const digestByName: Record<string, string | undefined> = {
   "mcp-gw-google-workspace": arg("google-workspace-digest"),
   "mcp-gw-github-wrapper": arg("github-wrapper-digest"),
   "mcp-gw-generic-wrapper": arg("generic-wrapper-digest"),
+  "mcp-gw-governed-cli": arg("governed-cli-digest"),
   "github-mcp-server": arg("github-mcp-server-digest"),
 };
 
@@ -69,6 +70,9 @@ scalar.type = Scalar.BLOCK_LITERAL;
 doc.setIn(["annotations", annotationKey], scalar);
 
 writeFileSync(chartPath, doc.toString());
+const values = parseDocument(readFileSync(valuesPath, "utf8"));
+values.setIn(["governedCli", "image", "digest"], digestByName["mcp-gw-governed-cli"]);
+writeFileSync(valuesPath, values.toString());
 console.log(`Pinned ${annotationKey} images by digest in ${chartPath}:`);
 for (const entry of images) {
   console.log(`  ${entry.name} -> ${entry.image}`);

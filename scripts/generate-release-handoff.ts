@@ -17,6 +17,7 @@ export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Pr
     googleWorkspace: await readDigest(options.artifactsDirectory, "google-workspace"),
     githubWrapper: await readDigest(options.artifactsDirectory, "github-wrapper"),
     genericWrapper: await readDigest(options.artifactsDirectory, "generic-wrapper"),
+    governedCli: await readDigest(options.artifactsDirectory, "governed-cli"),
     githubMcpServer: await readDigest(options.artifactsDirectory, "github-mcp-server"),
     chart: await readDigest(options.artifactsDirectory, "helm-chart"),
     githubGovernanceCatalog: await readDigest(
@@ -50,6 +51,7 @@ helm upgrade --install mcp-gateway ${chart} \\
 | Google Workspace wrapper | \`${registry}/mcp-gw-google-workspace@${digests.googleWorkspace}\` |
 | GitHub wrapper | \`${registry}/mcp-gw-github-wrapper@${digests.githubWrapper}\` |
 | Generic wrapper | \`${registry}/mcp-gw-generic-wrapper@${digests.genericWrapper}\` |
+| Governed CLI | \`${registry}/mcp-gw-governed-cli@${digests.governedCli}\` |
 
 ## Mirrored Third-Party Image
 
@@ -99,6 +101,7 @@ gh attestation verify github-governance-catalog.json \\
 - Google Workspace wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
 - GitHub wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
 - Generic wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
+- Governed CLI: TCP \`8080\`, public CLI path \`/cli\`.
 - Official GitHub MCP Server: TCP \`8082\`, internal MCP path \`/mcp\`.
 - Default Kubernetes Services are \`ClusterIP\`; ingress is opt-in.
 - Every workload has configurable liveness and readiness probes under its \`probes\` values.

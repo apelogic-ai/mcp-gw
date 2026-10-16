@@ -348,6 +348,20 @@ jobs:
             architecture: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+          - component: governed-cli
+            repository: mcp-gw-governed-cli
+            context: .
+            dockerfile: servers/governed-cli/Dockerfile
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - component: governed-cli
+            repository: mcp-gw-governed-cli
+            context: .
+            dockerfile: servers/governed-cli/Dockerfile
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -442,6 +456,8 @@ jobs:
             repository: mcp-gw-github-wrapper
           - component: generic-wrapper
             repository: mcp-gw-generic-wrapper
+          - component: governed-cli
+            repository: mcp-gw-governed-cli
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -683,10 +699,12 @@ jobs:
         run: |
           bun scripts/set-artifacthub-images.ts \
             --chart deploy/k8s/chart/Chart.yaml \
+            --values deploy/k8s/chart/values.yaml \
             --agentgateway-digest "$(cat dist/agentgateway.digest)" \
             --google-workspace-digest "$(cat dist/google-workspace.digest)" \
             --github-wrapper-digest "$(cat dist/github-wrapper.digest)" \
             --generic-wrapper-digest "$(cat dist/generic-wrapper.digest)" \
+            --governed-cli-digest "$(cat dist/governed-cli.digest)" \
             --github-mcp-server-digest "$(cat dist/github-mcp-server.digest)"
 
       - name: Package and publish OCI chart
@@ -800,6 +818,7 @@ jobs:
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-google-workspace@$(cat dist/google-workspace.digest)"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-generic-wrapper@$(cat dist/generic-wrapper.digest)"
+          docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-governed-cli@$(cat dist/governed-cli.digest)"
           docker buildx imagetools inspect "$GITHUB_MCP_MIRROR@$(cat dist/github-mcp-server.digest)"
           helm pull "oci://ghcr.io/$OWNER/charts/mcp-gateway" \
             --version "${GITHUB_REF_NAME#v}" \
@@ -829,6 +848,10 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
             --format json > "$RUNNER_TEMP/public-attestations/generic-wrapper.json"
           gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-governed-cli@$(cat dist/governed-cli.digest)" \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/governed-cli.json"
+          gh attestation verify \
             "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
             --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
             --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
@@ -844,12 +867,14 @@ jobs:
             --subject "ghcr.io/$OWNER/mcp-gw-google-workspace" \
             --subject "ghcr.io/$OWNER/mcp-gw-github-wrapper" \
             --subject "ghcr.io/$OWNER/mcp-gw-generic-wrapper" \
+            --subject "ghcr.io/$OWNER/mcp-gw-governed-cli" \
             --subject "ghcr.io/$OWNER/charts/mcp-gateway" \
             --subject "github-governance-catalog.json" \
             --attestation "$RUNNER_TEMP/public-attestations/agentgateway.json" \
             --attestation "$RUNNER_TEMP/public-attestations/google-workspace.json" \
             --attestation "$RUNNER_TEMP/public-attestations/github-wrapper.json" \
             --attestation "$RUNNER_TEMP/public-attestations/generic-wrapper.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/governed-cli.json" \
             --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json" \
             --attestation "$RUNNER_TEMP/public-attestations/github-governance-catalog.json"
 
