@@ -1,0 +1,32 @@
+{{- if and .Values.governedCli.enabled .Values.governedCli.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "governed-cli") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: governed-cli
+  {{- with .Values.governedCli.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.governedCli.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.governedCli.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.governedCli.ingress.host }}
+      http:
+        paths:
+          - path: /cli
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "governed-cli") }}
+                port:
+                  name: http
+{{- end }}

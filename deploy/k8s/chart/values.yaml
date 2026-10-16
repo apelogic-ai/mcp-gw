@@ -205,6 +205,66 @@ agentgateway:
 # empty default renders no additional Kubernetes objects or gateway targets.
 wrappers: []
 
+governedCli:
+  enabled: false
+  image:
+    repository: ghcr.io/apelogic-ai/mcp-gw-governed-cli
+    tag: ""
+    digest: ""
+  replicas: 1
+  port: 8080
+  kubeconfigSecretRef:
+    name: ""
+    key: ""
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  probes:
+    liveness:
+      enabled: true
+      httpGet:
+        path: /healthz
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      httpGet:
+        path: /readyz
+        port: http
+      initialDelaySeconds: 2
+      periodSeconds: 5
+  networkPolicy:
+    # Select the ingress-controller or Gateway data-plane Pods allowed to call
+    # the governed CLI Service. At least one peer is required when enabled.
+    ingressPeers: []
+  ingress:
+    enabled: true
+    host: mcp.example.com
+    className: ""
+    annotations: {}
+    tls: []
+  gatewayApi:
+    httpRoute:
+      enabled: false
+      hostname: ""
+      parentRefs: []
+
 googleWorkspace:
   enabled: false
   image:

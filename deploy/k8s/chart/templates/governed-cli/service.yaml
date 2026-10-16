@@ -1,0 +1,17 @@
+{{- if .Values.governedCli.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "governed-cli") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: governed-cli
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "governed-cli") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.governedCli.port }}
+      targetPort: http
+{{- end }}

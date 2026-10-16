@@ -40,6 +40,32 @@
 {{- if and .Values.dbMcp.wrapper.enabled (not .Values.dbMcp.enabled) }}
 {{- fail "dbMcp.wrapper.enabled requires dbMcp.enabled=true" }}
 {{- end }}
+
+{{- if and .Values.governedCli.gatewayApi.httpRoute.enabled (not .Values.governedCli.enabled) }}
+{{- fail "governedCli.gatewayApi.httpRoute.enabled requires governedCli.enabled=true" }}
+{{- end }}
+{{- if .Values.governedCli.enabled }}
+{{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
+{{- fail "governedCli.enabled requires at least one HOP-1 issuer" }}
+{{- end }}
+{{- if or (not .Values.governedCli.kubeconfigSecretRef.name) (not .Values.governedCli.kubeconfigSecretRef.key) }}
+{{- fail "governedCli.enabled requires kubeconfigSecretRef.name and key" }}
+{{- end }}
+{{- if eq (len .Values.governedCli.networkPolicy.ingressPeers) 0 }}
+{{- fail "governedCli.enabled requires at least one networkPolicy.ingressPeers entry" }}
+{{- end }}
+{{- $ingressEnabled := .Values.governedCli.ingress.enabled }}
+{{- $httpRouteEnabled := .Values.governedCli.gatewayApi.httpRoute.enabled }}
+{{- if eq $ingressEnabled $httpRouteEnabled }}
+{{- fail "governedCli.enabled requires exactly one of ingress or gatewayApi.httpRoute" }}
+{{- end }}
+{{- if and $ingressEnabled (not .Values.governedCli.ingress.host) }}
+{{- fail "governedCli.ingress.host is required" }}
+{{- end }}
+{{- if and $httpRouteEnabled (or (not .Values.governedCli.gatewayApi.httpRoute.hostname) (eq (len .Values.governedCli.gatewayApi.httpRoute.parentRefs) 0)) }}
+{{- fail "governedCli.gatewayApi.httpRoute requires hostname and parentRefs" }}
+{{- end }}
+{{- end }}
 {{- if and .Values.dbMcp.enabled .Values.dbMcp.wrapper.enabled }}
 {{- if eq (int .Values.dbMcp.port) (int .Values.dbMcp.wrapper.port) }}
 {{- fail "dbMcp.wrapper.port must differ from dbMcp.port" }}

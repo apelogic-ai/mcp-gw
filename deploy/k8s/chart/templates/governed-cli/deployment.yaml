@@ -1,0 +1,88 @@
+{{- if .Values.governedCli.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "governed-cli") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: governed-cli
+spec:
+  replicas: {{ .Values.governedCli.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "governed-cli") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.governedCli.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "governed-cli") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.governedCli.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.governedCli | nindent 6 }}
+      containers:
+        - name: governed-cli
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.governedCli.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.governedCli.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.governedCli.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.governedCli.port | quote }}
+            - name: GOVERNED_CLI_KUBECONFIG
+              value: /var/run/secrets/mcp-gateway/governed-cli/kubeconfig
+            {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}
+            {{- else }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+            {{- end }}
+            {{- range $index, $issuer := .Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.trustBundle.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ include "mcp-gateway.trustBundlePath" . | quote }}
+            {{- end }}
+          {{- include "mcp-gateway.probes" .Values.governedCli | nindent 10 }}
+          volumeMounts:
+            - name: runtime-tmp
+              mountPath: /tmp
+            - name: kubeconfig
+              mountPath: /var/run/secrets/mcp-gateway/governed-cli
+              readOnly: true
+            {{- include "mcp-gateway.trustBundleVolumeMount" . | nindent 12 }}
+          {{- with .Values.governedCli.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: runtime-tmp
+          emptyDir: {}
+        - name: kubeconfig
+          secret:
+            secretName: {{ .Values.governedCli.kubeconfigSecretRef.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.governedCli.kubeconfigSecretRef.key }}
+                path: kubeconfig
+        {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
+{{- end }}

@@ -76,6 +76,7 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("name: mcp-gateway-google-workspace");
     expect(rendered).not.toContain("name: mcp-gateway-db-mcp");
     expect(rendered).not.toContain("name: mcp-gateway-github-mcp");
+    expect(rendered).not.toContain("name: mcp-gateway-governed-cli");
     expect(rendered).not.toContain("kind: ExternalSecret");
     expect(rendered).not.toContain("kind: HorizontalPodAutoscaler");
     expect(rendered).not.toContain("kind: PodDisruptionBudget");
@@ -93,6 +94,90 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("/var/run/secrets/mcp-gateway/broker");
     expect(values).toMatch(/^wrappers: \[\]$/m);
     expect(rendered).not.toContain("generic-wrapper");
+  });
+
+  test("routes opt-in governed CLI ingress directly to its Service", () => {
+    const rendered = helmTemplate(governedCliArgs());
+    const deployment = renderedResource(rendered, "Deployment", "mcp-gateway-governed-cli");
+    const service = renderedResource(rendered, "Service", "mcp-gateway-governed-cli");
+    const policy = renderedResource(rendered, "NetworkPolicy", "mcp-gateway-governed-cli");
+    const ingress = renderedResource(rendered, "Ingress", "mcp-gateway-governed-cli");
+
+    expect(deployment).toContain("automountServiceAccountToken: false");
+    expect(deployment).toContain("name: GOVERNED_CLI_KUBECONFIG");
+    expect(deployment).toContain("/var/run/secrets/mcp-gateway/governed-cli/kubeconfig");
+    expect(deployment).toContain("secretName: runner-kubeconfig");
+    expect(deployment).toContain("key: kubeconfig");
+    expect(deployment).toContain("defaultMode: 0440");
+    expect(service).toContain("targetPort: http");
+    expect(policy).toContain("kubernetes.io/metadata.name: ingress-nginx");
+    expect(policy).toContain("app.kubernetes.io/component: controller");
+    expect(ingress).toContain("path: /cli");
+    expect(ingress).toContain("pathType: Prefix");
+    expect(ingress).toContain("name: mcp-gateway-governed-cli");
+    expect(ingress).not.toContain("agentgateway");
+    expect(rendered).not.toContain("kind: HTTPRoute");
+  });
+
+  test("routes opt-in governed CLI HTTPRoute directly to its Service", () => {
+    const rendered = helmTemplate([
+      ...governedCliArgs(),
+      "--set",
+      "governedCli.ingress.enabled=false",
+      "--set",
+      "governedCli.gatewayApi.httpRoute.enabled=true",
+      "--set-string",
+      "governedCli.gatewayApi.httpRoute.hostname=mcp.example.com",
+      "--set-json",
+      'governedCli.gatewayApi.httpRoute.parentRefs=[{"name":"public-gateway","namespace":"gateway-system","sectionName":"https"}]',
+    ]);
+    const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-governed-cli");
+
+    expect(rendered).not.toContain("kind: Ingress");
+    expect(route).toContain("name: public-gateway");
+    expect(route).toContain("type: PathPrefix");
+    expect(route).toContain("value: /cli");
+    expect(route).toContain("name: mcp-gateway-governed-cli");
+    expect(route).not.toContain("agentgateway");
+  });
+
+  test("rejects incomplete or conflicting governed CLI wiring", () => {
+    const disabledRoute = helmTemplateResult([
+      "--set",
+      "governedCli.gatewayApi.httpRoute.enabled=true",
+    ]);
+    assertHelmRejected(disabledRoute);
+    expect(disabledRoute.stderr.toString()).toContain("requires governedCli.enabled=true");
+
+    for (const [name, overrides] of [
+      ["missing kubeconfig", ["--set-string", "governedCli.kubeconfigSecretRef.name="]],
+      ["missing ingress peer", ["--set-json", "governedCli.networkPolicy.ingressPeers=[]"]],
+      ["missing issuer", ["--set-json", "hop1.issuers=[]"]],
+      [
+        "both route kinds",
+        [
+          "--set",
+          "governedCli.gatewayApi.httpRoute.enabled=true",
+          "--set-string",
+          "governedCli.gatewayApi.httpRoute.hostname=mcp.example.com",
+          "--set-json",
+          'governedCli.gatewayApi.httpRoute.parentRefs=[{"name":"public-gateway"}]',
+        ],
+      ],
+      [
+        "incomplete HTTPRoute",
+        [
+          "--set",
+          "governedCli.ingress.enabled=false",
+          "--set",
+          "governedCli.gatewayApi.httpRoute.enabled=true",
+        ],
+      ],
+    ] as const) {
+      const result = helmTemplateResult([...governedCliArgs(), ...overrides]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), name).toMatch(/governedCli|values don't meet/i);
+    }
   });
 
   test("renders opt-in generic wrappers and registers matching AgentGateway targets", () => {
@@ -3040,7 +3125,7 @@ describe("Kubernetes production chart", () => {
       ),
     ]);
 
-    expect(values.match(/resources: \{\}/g)).toHaveLength(7);
+    expect(values.match(/resources: \{\}/g)).toHaveLength(8);
     for (const component of ["agentgateway", "google-workspace", "github-wrapper", "github-mcp"]) {
       const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-${component}`);
       expect(deployment).toContain("requests:");
@@ -3636,6 +3721,21 @@ function brokerWithGithubArgs(): string[] {
         path: "/mcp",
       },
     ])}`,
+  ];
+}
+
+function governedCliArgs(): string[] {
+  return [
+    "--set",
+    "governedCli.enabled=true",
+    "--set-string",
+    "governedCli.kubeconfigSecretRef.name=runner-kubeconfig",
+    "--set-string",
+    "governedCli.kubeconfigSecretRef.key=kubeconfig",
+    "--set-json",
+    'hop1.issuers=[{"name":"test","issuer":"https://identity.example.com","audiences":["mcp-gateway"],"jwksUrl":"https://identity.example.com/jwks","allowedAlgorithms":["RS256"]}]',
+    "--set-json",
+    'governedCli.networkPolicy.ingressPeers=[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ingress-nginx"}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"controller"}}}]',
   ];
 }
 

@@ -186,6 +186,7 @@
       "maxItems": 32,
       "items": { "$ref": "#/$defs/genericWrapper" }
     },
+    "governedCli": { "$ref": "#/$defs/governedCli" },
     "googleWorkspace": { "$ref": "#/$defs/googleWorkspace" },
     "dbMcp": { "$ref": "#/$defs/dbMcp" },
     "githubWrapper": { "$ref": "#/$defs/githubWrapper" },
@@ -1066,6 +1067,96 @@
           "type": "object",
           "properties": {
             "topology": { "enum": ["separate", "sidecar"] }
+          }
+        }
+      ]
+    },
+    "governedCli": {
+      "allOf": [
+        { "$ref": "#/$defs/workloadProperties" },
+        {
+          "type": "object",
+          "required": [
+            "enabled",
+            "image",
+            "replicas",
+            "port",
+            "kubeconfigSecretRef",
+            "podSecurityContext",
+            "securityContext",
+            "resources",
+            "probes",
+            "networkPolicy",
+            "ingress",
+            "gatewayApi"
+          ],
+          "properties": {
+            "kubeconfigSecretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "key"],
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string" }
+              }
+            },
+            "networkPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ingressPeers"],
+              "properties": {
+                "ingressPeers": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": { "$ref": "#/$defs/connectionLifecycleCaller" }
+                }
+              }
+            },
+            "ingress": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "host", "className", "annotations", "tls"],
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "host": { "type": "string" },
+                "className": { "type": "string" },
+                "annotations": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" }
+                },
+                "tls": { "type": "array", "items": { "type": "object" } }
+              }
+            },
+            "gatewayApi": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["httpRoute"],
+              "properties": {
+                "httpRoute": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["enabled", "hostname", "parentRefs"],
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "hostname": { "type": "string" },
+                    "parentRefs": {
+                      "type": "array",
+                      "maxItems": 32,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["name"],
+                        "properties": {
+                          "name": { "type": "string", "minLength": 1 },
+                          "namespace": { "type": "string", "minLength": 1 },
+                          "sectionName": { "type": "string", "minLength": 1 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       ]
