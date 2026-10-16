@@ -149,7 +149,7 @@ function issueHttpSession(
   maxSessions: number,
   maxSessionsPerPrincipal: number,
 ): void {
-  assertNewSessionAllowed(sessions, id, principalKey, maxSessions, maxSessionsPerPrincipal);
+  makeRoomForSession(sessions, id, principalKey, maxSessions, maxSessionsPerPrincipal);
   sessions.set(id, {
     principalKey,
     initialized: false,
@@ -324,7 +324,14 @@ export function createStdioUpstreamTransport(
   return {
     issueSession({ id, principalKey }) {
       pruneIdleStdioSessions(sessions, now(), idleTtlMs);
-      assertNewSessionAllowed(sessions, id, principalKey, maxSessions, maxSessionsPerPrincipal);
+      const evicted = makeRoomForSession(
+        sessions,
+        id,
+        principalKey,
+        maxSessions,
+        maxSessionsPerPrincipal,
+      );
+      evicted?.child?.kill();
       sessions.set(id, {
         id,
         principalKey,
@@ -572,22 +579,38 @@ function assertIssuedSession<T extends { principalKey: string }>(
   return session;
 }
 
-function assertNewSessionAllowed<T extends { principalKey: string }>(
+function makeRoomForSession<T extends { principalKey: string; lastUsedAt: number; busy: boolean }>(
   sessions: Map<string, T>,
   id: string,
   principalKey: string,
   maxSessions: number,
   maxSessionsPerPrincipal: number,
-): void {
+): T | undefined {
   if (sessions.has(id)) throw new Error("MCP session ID is already issued");
-  if (sessions.size >= maxSessions) throw new Error("MCP global session limit reached");
   let principalSessions = 0;
-  for (const session of sessions.values()) {
-    if (session.principalKey === principalKey) principalSessions += 1;
+  let leastRecentlyUsed: [string, T] | undefined;
+  for (const entry of sessions) {
+    const [sessionId, session] = entry;
+    if (session.principalKey !== principalKey) continue;
+    principalSessions += 1;
+    if (
+      !session.busy &&
+      (!leastRecentlyUsed || session.lastUsedAt < leastRecentlyUsed[1].lastUsedAt)
+    ) {
+      leastRecentlyUsed = [sessionId, session];
+    }
   }
-  if (principalSessions >= maxSessionsPerPrincipal) {
+  if (principalSessions >= maxSessionsPerPrincipal && leastRecentlyUsed) {
+    sessions.delete(leastRecentlyUsed[0]);
+    console.info(
+      `generic_mcp_session_evicted reason=per_principal_cap sessions_total=${String(sessions.size + 1)} sessions_principal=${String(principalSessions)}`,
+    );
+    return leastRecentlyUsed[1];
+  }
+  if (sessions.size >= maxSessions) throw new Error("MCP global session limit reached");
+  if (principalSessions >= maxSessionsPerPrincipal)
     throw new Error("MCP per-principal session limit reached");
-  }
+  return undefined;
 }
 
 function startReaper(

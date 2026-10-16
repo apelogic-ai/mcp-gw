@@ -8,6 +8,11 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Let repeated Task runs reuse a user's generic-wrapper session capacity by replacing that user's
+  least-recently-used idle session while preserving global and cross-user limits.
+
 ## [0.6.0] - 2026-10-14
 
 ### Added

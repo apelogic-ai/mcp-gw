@@ -15,7 +15,7 @@ lines.on("line", (line) => {
       ? {
           protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
-          serverInfo: { name: "stdio-fixture", version: "1.0.0" },
+          serverInfo: { name: "stdio-fixture", version: "1.0.0", pid: process.pid },
         }
       : {
           content: [
