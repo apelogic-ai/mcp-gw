@@ -949,7 +949,7 @@ function validateRequestSession(
     transport.assertSession(sessionId, principalKey(identity));
     return undefined;
   } catch {
-    return mcpError(null, -32000, "MCP session is unknown or unavailable");
+    return mcpError(null, -32000, "MCP session expired; re-initialize");
   }
 }
 

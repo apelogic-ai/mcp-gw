@@ -364,6 +364,28 @@ describe("generic MCP proxy", () => {
     expect(transport.requests).toHaveLength(0);
   });
 
+  test("tells clients to re-initialize an expired or evicted session", async () => {
+    const transport: GenericUpstreamTransport = {
+      issueSession(session) {
+        void session;
+      },
+      assertSession() {
+        throw new Error("MCP session is unknown or expired");
+      },
+      send() {
+        throw new Error("upstream access must not run");
+      },
+    };
+    const response = await handler({ transport })(
+      mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 2),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      error: { code: -32000, message: "MCP session expired; re-initialize" },
+    });
+  });
+
   test("advertises the pinned prefixed catalog without contacting the upstream", async () => {
     const transport = new RecordingTransport();
     const response = await handler({ transport })(mcpRequest("tools/list", {}, 1));

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import { createHttpUpstreamTransport, createStdioUpstreamTransport } from "./transport";
 
@@ -124,47 +124,103 @@ describe("generic wrapper HTTP transport", () => {
     expect(response.headers.get("mcp-session-id")).toBe("wrapper-session");
   });
 
-  test("bounds wrapper-owned HTTP sessions", async () => {
+  test("evicts the same principal's least-recently-used idle HTTP session", async () => {
     let now = 0;
+    const info = spyOn(console, "info").mockImplementation(() => undefined);
     const transport = createHttpUpstreamTransport(
       { transport: "http", url: "https://mcp.example.com/mcp" },
       {
-        maxSessions: 2,
-        maxSessionsPerPrincipal: 1,
+        maxSessions: 3,
+        maxSessionsPerPrincipal: 2,
         sessionIdleTtlMs: 10,
         reapIntervalMs: 5,
         now: () => now,
         fetch: () => Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: {} })),
       },
     );
-    const first = {
-      incomingRequest: request("initialize", 1, "session-one"),
+    sessions(transport).issueSession({ id: "principal-old", principalKey: "issuer\nsubject" });
+    now = 1;
+    sessions(transport).issueSession({ id: "principal-lru", principalKey: "issuer\nsubject" });
+    now = 2;
+    sessions(transport).issueSession({ id: "other", principalKey: "issuer\nother" });
+    now = 3;
+    sessions(transport).assertSession("principal-old", "issuer\nsubject");
+    now = 4;
+
+    expect(() =>
+      sessions(transport).issueSession({ id: "principal-new", principalKey: "issuer\nsubject" }),
+    ).not.toThrow();
+    expect(() => sessions(transport).assertSession("principal-lru", "issuer\nsubject")).toThrow(
+      "unknown or expired",
+    );
+    expect(() =>
+      sessions(transport).assertSession("principal-old", "issuer\nsubject"),
+    ).not.toThrow();
+    expect(() => sessions(transport).assertSession("other", "issuer\nother")).not.toThrow();
+    expect(info).toHaveBeenCalledWith(
+      "generic_mcp_session_evicted reason=per_principal_cap sessions_total=3 sessions_principal=2",
+    );
+    expect(String(info.mock.calls[0]?.[0])).not.toContain("subject");
+    expect(String(info.mock.calls[0]?.[0])).not.toContain("principal-lru");
+    now = 14;
+    await Bun.sleep(20);
+    expect(() => sessions(transport).assertSession("principal-new", "issuer\nsubject")).toThrow(
+      "unknown or expired",
+    );
+    info.mockRestore();
+  });
+
+  test("refuses at the global HTTP session cap without evicting another principal", () => {
+    const transport = createHttpUpstreamTransport(
+      { transport: "http", url: "https://mcp.example.com/mcp" },
+      { maxSessions: 2, maxSessionsPerPrincipal: 2 },
+    );
+    sessions(transport).issueSession({ id: "first", principalKey: "issuer\nfirst" });
+    sessions(transport).issueSession({ id: "second", principalKey: "issuer\nsecond" });
+
+    expect(() =>
+      sessions(transport).issueSession({ id: "third", principalKey: "issuer\nthird" }),
+    ).toThrow("global session limit");
+    expect(() => sessions(transport).assertSession("first", "issuer\nfirst")).not.toThrow();
+    expect(() => sessions(transport).assertSession("second", "issuer\nsecond")).not.toThrow();
+  });
+
+  test("refuses to evict a busy same-principal HTTP session", async () => {
+    let releaseFetch!: () => void;
+    let markFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    const pendingFetch = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const transport = createHttpUpstreamTransport(
+      { transport: "http", url: "https://mcp.example.com/mcp" },
+      {
+        maxSessions: 1,
+        maxSessionsPerPrincipal: 1,
+        fetch: async () => {
+          markFetchStarted();
+          await pendingFetch;
+          return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+        },
+      },
+    );
+    sessions(transport).issueSession({ id: "busy", principalKey: "issuer\nsubject" });
+    const inFlight = transport.send({
+      incomingRequest: request("initialize", 1, "busy"),
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
       credential: null,
       principalKey: "issuer\nsubject",
-    };
-    sessions(transport).issueSession({ id: "session-one", principalKey: "issuer\nsubject" });
-    await transport.send(first);
+    });
+    await fetchStarted;
 
-    expect(
-      Promise.resolve().then(() =>
-        sessions(transport).issueSession({
-          id: "session-two",
-          principalKey: "issuer\nsubject",
-        }),
-      ),
-    ).rejects.toThrow("per-principal session limit");
     expect(() =>
-      sessions(transport).issueSession({
-        id: "session-other",
-        principalKey: "issuer\nsubject-other",
-      }),
-    ).not.toThrow();
-    now = 10;
-    await Bun.sleep(20);
-    expect(() => sessions(transport).assertSession("session-one", "issuer\nsubject")).toThrow(
-      "unknown or expired",
-    );
+      sessions(transport).issueSession({ id: "replacement", principalKey: "issuer\nsubject" }),
+    ).toThrow("global session limit");
+    expect(() => sessions(transport).assertSession("busy", "issuer\nsubject")).not.toThrow();
+    releaseFetch();
+    await inFlight;
   });
 
   test("rejects missing, unissued, and cross-principal HTTP sessions before upstream access", () => {
@@ -305,8 +361,9 @@ describe("generic wrapper stdio transport", () => {
     });
   });
 
-  test("bounds persistent stdio child sessions", async () => {
+  test("evicts the same principal's idle stdio session and terminates its child", async () => {
     let now = 0;
+    const info = spyOn(console, "info").mockImplementation(() => undefined);
     const transport = createStdioUpstreamTransport(
       {
         transport: "stdio",
@@ -317,7 +374,7 @@ describe("generic wrapper stdio transport", () => {
       process.env,
       undefined,
       {
-        maxSessions: 2,
+        maxSessions: 1,
         maxSessionsPerPrincipal: 1,
         sessionIdleTtlMs: 10,
         reapIntervalMs: 5,
@@ -331,17 +388,29 @@ describe("generic wrapper stdio transport", () => {
       principalKey: "issuer\nsubject",
     };
     sessions(transport).issueSession({ id: "stdio-one", principalKey: "issuer\nsubject" });
-    await transport.send(firstRequest);
-    expect(
-      Promise.resolve().then(() =>
-        sessions(transport).issueSession({ id: "stdio-two", principalKey: "issuer\nsubject" }),
-      ),
-    ).rejects.toThrow("per-principal session limit");
-    now = 10;
-    await Bun.sleep(20);
+    const initialized = await transport.send(firstRequest);
+    const childPid = ((await initialized.json()) as { result: { serverInfo: { pid: number } } })
+      .result.serverInfo.pid;
+    expect(process.kill(childPid, 0)).toBe(true);
+    now = 1;
+
+    expect(() =>
+      sessions(transport).issueSession({ id: "stdio-two", principalKey: "issuer\nsubject" }),
+    ).not.toThrow();
     expect(() => sessions(transport).assertSession("stdio-one", "issuer\nsubject")).toThrow(
       "unknown or expired",
     );
+    expect(() => sessions(transport).assertSession("stdio-two", "issuer\nsubject")).not.toThrow();
+    await waitForProcessExit(childPid);
+    expect(info).toHaveBeenCalledWith(
+      "generic_mcp_session_evicted reason=per_principal_cap sessions_total=1 sessions_principal=1",
+    );
+    now = 11;
+    await Bun.sleep(20);
+    expect(() => sessions(transport).assertSession("stdio-two", "issuer\nsubject")).toThrow(
+      "unknown or expired",
+    );
+    info.mockRestore();
   });
 
   test("rejects missing and unissued stdio sessions without spawning a child", () => {
@@ -377,4 +446,16 @@ function request(method: string, id: number, sessionId?: string): Request {
     headers,
     body: JSON.stringify({ jsonrpc: "2.0", id, method }),
   });
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error(`fixture process ${String(pid)} did not exit`);
 }
