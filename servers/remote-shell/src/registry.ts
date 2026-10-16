@@ -30,21 +30,14 @@ export interface RemoteShellBinding {
   targets: Record<string, string>;
 }
 
-export interface RemoteShellAuditEvent {
+export interface RemoteShellAuditEvent extends Record<
+  string,
+  string | number | boolean | undefined
+> {
   category: "remote_shell_command";
   ts: string;
   status: "allow" | "deny" | "error";
   principal: string;
-  runtime_uid?: string;
-  target_role?: string;
-  command_digest?: string;
-  exit_code?: number;
-  duration_ms?: number;
-  stdout_bytes?: number;
-  stderr_bytes?: number;
-  stdout_truncated?: boolean;
-  stderr_truncated?: boolean;
-  error?: string;
 }
 
 export interface RemoteShellAuditSink {
@@ -87,7 +80,7 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
           options.audit,
           refusalEvent(options.identity, runtimeUid, "task_tool_not_approved"),
         );
-        return taskDenied();
+        return errorResult(TASK_TOOL_DENIED_ERROR, TASK_TOOL_DENIED_MESSAGE);
       }
 
       const parsed = parseToolArgs(args, options.maxTimeoutSeconds);
@@ -113,7 +106,6 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
         return errorResult("remote_shell_target_not_bound", "Target role is not bound");
       }
 
-      const started = Date.now();
       try {
         const result = await options.execute({
           instanceId,
@@ -130,11 +122,6 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
           target_role: parsed.target,
           command_digest: commandDigest(parsed.command),
           exit_code: result.exit_code,
-          duration_ms: result.duration_ms,
-          stdout_bytes: result.stdout_bytes,
-          stderr_bytes: result.stderr_bytes,
-          stdout_truncated: result.stdout_truncated,
-          stderr_truncated: result.stderr_truncated,
         });
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
@@ -142,20 +129,12 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
         };
       } catch (error) {
         if (error instanceof SsmRunCommandError && error.code === "target_not_run_bound") {
+          const code = "remote_shell_target_not_run_bound";
           await emit(
             options.audit,
-            refusalEvent(
-              options.identity,
-              runtimeUid,
-              "remote_shell_target_not_run_bound",
-              parsed.target,
-              parsed.command,
-            ),
+            refusalEvent(options.identity, runtimeUid, code, parsed.target, parsed.command),
           );
-          return errorResult(
-            "remote_shell_target_not_run_bound",
-            "Target is not bound to this run",
-          );
+          return errorResult(code, "Target is not bound to this run");
         }
         await emit(options.audit, {
           category: "remote_shell_command",
@@ -165,20 +144,12 @@ export function createRemoteShellRegistry(options: CreateRemoteShellRegistryOpti
           runtime_uid: runtimeUid,
           target_role: parsed.target,
           command_digest: commandDigest(parsed.command),
-          duration_ms: Date.now() - started,
           error: "remote_shell_execution_failed",
         });
         return errorResult("remote_shell_execution_failed", "Remote command execution failed");
       }
     },
   };
-}
-
-export class ConsoleRemoteShellAuditSink implements RemoteShellAuditSink {
-  emit(event: RemoteShellAuditEvent): Promise<void> {
-    console.log(JSON.stringify(event));
-    return Promise.resolve();
-  }
 }
 
 function toolDefinition(maxTimeoutSeconds: number): ToolDefinition {
@@ -241,14 +212,6 @@ function taskRuntimeUid(claims: Readonly<Record<string, unknown>>): string | und
   return value || undefined;
 }
 
-function taskDenied(): ToolResult {
-  return {
-    isError: true,
-    content: [{ type: "text", text: TASK_TOOL_DENIED_MESSAGE }],
-    structuredContent: { error: TASK_TOOL_DENIED_ERROR },
-  };
-}
-
 function errorResult(code: string, message: string): ToolResult {
   return {
     isError: true,
@@ -270,7 +233,7 @@ function refusalEvent(
     status: "deny",
     principal: principal(identity),
     ...(runtimeUid ? { runtime_uid: runtimeUid } : {}),
-    ...(target ? { target_role: boundedRole(target) } : {}),
+    ...(target ? { target_role: ROLE_PATTERN.test(target) ? target : "invalid" } : {}),
     ...(command ? { command_digest: commandDigest(command) } : {}),
     error,
   };
@@ -282,10 +245,6 @@ function principal(identity: Hop1Identity): string {
 
 function commandDigest(command: string): string {
   return createHash("sha256").update(command).digest("hex");
-}
-
-function boundedRole(role: string): string {
-  return ROLE_PATTERN.test(role) ? role : "invalid";
 }
 
 async function emit(

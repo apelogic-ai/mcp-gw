@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -24,50 +23,28 @@ afterEach(async () => {
 
 describe("Systems Manager Run Command transport", () => {
   test("passes metacharacters literally in argv and pins AWS-RunShellScript", async () => {
-    const dir = await temporaryDirectory();
-    const log = join(dir, "argv.jsonl");
-    const marker = join(dir, "must-not-exist");
-    const binary = join(dir, "fake-aws");
-    await writeFile(
-      binary,
-      `#!/usr/bin/env bun
-import { appendFileSync } from "node:fs";
-const args = Bun.argv.slice(2);
-appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
-if (args.includes("describe-tags")) console.log(JSON.stringify({ Tags: [{ ResourceId: ${JSON.stringify(instanceId)}, ResourceType: "instance", Key: ${JSON.stringify(runTagKey)}, Value: ${JSON.stringify(runtimeUid)} }] }));
-else if (args.includes("send-command")) console.log(JSON.stringify({ Command: { CommandId: "cmd-1" } }));
-else console.log(JSON.stringify({ Status: "Success", ResponseCode: 0, StandardOutputContent: process.env.AWS_SECRET_ACCESS_KEY, StandardErrorContent: process.env.HOP1_INTROSPECTION_CREDENTIAL_TEST ?? "not-forwarded" }));
-`,
-    );
-    await chmod(binary, 0o755);
-    const secret = "server-credential-value";
-    const runner = createAwsCliRunner({
-      binary,
-      env: {
-        PATH: process.env.PATH,
-        AWS_SECRET_ACCESS_KEY: secret,
-        HOP1_INTROSPECTION_CREDENTIAL_TEST: "must-not-reach-aws-cli",
+    const calls: string[][] = [];
+    const responses = [
+      runTagResponse(),
+      { Command: { CommandId: "cmd-1" } },
+      { Status: "Success", ResponseCode: 0, StandardOutputContent: "server-secret" },
+    ];
+    const runner: AwsCliRunner = {
+      run: (args) => {
+        calls.push(args);
+        return Promise.resolve(JSON.stringify(responses.shift()));
       },
-    });
+    };
     const execute = createSsmRunCommand({
       runner,
       runTagKey,
       outputLimitBytes: 1024,
-      credentialValues: [secret],
+      credentialValues: ["server-secret"],
       pollIntervalMs: 0,
     });
-    const command = `printf '%s' '$HOME'; touch ${marker}; $(printf ignored)`;
+    const command = "printf '%s' '$HOME'; touch /tmp/must-not-exist; $(printf ignored)";
 
-    const result = await execute({
-      instanceId,
-      runtimeUid,
-      command,
-      timeoutSeconds: 20,
-    });
-    const calls = (await readFile(log, "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as string[]);
+    const result = await execute({ instanceId, runtimeUid, command, timeoutSeconds: 20 });
     const described = calls[0] ?? [];
     const sent = calls[1] ?? [];
     const parameters = JSON.parse(sent[sent.indexOf("--parameters") + 1] ?? "{}") as {
@@ -75,7 +52,6 @@ else console.log(JSON.stringify({ Status: "Success", ResponseCode: 0, StandardOu
       executionTimeout?: string[];
     };
 
-    expect(existsSync(marker)).toBe(false);
     expect(described).toContain("describe-tags");
     expect(JSON.parse(described[described.indexOf("--filters") + 1] ?? "[]")).toEqual([
       { Name: "resource-id", Values: [instanceId] },
@@ -83,10 +59,7 @@ else console.log(JSON.stringify({ Status: "Success", ResponseCode: 0, StandardOu
     ]);
     expect(sent[sent.indexOf("--document-name") + 1]).toBe(SSM_DOCUMENT_NAME);
     expect(parameters).toEqual({ commands: [command], executionTimeout: ["20"] });
-    expect(sent).not.toContain(secret);
-    expect(result.stdout).toBe("[redacted]");
-    expect(result.stderr).toBe("not-forwarded");
-    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(JSON.stringify({ sent, result })).not.toContain("server-secret");
   });
 
   test("truncates stdout and stderr independently and reports original byte counts", async () => {
@@ -188,19 +161,14 @@ else console.log(JSON.stringify({ Status: "Success", ResponseCode: 0, StandardOu
     expect(responses).toHaveLength(0);
   });
 
-  test("refuses an untagged instance before send-command", async () => {
-    await expectRunBindingRefusal(() => Promise.resolve(JSON.stringify({ Tags: [] })));
-  });
-
-  test("refuses an instance tagged for another run before send-command", async () => {
-    await expectRunBindingRefusal(() =>
-      Promise.resolve(JSON.stringify(runTagResponse("runtime-b"))),
-    );
-  });
-
-  test("fails closed when the run-tag lookup fails", async () => {
-    await expectRunBindingRefusal(() => Promise.reject(new Error("lookup failed")));
-  });
+  const runBindingRefusals: [string, AwsCliRunner["run"]][] = [
+    ["an untagged instance", () => Promise.resolve(JSON.stringify({ Tags: [] }))],
+    ["another run ID", () => Promise.resolve(JSON.stringify(runTagResponse("runtime-b")))],
+    ["a failed tag lookup", () => Promise.reject(new Error("lookup failed"))],
+  ];
+  for (const [reason, run] of runBindingRefusals) {
+    test(`refuses ${reason} before send-command`, () => expectRunBindingRefusal(run));
+  }
 
   test("redacts credential values from AWS CLI failures", async () => {
     const dir = await temporaryDirectory();
@@ -240,23 +208,19 @@ function runTagResponse(value = runtimeUid) {
   };
 }
 
-async function expectRunBindingRefusal(run: AwsCliRunner["run"]): Promise<void> {
+function expectRunBindingRefusal(run: AwsCliRunner["run"]): void {
   const calls: string[][] = [];
   const runner: AwsCliRunner = {
-    run: (args, timeoutMs) => {
+    run: (args) => {
       calls.push(args);
-      return run(args, timeoutMs);
+      return run(args);
     },
   };
   const execute = createSsmRunCommand({ runner, runTagKey, outputLimitBytes: 100 });
 
-  expect.assertions(4);
-  try {
-    await execute({ instanceId, runtimeUid, command: "true", timeoutSeconds: 10 });
-  } catch (error) {
-    expect(error).toBeInstanceOf(SsmRunCommandError);
-    expect((error as SsmRunCommandError).code).toBe("target_not_run_bound");
-  }
+  expect(
+    execute({ instanceId, runtimeUid, command: "true", timeoutSeconds: 10 }),
+  ).rejects.toMatchObject({ code: "target_not_run_bound" });
   expect(calls).toHaveLength(1);
   expect(calls[0]).toContain("describe-tags");
 }

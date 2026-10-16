@@ -101,13 +101,26 @@ export function createSsmRunCommand(options: {
   const sleep = options.sleep ?? Bun.sleep;
 
   return async (request: SsmRunRequest): Promise<SsmRunResult> => {
-    await assertRunBound(
-      options.runner,
-      request.instanceId,
-      options.runTagKey,
-      request.runtimeUid,
-      options.region,
-    );
+    const filters = JSON.stringify([
+      { Name: "resource-id", Values: [request.instanceId] },
+      { Name: "key", Values: [options.runTagKey] },
+    ]);
+    let runId: unknown;
+    try {
+      const response = await runJson(
+        options.runner,
+        regional(
+          ["ec2", "describe-tags", "--filters", filters, "--output", "json", "--no-cli-pager"],
+          options.region,
+        ),
+      );
+      runId = record(Array.isArray(response.Tags) ? response.Tags[0] : undefined)?.Value;
+    } catch {
+      throw new SsmRunCommandError("target_not_run_bound");
+    }
+    if (runId !== request.runtimeUid) {
+      throw new SsmRunCommandError("target_not_run_bound");
+    }
     const started = now();
     const parameters = JSON.stringify({
       commands: [request.command],
@@ -184,41 +197,6 @@ export function createSsmRunCommand(options: {
     }
     throw new SsmRunCommandError("timeout");
   };
-}
-
-async function assertRunBound(
-  runner: AwsCliRunner,
-  instanceId: string,
-  runTagKey: string,
-  runtimeUid: string,
-  region: string | undefined,
-): Promise<void> {
-  try {
-    const filters = JSON.stringify([
-      { Name: "resource-id", Values: [instanceId] },
-      { Name: "key", Values: [runTagKey] },
-    ]);
-    const response = await runJson(
-      runner,
-      regional(
-        ["ec2", "describe-tags", "--filters", filters, "--output", "json", "--no-cli-pager"],
-        region,
-      ),
-    );
-    const tags = Array.isArray(response.Tags) ? response.Tags : [];
-    const matches = tags.some((value) => {
-      const tag = record(value);
-      return (
-        tag?.ResourceId === instanceId &&
-        tag.ResourceType === "instance" &&
-        tag.Key === runTagKey &&
-        tag.Value === runtimeUid
-      );
-    });
-    if (!matches) throw new SsmRunCommandError("target_not_run_bound");
-  } catch {
-    throw new SsmRunCommandError("target_not_run_bound");
-  }
 }
 
 export function credentialValues(env: Readonly<Record<string, string | undefined>>): string[] {
