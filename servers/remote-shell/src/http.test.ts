@@ -239,6 +239,56 @@ describe("remote shell HTTP", () => {
     expect(cancelled.status).toBe(202);
     expect(cancels.map((job) => job.commandId)).toEqual(["cmd-owned"]);
   });
+
+  test("enforces configured request and per-owner job limits", async () => {
+    let nextId = 0;
+    const calls: SsmRunRequest[] = [];
+    const ssm = fakeSsm({
+      start: (request) => {
+        calls.push(request);
+        return Promise.resolve({
+          commandId: `cmd-${String(++nextId)}`,
+          instanceId: request.instanceId,
+          startedAt: 0,
+          deadline: 60_000,
+        });
+      },
+      wait: () => new Promise(() => undefined),
+    });
+    const handler = createRemoteShellHttpHandler({
+      ...baseOptions(ssm),
+      requestLimits: { maxBodyBytes: 100, maxCommandBytes: 4 },
+      jobLimits: { maxJobs: 2, maxRunningJobsPerOwner: 1, retentionSeconds: 1 },
+    });
+
+    expect(
+      await handler(
+        apiRequest("/shell/run?wait=full", {
+          method: "POST",
+          body: { target: "controller", command: "12345" },
+        }),
+      ),
+    ).toMatchObject({ status: 400 });
+    expect(
+      await handler(
+        new Request("http://localhost/shell/run", {
+          method: "POST",
+          headers: { authorization: "Bearer run-token", "content-length": "101" },
+          body: "{}",
+        }),
+      ),
+    ).toMatchObject({ status: 413 });
+    const create = () =>
+      handler(
+        apiRequest("/shell/jobs", {
+          method: "POST",
+          body: { target: "controller", command: "true" },
+        }),
+      );
+    expect(await create()).toMatchObject({ status: 202 });
+    expect(await create()).toMatchObject({ status: 503 });
+    expect(calls).toHaveLength(1);
+  });
 });
 
 function baseOptions(ssm: SsmRunCommand, events: RemoteShellAuditEvent[] = []) {
@@ -246,6 +296,8 @@ function baseOptions(ssm: SsmRunCommand, events: RemoteShellAuditEvent[] = []) {
     authenticate: () => Promise.resolve(taskIdentity("write")),
     bindings: [binding],
     maxTimeoutSeconds: 60,
+    requestLimits: { maxBodyBytes: 17 * 1024, maxCommandBytes: 16 * 1024 },
+    jobLimits: { maxJobs: 64, maxRunningJobsPerOwner: 4, retentionSeconds: 30 * 60 },
     ssm,
     audit: {
       emit: (event: RemoteShellAuditEvent) =>

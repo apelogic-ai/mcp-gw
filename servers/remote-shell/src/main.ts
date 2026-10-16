@@ -16,6 +16,12 @@ export interface RemoteShellConfig {
   runTagKey: string;
   maxTimeoutSeconds: number;
   maxOutputBytes: number;
+  requestLimits: { maxBodyBytes: number; maxCommandBytes: number };
+  jobLimits: {
+    maxJobs: number;
+    maxRunningJobsPerOwner: number;
+    retentionSeconds: number;
+  };
   hop1Issuers: Hop1IssuerConfig[];
   bindings: RemoteShellBinding[];
 }
@@ -40,6 +46,14 @@ export function loadRemoteShellConfig(
   const hop1Issuers = validateHop1IssuerProfiles(
     rawIssuers.map((value) => issuerWithCredential(value, env)),
   );
+  const maxCommandBytes = integer(env.REMOTE_SHELL_MAX_COMMAND_BYTES, 16 * 1024, 1, 1024 * 1024);
+  const maxBodyBytes = integer(
+    env.REMOTE_SHELL_MAX_BODY_BYTES,
+    17 * 1024,
+    maxCommandBytes,
+    2 * 1024 * 1024,
+  );
+  const maxJobs = integer(env.REMOTE_SHELL_MAX_JOBS, 64, 1, 4096);
 
   return {
     port: integer(env.PORT, 8080, 1, 65_535),
@@ -48,6 +62,12 @@ export function loadRemoteShellConfig(
     runTagKey: text(env.REMOTE_SHELL_RUN_TAG_KEY) ?? "hypershell:run-id",
     maxTimeoutSeconds: integer(env.REMOTE_SHELL_MAX_TIMEOUT_SECONDS, 60, 10, 3_600),
     maxOutputBytes: integer(env.REMOTE_SHELL_MAX_OUTPUT_BYTES, 24 * 1024, 1, 1024 * 1024),
+    requestLimits: { maxBodyBytes, maxCommandBytes },
+    jobLimits: {
+      maxJobs,
+      maxRunningJobsPerOwner: integer(env.REMOTE_SHELL_MAX_RUNNING_JOBS_PER_OWNER, 4, 1, maxJobs),
+      retentionSeconds: integer(env.REMOTE_SHELL_JOB_RETENTION_SECONDS, 30 * 60, 1, 86_400),
+    },
     hop1Issuers,
     bindings: validBindings,
   };
@@ -135,6 +155,8 @@ if (import.meta.main) {
     authenticate,
     bindings: config.bindings,
     maxTimeoutSeconds: config.maxTimeoutSeconds,
+    requestLimits: config.requestLimits,
+    jobLimits: config.jobLimits,
     ssm: createSsmRunCommand({
       runner,
       region: config.awsRegion,

@@ -24,12 +24,7 @@ export const REMOTE_SHELL_GRANT = {
 } as const;
 
 const ROLE_PATTERN = /^[a-z][a-z0-9-]{0,62}$/;
-const MAX_COMMAND_BYTES = 16 * 1024;
-const MAX_BODY_BYTES = MAX_COMMAND_BYTES + 1024;
 const MIN_TIMEOUT_SECONDS = 10;
-const MAX_JOBS = 64;
-const MAX_RUNNING_JOBS_PER_OWNER = 4;
-const JOB_RETENTION_MS = 30 * 60 * 1000;
 const TASK_AUTHORITY_CLAIM = ["ste", "ward"].join("");
 
 export interface RemoteShellBinding {
@@ -56,6 +51,12 @@ export interface CreateRemoteShellHttpHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
   bindings: readonly RemoteShellBinding[];
   maxTimeoutSeconds: number;
+  requestLimits: { maxBodyBytes: number; maxCommandBytes: number };
+  jobLimits: {
+    maxJobs: number;
+    maxRunningJobsPerOwner: number;
+    retentionSeconds: number;
+  };
   ssm: SsmRunCommand;
   audit?: RemoteShellAuditSink;
   now?: () => number;
@@ -118,9 +119,13 @@ export function createRemoteShellHttpHandler(
       );
       return { ok: false, response: taskDenied() };
     }
-    const parsedBody = await readBoundedJson(request, MAX_BODY_BYTES);
+    const parsedBody = await readBoundedJson(request, options.requestLimits.maxBodyBytes);
     if (!parsedBody.ok) return parsedBody;
-    const parsed = parseRunRequest(parsedBody.value, options.maxTimeoutSeconds);
+    const parsed = parseRunRequest(
+      parsedBody.value,
+      options.maxTimeoutSeconds,
+      options.requestLimits.maxCommandBytes,
+    );
     if (!parsed.ok) {
       await emit(
         options.audit,
@@ -197,7 +202,7 @@ export function createRemoteShellHttpHandler(
   };
 
   const prune = (): void => {
-    const cutoff = now() - JOB_RETENTION_MS;
+    const cutoff = now() - options.jobLimits.retentionSeconds * 1000;
     for (const [id, job] of jobs) {
       if (job.completedAt !== undefined && job.completedAt <= cutoff) jobs.delete(id);
     }
@@ -208,10 +213,13 @@ export function createRemoteShellHttpHandler(
     const ownerRunning = [...jobs.values()].filter(
       (job) => job.owner === owner && (job.status === "running" || job.status === "cancelling"),
     ).length;
-    if (ownerRunning + (admissionsByOwner.get(owner) ?? 0) >= MAX_RUNNING_JOBS_PER_OWNER) {
+    if (
+      ownerRunning + (admissionsByOwner.get(owner) ?? 0) >=
+      options.jobLimits.maxRunningJobsPerOwner
+    ) {
       return false;
     }
-    while (jobs.size + admissions >= MAX_JOBS) {
+    while (jobs.size + admissions >= options.jobLimits.maxJobs) {
       const oldestFinished = [...jobs.values()]
         .filter((job) => job.completedAt !== undefined)
         .sort((left, right) => (left.completedAt ?? 0) - (right.completedAt ?? 0))[0];
@@ -330,7 +338,11 @@ type ParsedRun =
   | { ok: true; target: string; command: string; timeoutSeconds: number }
   | { ok: false; error: string; target?: string; command?: string };
 
-function parseRunRequest(value: unknown, maxTimeoutSeconds: number): ParsedRun {
+function parseRunRequest(
+  value: unknown,
+  maxTimeoutSeconds: number,
+  maxCommandBytes: number,
+): ParsedRun {
   if (!isRecord(value)) return { ok: false, error: "Request body must be an object" };
   const target = typeof value.target === "string" ? value.target : undefined;
   const command = typeof value.command === "string" ? value.command : undefined;
@@ -340,7 +352,7 @@ function parseRunRequest(value: unknown, maxTimeoutSeconds: number): ParsedRun {
   if (!target || !ROLE_PATTERN.test(target)) {
     return { ok: false, error: "Target must be a platform-defined role", target, command };
   }
-  if (!command || Buffer.byteLength(command) > MAX_COMMAND_BYTES) {
+  if (!command || Buffer.byteLength(command) > maxCommandBytes) {
     return { ok: false, error: "Command must be non-empty and within the size limit", target };
   }
   const timeout = value.timeout_seconds ?? maxTimeoutSeconds;

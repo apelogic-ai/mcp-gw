@@ -31,8 +31,11 @@ The server accepts only verified Task tokens with a non-empty `runtime_uid` and 
 
 Configure verified issuers with `HOP1_ISSUERS_JSON`. Optional settings are
 `REMOTE_SHELL_RUN_TAG_KEY` (default `hypershell:run-id`), `REMOTE_SHELL_MAX_TIMEOUT_SECONDS`
-(default 60), `REMOTE_SHELL_MAX_OUTPUT_BYTES` (default 24576), and `AWS_REGION`. Workload identity
-supplies AWS credentials; never put them in bindings or tool arguments.
+(default 60), `REMOTE_SHELL_MAX_OUTPUT_BYTES` (default 24576),
+`REMOTE_SHELL_MAX_COMMAND_BYTES` (default 16384), `REMOTE_SHELL_MAX_BODY_BYTES` (default 17408),
+`REMOTE_SHELL_MAX_JOBS` (default 64), `REMOTE_SHELL_MAX_RUNNING_JOBS_PER_OWNER` (default 4),
+`REMOTE_SHELL_JOB_RETENTION_SECONDS` (default 1800), and `AWS_REGION`. Workload identity supplies AWS
+credentials; never put them in bindings or tool arguments.
 
 Before every command, the server uses its own credential to read the bound instance's EC2 tags and
 requires the configured tag value to equal the verified `runtime_uid`. A missing or different tag,
