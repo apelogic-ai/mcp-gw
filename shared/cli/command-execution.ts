@@ -31,12 +31,14 @@ export interface CliExecutionOptions {
   timeoutMs?: number;
   rejectOnNonZero?: boolean;
   onOutput?: (stream: "stdout" | "stderr", data: string) => void;
+  signal?: AbortSignal;
 }
 
 export class CliExecutionError extends Error {
   constructor(
     message: string,
-    public readonly code: "configuration" | "spawn" | "timeout" | "exit" = "configuration",
+    public readonly code:
+      "configuration" | "spawn" | "timeout" | "exit" | "cancelled" = "configuration",
     public readonly stderr = "",
     public readonly stdout = "",
     public readonly exitCode: number | null = null,
@@ -59,6 +61,9 @@ export function executeCli(
     (!Number.isInteger(timeout) || timeout <= 0 || timeout > config.maxTimeoutSeconds)
   ) {
     return Promise.reject(new CliExecutionError("timeout_seconds is outside the allowed range"));
+  }
+  if (options.signal?.aborted) {
+    return Promise.reject(new CliExecutionError("command cancelled", "cancelled"));
   }
 
   return new Promise((resolve, reject) => {
@@ -88,6 +93,7 @@ export function executeCli(
     let stderrBytes = 0;
     let settled = false;
     let timedOut = false;
+    let cancelled = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 
     const output = (value: Buffer, bytes: number, alwaysRedact = false) =>
@@ -105,10 +111,11 @@ export function executeCli(
       stderrStream.flush();
       clearTimeout(timeoutTimer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
+      options.signal?.removeEventListener("abort", cancel);
       callback();
     };
     const failure = (
-      code: "spawn" | "timeout" | "exit",
+      code: "spawn" | "timeout" | "exit" | "cancelled",
       message: string,
       exitCode: number | null = null,
     ): CliExecutionError => {
@@ -136,6 +143,10 @@ export function executeCli(
     proc.on("error", (error) => settle(() => reject(failure("spawn", error.message))));
     proc.on("close", (exitCode) => {
       if (settled) return;
+      if (cancelled) {
+        settle(() => reject(failure("cancelled", "command cancelled")));
+        return;
+      }
       if (options.rejectOnNonZero && exitCode !== 0) {
         settle(() => reject(failure("exit", "command exited unsuccessfully", exitCode)));
         return;
@@ -154,6 +165,19 @@ export function executeCli(
         }),
       );
     });
+
+    const terminate = (): void => {
+      proc.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => proc.kill("SIGKILL"), 250);
+      forceKillTimer.unref();
+    };
+    const cancel = (): void => {
+      if (settled || cancelled) return;
+      cancelled = true;
+      clearTimeout(timeoutTimer);
+      terminate();
+    };
+    options.signal?.addEventListener("abort", cancel, { once: true });
 
     const timeoutTimer = setTimeout(
       () => {

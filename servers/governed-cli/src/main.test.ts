@@ -56,6 +56,7 @@ describe("governed CLI runtime", () => {
         }),
       targets: [createKubectlTarget(pack, { GOVERNED_CLI_KUBECONFIG: "/credentials/kubeconfig" })],
       requestLimits: pack.requestLimits,
+      jobLimits: pack.jobLimits,
       execute: () => {
         executions += 1;
         throw new Error("must not execute");

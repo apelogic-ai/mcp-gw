@@ -100,4 +100,15 @@ describe("CLI execution", () => {
     const result = await executeCli(config({ defaultTimeoutSeconds: 1 }), ["sleep"], "read");
     expect(result.exit_code).toBe(124);
   });
+
+  test("terminates an execution when its signal is aborted", async () => {
+    const controller = new AbortController();
+    const running = executeCli(config(), ["sleep"], "read", undefined, {
+      signal: controller.signal,
+    });
+    await Bun.sleep(25);
+    controller.abort();
+
+    expect(running).rejects.toMatchObject({ code: "cancelled", message: "command cancelled" });
+  });
 });
