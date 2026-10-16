@@ -484,19 +484,23 @@ function withDocsIndexGuidance(tool: WorkspaceToolDefinition): WorkspaceToolDefi
   };
 }
 
-export const GOOGLE_WORKSPACE_CATALOG_ID =
+export const LEGACY_GOOGLE_WORKSPACE_CATALOG_ID =
   "google-workspace-cli@0.22.5/visible-v1/actions-v1" as const;
+export const GOOGLE_WORKSPACE_CATALOG_ID =
+  "google-workspace-cli@0.22.5/visible-v1/actions-v2" as const;
 
-export type GoogleWorkspaceCatalogId = typeof GOOGLE_WORKSPACE_CATALOG_ID;
+export type GoogleWorkspaceCatalogId =
+  typeof LEGACY_GOOGLE_WORKSPACE_CATALOG_ID | typeof GOOGLE_WORKSPACE_CATALOG_ID;
 
 export const GOOGLE_WORKSPACE_CATALOG_ACTION_COUNTS = {
-  read: 110,
-  write: 120,
+  read: 102,
+  "secret-read": 9,
+  write: 119,
   destructive: 50,
 } as const;
 
 export const GOOGLE_WORKSPACE_TOOL_GRANTS_SHA256 =
-  "sha256:3e333e2776e9686279c357f78b362c12e727692fa3f96121d78d7cb0ab76e482" as const;
+  "sha256:cdcc53d0edbdcb78f3981b434628942098a7001b82f891972a01120498af8acb" as const;
 
 export interface GoogleWorkspaceToolGrant {
   provider: string;
@@ -509,7 +513,7 @@ const LEGACY_GOOGLE_WORKSPACE_TOOLS = [
   ...GWS_VISIBLE_GENERATED_TOOLS,
 ] as const;
 
-const GOVERNED_GOOGLE_WORKSPACE_TOOLS = LEGACY_GOOGLE_WORKSPACE_TOOLS.map((tool) => {
+const SECRET_READ_GOOGLE_WORKSPACE_TOOLS = LEGACY_GOOGLE_WORKSPACE_TOOLS.map((tool) => {
   const commandPath = tool.command.slice(1).join(".");
   const actionClass = classifyGovernedGwsToolAction(tool.service, commandPath, tool.actionClass);
   if (actionClass === tool.actionClass) {
@@ -522,8 +526,18 @@ const GOVERNED_GOOGLE_WORKSPACE_TOOLS = LEGACY_GOOGLE_WORKSPACE_TOOLS.map((tool)
   };
 });
 
+const GOVERNED_GOOGLE_WORKSPACE_TOOLS = SECRET_READ_GOOGLE_WORKSPACE_TOOLS.map((tool) =>
+  tool.actionClass === "secret-read"
+    ? {
+        ...tool,
+        actionClass: "read" as const,
+        annotations: annotationsForActionClass("read"),
+      }
+    : tool,
+);
+
 export const GOOGLE_WORKSPACE_TOOL_GRANTS: readonly GoogleWorkspaceToolGrant[] =
-  GOVERNED_GOOGLE_WORKSPACE_TOOLS.map((tool) => ({
+  SECRET_READ_GOOGLE_WORKSPACE_TOOLS.map((tool) => ({
     provider: tool.service,
     resource: tool.name,
     action: tool.actionClass,
@@ -535,11 +549,17 @@ const LEGACY_GOOGLE_WORKSPACE_TOOL_BY_NAME = new Map(
 const GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME = new Map(
   GOVERNED_GOOGLE_WORKSPACE_TOOLS.map((tool) => [tool.name, tool]),
 );
+const SECRET_READ_GOOGLE_WORKSPACE_TOOL_BY_NAME = new Map(
+  SECRET_READ_GOOGLE_WORKSPACE_TOOLS.map((tool) => [tool.name, tool]),
+);
 
 export function listGoogleWorkspaceTools(
   catalogId?: GoogleWorkspaceCatalogId,
 ): WorkspaceToolDefinition[] {
-  return catalogId === GOOGLE_WORKSPACE_CATALOG_ID
+  if (catalogId === GOOGLE_WORKSPACE_CATALOG_ID) {
+    return [...SECRET_READ_GOOGLE_WORKSPACE_TOOLS];
+  }
+  return catalogId === LEGACY_GOOGLE_WORKSPACE_CATALOG_ID
     ? [...GOVERNED_GOOGLE_WORKSPACE_TOOLS]
     : [...LEGACY_GOOGLE_WORKSPACE_TOOLS];
 }
@@ -550,8 +570,10 @@ export function getGoogleWorkspaceTool(
 ): WorkspaceToolDefinition {
   const tool = (
     catalogId === GOOGLE_WORKSPACE_CATALOG_ID
-      ? GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME
-      : LEGACY_GOOGLE_WORKSPACE_TOOL_BY_NAME
+      ? SECRET_READ_GOOGLE_WORKSPACE_TOOL_BY_NAME
+      : catalogId === LEGACY_GOOGLE_WORKSPACE_CATALOG_ID
+        ? GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME
+        : LEGACY_GOOGLE_WORKSPACE_TOOL_BY_NAME
   ).get(name);
   if (!tool) {
     throw new Error(`Unknown Google Workspace tool: ${name}`);
@@ -561,7 +583,7 @@ export function getGoogleWorkspaceTool(
 }
 
 export function classifyGoogleWorkspaceToolAction(name: string): ActionClass | undefined {
-  return GOVERNED_GOOGLE_WORKSPACE_TOOL_BY_NAME.get(name)?.actionClass;
+  return SECRET_READ_GOOGLE_WORKSPACE_TOOL_BY_NAME.get(name)?.actionClass;
 }
 
 function isVisibleGeneratedTool(tool: WorkspaceToolDefinition): boolean {

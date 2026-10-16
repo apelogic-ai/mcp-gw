@@ -480,8 +480,13 @@ function validateActionClass(
   actionClass: string,
   path: string,
 ): asserts actionClass is PolicyActionClass {
-  if (actionClass !== "read" && actionClass !== "write" && actionClass !== "destructive") {
-    throw new Error(`${path} must be read, write, or destructive`);
+  if (
+    actionClass !== "read" &&
+    actionClass !== "secret-read" &&
+    actionClass !== "write" &&
+    actionClass !== "destructive"
+  ) {
+    throw new Error(`${path} must be read, secret-read, write, or destructive`);
   }
 }
 

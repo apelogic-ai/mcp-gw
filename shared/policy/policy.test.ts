@@ -311,6 +311,9 @@ rules:
       actionClass: read
   - effect: allow
     match:
+      actionClass: secret-read
+  - effect: allow
+    match:
       actionClass: write
       service:
         - docs
@@ -334,13 +337,21 @@ rules:
     expect(
       await policy.decide({
         ...input,
+        tool: "gws_gmail_users_messages_get",
+        actionClass: "secret-read",
+      }),
+    ).toEqual({ kind: "allow" });
+
+    expect(
+      await policy.decide({
+        ...input,
         tool: "google_drive_files_delete",
         actionClass: "destructive",
       }),
     ).toEqual({
       kind: "approval_required",
       reason: "Destructive Google Workspace actions require approval",
-      ruleId: "yaml.rule.3",
+      ruleId: "yaml.rule.4",
     });
 
     expect(

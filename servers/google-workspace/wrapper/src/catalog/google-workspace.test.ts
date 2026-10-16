@@ -8,6 +8,7 @@ import {
   GOOGLE_WORKSPACE_TOOL_GRANTS_SHA256,
   GOOGLE_WORKSPACE_TOOL_GRANTS,
   GOOGLE_WORKSPACE_TOOLS,
+  LEGACY_GOOGLE_WORKSPACE_CATALOG_ID,
   classifyGoogleWorkspaceToolAction,
   getGoogleWorkspaceTool,
   listGoogleWorkspaceTools,
@@ -50,19 +51,32 @@ const NON_DELETE_DESTRUCTIVE_TOOLS = [
   "gws_tasks_tasks_clear",
 ] as const;
 
+const SECRET_READ_TOOLS = [
+  "google_gmail_messages_get",
+  "gws_drive_files_download",
+  "gws_drive_files_export",
+  "gws_drive_files_get",
+  "gws_drive_revisions_get",
+  "gws_gmail_users_drafts_get",
+  "gws_gmail_users_messages_attachments_get",
+  "gws_gmail_users_messages_get",
+  "gws_gmail_users_threads_get",
+] as const;
+
 describe("Google Workspace tool catalog", () => {
   test("publishes the opt-in exact visible catalog as per-service provider grants", () => {
     const tools = listGoogleWorkspaceTools(GOOGLE_WORKSPACE_CATALOG_ID);
 
-    expect(GOOGLE_WORKSPACE_CATALOG_ID).toBe("google-workspace-cli@0.22.5/visible-v1/actions-v1");
+    expect(GOOGLE_WORKSPACE_CATALOG_ID).toBe("google-workspace-cli@0.22.5/visible-v1/actions-v2");
     expect(tools).toHaveLength(280);
     expect(GOOGLE_WORKSPACE_TOOL_GRANTS).toHaveLength(280);
     expect(GOOGLE_WORKSPACE_CATALOG_ACTION_COUNTS).toEqual({
-      read: 110,
-      write: 120,
+      read: 102,
+      "secret-read": 9,
+      write: 119,
       destructive: 50,
     });
-    const actualCounts = { read: 0, write: 0, destructive: 0 };
+    const actualCounts = { read: 0, "secret-read": 0, write: 0, destructive: 0 };
     for (const grant of GOOGLE_WORKSPACE_TOOL_GRANTS) {
       actualCounts[grant.action] += 1;
     }
@@ -106,15 +120,28 @@ describe("Google Workspace tool catalog", () => {
     }
   });
 
+  test("applies secret-read only in the v2 governed catalog", () => {
+    for (const name of SECRET_READ_TOOLS) {
+      expect(getGoogleWorkspaceTool(name).actionClass).not.toBe("secret-read");
+      expect(getGoogleWorkspaceTool(name, LEGACY_GOOGLE_WORKSPACE_CATALOG_ID).actionClass).not.toBe(
+        "secret-read",
+      );
+      expect(getGoogleWorkspaceTool(name, GOOGLE_WORKSPACE_CATALOG_ID)).toMatchObject({
+        actionClass: "secret-read",
+        annotations: { readOnlyHint: true },
+      });
+    }
+  });
+
   test("keeps the absent-pin catalog byte-equivalent to the legacy visible surface", () => {
     const expected = [...GOOGLE_WORKSPACE_TOOLS, ...GWS_VISIBLE_GENERATED_TOOLS];
     const actual = listGoogleWorkspaceTools();
-    const counts = { read: 0, write: 0, destructive: 0 };
+    const counts = { read: 0, "secret-read": 0, write: 0, destructive: 0 };
     for (const tool of actual) counts[tool.actionClass] += 1;
 
     expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
     expect(actual).toEqual(expected);
-    expect(counts).toEqual({ read: 110, write: 142, destructive: 28 });
+    expect(counts).toEqual({ read: 110, "secret-read": 0, write: 142, destructive: 28 });
   });
 
   test("uses federation-safe unique tool names", () => {

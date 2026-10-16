@@ -127,6 +127,63 @@ describe("Google Workspace request registry", () => {
     expect(executorCalls).toBe(1);
   });
 
+  test("keeps secret-read tools off unless the Task grants that exact class", async () => {
+    const toolName = "gws_gmail_users_messages_get";
+    const taskIdentity = (action: string): Hop1Identity => ({
+      ...identity,
+      claims: withTaskAuthority({
+        ...taskAuthority,
+        tools: [{ provider: "gmail", resource: toolName, action }],
+      }),
+    });
+    let brokerCalls = 0;
+    let executorCalls = 0;
+    const registryFor = (action: string) =>
+      createGoogleWorkspaceRegistry({
+        identity: taskIdentity(action),
+        governanceCatalogId: GOOGLE_WORKSPACE_CATALOG_ID,
+        taskToolAuthorization: {},
+        policy: {
+          decide: (input) =>
+            Promise.resolve(
+              input.actionClass === "secret-read"
+                ? { kind: "allow" as const }
+                : { kind: "deny" as const, reason: "unexpected class" },
+            ),
+        },
+        tokenBroker: {
+          getGrantedScopes: () => Promise.resolve(["https://www.googleapis.com/auth/gmail.modify"]),
+          getAccessToken: () => {
+            brokerCalls += 1;
+            return Promise.resolve("access-token");
+          },
+        },
+        executor: () => {
+          executorCalls += 1;
+          return Promise.resolve({ ok: true });
+        },
+      });
+
+    const readOnly = registryFor("read");
+    expect(readOnly.listTools().map((tool) => tool.name)).not.toContain(toolName);
+    expect(
+      await readOnly.callTool(toolName, { params: { userId: "me", id: "message-1" } }),
+    ).toMatchObject({
+      isError: true,
+      structuredContent: { error: "task_tool_not_approved" },
+    });
+    expect(brokerCalls).toBe(0);
+    expect(executorCalls).toBe(0);
+
+    const secretRead = registryFor("secret-read");
+    expect(secretRead.listTools().map((tool) => tool.name)).toContain(toolName);
+    expect(
+      await secretRead.callTool(toolName, { params: { userId: "me", id: "message-1" } }),
+    ).toMatchObject({ content: [{ type: "text" }] });
+    expect(brokerCalls).toBe(1);
+    expect(executorCalls).toBe(1);
+  });
+
   test("requires the published Google resource prefix and does not let raw gws bypass it", async () => {
     const taskIdentity: Hop1Identity = {
       ...identity,

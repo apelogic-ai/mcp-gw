@@ -18,6 +18,7 @@ import {
 } from "../../../../packages/wrapper-kit/src/task-tool-authorization";
 import {
   GOOGLE_WORKSPACE_CATALOG_ID,
+  LEGACY_GOOGLE_WORKSPACE_CATALOG_ID,
   type GoogleWorkspaceCatalogId,
 } from "./catalog/google-workspace";
 import type {
@@ -177,10 +178,15 @@ function parseGovernanceCatalogId(value: string | undefined): GoogleWorkspaceCat
   if (!normalized) {
     return undefined;
   }
-  if (normalized !== GOOGLE_WORKSPACE_CATALOG_ID) {
-    throw new Error(`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG must be ${GOOGLE_WORKSPACE_CATALOG_ID}`);
+  if (
+    normalized !== GOOGLE_WORKSPACE_CATALOG_ID &&
+    normalized !== LEGACY_GOOGLE_WORKSPACE_CATALOG_ID
+  ) {
+    throw new Error(
+      `GOOGLE_WORKSPACE_GOVERNANCE_CATALOG must be ${GOOGLE_WORKSPACE_CATALOG_ID} or ${LEGACY_GOOGLE_WORKSPACE_CATALOG_ID}`,
+    );
   }
-  return GOOGLE_WORKSPACE_CATALOG_ID;
+  return normalized;
 }
 
 function optionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {

@@ -7,6 +7,8 @@ cli: fixture
 commands:
   inspect:
     class: read
+  reveal:
+    class: secret-read
   change:
     class: write
   erase:
@@ -19,6 +21,7 @@ describe("CLI decisions catalog", () => {
     expect(catalog.cli).toBe("fixture");
     expect(catalog.commands).toEqual({
       inspect: { class: "read" },
+      reveal: { class: "secret-read" },
       change: { class: "write" },
       erase: { class: "destructive" },
     });
@@ -34,6 +37,10 @@ describe("CLI decisions catalog", () => {
 
   test("makes a removed decision visible to the contract test", () => {
     const missing = FAKE_CATALOG.replace("  inspect:\n    class: read\n", "");
-    expect(Object.keys(parseCliDecisionCatalog(missing).commands)).toEqual(["change", "erase"]);
+    expect(Object.keys(parseCliDecisionCatalog(missing).commands)).toEqual([
+      "reveal",
+      "change",
+      "erase",
+    ]);
   });
 });

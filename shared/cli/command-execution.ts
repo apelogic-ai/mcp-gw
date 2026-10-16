@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 import type { PolicyDecision, ToolPolicy, ToolPolicyInput } from "../policy/policy";
 
-export const ACTION_CLASSES = ["read", "write", "destructive"] as const;
+export const ACTION_CLASSES = ["read", "secret-read", "write", "destructive"] as const;
 export type ActionClass = (typeof ACTION_CLASSES)[number];
 
 export interface CliExecutionResult {

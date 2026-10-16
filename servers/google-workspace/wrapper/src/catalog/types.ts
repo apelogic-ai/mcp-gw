@@ -98,7 +98,7 @@ export function defineWorkspaceTool(spec: WorkspaceToolSpec): WorkspaceToolDefin
 }
 
 export function annotationsForActionClass(actionClass: ActionClass): ToolAnnotations {
-  if (actionClass === "read") {
+  if (actionClass === "read" || actionClass === "secret-read") {
     return { readOnlyHint: true };
   }
 

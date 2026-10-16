@@ -1,4 +1,6 @@
-export type GwsActionClass = "read" | "write" | "destructive";
+import type { ActionClass } from "../../../../../shared/cli/command-execution";
+
+export type GwsActionClass = Exclude<ActionClass, "secret-read">;
 
 /**
  * Versioned semantic classification layered over Google Discovery HTTP methods.
@@ -8,7 +10,18 @@ export type GwsActionClass = "read" | "write" | "destructive";
  * or accept arbitrary batch mutations that can delete content. Keep those exceptions
  * explicit and reviewed here; generated catalog output must never be edited by hand.
  */
-export const GWS_ACTION_CLASSIFICATION_ID = "google-workspace-cli@0.22.5/actions-v1" as const;
+export const GWS_ACTION_CLASSIFICATION_ID = "google-workspace-cli@0.22.5/actions-v2" as const;
+
+export const GWS_SECRET_READ_METHOD_OVERRIDES = {
+  "drive:files.download": "returns Drive file content",
+  "drive:files.export": "returns exported Drive file content",
+  "drive:files.get": "can return Drive file content",
+  "drive:revisions.get": "can return Drive revision content",
+  "gmail:users.drafts.get": "returns a Gmail draft body",
+  "gmail:users.messages.get": "returns a Gmail message body",
+  "gmail:users.messages.attachments.get": "returns a Gmail message attachment",
+  "gmail:users.threads.get": "returns Gmail message bodies",
+} as const satisfies Readonly<Record<string, string>>;
 
 export const GWS_DESTRUCTIVE_METHOD_OVERRIDES = {
   "calendar:calendars.clear": "deletes every event on a primary calendar",
@@ -59,8 +72,9 @@ export function classifyGwsDiscoveryMethod(
 export function classifyGovernedGwsToolAction(
   alias: string,
   commandPath: string,
-  legacyActionClass: GwsActionClass,
-): GwsActionClass {
+  legacyActionClass: ActionClass,
+): ActionClass {
   const key = `${alias}:${commandPath}`;
-  return key in GWS_DESTRUCTIVE_METHOD_OVERRIDES ? "destructive" : legacyActionClass;
+  if (key in GWS_DESTRUCTIVE_METHOD_OVERRIDES) return "destructive";
+  return key in GWS_SECRET_READ_METHOD_OVERRIDES ? "secret-read" : legacyActionClass;
 }

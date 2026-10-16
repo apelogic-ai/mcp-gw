@@ -10,6 +10,7 @@ const catalog: CliDecisionCatalog = {
   cli: "fixture",
   commands: {
     inspect: { class: "read" },
+    reveal: { class: "secret-read" },
     change: { class: "write" },
     erase: { class: "destructive" },
   },
@@ -133,7 +134,35 @@ describe("governed CLI registry", () => {
       isError: true,
       structuredContent: { error: "task_tool_not_approved" },
     });
+    expect(await registry.callTool("cli_run", { cli: "fixture", args: ["reveal"] })).toMatchObject({
+      isError: true,
+      structuredContent: { error: "task_tool_not_approved" },
+    });
     expect(executions).toBe(0);
+  });
+
+  test("requires an exact secret-read grant for sensitive commands", async () => {
+    const registry = createCliRegistry({
+      identity: identity(["secret-read"]),
+      targets: [target],
+      execute: (_config, _args, commandClass) =>
+        Promise.resolve({
+          exit_code: 0,
+          stdout: "sensitive",
+          stderr: "",
+          stdout_truncated: false,
+          stderr_truncated: false,
+          duration_ms: 1,
+          class: commandClass,
+        }),
+    });
+
+    expect((await registry.callTool("cli_list", {})).structuredContent).toEqual({
+      clis: [{ cli: "fixture", classes: ["secret-read"] }],
+    });
+    expect(
+      (await registry.callTool("cli_run", { cli: "fixture", args: ["reveal"] })).structuredContent,
+    ).toMatchObject({ class: "secret-read" });
   });
 
   test("refuses a classifier result absent from its catalog", async () => {

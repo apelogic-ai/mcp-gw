@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  classifyGovernedGwsToolAction,
   classifyGwsDiscoveryMethod,
   GWS_ACTION_CLASSIFICATION_ID,
   GWS_DESTRUCTIVE_METHOD_OVERRIDES,
+  GWS_SECRET_READ_METHOD_OVERRIDES,
 } from "./gws-action-classification";
 
 const EXPECTED_DESTRUCTIVE_OVERRIDES = [
@@ -30,11 +32,25 @@ const EXPECTED_DESTRUCTIVE_OVERRIDES = [
   "tasks:tasks.clear",
 ] as const;
 
+const EXPECTED_SECRET_READ_OVERRIDES = [
+  "drive:files.download",
+  "drive:files.export",
+  "drive:files.get",
+  "drive:revisions.get",
+  "gmail:users.drafts.get",
+  "gmail:users.messages.attachments.get",
+  "gmail:users.messages.get",
+  "gmail:users.threads.get",
+] as const;
+
 describe("Google Workspace generated action classification", () => {
   test("pins the reviewed semantic override contract", () => {
-    expect(GWS_ACTION_CLASSIFICATION_ID).toBe("google-workspace-cli@0.22.5/actions-v1");
+    expect(GWS_ACTION_CLASSIFICATION_ID).toBe("google-workspace-cli@0.22.5/actions-v2");
     expect(Object.keys(GWS_DESTRUCTIVE_METHOD_OVERRIDES).sort()).toEqual(
       [...EXPECTED_DESTRUCTIVE_OVERRIDES].sort(),
+    );
+    expect(Object.keys(GWS_SECRET_READ_METHOD_OVERRIDES).sort()).toEqual(
+      [...EXPECTED_SECRET_READ_OVERRIDES].sort(),
     );
   });
 
@@ -52,5 +68,15 @@ describe("Google Workspace generated action classification", () => {
     expect(classifyGwsDiscoveryMethod("drive", ["files", "get"], "GET")).toBe("read");
     expect(classifyGwsDiscoveryMethod("drive", ["files", "delete"], "DELETE")).toBe("destructive");
     expect(classifyGwsDiscoveryMethod("drive", ["files", "update"], "PATCH")).toBe("write");
+  });
+
+  test("classifies reviewed content-returning operations as secret-read", () => {
+    for (const key of EXPECTED_SECRET_READ_OVERRIDES) {
+      const [alias, commandPath] = key.split(":");
+      expect(classifyGovernedGwsToolAction(alias ?? "", commandPath ?? "", "read")).toBe(
+        "secret-read",
+      );
+    }
+    expect(classifyGovernedGwsToolAction("drive", "files.list", "read")).toBe("read");
   });
 });

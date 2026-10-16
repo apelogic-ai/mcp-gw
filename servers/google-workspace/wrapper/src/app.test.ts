@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { Hop1Identity } from "../../../../shared/identity/hop1";
 import { InMemoryAuditSink } from "../../../../shared/audit/audit";
-import { GOOGLE_WORKSPACE_CATALOG_ID } from "./catalog/google-workspace";
+import {
+  GOOGLE_WORKSPACE_CATALOG_ID,
+  LEGACY_GOOGLE_WORKSPACE_CATALOG_ID,
+} from "./catalog/google-workspace";
 import { createGoogleWorkspaceWrapperHandler, loadWrapperConfig } from "./app";
 
 const identity: Hop1Identity = {
@@ -76,7 +79,7 @@ describe("Google Workspace wrapper app", () => {
     ).toThrow("MCP_GW_ALLOW_LEGACY_UNSCOPED_TASK_TOKENS must be true or false");
   });
 
-  test("enables only the exact opt-in governance catalog and rejects unknown pins", () => {
+  test("enables only known governance catalog pins and rejects unknown pins", () => {
     const env = {
       GOOGLE_OAUTH_CLIENT_ID: "client-id",
       GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
@@ -96,12 +99,20 @@ describe("Google Workspace wrapper app", () => {
         GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: GOOGLE_WORKSPACE_CATALOG_ID,
       }).governanceCatalogId,
     ).toBe(GOOGLE_WORKSPACE_CATALOG_ID);
+    expect(
+      loadWrapperConfig({
+        ...env,
+        GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: LEGACY_GOOGLE_WORKSPACE_CATALOG_ID,
+      }).governanceCatalogId,
+    ).toBe(LEGACY_GOOGLE_WORKSPACE_CATALOG_ID);
     expect(() =>
       loadWrapperConfig({
         ...env,
         GOOGLE_WORKSPACE_GOVERNANCE_CATALOG: "google-workspace-cli@future",
       }),
-    ).toThrow(`GOOGLE_WORKSPACE_GOVERNANCE_CATALOG must be ${GOOGLE_WORKSPACE_CATALOG_ID}`);
+    ).toThrow(
+      `GOOGLE_WORKSPACE_GOVERNANCE_CATALOG must be ${GOOGLE_WORKSPACE_CATALOG_ID} or ${LEGACY_GOOGLE_WORKSPACE_CATALOG_ID}`,
+    );
   });
 
   test("loads configurable Google OAuth endpoints for isolated integration tests", () => {
