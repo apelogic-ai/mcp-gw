@@ -18,6 +18,11 @@ export interface CliTarget {
 export interface CreateCliRunHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
   targets: readonly CliTarget[];
+  requestLimits: {
+    maxBodyBytes: number;
+    maxArgs: number;
+    maxArgBytes: number;
+  };
   execute?: typeof executeCli;
 }
 
@@ -52,12 +57,9 @@ export function createCliRunHandler(
       return unauthorized("invalid bearer token", 'Bearer error="invalid_token"');
     }
 
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return errorResponse(400, "invalid_request", "Request body must be JSON");
-    }
+    const parsedBody = await readBoundedJson(request, options.requestLimits.maxBodyBytes);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.value;
     if (!isRecord(body) || Object.keys(body).some((key) => !["cli", "args"].includes(key))) {
       return errorResponse(400, "invalid_request", "Only cli and args are supported");
     }
@@ -70,6 +72,12 @@ export function createCliRunHandler(
     }
     const cli = body.cli;
     const args = body.args as string[];
+    if (args.length > options.requestLimits.maxArgs) {
+      return errorResponse(400, "invalid_request", "Too many CLI arguments");
+    }
+    if (args.some((arg) => Buffer.byteLength(arg) > options.requestLimits.maxArgBytes)) {
+      return errorResponse(400, "invalid_request", "CLI argument is too long");
+    }
 
     const authorization = parseTaskToolAuthorization(identity.claims);
     const target = targets.get(cli);
@@ -177,4 +185,53 @@ function errorResponse(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function readBoundedJson(
+  request: Request,
+  maxBytes: number,
+): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
+  const declaredBytes = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+    return {
+      ok: false,
+      response: errorResponse(413, "request_too_large", "Request body is too large"),
+    };
+  }
+
+  if (!request.body) {
+    return {
+      ok: false,
+      response: errorResponse(400, "invalid_request", "Request body must be JSON"),
+    };
+  }
+  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let chunk = await reader.read();
+  while (!chunk.done) {
+    const { value } = chunk;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      return {
+        ok: false,
+        response: errorResponse(413, "request_too_large", "Request body is too large"),
+      };
+    }
+    chunks.push(value);
+    chunk = await reader.read();
+  }
+
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(new TextDecoder().decode(Buffer.concat(chunks))) as unknown,
+    };
+  } catch {
+    return {
+      ok: false,
+      response: errorResponse(400, "invalid_request", "Request body must be JSON"),
+    };
+  }
 }

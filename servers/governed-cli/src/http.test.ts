@@ -35,6 +35,12 @@ const target: CliTarget = {
   },
 };
 
+const requestLimits = {
+  maxBodyBytes: 64 * 1024,
+  maxArgs: 64,
+  maxArgBytes: 4 * 1024,
+};
+
 function identity(actions: string[], restricted = true): Hop1Identity {
   return {
     profile: "test",
@@ -64,6 +70,7 @@ describe("governed CLI HTTP", () => {
     let executions = 0;
     const handler = createCliRunHandler({
       authenticate: () => Promise.resolve(identity(["read"])),
+      requestLimits,
       targets: [
         {
           ...target,
@@ -91,6 +98,7 @@ describe("governed CLI HTTP", () => {
 
     const interactive = createCliRunHandler({
       authenticate: () => Promise.resolve(identity([], false)),
+      requestLimits,
       targets: [target],
       execute: () => {
         executions += 1;
@@ -107,6 +115,7 @@ describe("governed CLI HTTP", () => {
     let executions = 0;
     const handler = createCliRunHandler({
       authenticate: () => Promise.resolve(identity(["read"])),
+      requestLimits,
       targets: [target],
       execute: () => {
         executions += 1;
@@ -129,10 +138,44 @@ describe("governed CLI HTTP", () => {
     expect(executions).toBe(0);
   });
 
+  test("refuses oversized bodies and argument vectors before classification", async () => {
+    let classifications = 0;
+    const handler = createCliRunHandler({
+      authenticate: () => Promise.resolve(identity(["read"])),
+      requestLimits: { maxBodyBytes: 64, maxArgs: 2, maxArgBytes: 8 },
+      targets: [
+        {
+          ...target,
+          classifier: {
+            classify(args) {
+              classifications += 1;
+              return target.classifier.classify(args);
+            },
+          },
+        },
+      ],
+    });
+
+    const declaredOversize = request({ cli: "fixture", args: ["inspect"] });
+    declaredOversize.headers.set("content-length", "65");
+    expect(await handler(declaredOversize)).toMatchObject({ status: 413 });
+    expect(
+      await handler(request({ cli: "fixture", args: ["inspect", "x".repeat(65)] })),
+    ).toMatchObject({ status: 413 });
+    expect(await handler(request({ cli: "fixture", args: ["inspect", "x", "y"] }))).toMatchObject({
+      status: 400,
+    });
+    expect(
+      await handler(request({ cli: "fixture", args: ["inspect", "123456789"] })),
+    ).toMatchObject({ status: 400 });
+    expect(classifications).toBe(0);
+  });
+
   test("streams NDJSON output and a single final exit event", async () => {
     const calls: unknown[] = [];
     const handler = createCliRunHandler({
       authenticate: () => Promise.resolve(identity(["read"])),
+      requestLimits,
       targets: [
         {
           ...target,
@@ -187,6 +230,7 @@ describe("governed CLI HTTP", () => {
   test("returns one combined response for wait=full", async () => {
     const handler = createCliRunHandler({
       authenticate: () => Promise.resolve(identity(["read"])),
+      requestLimits,
       targets: [target],
       execute: (_config, _args, commandClass, _timeout, options) => {
         if (!options) throw new Error("missing execution options");
