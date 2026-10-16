@@ -14,9 +14,9 @@ RUN case "$TARGETARCH" in amd64|arm64) ;; *) echo "unsupported TARGETARCH: $TARG
     -e "s#http://ports.ubuntu.com/ubuntu-ports/#https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/#g" \
     /etc/apt/sources.list.d/ubuntu.sources \
   && ! grep -Eq 'https?://(archive|security|ports)\.ubuntu\.com' /etc/apt/sources.list.d/ubuntu.sources \
-  && apt-get update --error-on=any \
+  && apt-get -o Acquire::Retries=5 update --error-on=any \
   && apt-cache policy ca-certificates | grep -F "https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT" \
-  && apt-get install -y --no-install-recommends \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     ca-certificates=20260601~24.04.1 \
   && groupadd --gid 10001 mcp-gateway \
   && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin mcp-gateway \

@@ -147,9 +147,11 @@ jobs:
           GITHUB_MCP_TAGGED="${{ steps.github-mcp-source.outputs.source_repository }}:${{ steps.github-mcp-source.outputs.source_tag }}"
           docker pull "$GITHUB_MCP_SOURCE"
           docker tag "$GITHUB_MCP_SOURCE" "$GITHUB_MCP_TAGGED"
+          docker pull postgres:16-alpine
           kind load docker-image mcp-gw-google-workspace:smoke --name mcp-gateway-smoke
           kind load docker-image mcp-gw-github-wrapper:smoke --name mcp-gateway-smoke
           kind load docker-image "$GITHUB_MCP_TAGGED" --name mcp-gateway-smoke
+          kind load docker-image postgres:16-alpine --name mcp-gateway-smoke
 
       - name: Run Kubernetes smoke
         run: bun run integration:k8s
@@ -159,6 +161,14 @@ jobs:
 
       - name: Run provider runtime Kubernetes smoke
         run: bash scripts/smoke-k8s-provider-runtime.sh
+
+      - name: Run broker-authenticated Kubernetes fanout against candidate
+        run: bun run integration:k8s:broker
+        env:
+          K8S_BROKER_SMOKE_AGENTGATEWAY_REPOSITORY: mcp-gw-agentgateway
+          K8S_BROKER_SMOKE_GOOGLE_REPOSITORY: mcp-gw-google-workspace
+          K8S_BROKER_SMOKE_GITHUB_WRAPPER_REPOSITORY: mcp-gw-github-wrapper
+          K8S_BROKER_SMOKE_IMAGE_TAG: smoke
 
       - name: Run full provider bundle integration smoke against candidate
         run: bun run integration:bundle

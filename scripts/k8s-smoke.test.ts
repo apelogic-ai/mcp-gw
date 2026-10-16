@@ -165,6 +165,8 @@ exit 0
     expect(smoke).toContain("name: broker-recovery-client");
     expect(smoke).toContain("secretName: broker-recovery-token");
     expect(smoke).toContain("JWKS recovery probe did not succeed");
+    expect(smoke).toContain("Broker assertion failed:");
+    expect(smoke).toContain('assert_equal "$component release image"');
     expect(smoke).not.toContain("resource became available after a previous fetch failure");
     expect(smoke).toContain("local-hop1-rotated");
     expect(smoke).toContain("expected initial unknown-kid 401");
@@ -178,8 +180,8 @@ exit 0
     expect(smoke).toContain("fetch(process.env.GATEWAY_URL");
     expect(smoke).toContain("Date.now() + 30_000");
     expect(smoke).toContain("Date.now() + 90_000");
-    expect(smoke).toContain('[[ "$client_phase" == "Succeeded" ]]');
-    expect(smoke).toContain('[[ "$rotation_phase" == "Succeeded" ]]');
+    expect(smoke).toContain('assert_equal "broker journey client phase"');
+    expect(smoke).toContain('assert_equal "JWKS rotation client phase"');
     expect(smoke).toContain("wait_for_release_deployments()");
     expect(smoke).toContain('kubectl rollout status "deployment/$RELEASE_NAME-$component"');
     expect(smoke).not.toContain("  --wait \\\n  --timeout 5m");

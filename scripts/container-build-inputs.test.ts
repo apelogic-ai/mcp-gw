@@ -24,7 +24,10 @@ describe("wrapper container build inputs", () => {
       expect(dockerfile).toContain("http://ports.ubuntu.com/ubuntu-ports/");
       expect(dockerfile).toContain("https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/");
       expect(dockerfile).toContain("! grep -Eq 'https?://(archive|security|ports)\\.ubuntu\\.com'");
-      expect(dockerfile).toContain("apt-get update --error-on=any");
+      expect(dockerfile).toContain("apt-get -o Acquire::Retries=5 update --error-on=any");
+      expect(dockerfile).toContain(
+        "apt-get -o Acquire::Retries=5 install -y --no-install-recommends",
+      );
       expect(dockerfile).toContain(
         'apt-cache policy ca-certificates | grep -F "https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT"',
       );

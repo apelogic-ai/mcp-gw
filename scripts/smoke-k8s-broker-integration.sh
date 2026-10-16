@@ -13,6 +13,25 @@ GITHUB_WRAPPER_REPOSITORY="${K8S_BROKER_SMOKE_GITHUB_WRAPPER_REPOSITORY:?require
 IMAGE_TAG="${K8S_BROKER_SMOKE_IMAGE_TAG:?required}"
 FIXTURE_PID=""
 
+assert_equal() {
+  local label="$1"
+  local actual="$2"
+  local expected="$3"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Broker assertion failed: $label (expected '$expected', got '$actual')" >&2
+    return 1
+  fi
+}
+
+assert_nonempty_file() {
+  local label="$1"
+  local path="$2"
+  if [[ ! -s "$path" ]]; then
+    echo "Broker assertion failed: $label did not produce a non-empty file" >&2
+    return 1
+  fi
+}
+
 cleanup() {
   if [[ -n "$FIXTURE_PID" ]]; then
     kill "$FIXTURE_PID" >/dev/null 2>&1 || true
@@ -77,8 +96,8 @@ for _ in {1..30}; do
   fi
   sleep 1
 done
-[[ -s "$WORK_DIR/signing-jwks.json" ]]
-[[ -s "$WORK_DIR/broker.jwt.expired" ]]
+assert_nonempty_file "initial signing JWKS fixture" "$WORK_DIR/signing-jwks.json"
+assert_nonempty_file "expired-token fixture" "$WORK_DIR/broker.jwt.expired"
 kill "$FIXTURE_PID" >/dev/null 2>&1 || true
 wait "$FIXTURE_PID" >/dev/null 2>&1 || true
 FIXTURE_PID=""
@@ -211,7 +230,7 @@ kubectl create secret generic broker-recovery-token \
 
 helm package "$CHART_DIR" --destination "$WORK_DIR/chart" >/dev/null
 CHART_ARCHIVE="$WORK_DIR/chart/mcp-gateway-$(sed -n 's/^version: //p' "$CHART_DIR/Chart.yaml").tgz"
-[[ -f "$CHART_ARCHIVE" ]]
+assert_nonempty_file "packaged Helm chart" "$CHART_ARCHIVE"
 
 helm upgrade --install "$RELEASE_NAME" "$CHART_ARCHIVE" \
   --namespace "$NAMESPACE" \
@@ -360,7 +379,10 @@ CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
   --namespace "$NAMESPACE" \
   --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
   -o jsonpath='{.items[0].metadata.uid}')"
-[[ "$CURRENT_AGENTGATEWAY_POD_UID" == "$AGENTGATEWAY_RECOVERY_POD_UID" ]]
+assert_equal \
+  "AgentGateway pod identity after JWKS recovery" \
+  "$CURRENT_AGENTGATEWAY_POD_UID" \
+  "$AGENTGATEWAY_RECOVERY_POD_UID"
 
 kubectl create configmap broker-journey-client \
   --namespace "$NAMESPACE" \
@@ -454,11 +476,14 @@ for _ in {1..180}; do
     -o jsonpath='{.status.phase}')"
   case "$client_phase" in
     Succeeded) break ;;
-    Failed) exit 1 ;;
+    Failed)
+      echo "Broker assertion failed: broker journey client failed" >&2
+      exit 1
+      ;;
   esac
   sleep 1
 done
-[[ "$client_phase" == "Succeeded" ]]
+assert_equal "broker journey client phase" "$client_phase" "Succeeded"
 kubectl logs broker-smoke-client --namespace "$NAMESPACE"
 
 # Rotate to a new signing kid. The first request must miss the cached key and
@@ -480,8 +505,8 @@ for _ in {1..30}; do
   fi
   sleep 1
 done
-[[ -s "$WORK_DIR/rotation/signing-jwks.json" ]]
-[[ -s "$WORK_DIR/rotation/broker.jwt" ]]
+assert_nonempty_file "rotated signing JWKS fixture" "$WORK_DIR/rotation/signing-jwks.json"
+assert_nonempty_file "rotated bearer-token fixture" "$WORK_DIR/rotation/broker.jwt"
 kill "$FIXTURE_PID" >/dev/null 2>&1 || true
 wait "$FIXTURE_PID" >/dev/null 2>&1 || true
 FIXTURE_PID=""
@@ -507,7 +532,10 @@ CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
   --namespace "$NAMESPACE" \
   --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
   -o jsonpath='{.items[0].metadata.uid}')"
-[[ "$CURRENT_AGENTGATEWAY_POD_UID" == "$AGENTGATEWAY_RECOVERY_POD_UID" ]]
+assert_equal \
+  "AgentGateway pod identity after broker signing-key rotation" \
+  "$CURRENT_AGENTGATEWAY_POD_UID" \
+  "$AGENTGATEWAY_RECOVERY_POD_UID"
 
 kubectl apply --namespace "$NAMESPACE" -f - <<YAML
 apiVersion: v1
@@ -589,14 +617,17 @@ for _ in {1..120}; do
   esac
   sleep 1
 done
-[[ "$rotation_phase" == "Succeeded" ]]
+assert_equal "JWKS rotation client phase" "$rotation_phase" "Succeeded"
 kubectl logs broker-rotation-client --namespace "$NAMESPACE"
 
 CURRENT_AGENTGATEWAY_POD_UID="$(kubectl get pod \
   --namespace "$NAMESPACE" \
   --selector "app.kubernetes.io/instance=$RELEASE_NAME,app.kubernetes.io/component=agentgateway" \
   -o jsonpath='{.items[0].metadata.uid}')"
-[[ "$CURRENT_AGENTGATEWAY_POD_UID" == "$AGENTGATEWAY_RECOVERY_POD_UID" ]]
+assert_equal \
+  "AgentGateway pod identity after rotated-key acceptance" \
+  "$CURRENT_AGENTGATEWAY_POD_UID" \
+  "$AGENTGATEWAY_RECOVERY_POD_UID"
 
 for component in agentgateway google-workspace github-wrapper; do
   actual_image="$(kubectl get deployment "$RELEASE_NAME-$component" --namespace "$NAMESPACE" \
@@ -606,7 +637,7 @@ for component in agentgateway google-workspace github-wrapper; do
     google-workspace) expected_image="$GOOGLE_REPOSITORY:$IMAGE_TAG" ;;
     github-wrapper) expected_image="$GITHUB_WRAPPER_REPOSITORY:$IMAGE_TAG" ;;
   esac
-  [[ "$actual_image" == "$expected_image" ]]
+  assert_equal "$component release image" "$actual_image" "$expected_image"
 done
 
 echo "Broker Kubernetes release-image smoke passed."
