@@ -32,6 +32,9 @@ describe("kubectl classifier", () => {
     ["describe secret", "describe:secret", ["describe", "secret"]],
     ["get secrets as json", "get:secret", ["get", "secrets", "-o", "json"]],
     ["get secrets as yaml", "get:secret", ["get", "secrets", "--output=yaml"]],
+    ["get later secret", "get:secret", ["get", "pod/x", "secret/y"]],
+    ["describe later secrets", "describe:secret", ["describe", "pod/x", "secrets/y"]],
+    ["get later comma secrets", "get:secret", ["get", "pod/x", "service/y,secrets/z"]],
   ])("classifies %s as secret-read", (_name, command, args) => {
     expect(classifyKubectl(pack, args)).toEqual({ command, class: "secret-read" });
   });

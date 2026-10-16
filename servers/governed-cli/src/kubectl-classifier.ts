@@ -60,7 +60,9 @@ export function classifyKubectl(pack: CliPack, args: readonly string[]): Classif
   if (!resource) refuse(`kubectl ${operation} requires a resource`);
   const secret =
     pack.secretOverlay.operations.has(operation) &&
-    resourceNames(resource).some((name) => pack.secretOverlay.resources.has(name));
+    positionals.some((value) =>
+      resourceNames(value).some((name) => pack.secretOverlay.resources.has(name)),
+    );
   const command = secret ? `${operation}:secret` : operation;
   const decision = pack.catalog.commands[command];
   if (!decision) refuse("kubectl operation has no catalog decision");
