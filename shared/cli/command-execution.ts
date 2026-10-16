@@ -30,6 +30,7 @@ export interface CliExecutionOptions {
   credentialEnv?: Readonly<Record<string, string>>;
   timeoutMs?: number;
   rejectOnNonZero?: boolean;
+  onOutput?: (stream: "stdout" | "stderr", data: string) => void;
 }
 
 export class CliExecutionError extends Error {
@@ -69,6 +70,12 @@ export function executeCli(
     const outputLimit = config.maxOutputBytes;
     const extraBytes = Math.max(0, ...redactions.map((value) => Buffer.byteLength(value)));
     const captureLimit = outputLimit + extraBytes;
+    const stdoutStream = new RedactedOutputStream(outputLimit, redactions, (data) =>
+      options.onOutput?.("stdout", data),
+    );
+    const stderrStream = new RedactedOutputStream(outputLimit, redactions, (data) =>
+      options.onOutput?.("stderr", data),
+    );
     const proc = spawn(config.binary, [...(config.fixedArgs ?? []), ...args], {
       cwd: config.cwd,
       env: { ...config.env, ...options.credentialEnv },
@@ -94,6 +101,8 @@ export function executeCli(
     const settle = (callback: () => void): void => {
       if (settled) return;
       settled = true;
+      stdoutStream.flush();
+      stderrStream.flush();
       clearTimeout(timeoutTimer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
       callback();
@@ -117,10 +126,12 @@ export function executeCli(
     proc.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
       stdout = appendBounded(stdout, chunk, captureLimit);
+      stdoutStream.push(chunk);
     });
     proc.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.length;
       stderr = appendBounded(stderr, chunk, captureLimit);
+      stderrStream.push(chunk);
     });
     proc.on("error", (error) => settle(() => reject(failure("spawn", error.message))));
     proc.on("close", (exitCode) => {
@@ -189,4 +200,94 @@ function boundOutput(
 
 function redact(value: string, secrets: readonly string[]): string {
   return secrets.reduce((result, secret) => result.split(secret).join("[redacted]"), value);
+}
+
+class RedactedOutputStream {
+  private readonly decoder = new TextDecoder();
+  private pending = "";
+  private emittedBytes = 0;
+  private flushed = false;
+
+  constructor(
+    private readonly limit: number,
+    private readonly secrets: readonly string[],
+    private readonly emit: (data: string) => void,
+  ) {}
+
+  push(chunk: Buffer): void {
+    if (this.flushed) return;
+    this.pending += this.decoder.decode(chunk, { stream: true });
+    this.drain(false);
+  }
+
+  flush(): void {
+    if (this.flushed) return;
+    this.flushed = true;
+    this.pending += this.decoder.decode();
+    this.drain(true);
+  }
+
+  private drain(final: boolean): void {
+    while (this.pending) {
+      const match = earliestSecret(this.pending, this.secrets);
+      if (match) {
+        this.emitBounded(this.pending.slice(0, match.index));
+        this.emitBounded("[redacted]");
+        this.pending = this.pending.slice(match.index + match.secret.length);
+        continue;
+      }
+      if (!final) {
+        const retained = longestSecretPrefixSuffix(this.pending, this.secrets);
+        this.emitBounded(this.pending.slice(0, this.pending.length - retained));
+        this.pending = this.pending.slice(this.pending.length - retained);
+        return;
+      }
+      this.emitBounded(this.pending);
+      this.pending = "";
+    }
+  }
+
+  private emitBounded(data: string): void {
+    const remaining = this.limit - this.emittedBytes;
+    if (!data || remaining <= 0) return;
+    const bounded = Buffer.from(data)
+      .subarray(0, remaining)
+      .toString()
+      .replace(/\uFFFD$/u, "");
+    this.emittedBytes += Buffer.byteLength(bounded);
+    if (bounded) this.emit(bounded);
+  }
+}
+
+function earliestSecret(
+  value: string,
+  secrets: readonly string[],
+): { index: number; secret: string } | undefined {
+  let match: { index: number; secret: string } | undefined;
+  for (const secret of secrets) {
+    const index = value.indexOf(secret);
+    if (index < 0) continue;
+    if (
+      !match ||
+      index < match.index ||
+      (index === match.index && secret.length > match.secret.length)
+    ) {
+      match = { index, secret };
+    }
+  }
+  return match;
+}
+
+function longestSecretPrefixSuffix(value: string, secrets: readonly string[]): number {
+  let longest = 0;
+  for (const secret of secrets) {
+    const max = Math.min(value.length, secret.length - 1);
+    for (let length = max; length > longest; length -= 1) {
+      if (secret.startsWith(value.slice(-length))) {
+        longest = length;
+        break;
+      }
+    }
+  }
+  return longest;
 }

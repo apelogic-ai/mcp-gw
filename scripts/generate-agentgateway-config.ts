@@ -14,7 +14,7 @@ const SERVERS_DIR = "servers";
 // no single source-tree host or tool prefix to register.
 const RUNTIME_ONLY_SERVER_DIRECTORIES = new Set([
   "generic-wrapper",
-  // Remove this exemption when the first CLI and deployable backend descriptor land.
+  // The plain HTTP CLI endpoint is routed directly, never registered as an MCP backend.
   "governed-cli",
 ]);
 const BASE_CONFIG_PATH = "gateway/agentgateway/base.yaml";

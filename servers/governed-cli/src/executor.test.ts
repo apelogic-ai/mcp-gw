@@ -15,6 +15,7 @@ beforeAll(async () => {
     `const args = Bun.argv.slice(2);
 if (args[0] === "large") console.log("x".repeat(100));
 else if (args[0] === "sleep") { process.on("SIGTERM", () => {}); await Bun.sleep(10_000); }
+else if (args[0] === "split-secret") { process.stdout.write("runner-"); await Bun.sleep(10); process.stdout.write("secret"); }
 else console.log(JSON.stringify({ args, token: process.env.RUNNER_TOKEN, config: process.env.RUNNER_CONFIG, inherited: process.env.UNAPPROVED_ENV }));
 console.error(process.env.RUNNER_TOKEN ?? "");
 `,
@@ -67,13 +68,29 @@ describe("CLI execution", () => {
   });
 
   test("bounds output and marks truncation", async () => {
+    const chunks: string[] = [];
     const result = await executeCli(
       config({ maxOutputBytes: 16, redactValues: [] }),
       ["large"],
       "read",
+      undefined,
+      { onOutput: (stream, data) => stream === "stdout" && chunks.push(data) },
     );
     expect(Buffer.byteLength(result.stdout)).toBe(16);
+    expect(chunks.join("")).toBe(result.stdout);
     expect(result.stdout_truncated).toBe(true);
+  });
+
+  test("redacts streamed credentials split across child chunks", async () => {
+    const chunks: string[] = [];
+    const result = await executeCli(config(), ["split-secret"], "read", undefined, {
+      onOutput: (stream, data) => {
+        if (stream === "stdout") chunks.push(data);
+      },
+    });
+
+    expect(chunks.join("")).toBe("[redacted]");
+    expect(result.stdout).toBe("[redacted]");
   });
 
   test("bounds requested timeouts", async () => {
