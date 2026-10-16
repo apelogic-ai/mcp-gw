@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { normalizedHop1Claims, type Hop1Identity } from "../../../../../shared/identity/hop1";
 import { digestArgs, type AuditSink } from "../../../../../shared/audit/audit";
+import { evaluateCommandPolicy } from "../../../../../shared/cli/command-execution";
 import type { ConnectionLifecycleMetricSink } from "../../../../../shared/oauth/connection-metrics";
 import {
   ProviderLifecycleError,
@@ -122,7 +123,7 @@ export function createGoogleWorkspaceRegistry(
       }
       if (name === "google_oauth_start" && options.oauth) {
         const started = Date.now();
-        const decision = await policy.decide({
+        const decision = await evaluateCommandPolicy(policy, {
           principal: options.identity.email,
           tokenClaims: normalizedHop1Claims(options.identity),
           tool: name,
@@ -180,7 +181,7 @@ export function createGoogleWorkspaceRegistry(
         return reportToolError(error, tool, resolved.args, started, options, diagnosticId);
       }
 
-      const decision = await policy.decide({
+      const decision = await evaluateCommandPolicy(policy, {
         principal: options.identity.email,
         tokenClaims: normalizedHop1Claims(options.identity),
         tool: tool.name,

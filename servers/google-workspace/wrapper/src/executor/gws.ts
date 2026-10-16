@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { CliExecutionError, executeCli } from "../../../../../shared/cli/command-execution";
 import type { CatalogParam, WorkspaceToolDefinition } from "../catalog/types";
 
 export type GwsExecutionErrorCode = "exit" | "invalid_json" | "spawn" | "timeout";
@@ -254,86 +254,51 @@ interface SpawnGwsResult {
   stdout: string;
 }
 
-function spawnGws(options: SpawnGwsOptions): Promise<SpawnGwsResult> {
-  return new Promise((resolve, reject) => {
-    const env = childEnv(options);
-    const proc = spawn(options.gwsBinary, options.childArgs, {
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const settle = (callback: () => void): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timeout);
-      callback();
-    };
-
-    const timeout = setTimeout(() => {
-      proc.kill("SIGTERM");
-      settle(() =>
-        reject(
-          new GwsExecutionError(
-            "gws command timed out",
-            "timeout",
-            redact(stderr, options),
-            redact(stdout, options),
-          ),
-        ),
+async function spawnGws(options: SpawnGwsOptions): Promise<SpawnGwsResult> {
+  try {
+    const result = await executeCli(
+      {
+        binary: options.gwsBinary,
+        env: childEnv(options),
+        cwd: process.cwd(),
+        defaultTimeoutSeconds: DEFAULT_TIMEOUT_MS / 1000,
+        maxTimeoutSeconds: DEFAULT_TIMEOUT_MS / 1000,
+        maxOutputBytes: Number.POSITIVE_INFINITY,
+      },
+      options.childArgs,
+      "read",
+      undefined,
+      {
+        credentialEnv: { GOOGLE_WORKSPACE_CLI_TOKEN: options.accessToken },
+        timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        rejectOnNonZero: true,
+      },
+    );
+    return { stdout: result.stdout };
+  } catch (error) {
+    if (!(error instanceof CliExecutionError)) throw error;
+    if (error.code === "timeout") {
+      throw new GwsExecutionError("gws command timed out", "timeout", error.stderr, error.stdout);
+    }
+    if (error.code === "spawn") {
+      throw new GwsExecutionError(
+        `failed to spawn gws: ${error.message}`,
+        "spawn",
+        error.stderr,
+        error.stdout,
       );
-    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-    timeout.unref();
-
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("error", (error) => {
-      settle(() =>
-        reject(
-          new GwsExecutionError(
-            `failed to spawn gws: ${redact(error.message, options)}`,
-            "spawn",
-            redact(stderr, options),
-            redact(stdout, options),
-          ),
-        ),
-      );
-    });
-
-    proc.on("close", (exitCode) => {
-      if (exitCode === 0) {
-        settle(() => resolve({ stdout }));
-        return;
-      }
-
-      settle(() =>
-        reject(
-          new GwsExecutionError(
-            `gws exited with code ${String(exitCode ?? 1)}: ${redact(stderr || stdout, options)}`,
-            "exit",
-            redact(stderr, options),
-            redact(stdout, options),
-          ),
-        ),
-      );
-    });
-  });
+    }
+    throw new GwsExecutionError(
+      `gws exited with code ${String(error.exitCode ?? 1)}: ${error.stderr || error.stdout}`,
+      "exit",
+      error.stderr,
+      error.stdout,
+    );
+  }
 }
 
-function childEnv(options: SpawnGwsOptions): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
+function childEnv(options: SpawnGwsOptions): Record<string, string> {
+  const env: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(options.parentEnv ?? process.env)) {
     if (key.toLowerCase() === "authorization") {
@@ -349,7 +314,6 @@ function childEnv(options: SpawnGwsOptions): NodeJS.ProcessEnv {
     }
   }
 
-  env.GOOGLE_WORKSPACE_CLI_TOKEN = options.accessToken;
   env.HOME = options.homeDir;
   env.GOOGLE_WORKSPACE_CLI_CONFIG_DIR = options.configDir;
 
@@ -370,8 +334,4 @@ function collectValues(
   }
 
   return values;
-}
-
-function redact(value: string, options: ExecuteGwsToolOptions): string {
-  return value.split(options.accessToken).join("[redacted]");
 }
