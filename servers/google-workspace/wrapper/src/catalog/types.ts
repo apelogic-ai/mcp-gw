@@ -1,9 +1,10 @@
 import type { JsonSchemaObject, ToolAnnotations, ToolDefinition } from "../mcp/registry";
 import type { ScopeRequirement } from "../../../../../shared/oauth/connection-types";
+import type { ActionClass } from "../../../../../shared/cli/command-execution";
+
+export type { ActionClass } from "../../../../../shared/cli/command-execution";
 
 export type WorkspaceService = string;
-
-export type ActionClass = "read" | "write" | "destructive";
 
 export interface CatalogParam {
   name: string;

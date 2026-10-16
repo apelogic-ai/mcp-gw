@@ -1,8 +1,9 @@
 import { parse } from "yaml";
+import { ACTION_CLASSES, type ActionClass } from "../../../shared/cli/command-execution";
 
 export const CLI_DECISIONS_SCHEMA = "mcp-gateway.cli-decisions/v1" as const;
-export const COMMAND_CLASSES = ["read", "write", "destructive"] as const;
-export type CommandClass = (typeof COMMAND_CLASSES)[number];
+export const COMMAND_CLASSES = ACTION_CLASSES;
+export type CommandClass = ActionClass;
 
 export interface CliCommandDecision {
   class: CommandClass;

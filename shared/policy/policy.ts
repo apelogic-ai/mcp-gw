@@ -1,4 +1,5 @@
 import { redactValue } from "../audit/audit";
+import type { ActionClass } from "../cli/command-execution";
 import { parse as parseYaml } from "yaml";
 import type { ScopeRequirement } from "../oauth/connection-types";
 import { canonicalPolicyDomain, domainIsAllowed } from "./outbound-email";
@@ -9,7 +10,7 @@ export interface VerifiedOutboundEmail {
   recipientDomains: string[];
 }
 
-export type PolicyActionClass = "read" | "write" | "destructive";
+export type PolicyActionClass = ActionClass;
 
 export interface ToolPolicyInput {
   principal: string;
