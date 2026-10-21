@@ -61,6 +61,8 @@ exit 0
     expect(compatibility).toContain("values-gateway-api-broker.example.yaml");
     expect(compatibility).toContain("<line>:<column>");
     expect(compatibility).toContain("diff -u");
+    expect(compatibility).toContain("render_new_head_profiles");
+    expect(compatibility).not.toContain(".golden");
     expect(compatibility).toContain("--kube-version 1.32.0");
     expect(compatibility).toContain("normalize_release_coordinates");
     expect(compatibility).toContain(

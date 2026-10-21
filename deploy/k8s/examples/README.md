@@ -16,6 +16,13 @@ Recommended shape:
    `HOP1_OAUTH_SCOPES`; the default identity scopes are `openid` and `email`.
 5. Reconcile with Flux or Argo CD using the examples in this directory.
 
+For a provider-neutral deployment on an existing shared Gateway, start from
+`values-shared-gateway.example.yaml`. It creates a namespaced HTTPRoute with an
+explicit streaming timeout, uses repository/tag image values and amd64 node
+selection, and maps one named database URL key from one externally synchronized
+Secret. It does not create a Namespace, Gateway, Secret, or cluster-scoped
+object.
+
 To add an MCP backend behind the same public `/mcp` endpoint, add the backend
 runtime manifests or install its own chart, then append an entry under
 `agentgateway.backends`. Use `serviceName`, `port`, and `path` for services

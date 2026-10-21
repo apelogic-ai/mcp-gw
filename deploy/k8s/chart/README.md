@@ -138,6 +138,9 @@ googleWorkspace:
 The signing key is projected only as a file, never listed in `envKeys`. The
 same allowlist option applies to `githubWrapper.secretRef` and
 `dbMcp.secretRef`; list only the keys each workload needs.
+For database backends whose synchronized Secret uses a non-environment-style
+key, set `dbMcp.databaseUrl.secretKey`; the chart maps only that key from
+`dbMcp.secretRef.name` to `DB_MCP_DSN` and disables whole-Secret `envFrom`.
 
 Direct-client authorization is separately opt-in under
 `googleWorkspace.authorizationBroker`. The typed values require a public HTTPS
@@ -174,6 +177,17 @@ selectors matching those Pods and their Namespace, not the Gateway resource or
 controller Deployment by assumption. If traffic arrives from external source
 IPs instead, use the source CIDRs observed at the wrapper, not client CIDRs.
 The chart cannot infer a dataplane identity from an HTTPRoute `parentRef`.
+
+To let this chart own the `/mcp` route on an existing shared Gateway, keep
+`agentgateway.ingress.enabled=false` and enable
+`agentgateway.gatewayApi.httpRoute`. Set its hostname and `parentRefs` with the
+Gateway name, optional namespace, and listener `sectionName`. An optional
+`timeouts.request` is rendered on the route rule; use `0s` when streaming
+requests must have no route-level deadline. The provider-neutral
+`deploy/k8s/examples/values-shared-gateway.example.yaml` profile combines this
+route with exact image repository/tag values, amd64 scheduling, and one
+externally synchronized Secret. The chart does not create that Gateway,
+Namespace, or Secret.
 
 For an existing Gateway API `/mcp` HTTPRoute, set `agentgateway.ingress.enabled=false`
 and `agentgateway.gatewayApi.brokerHttpRoute.enabled=true`, with one or more
@@ -486,6 +500,9 @@ and are left in place.
 | `wrappers[].catalog.experimental`                                 | `false`                                             | Set `true` only to test the unsupported full Jira preset with a customer-managed OAuth app.                             |
 | `wrappers[].sessions`                                             | 64 total / 4 per principal / 30m idle               | Optional global, per-principal, and idle limits for wrapper-issued MCP sessions.                                        |
 | `agentgateway.ingress.enabled`                                    | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                                                     |
+| `agentgateway.gatewayApi.httpRoute.enabled`                       | `false`                                             | Create `/mcp` and protected-resource routes on an existing shared Gateway.                                              |
+| `agentgateway.gatewayApi.httpRoute.parentRefs`                    | `[]`                                                | Existing Gateway listener references with name, optional namespace, and optional section name.                          |
+| `agentgateway.gatewayApi.httpRoute.timeouts.request`              | `""`                                                | Optional Gateway API request timeout; `0s` disables the route-level deadline for streams.                               |
 | `agentgateway.gatewayApi.brokerHttpRoute.enabled`                 | `false`                                             | Create only the broker's exact public HTTPRoute; requires an externally owned `/mcp` route and disables chart Ingress.  |
 | `agentgateway.gatewayApi.brokerHttpRoute.parentRefs`              | `[]`                                                | Gateway listener references for the broker HTTPRoute when enabled.                                                      |
 | `googleWorkspace.enabled`                                         | `false`                                             | Deploy the Google Workspace MCP wrapper.                                                                                |
@@ -506,6 +523,7 @@ and are left in place.
 | `dbMcp.wrapper.enabled`                                           | `false`                                             | Opt in to the generic-wrapper sidecar for db-mcp HOP-1, catalog, policy, audit, and session governance.                 |
 | `dbMcp.wrapper.catalog`                                           | empty                                               | Exact db-mcp tool catalog exposed by the opt-in sidecar; required when the wrapper is enabled.                          |
 | `dbMcp.secretRef.envKeys`                                         | `[]`                                                | Optional runtime-key allowlist for the database MCP Secret.                                                             |
+| `dbMcp.databaseUrl.secretKey`                                     | `""`                                                | Existing Secret key mapped only to `DB_MCP_DSN`; requires `dbMcp.secretRef.name`.                                       |
 | `<workload>.extraEnv` / `extraVolumeMounts` / `extraVolumes`      | `[]`                                                | Kubernetes-native extension points for environment-owned integrations.                                                  |
 | `oauthMigrations.enabled`                                         | `false`                                             | Run OAuth token-store schema migrations as a Helm hook.                                                                 |
 | `postgresql.caBundle.enabled`                                     | `false`                                             | Project a private CA bundle into wrappers and the migration job for TLS to PostgreSQL.                                  |

@@ -215,12 +215,39 @@ compare_case() {
   fi
 }
 
+render_new_head_profiles() {
+  local head_values
+  local relative_values
+  local file_name
+  local case_name
+  local output_file
+  local status_line
+  for head_values in "$ROOT_DIR"/deploy/k8s/examples/values-*.yaml; do
+    relative_values="deploy/k8s/examples/$(basename "$head_values")"
+    if [[ -f "$BASE_TREE/$relative_values" ]]; then
+      continue
+    fi
+    file_name="$(basename "$head_values")"
+    case_name="${file_name%.yaml}"
+    output_file="$TMP_DIR/$case_name.head-only.yaml"
+    render_case "$ROOT_DIR/deploy/k8s/chart" "$output_file" "$ROOT_DIR" "$head_values"
+    IFS= read -r status_line <"$output_file"
+    if [[ "$status_line" != "exit_code=0" ]]; then
+      cat "$output_file"
+      echo "New Helm values profile failed to render: $relative_values" >&2
+      return 1
+    fi
+    echo "Rendered new Helm values profile: $relative_values"
+  done
+}
+
 normalize_required_jira_read_work_scope
 compare_case default
 for values_file in "$BASE_TREE"/deploy/k8s/examples/values-*.yaml; do
   file_name="$(basename "$values_file")"
   compare_case "${file_name%.yaml}" "deploy/k8s/examples/$file_name"
 done
+render_new_head_profiles
 compare_case \
   oauth-broker-with-gateway-api \
   deploy/k8s/examples/values-oauth-broker.example.yaml \

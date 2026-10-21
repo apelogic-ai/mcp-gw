@@ -648,6 +648,18 @@
         "key": { "type": "string", "minLength": 1 }
       }
     },
+    "httpRouteTimeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request"],
+      "properties": {
+        "request": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^(?:|(?:[0-9]{1,5}(?:h|m|s|ms)){1,4})$"
+        }
+      }
+    },
     "nonEmptyLabelSelector": {
       "type": "object",
       "additionalProperties": false,
@@ -983,6 +995,18 @@
         {
           "type": "object",
           "properties": {
+            "databaseUrl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["secretKey"],
+              "properties": {
+                "secretKey": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "pattern": "^(?:|[A-Za-z0-9._-]+)$"
+                }
+              }
+            },
             "wrapper": { "$ref": "#/$defs/dbMcpWrapper" }
           }
         }
@@ -1158,7 +1182,7 @@
                 "httpRoute": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["enabled", "hostname", "parentRefs"],
+                  "required": ["enabled", "hostname", "parentRefs", "timeouts"],
                   "properties": {
                     "enabled": { "type": "boolean" },
                     "hostname": { "type": "string" },
@@ -1175,7 +1199,8 @@
                           "sectionName": { "type": "string", "minLength": 1 }
                         }
                       }
-                    }
+                    },
+                    "timeouts": { "$ref": "#/$defs/httpRouteTimeouts" }
                   }
                 }
               }
@@ -1539,12 +1564,56 @@
             "gatewayApi": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["brokerHttpRoute"],
+              "required": ["httpRoute", "brokerHttpRoute"],
               "properties": {
+                "httpRoute": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["enabled", "hostname", "parentRefs", "timeouts"],
+                  "allOf": [
+                    {
+                      "if": { "properties": { "enabled": { "const": true } } },
+                      "then": { "properties": { "parentRefs": { "minItems": 1 } } },
+                      "else": { "properties": { "parentRefs": { "maxItems": 0 } } }
+                    }
+                  ],
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "hostname": { "type": "string" },
+                    "parentRefs": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "maxItems": 32,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["name"],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "maxLength": 63
+                          },
+                          "namespace": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "maxLength": 63
+                          },
+                          "sectionName": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "maxLength": 63
+                          }
+                        }
+                      }
+                    },
+                    "timeouts": { "$ref": "#/$defs/httpRouteTimeouts" }
+                  }
+                },
                 "brokerHttpRoute": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["enabled", "parentRefs"],
+                  "required": ["enabled", "parentRefs", "timeouts"],
                   "allOf": [
                     {
                       "if": { "properties": { "enabled": { "const": true } } },
@@ -1579,7 +1648,8 @@
                           }
                         }
                       }
-                    }
+                    },
+                    "timeouts": { "$ref": "#/$defs/httpRouteTimeouts" }
                   }
                 }
               }

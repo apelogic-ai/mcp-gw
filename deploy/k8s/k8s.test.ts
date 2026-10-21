@@ -189,6 +189,89 @@ describe("Kubernetes production chart", () => {
     }
   });
 
+  test("routes AgentGateway through a shared Gateway with a stream timeout and named database key", () => {
+    const rendered = helmTemplate([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.enabled=true",
+      "--set-string",
+      "agentgateway.gatewayApi.httpRoute.hostname=mcp.example.com",
+      "--set-json",
+      'agentgateway.gatewayApi.httpRoute.parentRefs=[{"name":"shared-gateway","namespace":"gateway-system","sectionName":"https"}]',
+      "--set-string",
+      "agentgateway.gatewayApi.httpRoute.timeouts.request=0s",
+      "--set",
+      "dbMcp.enabled=true",
+      "--set-string",
+      "dbMcp.secretRef.name=runtime-secrets",
+      "--set-string",
+      "dbMcp.databaseUrl.secretKey=database-url",
+    ]);
+    const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway");
+    const database = renderedResource(rendered, "Deployment", "mcp-gateway-db-mcp");
+
+    expect(rendered).not.toContain("kind: Ingress");
+    expect(route).toContain("name: shared-gateway");
+    expect(route).toContain("namespace: gateway-system");
+    expect(route).toContain("sectionName: https");
+    expect(route).toContain('value: "/mcp"');
+    expect(route).toContain('value: "/.well-known/oauth-protected-resource/mcp"');
+    expect(route).toContain("request: 0s");
+    expect(database).toContain("name: DB_MCP_DSN");
+    expect(database).toContain("name: runtime-secrets");
+    expect(database).toContain("key: database-url");
+    expect(database).not.toContain("envFrom:");
+  });
+
+  test("rejects incomplete shared routes and ambiguous named database keys", () => {
+    const routeBase = [
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.enabled=true",
+    ];
+    const databaseBase = [
+      "--set",
+      "dbMcp.enabled=true",
+      "--set-string",
+      "dbMcp.databaseUrl.secretKey=database-url",
+    ];
+
+    for (const [label, args] of [
+      ["missing route coordinates", routeBase],
+      [
+        "invalid request timeout",
+        [
+          ...routeBase,
+          "--set-string",
+          "agentgateway.gatewayApi.httpRoute.hostname=mcp.example.com",
+          "--set-json",
+          'agentgateway.gatewayApi.httpRoute.parentRefs=[{"name":"shared-gateway"}]',
+          "--set-string",
+          "agentgateway.gatewayApi.httpRoute.timeouts.request=never",
+        ],
+      ],
+      ["missing Secret name", databaseBase],
+      [
+        "duplicate database environment source",
+        [
+          ...databaseBase,
+          "--set-string",
+          "dbMcp.secretRef.name=runtime-secrets",
+          "--set-json",
+          'dbMcp.secretRef.envKeys=["DB_MCP_DSN"]',
+        ],
+      ],
+    ] as const) {
+      const result = helmTemplateResult([...args]);
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), label).toMatch(
+        /gatewayApi|timeout|database|Secret|values don't meet/i,
+      );
+    }
+  });
+
   test("renders opt-in generic wrappers and registers matching AgentGateway targets", () => {
     const rendered = helmTemplate(genericWrapperArgs());
     const gatewayConfig = renderedResource(
