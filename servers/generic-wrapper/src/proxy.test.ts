@@ -565,7 +565,7 @@ describe("generic MCP proxy", () => {
   describe("hideToolsUntilConnected", () => {
     const hiddenDescriptor: GenericWrapperDescriptor = {
       ...descriptor,
-      toolPrefix: "orrery",
+      toolPrefix: "analytics",
       lifecycleRoutes: true,
       hideToolsUntilConnected: true,
       lifecycleToolNames: { start: "auth_start", status: "auth_status" },
@@ -573,10 +573,10 @@ describe("generic MCP proxy", () => {
     };
     const hiddenCatalog: GenericToolCatalog = {
       ...catalog,
-      tools: catalog.tools.map((tool) => ({ ...tool, exposedName: "orrery_query" })),
+      tools: catalog.tools.map((tool) => ({ ...tool, exposedName: "analytics_query" })),
     };
     const oauth = {
-      providerId: "orrery",
+      providerId: "analytics",
       status: () => Promise.resolve({ connected: false }),
       start: () => Promise.resolve({ authorizationUrl: "https://identity.example.com/authorize" }),
     };
@@ -605,7 +605,10 @@ describe("generic MCP proxy", () => {
         mcpRequest("tools/list", {}, 1),
       );
 
-      expect(await listedNames(response)).toEqual(["orrery_auth_status", "orrery_auth_start"]);
+      expect(await listedNames(response)).toEqual([
+        "analytics_auth_status",
+        "analytics_auth_start",
+      ]);
     });
 
     test("lists the lifecycle tools plus the catalog once connected", async () => {
@@ -614,9 +617,9 @@ describe("generic MCP proxy", () => {
       )(mcpRequest("tools/list", {}, 1));
 
       expect(await listedNames(response)).toEqual([
-        "orrery_auth_status",
-        "orrery_auth_start",
-        "orrery_query",
+        "analytics_auth_status",
+        "analytics_auth_start",
+        "analytics_query",
       ]);
     });
 
@@ -625,7 +628,10 @@ describe("generic MCP proxy", () => {
         mcpRequest("tools/list", {}, 1),
       );
 
-      expect(await listedNames(response)).toEqual(["orrery_auth_status", "orrery_auth_start"]);
+      expect(await listedNames(response)).toEqual([
+        "analytics_auth_status",
+        "analytics_auth_start",
+      ]);
     });
 
     test("marks a credential-resolution failure as unavailable and audits it, still listing helpers only", async () => {
@@ -640,8 +646,8 @@ describe("generic MCP proxy", () => {
       };
 
       expect(body.result.tools.map((tool) => tool.name)).toEqual([
-        "orrery_auth_status",
-        "orrery_auth_start",
+        "analytics_auth_status",
+        "analytics_auth_start",
       ]);
       expect(body.result._meta).toEqual({
         "mcp-gw/catalog": {
@@ -669,7 +675,7 @@ describe("generic MCP proxy", () => {
         "mcp-gw/catalog": {
           status: "unavailable",
           error: "Provider authorization is required",
-          connectionHelper: "orrery_auth_start",
+          connectionHelper: "analytics_auth_start",
         },
       });
     });
@@ -680,15 +686,15 @@ describe("generic MCP proxy", () => {
       })(mcpRequest("tools/list", {}, 1));
 
       expect(await listedNames(response)).toEqual([
-        "orrery_auth_status",
-        "orrery_auth_start",
-        "orrery_query",
+        "analytics_auth_status",
+        "analytics_auth_start",
+        "analytics_query",
       ]);
     });
 
     test("a call to a hidden tool names the configured start tool as connectionHelper", async () => {
       const response = await hiddenHandler(() => Promise.resolve(null))(
-        mcpRequest("tools/call", { name: "orrery_query", arguments: {} }, 2),
+        mcpRequest("tools/call", { name: "analytics_query", arguments: {} }, 2),
       );
       const body = (await response.json()) as {
         result: { content: { text: string }[]; structuredContent: Record<string, unknown> };
@@ -696,14 +702,14 @@ describe("generic MCP proxy", () => {
 
       expect(body.result.structuredContent).toMatchObject({
         error: "provider_oauth_required",
-        connectionHelper: "orrery_auth_start",
+        connectionHelper: "analytics_auth_start",
       });
-      expect(body.result.content[0]?.text).toContain("orrery_auth_start");
+      expect(body.result.content[0]?.text).toContain("analytics_auth_start");
     });
 
     test("executes the lifecycle tools under their configured names", async () => {
       const response = await hiddenHandler(() => Promise.resolve(null))(
-        mcpRequest("tools/call", { name: "orrery_auth_status", arguments: {} }, 3),
+        mcpRequest("tools/call", { name: "analytics_auth_status", arguments: {} }, 3),
       );
 
       expect(await response.json()).toMatchObject({
