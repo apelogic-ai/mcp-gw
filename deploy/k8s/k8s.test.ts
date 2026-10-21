@@ -215,12 +215,13 @@ describe("Kubernetes production chart", () => {
     expect(route).toContain("name: shared-gateway");
     expect(route).toContain("namespace: gateway-system");
     expect(route).toContain("sectionName: https");
-    expect(route).toContain("value: /mcp");
-    expect(route).toContain("value: /.well-known/oauth-protected-resource/mcp");
+    expect(route).toContain('value: "/mcp"');
+    expect(route).toContain('value: "/.well-known/oauth-protected-resource/mcp"');
     expect(route).toContain("request: 0s");
     expect(database).toContain("name: DB_MCP_DSN");
     expect(database).toContain("name: runtime-secrets");
     expect(database).toContain("key: database-url");
+    expect(database).not.toContain("envFrom:");
   });
 
   test("rejects incomplete shared routes and ambiguous named database keys", () => {
