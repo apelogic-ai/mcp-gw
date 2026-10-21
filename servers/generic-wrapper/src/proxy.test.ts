@@ -605,7 +605,10 @@ describe("generic MCP proxy", () => {
         mcpRequest("tools/list", {}, 1),
       );
 
-      expect(await listedNames(response)).toEqual(["orrery_auth_status", "orrery_auth_start"]);
+      expect(await listedNames(response)).toEqual([
+        "analytics_auth_status",
+        "analytics_auth_start",
+      ]);
     });
 
     test("lists the lifecycle tools plus the catalog once connected", async () => {
