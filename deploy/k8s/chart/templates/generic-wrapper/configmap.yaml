@@ -25,6 +25,13 @@ data:
     toolPrefix: {{ .toolPrefix | quote }}
     catalogPath: {{ $catalogPath }}
     lifecycleRoutes: {{ .lifecycleRoutes }}
+    {{- if .hideToolsUntilConnected }}
+    hideToolsUntilConnected: true
+    {{- end }}
+    {{- with .lifecycleToolNames }}
+    lifecycleToolNames:
+{{ . | toYaml | nindent 6 }}
+    {{- end }}
     upstream:
 {{ omit .upstream "sidecar" | toYaml | nindent 6 }}
     credential:

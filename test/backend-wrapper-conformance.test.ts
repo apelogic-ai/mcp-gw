@@ -76,6 +76,8 @@ async function createGenericTarget(): Promise<BackendConformanceTarget> {
     toolPrefix: "reference",
     catalogPath: "/unused/catalog.yaml",
     lifecycleRoutes: false,
+    hideToolsUntilConnected: false,
+    lifecycleToolNames: { start: "oauth_start", status: "oauth_status" },
     upstream,
     credential: { mode: "static_secret", env: "REFERENCE_TOKEN", header: "authorization" },
     serverInfo: { name: "generic-conformance", version: "1.0.0" },

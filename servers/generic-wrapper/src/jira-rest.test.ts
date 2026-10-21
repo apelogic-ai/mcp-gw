@@ -9,6 +9,8 @@ const descriptor: GenericWrapperDescriptor = {
   toolPrefix: "jira",
   catalogPath: "/app/servers/generic-wrapper/catalog/jira/read-only.yaml",
   lifecycleRoutes: true,
+  hideToolsUntilConnected: false,
+  lifecycleToolNames: { start: "oauth_start", status: "oauth_status" },
   upstream: { transport: "http", url: "https://mcp.atlassian.com/v2/mcp?tools=all" },
   credential: {
     mode: "per_user_oauth",

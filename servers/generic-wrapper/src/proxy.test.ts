@@ -26,6 +26,8 @@ const descriptor: GenericWrapperDescriptor = {
   toolPrefix: "search",
   catalogPath: "/etc/mcp-gw/catalog.json",
   lifecycleRoutes: false,
+  hideToolsUntilConnected: false,
+  lifecycleToolNames: { start: "oauth_start", status: "oauth_status" },
   upstream: { transport: "http", url: "https://mcp.example.com/mcp" },
   credential: { mode: "none" },
   serverInfo: { name: "hosted-search-wrapper", version: "1.0.0" },
@@ -93,6 +95,8 @@ const jiraDescriptor: GenericWrapperDescriptor = {
   name: "jira",
   toolPrefix: "jira",
   lifecycleRoutes: true,
+  hideToolsUntilConnected: false,
+  lifecycleToolNames: { start: "oauth_start", status: "oauth_status" },
   upstream: { transport: "http", url: "https://mcp.atlassian.com/v2/mcp?tools=all" },
   credential: {
     mode: "per_user_oauth",
@@ -556,6 +560,156 @@ describe("generic MCP proxy", () => {
     };
     expect(statusBody.result.content[0]?.text).toContain('"phase":"disconnected"');
     expect(transport.requests).toHaveLength(0);
+  });
+
+  describe("hideToolsUntilConnected", () => {
+    const hiddenDescriptor: GenericWrapperDescriptor = {
+      ...descriptor,
+      toolPrefix: "orrery",
+      lifecycleRoutes: true,
+      hideToolsUntilConnected: true,
+      lifecycleToolNames: { start: "auth_start", status: "auth_status" },
+      credential: jiraDescriptor.credential,
+    };
+    const hiddenCatalog: GenericToolCatalog = {
+      ...catalog,
+      tools: catalog.tools.map((tool) => ({ ...tool, exposedName: "orrery_query" })),
+    };
+    const oauth = {
+      providerId: "orrery",
+      status: () => Promise.resolve({ connected: false }),
+      start: () => Promise.resolve({ authorizationUrl: "https://identity.example.com/authorize" }),
+    };
+    const hiddenHandler = (
+      resolveCredential: () => Promise<{ header: string; value: string } | null>,
+      overrides: Partial<GenericWrapperDescriptor> = {},
+      audit?: InMemoryAuditSink,
+    ) =>
+      createGenericMcpProxyHandler({
+        descriptor: { ...hiddenDescriptor, ...overrides },
+        catalog: hiddenCatalog,
+        authenticate: () => Promise.resolve(identity),
+        transport: new RecordingTransport(),
+        resolveCredential,
+        requireCredential: true,
+        audit,
+        oauth,
+      });
+    const listedNames = async (response: Response) =>
+      ((await response.json()) as { result: { tools: { name: string }[] } }).result.tools.map(
+        (tool) => tool.name,
+      );
+
+    test("lists only the lifecycle tools before a credential exists", async () => {
+      const response = await hiddenHandler(() => Promise.resolve(null))(
+        mcpRequest("tools/list", {}, 1),
+      );
+
+      expect(await listedNames(response)).toEqual(["orrery_auth_status", "orrery_auth_start"]);
+    });
+
+    test("lists the lifecycle tools plus the catalog once connected", async () => {
+      const response = await hiddenHandler(() =>
+        Promise.resolve({ header: "authorization", value: "Bearer provider" }),
+      )(mcpRequest("tools/list", {}, 1));
+
+      expect(await listedNames(response)).toEqual([
+        "orrery_auth_status",
+        "orrery_auth_start",
+        "orrery_query",
+      ]);
+    });
+
+    test("fails closed to the lifecycle tools when credential resolution throws", async () => {
+      const response = await hiddenHandler(() => Promise.reject(new Error("store down")))(
+        mcpRequest("tools/list", {}, 1),
+      );
+
+      expect(await listedNames(response)).toEqual(["orrery_auth_status", "orrery_auth_start"]);
+    });
+
+    test("marks a credential-resolution failure as unavailable and audits it, still listing helpers only", async () => {
+      const audit = new InMemoryAuditSink();
+      const response = await hiddenHandler(
+        () => Promise.reject(new Error("store down")),
+        {},
+        audit,
+      )(mcpRequest("tools/list", {}, 1));
+      const body = (await response.json()) as {
+        result: { tools: { name: string }[]; _meta?: Record<string, unknown> };
+      };
+
+      expect(body.result.tools.map((tool) => tool.name)).toEqual([
+        "orrery_auth_status",
+        "orrery_auth_start",
+      ]);
+      expect(body.result._meta).toEqual({
+        "mcp-gw/catalog": {
+          status: "unavailable",
+          error: "Upstream tool discovery is unavailable",
+        },
+      });
+      expect(audit.events).toMatchObject([
+        {
+          category: "tool_call",
+          status: "error",
+          event: "tools_list_credential_unavailable",
+          error: "credential_resolution_failed",
+        },
+      ]);
+    });
+
+    test("marks a missing credential as authorization-required with the configured helper", async () => {
+      const response = await hiddenHandler(() => Promise.resolve(null))(
+        mcpRequest("tools/list", {}, 1),
+      );
+      const body = (await response.json()) as { result: { _meta?: Record<string, unknown> } };
+
+      expect(body.result._meta).toEqual({
+        "mcp-gw/catalog": {
+          status: "unavailable",
+          error: "Provider authorization is required",
+          connectionHelper: "orrery_auth_start",
+        },
+      });
+    });
+
+    test("still lists the whole catalog when the flag is off", async () => {
+      const response = await hiddenHandler(() => Promise.resolve(null), {
+        hideToolsUntilConnected: false,
+      })(mcpRequest("tools/list", {}, 1));
+
+      expect(await listedNames(response)).toEqual([
+        "orrery_auth_status",
+        "orrery_auth_start",
+        "orrery_query",
+      ]);
+    });
+
+    test("a call to a hidden tool names the configured start tool as connectionHelper", async () => {
+      const response = await hiddenHandler(() => Promise.resolve(null))(
+        mcpRequest("tools/call", { name: "orrery_query", arguments: {} }, 2),
+      );
+      const body = (await response.json()) as {
+        result: { content: { text: string }[]; structuredContent: Record<string, unknown> };
+      };
+
+      expect(body.result.structuredContent).toMatchObject({
+        error: "provider_oauth_required",
+        connectionHelper: "orrery_auth_start",
+      });
+      expect(body.result.content[0]?.text).toContain("orrery_auth_start");
+    });
+
+    test("executes the lifecycle tools under their configured names", async () => {
+      const response = await hiddenHandler(() => Promise.resolve(null))(
+        mcpRequest("tools/call", { name: "orrery_auth_status", arguments: {} }, 3),
+      );
+
+      expect(await response.json()).toMatchObject({
+        result: { structuredContent: { connected: false } },
+      });
+    });
   });
 
   test("audits policy denials for wrapper-owned OAuth helpers", async () => {

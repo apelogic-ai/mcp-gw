@@ -751,6 +751,79 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: Ingress");
   });
 
+  test("renders hideToolsUntilConnected and lifecycleToolNames into the descriptor ConfigMap", () => {
+    const wrapper = {
+      ...genericOAuthWrapper("search-one", "search_one", "search-provider"),
+      hideToolsUntilConnected: true,
+      lifecycleToolNames: { start: "auth_start", status: "auth_status" },
+    };
+    const rendered = helmTemplate([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([wrapper])}`,
+    ]);
+    const config = parseAllDocuments(rendered)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "ConfigMap" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-generic-wrapper-search-one-config",
+      );
+    const data = config?.data as Record<string, string> | undefined;
+    const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
+
+    expect(descriptor.hideToolsUntilConnected).toBe(true);
+    expect(descriptor.lifecycleToolNames).toEqual({ start: "auth_start", status: "auth_status" });
+  });
+
+  test("rejects hideToolsUntilConnected on a wrapper that is not per-user OAuth", () => {
+    const [wrapper] = genericWrappers();
+    const result = helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([{ ...wrapper, hideToolsUntilConnected: true }])}`,
+    ]);
+
+    assertHelmRejected(result);
+    expect(result.stderr.toString()).toContain("per_user_oauth");
+  });
+
+  test("checks catalog collisions against renamed lifecycle helpers", () => {
+    const base = genericOAuthWrapper("search-one", "search_one", "search-provider");
+    const render = (wrapper: Record<string, unknown>) =>
+      helmTemplateResult([
+        ...genericWrapperBaseArgs(),
+        ...lifecycleCallerArgs(),
+        "--set-json",
+        `wrappers=${JSON.stringify([wrapper])}`,
+      ]);
+    const catalog = base.catalog as { tools: Record<string, unknown>[] };
+
+    const collides = render({
+      ...base,
+      lifecycleToolNames: { start: "query", status: "auth_status" },
+    });
+    assertHelmRejected(collides);
+    expect(collides.stderr.toString()).toContain(
+      "generic wrapper lifecycle helper search_one_query collides with a catalog tool",
+    );
+
+    const freedDefault = render({
+      ...base,
+      catalog: { ...catalog, tools: [{ ...catalog.tools[0], name: "oauth_start" }] },
+      lifecycleToolNames: { start: "auth_start", status: "auth_status" },
+    });
+    expect(freedDefault.exitCode, freedDefault.stderr.toString()).toBe(0);
+
+    const same = render({ ...base, lifecycleToolNames: { start: "auth", status: "auth" } });
+    assertHelmRejected(same);
+    expect(same.stderr.toString()).toContain(
+      "lifecycleToolNames.start and lifecycleToolNames.status must differ",
+    );
+  });
+
   test("renders a generic per-user OAuth wrapper when migrations are applied separately", () => {
     const wrapper = genericOAuthWrapper("search-one", "search_one", "search-provider");
     const rendered = helmTemplate([

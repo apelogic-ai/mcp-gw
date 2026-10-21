@@ -157,6 +157,30 @@ describe("generic wrapper live tool discovery", () => {
     ]);
   });
 
+  test("resolves the credential exactly once per tools/list when hideToolsUntilConnected is on", async () => {
+    let calls = 0;
+    const proxy = liveHandler({
+      hideToolsUntilConnected: true,
+      resolveCredential: () => {
+        calls += 1;
+        return Promise.resolve({
+          header: "authorization",
+          value: "Bearer provider-token",
+          rawValue: "provider-token",
+        });
+      },
+    });
+
+    const sessionId = await initialize(proxy);
+    const listed = await proxy(mcpRequest("tools/list", {}, 2, sessionId));
+    const names = (
+      (await listed.json()) as { result: { tools: { name: string }[] } }
+    ).result.tools.map((tool) => tool.name);
+
+    expect(names).toContain("jira_get_issue");
+    expect(calls).toBe(1);
+  });
+
   test("intersects live Jira discovery with exact Task-approved tools", async () => {
     const proxy = liveHandler({
       identity: {
@@ -258,6 +282,7 @@ function liveHandler(options: {
   }>;
   policy?: YamlPolicy;
   identity?: Hop1Identity;
+  hideToolsUntilConnected?: boolean;
 }): (request: Request) => Promise<Response> {
   const upstream = { transport: "http" as const, url: upstreamUrl };
   const descriptor: GenericWrapperDescriptor = {
@@ -266,6 +291,8 @@ function liveHandler(options: {
     toolPrefix: "jira",
     catalogPath: "/app/servers/generic-wrapper/catalog/jira/decisions.yaml",
     lifecycleRoutes: true,
+    hideToolsUntilConnected: options.hideToolsUntilConnected ?? false,
+    lifecycleToolNames: { start: "oauth_start", status: "oauth_status" },
     upstream,
     credential: {
       mode: "per_user_oauth",

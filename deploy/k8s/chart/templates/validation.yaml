@@ -207,7 +207,13 @@
 {{- end }}
 {{- end }}
 {{- end }}
-{{- range $helperName := list (printf "%s_oauth_status" $wrapper.toolPrefix) (printf "%s_oauth_start" $wrapper.toolPrefix) }}
+{{- $lifecycleToolNames := $wrapper.lifecycleToolNames | default (dict) }}
+{{- $lifecycleStart := $lifecycleToolNames.start | default "oauth_start" }}
+{{- $lifecycleStatus := $lifecycleToolNames.status | default "oauth_status" }}
+{{- if eq $lifecycleStart $lifecycleStatus }}
+{{- fail (printf "wrappers[%d] lifecycleToolNames.start and lifecycleToolNames.status must differ" $index) }}
+{{- end }}
+{{- range $helperName := list (printf "%s_%s" $wrapper.toolPrefix $lifecycleStatus) (printf "%s_%s" $wrapper.toolPrefix $lifecycleStart) }}
 {{- if has $helperName $wrapperToolNames }}
 {{- fail (printf "generic wrapper lifecycle helper %s collides with a catalog tool" $helperName) }}
 {{- end }}

@@ -246,6 +246,20 @@
         },
         {
           "if": {
+            "properties": { "hideToolsUntilConnected": { "const": true } },
+            "required": ["hideToolsUntilConnected"]
+          },
+          "then": {
+            "properties": {
+              "credential": {
+                "properties": { "mode": { "const": "per_user_oauth" } },
+                "required": ["mode"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": {
               "upstream": {
                 "properties": { "transport": { "const": "stdio" } },
@@ -311,6 +325,15 @@
           "pattern": "^[a-z][a-z0-9_]*$"
         },
         "lifecycleRoutes": { "type": "boolean" },
+        "hideToolsUntilConnected": { "type": "boolean" },
+        "lifecycleToolNames": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$" },
+            "status": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$" }
+          }
+        },
         "upstream": { "$ref": "#/$defs/genericUpstream" },
         "credential": { "$ref": "#/$defs/genericCredential" },
         "serverInfo": { "$ref": "#/$defs/genericServerInfo" },

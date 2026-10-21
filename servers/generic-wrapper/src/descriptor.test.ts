@@ -19,7 +19,66 @@ const baseDescriptor = {
   credential: { mode: "none" },
 };
 
+const oauthCredential = {
+  mode: "per_user_oauth",
+  providerId: "search-provider",
+  authorizationUrl: "https://identity.example.com/oauth/authorize",
+  tokenUrl: "https://identity.example.com/oauth/token",
+  userInfoUrl: "https://identity.example.com/oauth/userinfo",
+  redirectUri: "https://gateway.example.com/oauth/search-provider/callback",
+  scopes: ["search.read"],
+  clientIdEnv: "OAUTH_CLIENT_ID",
+  clientSecretEnv: "OAUTH_CLIENT_SECRET",
+  encryptionKeyEnv: "OAUTH_TOKEN_ENCRYPTION_KEY",
+  tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+  identity: { idField: "sub", emailField: "email", emailVerifiedField: "email_verified" },
+};
+
 describe("generic wrapper descriptor", () => {
+  test("defaults hideToolsUntilConnected and lifecycleToolNames when absent", () => {
+    const descriptor = parseGenericWrapperDescriptor(baseDescriptor);
+
+    expect(descriptor.hideToolsUntilConnected).toBe(false);
+    expect(descriptor.lifecycleToolNames).toEqual({
+      start: "oauth_start",
+      status: "oauth_status",
+    });
+  });
+
+  test("parses configured lifecycle tool names and the hide flag for per-user OAuth", () => {
+    const descriptor = parseGenericWrapperDescriptor({
+      ...baseDescriptor,
+      lifecycleRoutes: true,
+      hideToolsUntilConnected: true,
+      lifecycleToolNames: { start: "auth_start", status: "auth_status" },
+      credential: oauthCredential,
+    });
+
+    expect(descriptor.hideToolsUntilConnected).toBe(true);
+    expect(descriptor.lifecycleToolNames).toEqual({ start: "auth_start", status: "auth_status" });
+  });
+
+  test("rejects hideToolsUntilConnected without per-user OAuth", () => {
+    expect(() =>
+      parseGenericWrapperDescriptor({ ...baseDescriptor, hideToolsUntilConnected: true }),
+    ).toThrow("hideToolsUntilConnected requires");
+  });
+
+  test("rejects malformed, equal, and unknown lifecycleToolNames fields", () => {
+    for (const [lifecycleToolNames, message] of [
+      [{ start: "bad name" }, "lifecycleToolNames.start has an invalid format"],
+      [{ start: "same", status: "same" }, "lifecycleToolNames.start and status must differ"],
+      [{ start: "a", extra: "b" }, "Unsupported lifecycleToolNames field: extra"],
+    ] as const) {
+      expect(() =>
+        parseGenericWrapperDescriptor({ ...baseDescriptor, lifecycleToolNames }),
+      ).toThrow(message);
+    }
+    expect(() => parseGenericWrapperDescriptor({ ...baseDescriptor, unknownField: 1 })).toThrow(
+      "Unsupported descriptor field: unknownField",
+    );
+  });
+
   test("parses every supported credential and upstream mode without secret values", () => {
     const defaultDescriptor = parseGenericWrapperDescriptor(baseDescriptor);
     expect(defaultDescriptor.credential).toEqual({ mode: "none" });
@@ -531,5 +590,40 @@ describe("generic wrapper catalog", () => {
         catalog,
       ),
     ).toThrow("reserved");
+  });
+});
+
+describe("configured lifecycle tool names", () => {
+  test("collide with catalog tools using the configured names, not the defaults", () => {
+    const descriptor = parseGenericWrapperDescriptor({
+      ...baseDescriptor,
+      lifecycleRoutes: true,
+      lifecycleToolNames: { start: "auth_start", status: "auth_status" },
+      credential: oauthCredential,
+    });
+    const catalogWith = (name: string) =>
+      parseGenericToolCatalog(
+        {
+          schemaVersion: "mcp-gateway.generic-catalog/v1",
+          catalogId: "helper-collision@1",
+          tools: [
+            {
+              name,
+              description: "Tool.",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true },
+              grants: { actionClass: "read", scopes: [] },
+            },
+          ],
+        },
+        descriptor.toolPrefix,
+      );
+
+    expect(() =>
+      validateGenericWrapperConfiguration(descriptor, catalogWith("auth_start")),
+    ).toThrow("lifecycle helper");
+    expect(() =>
+      validateGenericWrapperConfiguration(descriptor, catalogWith("oauth_start")),
+    ).not.toThrow();
   });
 });

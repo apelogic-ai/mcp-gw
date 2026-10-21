@@ -605,10 +605,40 @@ spec:
           port: 8080
 ```
 
-The wrapper publishes stable `user_search_oauth_status` and
+By default the wrapper publishes stable `user_search_oauth_status` and
 `user_search_oauth_start` helper tools. An internal control plane may instead
 use the authenticated routes described under
 [Private connection lifecycle access](#private-connection-lifecycle-access).
+
+Two optional wrapper fields adjust that surface; both are off or default when
+absent, so existing wrappers are unchanged:
+
+- `lifecycleToolNames` (default `{ start: oauth_start, status: oauth_status }`)
+  renames the helper tools. Each value matches the catalog tool-name pattern
+  (`^[A-Za-z0-9_.-]{1,128}$`), the two must differ, and the exposed name is
+  `<toolPrefix>_<name>`. A catalog tool that collides with a configured name is
+  rejected at startup. The `connectionHelper` hint returned with
+  `provider_oauth_required` names the configured start tool.
+- `hideToolsUntilConnected` (default `false`; allowed only with
+  `credential.mode: per_user_oauth`) makes `tools/list` return only the two
+  helper tools until the caller has a usable provider credential. It resolves
+  the credential on every list and fails closed: a missing credential or any
+  resolution error lists the helpers only, never the catalog. Calling a hidden
+  tool still returns `provider_oauth_required`.
+
+```yaml
+hideToolsUntilConnected: true
+lifecycleToolNames:
+  start: auth_start
+  status: auth_status
+```
+
+Tool lists can go stale. The wrapper does not send
+`notifications/tools/list_changed`: it answers each request with JSON, and its
+GET stream is proxied to the upstream, so there is no server-to-client channel
+to push on. A client that listed tools before the user connected keeps the
+helper-only list until it lists again; reconnect the MCP server in the client
+after authorizing.
 
 #### Stdio server in the wrapper container
 

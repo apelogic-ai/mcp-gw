@@ -85,6 +85,16 @@ export type GenericOAuthIdentityDescriptor =
       siteUrl: string;
     };
 
+export interface GenericLifecycleToolNames {
+  start: string;
+  status: string;
+}
+
+export const DEFAULT_LIFECYCLE_TOOL_NAMES: GenericLifecycleToolNames = {
+  start: "oauth_start",
+  status: "oauth_status",
+};
+
 export interface GenericWrapperDescriptor {
   schemaVersion: typeof GENERIC_WRAPPER_SCHEMA_VERSION;
   name: string;
@@ -92,6 +102,8 @@ export interface GenericWrapperDescriptor {
   catalogPath: string;
   catalogFilter?: { actionClasses: PolicyActionClass[] };
   lifecycleRoutes: boolean;
+  hideToolsUntilConnected: boolean;
+  lifecycleToolNames: GenericLifecycleToolNames;
   upstream: GenericUpstreamDescriptor;
   credential: GenericCredentialDescriptor;
   serverInfo: GenericServerInfo;
@@ -197,6 +209,8 @@ export function parseGenericWrapperDescriptor(value: unknown): GenericWrapperDes
     "catalogPath",
     "catalogFilter",
     "lifecycleRoutes",
+    "hideToolsUntilConnected",
+    "lifecycleToolNames",
     "upstream",
     "credential",
     "serverInfo",
@@ -216,6 +230,11 @@ export function parseGenericWrapperDescriptor(value: unknown): GenericWrapperDes
   if (credentialRecord.mode === "per_user_oauth" && !lifecycleRoutes) {
     throw new Error("per_user_oauth requires lifecycleRoutes=true");
   }
+  const hideToolsUntilConnected =
+    optionalBoolean(record.hideToolsUntilConnected, "hideToolsUntilConnected") ?? false;
+  if (hideToolsUntilConnected && credentialRecord.mode !== "per_user_oauth") {
+    throw new Error("hideToolsUntilConnected requires credential.mode=per_user_oauth");
+  }
 
   return {
     schemaVersion: GENERIC_WRAPPER_SCHEMA_VERSION,
@@ -224,6 +243,8 @@ export function parseGenericWrapperDescriptor(value: unknown): GenericWrapperDes
     catalogPath,
     ...parseCatalogFilter(record.catalogFilter),
     lifecycleRoutes,
+    hideToolsUntilConnected,
+    lifecycleToolNames: parseLifecycleToolNames(record.lifecycleToolNames),
     upstream: parseUpstream(record.upstream),
     credential: parseCredential(credentialRecord),
     serverInfo: parseServerInfo(record.serverInfo, name),
@@ -231,6 +252,22 @@ export function parseGenericWrapperDescriptor(value: unknown): GenericWrapperDes
     policy: parsePolicy(record.policy),
     audit: parseAudit(record.audit),
   };
+}
+
+function parseLifecycleToolNames(value: unknown): GenericLifecycleToolNames {
+  if (value === undefined) return { ...DEFAULT_LIFECYCLE_TOOL_NAMES };
+  const record = objectValue(value, "lifecycleToolNames");
+  assertAllowedFields(record, "lifecycleToolNames", ["start", "status"]);
+  const start =
+    record.start === undefined
+      ? DEFAULT_LIFECYCLE_TOOL_NAMES.start
+      : patternString(record.start, "lifecycleToolNames.start", TOOL_NAME_PATTERN);
+  const status =
+    record.status === undefined
+      ? DEFAULT_LIFECYCLE_TOOL_NAMES.status
+      : patternString(record.status, "lifecycleToolNames.status", TOOL_NAME_PATTERN);
+  if (start === status) throw new Error("lifecycleToolNames.start and status must differ");
+  return { start, status };
 }
 
 export function parseGenericToolCatalog(value: unknown, toolPrefix: string): GenericToolCatalog {
@@ -322,8 +359,8 @@ export function validateGenericWrapperConfiguration(
     throw new Error(`OAuth providerId ${descriptor.credential.providerId} is reserved`);
   }
   const reserved = new Set([
-    `${descriptor.toolPrefix}_oauth_status`,
-    `${descriptor.toolPrefix}_oauth_start`,
+    `${descriptor.toolPrefix}_${descriptor.lifecycleToolNames.status}`,
+    `${descriptor.toolPrefix}_${descriptor.lifecycleToolNames.start}`,
   ]);
   const collision = catalog.tools.find((tool) => reserved.has(tool.exposedName));
   if (collision) {
