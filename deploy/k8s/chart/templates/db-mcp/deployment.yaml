@@ -48,12 +48,19 @@ spec:
             - name: http
               containerPort: {{ .Values.dbMcp.port }}
           {{- include "mcp-gateway.probes" .Values.dbMcp | nindent 10 }}
-          {{- if and .Values.dbMcp.secretRef.name (eq (len .Values.dbMcp.secretRef.envKeys) 0) }}
+          {{- if and .Values.dbMcp.secretRef.name (eq (len .Values.dbMcp.secretRef.envKeys) 0) (not .Values.dbMcp.databaseUrl.secretKey) }}
           envFrom:
             - secretRef:
                 name: {{ .Values.dbMcp.secretRef.name }}
           {{- end }}
           env:
+            {{- with .Values.dbMcp.databaseUrl.secretKey }}
+            - name: DB_MCP_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.dbMcp.secretRef.name }}
+                  key: {{ . }}
+            {{- end }}
             {{- range .Values.dbMcp.secretRef.envKeys }}
             - name: {{ . }}
               valueFrom:

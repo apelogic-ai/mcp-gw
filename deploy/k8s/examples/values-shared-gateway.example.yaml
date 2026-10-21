@@ -1,0 +1,66 @@
+# Provider-neutral GitOps profile for an existing shared Gateway and one
+# externally synchronized runtime Secret. Replace only the example host,
+# issuer, Gateway reference, image repositories/tags, and Secret coordinates.
+hop1:
+  issuers:
+    - name: platform-identity
+      issuer: https://identity.example.com
+      audiences:
+        - https://mcp.example.com/mcp
+      jwksUrl: https://identity.example.com/.well-known/jwks.json
+      allowedAlgorithms:
+        - EdDSA
+      discoverable: true
+      emailClaim: email
+      subjectClaim: sub
+
+agentgateway:
+  enabled: true
+  image:
+    repository: registry.example.com/mcp/agentgateway
+    tag: 0.6.1
+    digest: ""
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  mcpAuthentication:
+    mode: strict
+    resourceMetadata:
+      resource: https://mcp.example.com/mcp
+      scopesSupported:
+        - openid
+        - email
+      bearerMethodsSupported:
+        - header
+  backends:
+    - name: db-mcp
+      enabled: true
+      serviceName: db-mcp
+      port: 8080
+      path: /mcp
+  ingress:
+    enabled: false
+  gatewayApi:
+    httpRoute:
+      enabled: true
+      hostname: mcp.example.com
+      parentRefs:
+        - name: shared-gateway
+          namespace: gateway-system
+          sectionName: https
+      # Streaming MCP requests have no route-level deadline.
+      timeouts:
+        request: 0s
+
+dbMcp:
+  enabled: true
+  image:
+    repository: registry.example.com/mcp/db-mcp
+    tag: 1.2.3
+    digest: ""
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  secretRef:
+    name: runtime-secrets
+    envKeys: []
+  databaseUrl:
+    secretKey: database-url

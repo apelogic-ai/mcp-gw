@@ -29,4 +29,8 @@ spec:
       backendRefs:
         - name: {{ include "mcp-gateway.authorizationBrokerServiceName" . }}
           port: {{ .Values.googleWorkspace.port }}
+      {{- with .Values.agentgateway.gatewayApi.brokerHttpRoute.timeouts.request }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
 {{- end }}

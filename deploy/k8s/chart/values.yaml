@@ -187,11 +187,20 @@ agentgateway:
       - /.well-known/oauth-protected-resource/mcp
     tls: []
   gatewayApi:
+    # Opt-in /mcp HTTPRoute for an existing shared Gateway.
+    httpRoute:
+      enabled: false
+      hostname: ""
+      parentRefs: []
+      timeouts:
+        request: ""
     # Opt-in broker-only HTTPRoute for an existing Gateway API /mcp route.
     # The chart never creates a second /mcp route in this mode.
     brokerHttpRoute:
       enabled: false
       parentRefs: []
+      timeouts:
+        request: ""
   hpa:
     enabled: false
     minReplicas: 1
@@ -264,6 +273,8 @@ governedCli:
       enabled: false
       hostname: ""
       parentRefs: []
+      timeouts:
+        request: ""
 
 googleWorkspace:
   enabled: false
@@ -424,6 +435,9 @@ dbMcp:
   secretRef:
     name: ""
     envKeys: []
+  # Maps one key from secretRef.name to the DB_MCP_DSN environment variable.
+  databaseUrl:
+    secretKey: ""
   # Opt-in HOP-1, catalog, policy, and audit sidecar. Disabled preserves the
   # historical direct AgentGateway -> db-mcp topology byte-for-byte.
   wrapper:

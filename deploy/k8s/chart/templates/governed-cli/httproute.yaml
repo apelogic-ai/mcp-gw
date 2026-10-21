@@ -19,4 +19,8 @@ spec:
       backendRefs:
         - name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "governed-cli") }}
           port: {{ .Values.governedCli.port }}
+      {{- with .Values.governedCli.gatewayApi.httpRoute.timeouts.request }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
 {{- end }}

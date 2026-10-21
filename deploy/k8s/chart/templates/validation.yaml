@@ -94,6 +94,33 @@
 {{- end }}
 {{- end }}
 
+{{- $agentgatewayHttpRoute := .Values.agentgateway.gatewayApi.httpRoute }}
+{{- if and $agentgatewayHttpRoute.enabled (not .Values.agentgateway.enabled) }}
+{{- fail "agentgateway.gatewayApi.httpRoute.enabled requires agentgateway.enabled=true" }}
+{{- end }}
+{{- if and $agentgatewayHttpRoute.enabled .Values.agentgateway.ingress.enabled }}
+{{- fail "agentgateway ingress and gatewayApi.httpRoute cannot both be enabled" }}
+{{- end }}
+{{- if and $agentgatewayHttpRoute.enabled (or (not $agentgatewayHttpRoute.hostname) (eq (len $agentgatewayHttpRoute.parentRefs) 0)) }}
+{{- fail "agentgateway.gatewayApi.httpRoute requires hostname and parentRefs" }}
+{{- end }}
+
+{{- $databaseUrlKey := .Values.dbMcp.databaseUrl.secretKey }}
+{{- if and $databaseUrlKey (not .Values.dbMcp.enabled) }}
+{{- fail "dbMcp.databaseUrl.secretKey requires dbMcp.enabled=true" }}
+{{- end }}
+{{- if $databaseUrlKey }}
+{{- if not .Values.dbMcp.secretRef.name }}
+{{- fail "dbMcp.databaseUrl.secretKey requires dbMcp.secretRef.name" }}
+{{- end }}
+{{- if or (hasKey .Values.dbMcp.env "DB_MCP_DSN") (has "DB_MCP_DSN" .Values.dbMcp.secretRef.envKeys) }}
+{{- fail "dbMcp.databaseUrl.secretKey conflicts with another DB_MCP_DSN source" }}
+{{- end }}
+{{- range .Values.dbMcp.extraEnv }}
+{{- if eq .name "DB_MCP_DSN" }}{{- fail "dbMcp.databaseUrl.secretKey conflicts with another DB_MCP_DSN source" }}{{- end }}
+{{- end }}
+{{- end }}
+
 {{- $wrapperNames := list }}
 {{- $wrapperPrefixes := list }}
 {{- $wrapperProviderIds := list }}
