@@ -57,6 +57,10 @@ docker buildx build --platform "$PLATFORM" --load \
 docker buildx build --platform "$PLATFORM" --load \
   --file servers/generic-wrapper/Dockerfile \
   --tag "mcp-gw-generic-wrapper:$VERSION" .
+
+docker buildx build --platform "$PLATFORM" --load \
+  --file servers/remote-shell/Dockerfile \
+  --tag "mcp-gw-remote-shell:$VERSION" .
 ```
 
 The release-owned AgentGateway image is built from the compatibility fork and exact commit in
@@ -178,6 +182,10 @@ gh attestation verify \
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/mcp-gw-generic-wrapper@$(cat "$ARTIFACTS/generic-wrapper.digest")" \
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
+
+gh attestation verify \
+  "oci://ghcr.io/apelogic-ai/mcp-gw-remote-shell@$(cat "$ARTIFACTS/remote-shell.digest")" \
   --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 
 gh attestation verify \

@@ -30,6 +30,8 @@ annotations:
       image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.6.2
     - name: mcp-gw-governed-cli
       image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.6.2
+    - name: mcp-gw-remote-shell
+      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.6.2
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance

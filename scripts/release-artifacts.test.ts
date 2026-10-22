@@ -62,6 +62,7 @@ describe("release artifacts", () => {
     expect(workflow).toContain("mcp-gw-github-wrapper");
     expect(workflow).toContain("mcp-gw-generic-wrapper");
     expect(workflow).toContain("mcp-gw-governed-cli");
+    expect(workflow).toContain("mcp-gw-remote-shell");
     expect(workflow).toContain("docker/build-push-action@");
     expect(workflow).toContain("actions/attest-build-provenance@");
     expect(workflow).toContain("anchore/sbom-action@");
@@ -70,6 +71,7 @@ describe("release artifacts", () => {
     expect(workflow).toContain("oci://ghcr.io/${{ github.repository_owner }}/charts");
     expect(workflow).toContain("generate-release-handoff.ts");
     expect(workflow).toContain("--governed-cli-digest");
+    expect(workflow).toContain("--remote-shell-digest");
     expect(workflow).toContain("--values deploy/k8s/chart/values.yaml");
     expect(workflow).toContain('VERSION="${GITHUB_REF_NAME#v}"');
     expect(workflow).toContain('VERSION="${GITHUB_REF_NAME#v}"');
@@ -102,18 +104,25 @@ describe("release artifacts", () => {
         "github-wrapper",
         "generic-wrapper",
         "governed-cli",
+        "remote-shell",
         "github-mcp-server",
       ].flatMap((component) => [`--${component}-digest`, digest]),
     ]);
 
     expect(await process.exited).toBe(0);
     expect(await readFile(chart, "utf8")).toContain(`mcp-gw-governed-cli@${digest}`);
+    expect(await readFile(chart, "utf8")).toContain(`mcp-gw-remote-shell@${digest}`);
     const pinnedValues = await readFile(values, "utf8");
     const governedCliValues = pinnedValues.slice(
       pinnedValues.indexOf("governedCli:"),
       pinnedValues.indexOf("googleWorkspace:"),
     );
     expect(governedCliValues).toContain(`digest: "${digest}"`);
+    const remoteShellValues = pinnedValues.slice(
+      pinnedValues.indexOf("remoteShell:"),
+      pinnedValues.indexOf("googleWorkspace:"),
+    );
+    expect(remoteShellValues).toContain(`digest: "${digest}"`);
   });
 
   test("publishes and attests the generated GitHub governance catalog", async () => {
@@ -357,6 +366,7 @@ describe("release artifacts", () => {
         "github-wrapper",
         "generic-wrapper",
         "governed-cli",
+        "remote-shell",
         "github-mcp-server",
         "helm-chart",
         "github-governance-catalog",
@@ -383,6 +393,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-wrapper@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-generic-wrapper@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-governed-cli@${digest}`);
+    expect(handoff).toContain(`ghcr.io/example/mcp-gw-remote-shell@${digest}`);
     expect(handoff).toContain(`ghcr.io/example/mcp-gw-github-mcp-server@${digest}`);
     expect(handoff).toContain("ghcr.io/github/github-mcp-server@");
     expect(handoff).toContain("digest equality");

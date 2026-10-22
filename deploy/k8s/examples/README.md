@@ -23,6 +23,11 @@ selection, and maps one named database URL key from one externally synchronized
 Secret. It does not create a Namespace, Gateway, Secret, or cluster-scoped
 object.
 
+The same profile includes a disabled `remoteShell` block for `/shell`. To opt in, supply the
+binding Secret key and workload identity, then enable both `remoteShell.enabled` and its HTTPRoute.
+The example keeps repository/tag promotion available, leaves the digest optional, and sets an
+explicit request timeout for long-running commands.
+
 To add an MCP backend behind the same public `/mcp` endpoint, add the backend
 runtime manifests or install its own chart, then append an entry under
 `agentgateway.backends`. Use `serviceName`, `port`, and `path` for services

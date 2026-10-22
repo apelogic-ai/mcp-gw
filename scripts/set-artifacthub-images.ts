@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Pin release chart image metadata after the component images are published.
- * Artifact Hub receives immutable image coordinates, and the opt-in governed
- * CLI receives its required runtime digest in the packaged values.
+ * Artifact Hub receives immutable image coordinates, and opt-in execution
+ * services receive their published runtime digests in the packaged values.
  *
  * The first-party `mcp-gw-*` images and the reviewed upstream GitHub MCP
  * Server are repinned by digest. The committed Chart.yaml keeps tag-based
@@ -31,6 +31,7 @@ const digestByName: Record<string, string | undefined> = {
   "mcp-gw-github-wrapper": arg("github-wrapper-digest"),
   "mcp-gw-generic-wrapper": arg("generic-wrapper-digest"),
   "mcp-gw-governed-cli": arg("governed-cli-digest"),
+  "mcp-gw-remote-shell": arg("remote-shell-digest"),
   "github-mcp-server": arg("github-mcp-server-digest"),
 };
 
@@ -72,6 +73,7 @@ doc.setIn(["annotations", annotationKey], scalar);
 writeFileSync(chartPath, doc.toString());
 const values = parseDocument(readFileSync(valuesPath, "utf8"));
 values.setIn(["governedCli", "image", "digest"], digestByName["mcp-gw-governed-cli"]);
+values.setIn(["remoteShell", "image", "digest"], digestByName["mcp-gw-remote-shell"]);
 writeFileSync(valuesPath, values.toString());
 console.log(`Pinned ${annotationKey} images by digest in ${chartPath}:`);
 for (const entry of images) {

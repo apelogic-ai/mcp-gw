@@ -412,6 +412,27 @@ cannot inspect, stream, or cancel a job. Scale beyond one replica only after a
 shared job store is implemented. Enabling the workload also requires an
 immutable `governedCli.image.digest`; released charts pin it automatically.
 
+### Remote shell
+
+Remote shell is disabled by default. Its route is limited to `/shell`, it serves commands at
+`/shell/run`, and it never uses `/mcp`. Enabling it requires one named key in an existing Secret for
+principal-to-role bindings, a non-empty run-tag key, a service account that carries the
+deployment-owned workload identity, trusted ingress peers, and exactly one Ingress or HTTPRoute.
+Keep `remoteShell.replicas: 1`: async job ownership is held in process memory. The HTTPRoute
+supports `timeouts.request`; set an explicit duration or `0s` when commands may outlast a shared
+gateway's default.
+
+For a chart-created service account, set a workload-role annotation or set
+`serviceAccount.podIdentity: true` only after an external pod-identity association exists. For an
+existing service account, set `create: false` and its exact `name`. Set the target region under
+`remoteShell.aws.region`; the chart supplies it as `AWS_REGION`. Kubernetes API tokens are not
+mounted into the pod.
+
+Only configured role names reach the service. The agent cannot supply an address, machine ID,
+credential, run-tag key, or execution document. Keep target networks isolated, target permissions
+minimal, instance metadata protected, and target lifetimes bounded. The complete binding and
+least-privilege contract is in `servers/remote-shell/README.md`.
+
 ## Upgrade
 
 ```bash

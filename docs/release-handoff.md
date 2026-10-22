@@ -20,6 +20,8 @@ stable information an external GitOps repository can rely on.
   [GitHub Governance Catalog](github-governance-catalog.md).
 - Sandbox helper: architecture-specific `mcp-gw-sandbox-helper-linux-{amd64,arm64}.tar.gz`
   archives, one checksum manifest, and tag-workflow build-provenance attestations.
+- Remote shell image: a multi-architecture first-party image with a release digest, SBOM,
+  vulnerability report, and workflow-bound build-provenance attestation.
 
 The official GitHub MCP Server remains an external dependency even though the release publishes a
 convenience mirror. It receives no MCP-GW build-provenance attestation. Operators should select the

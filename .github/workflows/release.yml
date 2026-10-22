@@ -111,6 +111,16 @@ jobs:
           cache-from: type=gha,scope=generic-wrapper-smoke
           cache-to: type=gha,mode=max,scope=generic-wrapper-smoke
 
+      - name: Build remote shell candidate
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: servers/remote-shell/Dockerfile
+          load: true
+          tags: mcp-gw-remote-shell:smoke
+          cache-from: type=gha,scope=remote-shell-smoke
+          cache-to: type=gha,mode=max,scope=remote-shell-smoke
+
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
 
@@ -150,6 +160,7 @@ jobs:
           docker pull postgres:16-alpine
           kind load docker-image mcp-gw-google-workspace:smoke --name mcp-gateway-smoke
           kind load docker-image mcp-gw-github-wrapper:smoke --name mcp-gateway-smoke
+          kind load docker-image mcp-gw-remote-shell:smoke --name mcp-gateway-smoke
           kind load docker-image "$GITHUB_MCP_TAGGED" --name mcp-gateway-smoke
           kind load docker-image postgres:16-alpine --name mcp-gateway-smoke
 
@@ -158,6 +169,8 @@ jobs:
         env:
           K8S_SMOKE_AGENTGATEWAY_REPOSITORY: mcp-gw-agentgateway
           K8S_SMOKE_AGENTGATEWAY_TAG: smoke
+          K8S_SMOKE_REMOTE_SHELL_REPOSITORY: mcp-gw-remote-shell
+          K8S_SMOKE_REMOTE_SHELL_TAG: smoke
 
       - name: Run provider runtime Kubernetes smoke
         run: bash scripts/smoke-k8s-provider-runtime.sh
@@ -362,6 +375,20 @@ jobs:
             architecture: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+          - component: remote-shell
+            repository: mcp-gw-remote-shell
+            context: .
+            dockerfile: servers/remote-shell/Dockerfile
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - component: remote-shell
+            repository: mcp-gw-remote-shell
+            context: .
+            dockerfile: servers/remote-shell/Dockerfile
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -458,6 +485,8 @@ jobs:
             repository: mcp-gw-generic-wrapper
           - component: governed-cli
             repository: mcp-gw-governed-cli
+          - component: remote-shell
+            repository: mcp-gw-remote-shell
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -705,6 +734,7 @@ jobs:
             --github-wrapper-digest "$(cat dist/github-wrapper.digest)" \
             --generic-wrapper-digest "$(cat dist/generic-wrapper.digest)" \
             --governed-cli-digest "$(cat dist/governed-cli.digest)" \
+            --remote-shell-digest "$(cat dist/remote-shell.digest)" \
             --github-mcp-server-digest "$(cat dist/github-mcp-server.digest)"
 
       - name: Package and publish OCI chart
@@ -902,6 +932,7 @@ jobs:
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-github-wrapper@$(cat dist/github-wrapper.digest)"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-generic-wrapper@$(cat dist/generic-wrapper.digest)"
           docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-governed-cli@$(cat dist/governed-cli.digest)"
+          docker buildx imagetools inspect "ghcr.io/$OWNER/mcp-gw-remote-shell@$(cat dist/remote-shell.digest)"
           docker buildx imagetools inspect "$GITHUB_MCP_MIRROR@$(cat dist/github-mcp-server.digest)"
           helm pull "oci://ghcr.io/$OWNER/charts/mcp-gateway" \
             --version "${GITHUB_REF_NAME#v}" \
@@ -935,6 +966,10 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
             --format json > "$RUNNER_TEMP/public-attestations/governed-cli.json"
           gh attestation verify \
+            "oci://ghcr.io/$OWNER/mcp-gw-remote-shell@$(cat dist/remote-shell.digest)" \
+            --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
+            --format json > "$RUNNER_TEMP/public-attestations/remote-shell.json"
+          gh attestation verify \
             "oci://ghcr.io/$OWNER/charts/mcp-gateway@$(cat dist/helm-chart.digest)" \
             --repo "$GITHUB_REPOSITORY" --cert-identity "$SIGNER" \
             --format json > "$RUNNER_TEMP/public-attestations/helm-chart.json"
@@ -959,6 +994,7 @@ jobs:
             --subject "ghcr.io/$OWNER/mcp-gw-github-wrapper" \
             --subject "ghcr.io/$OWNER/mcp-gw-generic-wrapper" \
             --subject "ghcr.io/$OWNER/mcp-gw-governed-cli" \
+            --subject "ghcr.io/$OWNER/mcp-gw-remote-shell" \
             --subject "ghcr.io/$OWNER/charts/mcp-gateway" \
             --subject "github-governance-catalog.json" \
             --subject "mcp-gw-sandbox-helper-linux-amd64.tar.gz" \
@@ -968,6 +1004,7 @@ jobs:
             --attestation "$RUNNER_TEMP/public-attestations/github-wrapper.json" \
             --attestation "$RUNNER_TEMP/public-attestations/generic-wrapper.json" \
             --attestation "$RUNNER_TEMP/public-attestations/governed-cli.json" \
+            --attestation "$RUNNER_TEMP/public-attestations/remote-shell.json" \
             --attestation "$RUNNER_TEMP/public-attestations/helm-chart.json" \
             --attestation "$RUNNER_TEMP/public-attestations/github-governance-catalog.json" \
             --attestation "$RUNNER_TEMP/public-attestations/sandbox-helper-amd64.json" \

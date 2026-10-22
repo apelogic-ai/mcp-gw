@@ -1,0 +1,102 @@
+{{- if .Values.remoteShell.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "remote-shell") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: remote-shell
+spec:
+  replicas: {{ .Values.remoteShell.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "remote-shell") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.remoteShell.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "remote-shell") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "remote-shell" "values" .Values.remoteShell) }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.remoteShell.podSecurityContext | nindent 8 }}
+      {{- include "mcp-gateway.podScheduling" .Values.remoteShell | nindent 6 }}
+      containers:
+        - name: remote-shell
+          image: {{ include "mcp-gateway.image" (dict "root" . "image" .Values.remoteShell.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.remoteShell.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.remoteShell.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.remoteShell.port | quote }}
+            - name: REMOTE_SHELL_BINDINGS_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.remoteShell.bindingsSecretRef.name }}
+                  key: {{ .Values.remoteShell.bindingsSecretRef.key }}
+            - name: REMOTE_SHELL_RUN_TAG_KEY
+              value: {{ .Values.remoteShell.runBinding.tagKey | quote }}
+            - name: REMOTE_SHELL_MAX_TIMEOUT_SECONDS
+              value: {{ .Values.remoteShell.limits.maxTimeoutSeconds | quote }}
+            - name: REMOTE_SHELL_MAX_OUTPUT_BYTES
+              value: {{ .Values.remoteShell.limits.maxOutputBytes | quote }}
+            - name: REMOTE_SHELL_MAX_COMMAND_BYTES
+              value: {{ .Values.remoteShell.limits.maxCommandBytes | quote }}
+            - name: REMOTE_SHELL_MAX_BODY_BYTES
+              value: {{ .Values.remoteShell.limits.maxBodyBytes | quote }}
+            - name: REMOTE_SHELL_MAX_JOBS
+              value: {{ .Values.remoteShell.limits.maxJobs | quote }}
+            - name: REMOTE_SHELL_MAX_RUNNING_JOBS_PER_OWNER
+              value: {{ .Values.remoteShell.limits.maxRunningJobsPerOwner | quote }}
+            - name: REMOTE_SHELL_JOB_RETENTION_SECONDS
+              value: {{ .Values.remoteShell.limits.jobRetentionSeconds | quote }}
+            {{- with .Values.remoteShell.aws.region }}
+            - name: AWS_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}
+            {{- else }}
+            - name: HOP1_ISSUERS_JSON
+              value: {{ include "mcp-gateway.hop1IssuersJson" .Values.hop1.issuers | quote }}
+            {{- end }}
+            {{- range $index, $issuer := .Values.hop1.issuers }}
+            {{- with $issuer.introspection }}
+            - name: HOP1_INTROSPECTION_CREDENTIAL_{{ $index }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .credentialSecretKeyRef.name }}
+                  key: {{ .credentialSecretKeyRef.key }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.trustBundle.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ include "mcp-gateway.trustBundlePath" . | quote }}
+            {{- end }}
+          {{- include "mcp-gateway.probes" .Values.remoteShell | nindent 10 }}
+          volumeMounts:
+            - name: runtime-tmp
+              mountPath: /tmp
+            {{- include "mcp-gateway.trustBundleVolumeMount" . | nindent 12 }}
+          {{- with .Values.remoteShell.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: runtime-tmp
+          emptyDir: {}
+        {{- include "mcp-gateway.trustBundleVolume" . | nindent 8 }}
+{{- end }}
