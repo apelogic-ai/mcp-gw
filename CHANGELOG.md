@@ -8,10 +8,42 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-22
+
 ### Added
 
+- Publish architecture-specific sandbox-helper archives with a checksum manifest and build
+  provenance. The runnable helper supports governed CLI commands by invocation name and a
+  role-based remote-shell client while taking its endpoint and credential from operator-controlled
+  configuration rather than agent arguments.
 - Publish the remote-shell image with release provenance and add default-off Helm values for its
   workload identity, target bindings, `/shell` route, request timeout, and run-tag enforcement.
+
+### Changed
+
+- Allow the governed CLI image to use repository plus tag when no digest is supplied, while
+  released charts continue to pin the published digest.
+
+### Security
+
+- Require an explicit identity annotation or pod-identity assertion for chart-created remote-shell
+  service accounts, require a name for externally managed service accounts, and disable Kubernetes
+  API-token automount for the remote-shell pod.
+
+### Upgrade Notes
+
+- The sandbox helper is an optional release asset. Verify its checksum and provenance before
+  installing it in a sandbox image; the helper never accepts endpoint or credential overrides from
+  agent command arguments.
+- Remote shell remains disabled by default. Enabling it requires one replica, a verified HOP-1
+  issuer, one named bindings Secret key, a non-empty run-tag key, an explicit workload identity,
+  trusted ingress peers, a target region, and exactly one direct `/shell` route. It never adds a
+  tool beneath `/mcp`.
+- Tag-promoting deployments may set the governed CLI and remote-shell image repository and tag with
+  an empty digest. The published chart still records immutable release digests in its handoff.
+- Existing deployments remain unchanged while the new workload stays disabled. This release
+  requires no database migration, OAuth reconnect, provider reauthorization, or Secret-format
+  change.
 
 ## [0.6.2] - 2026-10-22
 
@@ -915,7 +947,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.7...v0.6.0

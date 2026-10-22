@@ -19,7 +19,30 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.6.2`.
+The current public release line is `v0.7.0`.
+
+### 0.7.0 upgrade notes
+
+- The release adds architecture-specific `mcp-gw-sandbox-helper-linux-{amd64,arm64}.tar.gz`
+  archives, `SHA256SUMS`, and workflow-bound build provenance. Pin and verify the archive before
+  adding it to a sandbox image. CLI names are selected by the executable's invocation name; the
+  remote-shell mode accepts a configured role, never a machine address. Endpoints and credentials
+  come only from operator-controlled environment or credential-file settings.
+- Remote shell is now a published multi-architecture image and a default-off chart workload. It
+  serves commands at `/shell/run` through a direct `/shell` route and remains separate from `/mcp`.
+  Enabling it requires one replica, a verified HOP-1 issuer, one named bindings Secret key, a
+  non-empty run-tag key, trusted ingress peers, a target region, and exactly one Ingress or
+  HTTPRoute. HTTPRoute request timeouts are configurable for long-running commands.
+- A chart-created remote-shell service account must have at least one workload-identity annotation
+  or an explicit `podIdentity: true` assertion for an association managed outside the chart. An
+  externally managed service account requires its exact name. The workload does not mount a
+  Kubernetes API token.
+- Governed CLI and remote shell accept repository plus tag when the digest is empty, supporting
+  tag-promoting deployment systems. Released chart values and the generated handoff still pin
+  immutable image digests.
+- Existing workloads and routes are unchanged while remote shell stays disabled. No database
+  migration, OAuth reconnect, provider reauthorization, Secret-format change, or change to `/mcp`
+  is introduced.
 
 ### 0.6.2 upgrade notes
 
