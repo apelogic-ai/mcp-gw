@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.6.2
-appVersion: "0.6.2"
+version: 0.7.0
+appVersion: "0.7.0"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,17 +21,17 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.6.2
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.7.0
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.6.2
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.7.0
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.6.2
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.7.0
     - name: mcp-gw-generic-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.6.2
+      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.7.0
     - name: mcp-gw-governed-cli
-      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.6.2
+      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.7.0
     - name: mcp-gw-remote-shell
-      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.6.2
+      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.7.0
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -40,8 +40,10 @@ annotations:
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
-      description: Add an opt-in shared-Gateway profile with parent references and request timeouts.
+      description: Publish the sandbox helper with governed CLI and remote-shell client modes.
+    - kind: added
+      description: Add the opt-in remote-shell image, workload, bindings, and direct route.
     - kind: changed
-      description: Let generic wrappers hide provider tools until connected and rename lifecycle tools.
+      description: Allow governed CLI images to use a tag when no digest is supplied.
     - kind: security
-      description: Project only the configured database URL key from an existing Secret.
+      description: Require explicit remote-shell workload identity and disable API-token automount.

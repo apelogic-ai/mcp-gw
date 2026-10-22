@@ -41,7 +41,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(manifestGoldenDigest(rendered)).toBe(
-      "b47c83a7510fa28ecb0b943ed833705d7be92084bb8b92461d2dbffafac1d26c",
+      "014ed8ac4cccbfdb6c592c1ca9bd251400c7c2de3f56b1c0814345e881269058",
     );
   });
 
@@ -3014,7 +3014,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.6.2");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.7.0");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
