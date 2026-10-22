@@ -141,6 +141,22 @@ exit 0
     expect(releaseWorkflow).toContain("docker/build-push-action@");
     expect(releaseWorkflow).toContain("kind load docker-image mcp-gw-agentgateway:smoke");
     expect(releaseWorkflow).toContain("bun run integration:k8s");
+    expect(releaseWorkflow).toContain("servers/remote-shell/Dockerfile");
+    expect(releaseWorkflow).toContain("mcp-gw-remote-shell:smoke");
+    expect(releaseWorkflow).toContain("kind load docker-image mcp-gw-remote-shell:smoke");
+  });
+
+  test("starts the chart-deployed remote shell and exercises its authentication refusal", async () => {
+    const smoke = await readFile("scripts/smoke-k8s.sh", "utf8");
+
+    expect(smoke).toContain("K8S_SMOKE_REMOTE_SHELL_REPOSITORY");
+    expect(smoke).toContain("remote-shell-bindings");
+    expect(smoke).toContain('rollout status \\\n+    "deployment/$RELEASE_NAME-remote-shell"');
+    expect(smoke).toContain(
+      "$RELEASE_NAME-remote-shell.$NAMESPACE.svc.cluster.local:8080/shell/run",
+    );
+    expect(smoke).toContain("SHELL_STATUS:%{http_code}");
+    expect(smoke).toContain('[[ "$SHELL_STATUS" == "401" ]]');
   });
 
   test("tests broker fanout with the published release images before publishing the chart", async () => {
