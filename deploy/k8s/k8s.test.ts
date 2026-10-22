@@ -3290,7 +3290,7 @@ describe("Kubernetes production chart", () => {
       ),
     ]);
 
-    expect(values.match(/resources: \{\}/g)).toHaveLength(8);
+    expect(values.match(/resources: \{\}/g)).toHaveLength(9);
     for (const component of ["agentgateway", "google-workspace", "github-wrapper", "github-mcp"]) {
       const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-${component}`);
       expect(deployment).toContain("requests:");

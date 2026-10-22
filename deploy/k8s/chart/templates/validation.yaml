@@ -37,6 +37,44 @@
 {{- end }}
 {{- end }}
 
+{{- if and .Values.remoteShell.gatewayApi.httpRoute.enabled (not .Values.remoteShell.enabled) }}
+{{- fail "remoteShell.gatewayApi.httpRoute.enabled requires remoteShell.enabled=true" }}
+{{- end }}
+{{- if .Values.remoteShell.enabled }}
+{{- if not .Values.remoteShell.image.repository }}
+{{- fail "image.repository is required when remoteShell is enabled" }}
+{{- end }}
+{{- if ne (int .Values.remoteShell.replicas) 1 }}
+{{- fail "remoteShell.replicas must be 1 while job state is process-local" }}
+{{- end }}
+{{- if and (not .Values.remoteShell.serviceAccount.create) (not .Values.remoteShell.serviceAccount.name) }}
+{{- fail "remoteShell.enabled requires serviceAccount.create=true or serviceAccount.name" }}
+{{- end }}
+{{- if or (not .Values.remoteShell.bindingsSecretRef.name) (not .Values.remoteShell.bindingsSecretRef.key) }}
+{{- fail "remoteShell.enabled requires bindingsSecretRef.name and key" }}
+{{- end }}
+{{- if not .Values.remoteShell.runBinding.tagKey }}
+{{- fail "remoteShell.enabled requires runBinding.tagKey" }}
+{{- end }}
+{{- if and (not .Values.hop1.issuers) (not .Values.googleWorkspace.authorizationBroker.enabled) }}
+{{- fail "remoteShell.enabled requires at least one HOP-1 issuer" }}
+{{- end }}
+{{- if eq (len .Values.remoteShell.networkPolicy.ingressPeers) 0 }}
+{{- fail "remoteShell.enabled requires at least one networkPolicy.ingressPeers entry" }}
+{{- end }}
+{{- $remoteShellIngressEnabled := .Values.remoteShell.ingress.enabled }}
+{{- $remoteShellHttpRouteEnabled := .Values.remoteShell.gatewayApi.httpRoute.enabled }}
+{{- if eq $remoteShellIngressEnabled $remoteShellHttpRouteEnabled }}
+{{- fail "remoteShell.enabled requires exactly one of ingress or gatewayApi.httpRoute" }}
+{{- end }}
+{{- if and $remoteShellIngressEnabled (not .Values.remoteShell.ingress.host) }}
+{{- fail "remoteShell.ingress.host is required" }}
+{{- end }}
+{{- if and $remoteShellHttpRouteEnabled (or (not .Values.remoteShell.gatewayApi.httpRoute.hostname) (eq (len .Values.remoteShell.gatewayApi.httpRoute.parentRefs) 0)) }}
+{{- fail "remoteShell.gatewayApi.httpRoute requires hostname and parentRefs" }}
+{{- end }}
+{{- end }}
+
 {{- if and .Values.dbMcp.wrapper.enabled (not .Values.dbMcp.enabled) }}
 {{- fail "dbMcp.wrapper.enabled requires dbMcp.enabled=true" }}
 {{- end }}

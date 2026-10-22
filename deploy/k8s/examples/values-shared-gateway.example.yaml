@@ -51,6 +51,41 @@ agentgateway:
       timeouts:
         request: 0s
 
+# Opt in after supplying the target-binding Secret and workload identity.
+remoteShell:
+  enabled: false
+  image:
+    repository: registry.example.com/mcp/remote-shell
+    tag: ""
+    digest: ""
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  bindingsSecretRef:
+    name: runtime-secrets
+    key: remote-shell-bindings
+  runBinding:
+    tagKey: example:run-id
+  networkPolicy:
+    ingressPeers:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: gateway-system
+  ingress:
+    enabled: false
+  gatewayApi:
+    httpRoute:
+      enabled: false
+      hostname: mcp.example.com
+      parentRefs:
+        - name: shared-gateway
+          namespace: gateway-system
+          sectionName: https
+      # Remote commands may exceed a shared Gateway's default timeout.
+      timeouts:
+        request: 0s
+
 dbMcp:
   enabled: true
   image:

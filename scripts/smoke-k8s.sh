@@ -10,7 +10,7 @@ CLUSTER_NAME="${K8S_SMOKE_CLUSTER_NAME:-mcp-gateway-smoke}"
 CREATED_CLUSTER=false
 
 cleanup() {
-  kubectl delete pod mcp-metadata-probe mcp-auth-probe \
+  kubectl delete pod mcp-metadata-probe mcp-auth-probe remote-shell-auth-probe \
     --namespace "$NAMESPACE" \
     --ignore-not-found \
     --wait=false >/dev/null 2>&1 || true
@@ -57,6 +57,25 @@ install_chart() {
     --timeout 3m
 }
 
+REMOTE_SHELL_ARGS=(--set "remoteShell.enabled=false")
+if [[ -n "${K8S_SMOKE_REMOTE_SHELL_REPOSITORY:-}" ]]; then
+  : "${K8S_SMOKE_REMOTE_SHELL_TAG:?K8S_SMOKE_REMOTE_SHELL_TAG is required when overriding the repository}"
+  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create secret generic remote-shell-bindings \
+    --namespace "$NAMESPACE" \
+    --from-literal='bindings.json=[{"issuer":"https://unavailable.example.com","subject":"smoke","targets":{"controller":"i-0123456789abcdef0"}}]' \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  REMOTE_SHELL_ARGS=(
+    --set "remoteShell.enabled=true"
+    --set-string "remoteShell.image.repository=$K8S_SMOKE_REMOTE_SHELL_REPOSITORY"
+    --set-string "remoteShell.image.tag=$K8S_SMOKE_REMOTE_SHELL_TAG"
+    --set-string "remoteShell.bindingsSecretRef.name=remote-shell-bindings"
+    --set-string "remoteShell.bindingsSecretRef.key=bindings.json"
+    --set-string "remoteShell.runBinding.tagKey=example:run-id"
+    --set-json "remoteShell.networkPolicy.ingressPeers=[{\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"$NAMESPACE\"}}}]"
+  )
+fi
+
 run_probe() {
   local pod_name="$1"
   local image="$2"
@@ -87,15 +106,35 @@ if [[ -n "${K8S_SMOKE_AGENTGATEWAY_REPOSITORY:-}" ]]; then
   install_chart \
     --set-string "agentgateway.image.repository=$K8S_SMOKE_AGENTGATEWAY_REPOSITORY" \
     --set-string "agentgateway.image.tag=$K8S_SMOKE_AGENTGATEWAY_TAG" \
-    --set-string "global.imagePullPolicy=Never"
+    --set-string "global.imagePullPolicy=Never" \
+    "${REMOTE_SHELL_ARGS[@]}"
 else
-  install_chart
+  install_chart "${REMOTE_SHELL_ARGS[@]}"
 fi
 
 kubectl rollout status \
   "deployment/$RELEASE_NAME-agentgateway" \
   --namespace "$NAMESPACE" \
   --timeout=120s
+
+if [[ -n "${K8S_SMOKE_REMOTE_SHELL_REPOSITORY:-}" ]]; then
+  kubectl rollout status \
+    "deployment/$RELEASE_NAME-remote-shell" \
+    --namespace "$NAMESPACE" \
+    --timeout=120s
+
+  SHELL_OUTPUT="$(run_probe \
+    remote-shell-auth-probe \
+    curlimages/curl:8.16.0 \
+    curl -sS -o /dev/null -w 'SHELL_STATUS:%{http_code}\n' \
+    -X POST \
+    -H 'content-type: application/json' \
+    --data '{"target":"controller","command":"true"}' \
+    "http://$RELEASE_NAME-remote-shell.$NAMESPACE.svc.cluster.local:8080/shell/run")"
+  SHELL_STATUS="$(printf '%s\n' "$SHELL_OUTPUT" | \
+    sed -n 's/.*SHELL_STATUS:\([0-9][0-9][0-9]\).*/\1/p' | tail -n 1)"
+  [[ "$SHELL_STATUS" == "401" ]]
+fi
 
 METADATA_OUTPUT="$(run_probe \
   mcp-metadata-probe \

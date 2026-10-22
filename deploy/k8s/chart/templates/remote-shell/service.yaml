@@ -1,0 +1,17 @@
+{{- if .Values.remoteShell.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "remote-shell") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: remote-shell
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "remote-shell") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.remoteShell.port }}
+      targetPort: http
+{{- end }}

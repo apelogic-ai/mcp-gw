@@ -8,6 +8,11 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Added
+
+- Publish the remote-shell image with release provenance and add default-off Helm values for its
+  workload identity, target bindings, `/shell` route, request timeout, and run-tag enforcement.
+
 ## [0.6.2] - 2026-10-22
 
 ### Added

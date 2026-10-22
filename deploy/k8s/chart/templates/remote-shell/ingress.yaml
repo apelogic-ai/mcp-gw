@@ -1,0 +1,32 @@
+{{- if and .Values.remoteShell.enabled .Values.remoteShell.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "remote-shell") }}
+  labels:
+    {{- include "mcp-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: remote-shell
+  {{- with .Values.remoteShell.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.remoteShell.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.remoteShell.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.remoteShell.ingress.host }}
+      http:
+        paths:
+          - path: /shell
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "remote-shell") }}
+                port:
+                  name: http
+{{- end }}

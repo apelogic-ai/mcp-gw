@@ -85,7 +85,7 @@ describe("remote-shell chart", () => {
       [
         "image repository",
         ["--set-string", "remoteShell.image.repository="],
-        "image.repository is required",
+        "remoteShell.image.repository: String length must be greater than or equal to 1",
       ],
       ["single replica", ["--set", "remoteShell.replicas=2"], "remoteShell.replicas must be 1"],
       [

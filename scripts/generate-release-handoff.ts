@@ -22,6 +22,7 @@ export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Pr
     githubWrapper: await readDigest(options.artifactsDirectory, "github-wrapper"),
     genericWrapper: await readDigest(options.artifactsDirectory, "generic-wrapper"),
     governedCli: await readDigest(options.artifactsDirectory, "governed-cli"),
+    remoteShell: await readDigest(options.artifactsDirectory, "remote-shell"),
     githubMcpServer: await readDigest(options.artifactsDirectory, "github-mcp-server"),
     chart: await readDigest(options.artifactsDirectory, "helm-chart"),
     githubGovernanceCatalog: await readDigest(
@@ -57,6 +58,7 @@ helm upgrade --install mcp-gateway ${chart} \\
 | GitHub wrapper | \`${registry}/mcp-gw-github-wrapper@${digests.githubWrapper}\` |
 | Generic wrapper | \`${registry}/mcp-gw-generic-wrapper@${digests.genericWrapper}\` |
 | Governed CLI | \`${registry}/mcp-gw-governed-cli@${digests.governedCli}\` |
+| Remote shell | \`${registry}/mcp-gw-remote-shell@${digests.remoteShell}\` |
 
 ## Sandbox Helper
 
@@ -140,6 +142,7 @@ gh attestation verify github-governance-catalog.json \\
 - GitHub wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
 - Generic wrapper: TCP \`8080\`, internal MCP path \`/mcp\`.
 - Governed CLI: TCP \`8080\`, public CLI path \`/cli\`.
+- Remote shell: TCP \`8080\`, public command path \`/shell/run\`.
 - Official GitHub MCP Server: TCP \`8082\`, internal MCP path \`/mcp\`.
 - Default Kubernetes Services are \`ClusterIP\`; ingress is opt-in.
 - Every workload has configurable liveness and readiness probes under its \`probes\` values.
