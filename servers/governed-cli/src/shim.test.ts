@@ -69,7 +69,7 @@ describe("governed CLI shim", () => {
           stderr: writer(stderr),
           fetch: () => Promise.resolve(response),
         }),
-      ).toBe(1);
+      ).toBe(125);
       expect(stdout).toEqual(response.status === 403 ? [] : ["missing exit"]);
       expect(stderr.join("")).toBe("CLI request failed\n");
       expect(stderr.join("")).not.toContain("provider-secret");
@@ -158,7 +158,7 @@ describe("governed CLI shim", () => {
           stdout: writer([]),
           stderr: writer(stderr),
         }),
-      ).toBe(1);
+      ).toBe(125);
     }
 
     expect(requests).toBe(0);
@@ -188,8 +188,46 @@ describe("governed CLI shim", () => {
           stdout: writer([]),
           stderr: writer([]),
         }),
-      ).toBe(1);
+      ).toBe(125);
     }
     expect(requests).toBe(0);
+  });
+
+  test("refuses redirects without replaying the command request", async () => {
+    let redirectedRequests = 0;
+    const destination = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => {
+        redirectedRequests += 1;
+        return new Response('{"type":"exit","exit_code":0}\n');
+      },
+    });
+    const destinationPort = destination.port;
+    if (destinationPort === undefined) throw new Error("Destination server did not bind");
+    const origin = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        Response.redirect(`http://127.0.0.1:${String(destinationPort)}/captured`, 307),
+    });
+    const originPort = origin.port;
+    if (originPort === undefined) throw new Error("Origin server did not bind");
+
+    try {
+      expect(
+        await runCliShim({
+          cli: "kubectl",
+          args: ["get", "pods"],
+          endpoint: `http://127.0.0.1:${String(originPort)}/cli/run`,
+          token: "edge-placeholder",
+          stdout: writer([]),
+          stderr: writer([]),
+        }),
+      ).toBe(125);
+      expect(redirectedRequests).toBe(0);
+    } finally {
+      await Promise.all([origin.stop(true), destination.stop(true)]);
+    }
   });
 });
