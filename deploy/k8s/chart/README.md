@@ -409,8 +409,8 @@ ClusterIP Service with your own gateway.
 Keep `governedCli.replicas: 1` when the governed CLI is enabled. Async job
 state and bounded output replay are held in process memory, so another replica
 cannot inspect, stream, or cancel a job. Scale beyond one replica only after a
-shared job store is implemented. Enabling the workload also requires an
-immutable `governedCli.image.digest`; released charts pin it automatically.
+shared job store is implemented. Enabling the workload requires either
+`governedCli.image.tag` or `governedCli.image.digest`; released charts pin the digest automatically.
 
 ### Remote shell
 

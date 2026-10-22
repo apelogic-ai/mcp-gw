@@ -167,12 +167,7 @@ describe("Kubernetes production chart", () => {
     for (const [name, overrides] of [
       [
         "neither tag nor digest",
-        [
-          "--set-string",
-          "governedCli.image.digest=",
-          "--set-string",
-          "governedCli.image.tag=",
-        ],
+        ["--set-string", "governedCli.image.digest=", "--set-string", "governedCli.image.tag="],
       ],
       ["missing kubeconfig", ["--set-string", "governedCli.kubeconfigSecretRef.name="]],
       ["missing ingress peer", ["--set-json", "governedCli.networkPolicy.ingressPeers=[]"]],
