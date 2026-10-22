@@ -34,6 +34,8 @@ const enabledValues = [
   "remoteShell.image.tag=candidate",
   "--set",
   "remoteShell.serviceAccount.create=true",
+  "--set-json",
+  'remoteShell.serviceAccount.annotations={"identity.example.com/role":"remote-shell"}',
   "--set-string",
   "remoteShell.bindingsSecretRef.name=remote-shell-bindings",
   "--set-string",
@@ -70,6 +72,7 @@ describe("remote-shell chart", () => {
     expect(rendered.stdout).toContain("app.kubernetes.io/component: remote-shell");
     expect(rendered.stdout).toContain("image: registry.example.com/mcp/remote-shell:candidate");
     expect(rendered.stdout).toContain("serviceAccountName: mcp-gateway-remote-shell");
+    expect(rendered.stdout).toContain("automountServiceAccountToken: false");
     expect(rendered.stdout).toContain("name: REMOTE_SHELL_BINDINGS_JSON");
     expect(rendered.stdout).toContain("name: remote-shell-bindings");
     expect(rendered.stdout).toContain("key: bindings.json");
@@ -78,6 +81,21 @@ describe("remote-shell chart", () => {
     expect(rendered.stdout).toContain("value: /shell");
     expect(rendered.stdout).toContain("request: 2m");
     expect(rendered.stdout).not.toContain("value: /mcp");
+  });
+
+  test("supports explicit pod identity and region configuration", () => {
+    const rendered = render([
+      ...enabledValues,
+      "--set-json",
+      "remoteShell.serviceAccount.annotations={}",
+      "--set",
+      "remoteShell.serviceAccount.podIdentity=true",
+      "--set-string",
+      "remoteShell.aws.region=us-test-1",
+    ]);
+    expect(rendered.exitCode, rendered.stderr).toBe(0);
+    expect(rendered.stdout).toContain("name: AWS_REGION");
+    expect(rendered.stdout).toContain("value: us-test-1");
   });
 
   test("refuses every incomplete remote-shell security control", () => {
@@ -89,7 +107,12 @@ describe("remote-shell chart", () => {
       ],
       ["single replica", ["--set", "remoteShell.replicas=2"], "remoteShell.replicas must be 1"],
       [
-        "workload identity",
+        "created workload identity",
+        ["--set-json", "remoteShell.serviceAccount.annotations={}"],
+        "remoteShell.serviceAccount requires annotations or podIdentity=true when create=true",
+      ],
+      [
+        "external workload identity",
         [
           "--set",
           "remoteShell.serviceAccount.create=false",
@@ -97,6 +120,11 @@ describe("remote-shell chart", () => {
           "remoteShell.serviceAccount.name=",
         ],
         "remoteShell.enabled requires serviceAccount.create=true or serviceAccount.name",
+      ],
+      [
+        "unsupported extra environment",
+        ["--set-json", 'remoteShell.extraEnv=[{"name":"EXAMPLE","value":"value"}]'],
+        "remoteShell.extraEnv",
       ],
       [
         "binding Secret name",
