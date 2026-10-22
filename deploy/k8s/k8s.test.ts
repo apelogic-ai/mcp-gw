@@ -141,6 +141,21 @@ describe("Kubernetes production chart", () => {
     expect(route).not.toContain("agentgateway");
   });
 
+  test("renders governed CLI by tag when its digest is empty", () => {
+    const digest = `sha256:${"d".repeat(64)}`;
+    const digestRendered = helmTemplate(governedCliArgs());
+    const tagRendered = helmTemplate([
+      ...governedCliArgs(),
+      "--set-string",
+      "governedCli.image.digest=",
+      "--set-string",
+      "governedCli.image.tag=0.7.0",
+    ]);
+
+    expect(digestRendered).toContain(`mcp-gw-governed-cli@${digest}`);
+    expect(tagRendered).toContain("mcp-gw-governed-cli:0.7.0");
+  });
+
   test("rejects incomplete or conflicting governed CLI wiring", () => {
     const disabledRoute = helmTemplateResult([
       "--set",
@@ -151,13 +166,8 @@ describe("Kubernetes production chart", () => {
 
     for (const [name, overrides] of [
       [
-        "tag without digest",
-        [
-          "--set-string",
-          "governedCli.image.digest=",
-          "--set-string",
-          "governedCli.image.tag=0.6.2",
-        ],
+        "neither tag nor digest",
+        ["--set-string", "governedCli.image.digest=", "--set-string", "governedCli.image.tag="],
       ],
       ["missing kubeconfig", ["--set-string", "governedCli.kubeconfigSecretRef.name="]],
       ["missing ingress peer", ["--set-json", "governedCli.networkPolicy.ingressPeers=[]"]],
