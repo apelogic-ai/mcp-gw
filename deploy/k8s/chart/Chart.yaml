@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.6.1
-appVersion: "0.6.1"
+version: 0.6.2
+appVersion: "0.6.2"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,15 +21,15 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.6.1
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.6.2
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.6.1
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.6.2
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.6.1
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.6.2
     - name: mcp-gw-generic-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.6.1
+      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.6.2
     - name: mcp-gw-governed-cli
-      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.6.1
+      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.6.2
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -38,12 +38,8 @@ annotations:
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: added
-      description: Add an opt-in governed CLI service with a classified kubectl pack and asynchronous jobs.
-    - kind: added
-      description: Advertise credential disconnect for generic per-user OAuth providers.
-    - kind: fixed
-      description: Reuse per-user generic-wrapper capacity by evicting the least-recently-used idle session.
+      description: Add an opt-in shared-Gateway profile with parent references and request timeouts.
     - kind: changed
-      description: Require an explicit experimental opt-in for the full hosted-MCP Jira preset.
+      description: Let generic wrappers hide provider tools until connected and rename lifecycle tools.
     - kind: security
-      description: Gate selected Google Workspace content reads behind exact secret-read Task grants.
+      description: Project only the configured database URL key from an existing Secret.
