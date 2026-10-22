@@ -422,6 +422,12 @@ Keep `remoteShell.replicas: 1`: async job ownership is held in process memory. T
 supports `timeouts.request`; set an explicit duration or `0s` when commands may outlast a shared
 gateway's default.
 
+For a chart-created service account, set a workload-role annotation or set
+`serviceAccount.podIdentity: true` only after an external pod-identity association exists. For an
+existing service account, set `create: false` and its exact `name`. Set the target region under
+`remoteShell.aws.region`; the chart supplies it as `AWS_REGION`. Kubernetes API tokens are not
+mounted into the pod.
+
 Only configured role names reach the service. The agent cannot supply an address, machine ID,
 credential, run-tag key, or execution document. Keep target networks isolated, target permissions
 minimal, instance metadata protected, and target lifetimes bounded. The complete binding and

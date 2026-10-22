@@ -289,6 +289,10 @@ remoteShell:
     create: true
     annotations: {}
     name: ""
+    # Set only when an external pod-identity association supplies credentials.
+    podIdentity: false
+  aws:
+    region: ""
   bindingsSecretRef:
     name: ""
     key: ""

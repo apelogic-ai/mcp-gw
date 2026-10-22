@@ -95,7 +95,7 @@ describe("remote-shell chart", () => {
     ]);
     expect(rendered.exitCode, rendered.stderr).toBe(0);
     expect(rendered.stdout).toContain("name: AWS_REGION");
-    expect(rendered.stdout).toContain("value: us-test-1");
+    expect(rendered.stdout).toContain('value: "us-test-1"');
   });
 
   test("refuses every incomplete remote-shell security control", () => {

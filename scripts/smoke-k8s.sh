@@ -71,6 +71,7 @@ if [[ -n "${K8S_SMOKE_REMOTE_SHELL_REPOSITORY:-}" ]]; then
     --set-string "remoteShell.image.tag=$K8S_SMOKE_REMOTE_SHELL_TAG"
     --set-string "remoteShell.bindingsSecretRef.name=remote-shell-bindings"
     --set-string "remoteShell.bindingsSecretRef.key=bindings.json"
+    --set "remoteShell.serviceAccount.podIdentity=true"
     --set-string "remoteShell.runBinding.tagKey=example:run-id"
     --set-json "remoteShell.networkPolicy.ingressPeers=[{\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"$NAMESPACE\"}}}]"
   )

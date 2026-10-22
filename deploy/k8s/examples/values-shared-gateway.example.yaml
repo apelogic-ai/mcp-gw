@@ -62,6 +62,10 @@ remoteShell:
     create: true
     annotations: {}
     name: ""
+    # Or add the workload-role annotation above.
+    podIdentity: false
+  aws:
+    region: us-east-1
   bindingsSecretRef:
     name: runtime-secrets
     key: remote-shell-bindings

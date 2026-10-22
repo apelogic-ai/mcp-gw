@@ -20,6 +20,7 @@ spec:
       labels:
         {{- include "mcp-gateway.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "remote-shell") | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: {{ include "mcp-gateway.serviceAccountName" (dict "root" . "component" "remote-shell" "values" .Values.remoteShell) }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -61,6 +62,10 @@ spec:
               value: {{ .Values.remoteShell.limits.maxRunningJobsPerOwner | quote }}
             - name: REMOTE_SHELL_JOB_RETENTION_SECONDS
               value: {{ .Values.remoteShell.limits.jobRetentionSeconds | quote }}
+            {{- with .Values.remoteShell.aws.region }}
+            - name: AWS_REGION
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.googleWorkspace.authorizationBroker.enabled }}
             - name: HOP1_ISSUERS_JSON
               value: {{ include "mcp-gateway.hop1IssuersWithAuthorizationBrokerJson" . | quote }}

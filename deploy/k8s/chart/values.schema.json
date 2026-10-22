@@ -836,7 +836,8 @@
       "properties": {
         "create": { "type": "boolean" },
         "name": { "type": "string" },
-        "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "podIdentity": { "type": "boolean" }
       }
     },
     "oauthMigrations": {
@@ -1221,6 +1222,7 @@
             "replicas",
             "port",
             "serviceAccount",
+            "aws",
             "bindingsSecretRef",
             "runBinding",
             "limits",
@@ -1233,6 +1235,13 @@
             "gatewayApi"
           ],
           "properties": {
+            "aws": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["region"],
+              "properties": { "region": { "type": "string", "maxLength": 128 } }
+            },
+            "extraEnv": false,
             "bindingsSecretRef": {
               "type": "object",
               "additionalProperties": false,

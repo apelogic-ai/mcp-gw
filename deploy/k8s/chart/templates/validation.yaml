@@ -47,6 +47,9 @@
 {{- if ne (int .Values.remoteShell.replicas) 1 }}
 {{- fail "remoteShell.replicas must be 1 while job state is process-local" }}
 {{- end }}
+{{- if and .Values.remoteShell.serviceAccount.create (eq (len .Values.remoteShell.serviceAccount.annotations) 0) (not .Values.remoteShell.serviceAccount.podIdentity) }}
+{{- fail "remoteShell.serviceAccount requires annotations or podIdentity=true when create=true" }}
+{{- end }}
 {{- if and (not .Values.remoteShell.serviceAccount.create) (not .Values.remoteShell.serviceAccount.name) }}
 {{- fail "remoteShell.enabled requires serviceAccount.create=true or serviceAccount.name" }}
 {{- end }}
