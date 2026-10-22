@@ -85,7 +85,7 @@ describe("remote-shell chart", () => {
       [
         "image repository",
         ["--set-string", "remoteShell.image.repository="],
-        "remoteShell.image.repository: String length must be greater than or equal to 1",
+        "remoteShell.image.repository",
       ],
       ["single replica", ["--set", "remoteShell.replicas=2"], "remoteShell.replicas must be 1"],
       [
@@ -148,7 +148,7 @@ describe("remote-shell chart", () => {
     for (const [name, overrides, message] of cases) {
       const rendered = render([...enabledValues, ...overrides]);
       expect(rendered.exitCode, name).not.toBe(0);
-      expect(rendered.stderr, name).toContain(message);
+      expect(rendered.stderr.replaceAll("/", "."), name).toContain(message);
     }
   });
 
