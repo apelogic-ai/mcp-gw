@@ -208,8 +208,7 @@ describe("governed CLI shim", () => {
     const origin = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () =>
-        Response.redirect(`http://127.0.0.1:${String(destinationPort)}/captured`, 307),
+      fetch: () => Response.redirect(`http://127.0.0.1:${String(destinationPort)}/captured`, 307),
     });
     const originPort = origin.port;
     if (originPort === undefined) throw new Error("Origin server did not bind");

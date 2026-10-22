@@ -38,8 +38,10 @@ placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` be
 Each helper archive contains one executable named `mcp-gw-sandbox-helper`. A sandbox image installs
 the executable at a fixed path and creates only its enabled command symlinks. `kubectl` sends the
 literal argument vector to `POST /cli/run`; `remote-shell <target-role> -- <command...>` sends the
-configured role and joined command to `POST /shell/run`. These are agent CLI routes, not MCP tools,
-and neither is exposed below `/mcp`.
+configured role and joins every argument after `--` with spaces into one shell command line, like
+ssh, for `POST /shell/run`. Selecting a request shape by invocation name is not an authorization control.
+Only server-side grants and role bindings enforce authority. These are agent CLI
+routes, not MCP tools, and neither is exposed below `/mcp`.
 
 The consuming image must pin all of:
 
@@ -56,6 +58,9 @@ Runtime configuration comes only from `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and
 literal loopback address in local tests. `MCP_GW_RUN_TOKEN` carries only a non-secret placeholder
 that an isolated edge replaces with the run credential. The real run token must never be placed in
 the sandbox, its environment, or its files.
+
+Successful remote execution returns the exact remote exit code. Helper configuration, request, or
+stream failures use exit code `125`.
 
 ## Network And Health Contract
 

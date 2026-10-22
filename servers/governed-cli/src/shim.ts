@@ -1,5 +1,7 @@
 import { basename } from "node:path";
 
+const HELPER_FAILURE_EXIT_CODE = 125;
+
 interface ShimWriter {
   write(data: string): unknown;
 }
@@ -65,7 +67,7 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
   const stderr = options.stderr ?? process.stderr;
   const fail = () => {
     stderr.write("Sandbox helper configuration failed\n");
-    return 1;
+    return HELPER_FAILURE_EXIT_CODE;
   };
 
   try {
@@ -115,7 +117,7 @@ async function runRequest(options: RunRequestOptions, failureMessage: string): P
   const stderr = options.stderr ?? process.stderr;
   const fail = () => {
     stderr.write(failureMessage);
-    return 1;
+    return HELPER_FAILURE_EXIT_CODE;
   };
 
   let response: Response;
@@ -127,6 +129,7 @@ async function runRequest(options: RunRequestOptions, failureMessage: string): P
         "content-type": "application/json",
       },
       body: JSON.stringify(options.body),
+      redirect: "error",
     });
   } catch {
     return fail();

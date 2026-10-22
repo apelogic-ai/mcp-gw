@@ -85,8 +85,11 @@ non-secret placeholder that an isolated edge replaces with the real run credenti
 The real run token must never be placed in the sandbox, its environment, or its files.
 
 Usage is \`kubectl <args...>\` and \`remote-shell <target-role> -- <command...>\`. The target is a
-configured role name, never an address. Both modes print the returned stdout/stderr and exit with
-the remote exit code.
+configured role name, never an address. Remote-shell joins every argument after \`--\` with spaces
+into one shell command line, like ssh. Selecting a request shape by invocation name is not an authorization control.
+Only server-side grants and role bindings enforce authority. Both modes print
+the returned stdout/stderr and exit with the exact remote exit code; helper configuration, request,
+or stream failures use exit code \`125\`.
 
 ## Mirrored Third-Party Image
 
