@@ -14,11 +14,107 @@ export interface RunCliShimOptions {
   stderr?: ShimWriter;
 }
 
+export interface RunRemoteShellShimOptions {
+  target: string;
+  command: string;
+  endpoint: string;
+  token: string;
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  stdout?: ShimWriter;
+  stderr?: ShimWriter;
+}
+
+export interface RunSandboxHelperOptions {
+  argv0: string;
+  args: readonly string[];
+  env: Readonly<Record<string, string | undefined>>;
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  stdout?: ShimWriter;
+  stderr?: ShimWriter;
+}
+
 export async function runCliShim(options: RunCliShimOptions): Promise<number> {
+  return runRequest(
+    {
+      endpoint: options.endpoint,
+      token: options.token,
+      body: { cli: options.cli, args: options.args },
+      fetch: options.fetch,
+      stdout: options.stdout,
+      stderr: options.stderr,
+    },
+    "CLI request failed\n",
+  );
+}
+
+export async function runRemoteShellShim(options: RunRemoteShellShimOptions): Promise<number> {
+  return runRequest(
+    {
+      endpoint: options.endpoint,
+      token: options.token,
+      body: { target: options.target, command: options.command },
+      fetch: options.fetch,
+      stdout: options.stdout,
+      stderr: options.stderr,
+    },
+    "Remote shell request failed\n",
+  );
+}
+
+export async function runSandboxHelper(options: RunSandboxHelperOptions): Promise<number> {
+  const stderr = options.stderr ?? process.stderr;
+  const fail = () => {
+    stderr.write("Sandbox helper configuration failed\n");
+    return 1;
+  };
+
+  try {
+    const command = basename(options.argv0);
+    const token = required(options.env, "MCP_GW_RUN_TOKEN");
+    if (command === "remote-shell") {
+      if (options.args.length < 3 || options.args[1] !== "--") return fail();
+      const target = options.args[0];
+      const remoteCommand = options.args.slice(2).join(" ");
+      if (!target?.trim() || !remoteCommand.trim()) return fail();
+      return await runRemoteShellShim({
+        target,
+        command: remoteCommand,
+        endpoint: endpoint(options.env, "MCP_GW_SHELL_URL"),
+        token,
+        fetch: options.fetch,
+        stdout: options.stdout,
+        stderr: options.stderr,
+      });
+    }
+    if (!command || command === "mcp-gw-sandbox-helper") return fail();
+    return await runCliShim({
+      cli: command,
+      args: options.args,
+      endpoint: endpoint(options.env, "MCP_GW_CLI_URL"),
+      token,
+      fetch: options.fetch,
+      stdout: options.stdout,
+      stderr: options.stderr,
+    });
+  } catch {
+    return fail();
+  }
+}
+
+interface RunRequestOptions {
+  endpoint: string;
+  token: string;
+  body: unknown;
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  stdout?: ShimWriter;
+  stderr?: ShimWriter;
+}
+
+async function runRequest(options: RunRequestOptions, failureMessage: string): Promise<number> {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const fail = () => {
-    stderr.write("CLI request failed\n");
+    stderr.write(failureMessage);
     return 1;
   };
 
@@ -30,7 +126,7 @@ export async function runCliShim(options: RunCliShimOptions): Promise<number> {
         authorization: `Bearer ${options.token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ cli: options.cli, args: options.args }),
+      body: JSON.stringify(options.body),
     });
   } catch {
     return fail();
@@ -92,21 +188,21 @@ function consumeEvent(
   return event.exit_code as number;
 }
 
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
+function required(env: Readonly<Record<string, string | undefined>>, name: string): string {
+  const value = env[name]?.trim();
   if (!value) throw new Error(`Missing ${name}`);
+  return value;
+}
+
+function endpoint(env: Readonly<Record<string, string | undefined>>, name: string): string {
+  const value = required(env, name);
+  const url = new URL(value);
+  const loopback =
+    url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+  if (url.protocol !== "https:" && !loopback) throw new Error(`${name} must use HTTPS`);
   return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-if (import.meta.main) {
-  process.exitCode = await runCliShim({
-    cli: basename(process.argv0),
-    args: process.argv.slice(2),
-    endpoint: requiredEnv("MCP_GW_CLI_URL"),
-    token: requiredEnv("MCP_GW_RUN_TOKEN"),
-  });
 }

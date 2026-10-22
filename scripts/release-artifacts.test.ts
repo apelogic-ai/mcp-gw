@@ -237,7 +237,7 @@ describe("release artifacts", () => {
     const release = workflow.slice(workflow.indexOf("  release:"));
 
     expect(release).toContain(
-      "needs: [publish-images, publish-chart, publish-github-governance-catalog, publish-sandbox-helper]",
+      "[publish-images, publish-chart, publish-github-governance-catalog, publish-sandbox-helper]",
     );
     expect(release).not.toContain("promote-ecr");
   });

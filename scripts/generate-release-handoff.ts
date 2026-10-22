@@ -10,6 +10,10 @@ export interface ReleaseHandoffOptions {
 }
 
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
+const sandboxHelperAssets = [
+  "mcp-gw-sandbox-helper-linux-amd64.tar.gz",
+  "mcp-gw-sandbox-helper-linux-arm64.tar.gz",
+] as const;
 
 export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Promise<void> {
   const digests = {
@@ -26,6 +30,7 @@ export async function generateReleaseHandoff(options: ReleaseHandoffOptions): Pr
     ),
   };
   const githubMcpSource = await resolveGitHubMcpSource();
+  const sandboxHelperChecksums = await readSandboxHelperChecksums(options.artifactsDirectory);
   const registry = `ghcr.io/${options.owner}`;
   const chart = `oci://${registry}/charts/mcp-gateway`;
 
@@ -52,6 +57,36 @@ helm upgrade --install mcp-gateway ${chart} \\
 | GitHub wrapper | \`${registry}/mcp-gw-github-wrapper@${digests.githubWrapper}\` |
 | Generic wrapper | \`${registry}/mcp-gw-generic-wrapper@${digests.genericWrapper}\` |
 | Governed CLI | \`${registry}/mcp-gw-governed-cli@${digests.governedCli}\` |
+
+## Sandbox Helper
+
+| Architecture | Release asset | SHA-256 |
+| --- | --- | --- |
+| linux/amd64 | \`${sandboxHelperAssets[0]}\` | \`${sandboxHelperChecksums.get(sandboxHelperAssets[0])}\` |
+| linux/arm64 | \`${sandboxHelperAssets[1]}\` | \`${sandboxHelperChecksums.get(sandboxHelperAssets[1])}\` |
+
+The archive contains one executable, \`mcp-gw-sandbox-helper\`. Install it at a fixed path and
+create only the command symlinks enabled in the sandbox: \`kubectl\` selects \`POST /cli/run\`, and
+\`remote-shell\` selects \`POST /shell/run\`. Pin the exact release URL and the architecture-specific
+SHA-256 above; do not download a moving branch asset. Verify the downloaded archive and its
+tag-scoped provenance:
+
+\`\`\`bash
+echo '<sha256>  <archive>' | sha256sum --check
+gh attestation verify <archive> \\
+  --repo ${options.owner}/mcp-gw \\
+  --cert-identity "https://github.com/${options.owner}/mcp-gw/.github/workflows/release.yml@refs/tags/v${options.version}"
+\`\`\`
+
+Configuration comes only from \`MCP_GW_CLI_URL\`, \`MCP_GW_SHELL_URL\`, and
+\`MCP_GW_RUN_TOKEN\`; it is never accepted in command arguments. Endpoint URLs must use HTTPS,
+except a literal loopback address used by local tests. \`MCP_GW_RUN_TOKEN\` carries only a
+non-secret placeholder that an isolated edge replaces with the real run credential.
+The real run token must never be placed in the sandbox, its environment, or its files.
+
+Usage is \`kubectl <args...>\` and \`remote-shell <target-role> -- <command...>\`. The target is a
+configured role name, never an address. Both modes print the returned stdout/stderr and exit with
+the remote exit code.
 
 ## Mirrored Third-Party Image
 
@@ -219,6 +254,27 @@ async function readDigest(directory: string, component: string): Promise<string>
     throw new Error(`Invalid ${component} digest: ${digest}`);
   }
   return digest;
+}
+
+async function readSandboxHelperChecksums(directory: string): Promise<Map<string, string>> {
+  const content = await readFile(join(directory, "mcp-gw-sandbox-helper-checksums.txt"), "utf8");
+  const checksums = new Map<string, string>();
+  for (const line of content.trim().split("\n")) {
+    const match = /^([a-f0-9]{64})  (mcp-gw-sandbox-helper-linux-(?:amd64|arm64)\.tar\.gz)$/.exec(
+      line,
+    );
+    if (!match?.[1] || !match[2] || checksums.has(match[2])) {
+      throw new Error("Invalid sandbox helper checksum manifest");
+    }
+    checksums.set(match[2], match[1]);
+  }
+  if (
+    checksums.size !== sandboxHelperAssets.length ||
+    sandboxHelperAssets.some((asset) => !checksums.has(asset))
+  ) {
+    throw new Error("Incomplete sandbox helper checksum manifest");
+  }
+  return checksums;
 }
 
 function parseArgs(args: string[]): ReleaseHandoffOptions {

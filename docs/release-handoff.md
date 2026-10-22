@@ -18,6 +18,8 @@ stable information an external GitOps repository can rely on.
   workflow-bound GitHub Attestation. The generated catalog records every pinned GitHub tool and
   grant tuple plus chart-default membership; see
   [GitHub Governance Catalog](github-governance-catalog.md).
+- Sandbox helper: architecture-specific `mcp-gw-sandbox-helper-linux-{amd64,arm64}.tar.gz`
+  archives, one checksum manifest, and tag-workflow build-provenance attestations.
 
 The official GitHub MCP Server remains an external dependency even though the release publishes a
 convenience mirror. It receives no MCP-GW build-provenance attestation. Operators should select the
@@ -30,6 +32,30 @@ Cosign signature plus source/mirror digest equality.
 
 The optional `dbMcp` adapter is also externally supplied. Its public default repository is a
 placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` before enabling it.
+
+## Sandbox Helper Contract
+
+Each helper archive contains one executable named `mcp-gw-sandbox-helper`. A sandbox image installs
+the executable at a fixed path and creates only its enabled command symlinks. `kubectl` sends the
+literal argument vector to `POST /cli/run`; `remote-shell <target-role> -- <command...>` sends the
+configured role and joined command to `POST /shell/run`. These are agent CLI routes, not MCP tools,
+and neither is exposed below `/mcp`.
+
+The consuming image must pin all of:
+
+- the exact release asset URL, including `vX.Y.Z` and the target architecture;
+- the matching SHA-256 from `mcp-gw-sandbox-helper-checksums.txt`; and
+- optionally, but preferably, the provenance signer identity for
+  `.github/workflows/release.yml@refs/tags/vX.Y.Z`.
+
+Never download a helper from a branch URL or accept a checksum as a build argument without pinning
+that value in the image source. Verify the checksum before extracting the archive.
+
+Runtime configuration comes only from `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and
+`MCP_GW_RUN_TOKEN`; there are no endpoint or credential flags. URLs must use HTTPS except for a
+literal loopback address in local tests. `MCP_GW_RUN_TOKEN` carries only a non-secret placeholder
+that an isolated edge replaces with the run credential. The real run token must never be placed in
+the sandbox, its environment, or its files.
 
 ## Network And Health Contract
 

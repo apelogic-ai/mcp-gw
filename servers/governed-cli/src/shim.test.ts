@@ -77,7 +77,7 @@ describe("governed CLI shim", () => {
   });
 
   test("selects governed CLI and remote shell by invocation name", async () => {
-    const requests: Array<{ url: string; authorization: string | null; body: unknown }> = [];
+    const requests: { url: string; authorization: string | null; body: unknown }[] = [];
     const fetch = (input: string | URL | Request, init?: RequestInit) => {
       requests.push({
         url: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
