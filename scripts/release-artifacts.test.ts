@@ -237,9 +237,40 @@ describe("release artifacts", () => {
     const release = workflow.slice(workflow.indexOf("  release:"));
 
     expect(release).toContain(
-      "needs: [publish-images, publish-chart, publish-github-governance-catalog]",
+      "[publish-images, publish-chart, publish-github-governance-catalog, publish-sandbox-helper]",
     );
     expect(release).not.toContain("promote-ecr");
+  });
+
+  test("publishes checksummed and attested sandbox helper archives", async () => {
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const build = workflow.slice(
+      workflow.indexOf("  build-sandbox-helper:"),
+      workflow.indexOf("  publish-sandbox-helper:"),
+    );
+    const publish = workflow.slice(
+      workflow.indexOf("  publish-sandbox-helper:"),
+      workflow.indexOf("  release:"),
+    );
+    const release = workflow.slice(workflow.indexOf("  release:"));
+
+    expect(build).toContain("runner: ubuntu-latest");
+    expect(build).toContain("runner: ubuntu-24.04-arm");
+    expect(build).toContain("target: bun-linux-x64");
+    expect(build).toContain("target: bun-linux-arm64");
+    expect(build).toContain("servers/governed-cli/src/sandbox-helper.ts");
+    expect(build).toContain("mcp-gw-sandbox-helper-linux-${{ matrix.architecture }}.tar.gz");
+    expect(build).toContain("gzip -n");
+    expect(publish).toContain("mcp-gw-sandbox-helper-checksums.txt");
+    expect(publish).toContain("actions/attest-build-provenance@");
+    expect(publish).toContain("subject-path: dist/*.tar.gz");
+    expect(publish).toContain("release-sandbox-helper");
+    expect(release).toContain("publish-sandbox-helper");
+    expect(release).toContain("sha256sum --check mcp-gw-sandbox-helper-checksums.txt");
+    expect(release).toContain("mcp-gw-sandbox-helper-linux-amd64.tar.gz");
+    expect(release).toContain("mcp-gw-sandbox-helper-linux-arm64.tar.gz");
+    expect(release).toContain('--subject "mcp-gw-sandbox-helper-linux-amd64.tar.gz"');
+    expect(release).toContain('--subject "mcp-gw-sandbox-helper-linux-arm64.tar.gz"');
   });
 
   test("publishes chart SBOM and vulnerability evidence", async () => {
@@ -331,6 +362,12 @@ describe("release artifacts", () => {
         "github-governance-catalog",
       ].map((name) => writeFile(join(artifactsDirectory, `${name}.digest`), `${digest}\n`)),
     );
+    await writeFile(
+      join(artifactsDirectory, "mcp-gw-sandbox-helper-checksums.txt"),
+      `${"b".repeat(64)}  mcp-gw-sandbox-helper-linux-amd64.tar.gz\n${"c".repeat(
+        64,
+      )}  mcp-gw-sandbox-helper-linux-arm64.tar.gz\n`,
+    );
 
     await generateReleaseHandoff({
       artifactsDirectory,
@@ -352,6 +389,17 @@ describe("release artifacts", () => {
     expect(handoff).toContain("cosign verify");
     expect(handoff).toContain("github/github-mcp-server/.github/workflows/docker-publish.yml");
     expect(handoff).toContain("github-governance-catalog.json");
+    expect(handoff).toContain("mcp-gw-sandbox-helper-linux-amd64.tar.gz");
+    expect(handoff).toContain("mcp-gw-sandbox-helper-linux-arm64.tar.gz");
+    expect(handoff).toContain("MCP_GW_CLI_URL");
+    expect(handoff).toContain("MCP_GW_SHELL_URL");
+    expect(handoff).toContain("MCP_GW_RUN_TOKEN");
+    expect(handoff).toContain("non-secret placeholder");
+    expect(handoff).toContain("must never be placed in the sandbox");
+    expect(handoff).toContain("one shell command line");
+    expect(handoff).toContain("not an authorization control");
+    expect(handoff).toContain("server-side grants and role bindings");
+    expect(handoff).toContain("exit code `125`");
     expect(handoff).toContain(`Catalog digest: \`${digest}\``);
     expect(handoff).toContain("mcp-gw.github-governance-catalog/v1");
     expect(handoff).toContain("gh attestation verify");
@@ -409,5 +457,9 @@ describe("release artifacts", () => {
     expect(handoff).toContain("Dynamic registrations persist by default");
     expect(handoff).toContain("github-governance-catalog.json");
     expect(handoff).toContain("GitHub Governance Catalog");
+    expect(handoff).toContain("one shell command line");
+    expect(handoff).toContain("not an authorization control");
+    expect(handoff).toContain("server-side grants and role bindings");
+    expect(handoff).toContain("exit code `125`");
   });
 });

@@ -116,6 +116,25 @@ helm package deploy/k8s/chart \
 The tagged release workflow additionally replaces the chart's Artifact Hub image annotations with
 the exact published digests before packaging.
 
+## Build The Sandbox Helper
+
+Build the helper natively for the target Linux architecture. Tagged releases use
+`bun-linux-x64` on an amd64 runner and `bun-linux-arm64` on an arm64 runner, then create a
+timestamp-free archive:
+
+```bash
+ARCHITECTURE=amd64
+BUN_TARGET=bun-linux-x64
+mkdir -p dist/stage
+bun build --compile --target="$BUN_TARGET" \
+  --outfile dist/stage/mcp-gw-sandbox-helper \
+  servers/governed-cli/src/sandbox-helper.ts
+chmod 0755 dist/stage/mcp-gw-sandbox-helper
+tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+  -cf - -C dist/stage mcp-gw-sandbox-helper | gzip -n \
+  > "dist/mcp-gw-sandbox-helper-linux-$ARCHITECTURE.tar.gz"
+```
+
 ## Verify Published Release Artifacts
 
 MCP-GW first-party images and its OCI chart use **GitHub build-provenance attestations**. They do not
@@ -140,7 +159,10 @@ gh release download "$TAG" \
   --repo apelogic-ai/mcp-gw \
   --pattern '*.digest' \
   --pattern 'github-governance-catalog.json' \
+  --pattern 'mcp-gw-sandbox-helper-*' \
   --dir "$ARTIFACTS"
+
+(cd "$ARTIFACTS" && sha256sum --check mcp-gw-sandbox-helper-checksums.txt)
 
 gh attestation verify \
   "oci://ghcr.io/apelogic-ai/mcp-gw-agentgateway@$(cat "$ARTIFACTS/agentgateway.digest")" \
@@ -164,6 +186,14 @@ gh attestation verify \
 
 gh attestation verify \
   "$ARTIFACTS/github-governance-catalog.json" \
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
+
+gh attestation verify \
+  "$ARTIFACTS/mcp-gw-sandbox-helper-linux-amd64.tar.gz" \
+  --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
+
+gh attestation verify \
+  "$ARTIFACTS/mcp-gw-sandbox-helper-linux-arm64.tar.gz" \
   --repo apelogic-ai/mcp-gw --cert-identity "$SIGNER"
 ```
 
