@@ -8,6 +8,31 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-22
+
+### Added
+
+- Add an opt-in shared-Gateway Helm profile that attaches the public `/mcp` HTTPRoute to an
+  existing Gateway through `parentRefs`, configures request timeouts for the `/mcp`, broker, and
+  governed-CLI routes, and projects the database URL from one named key in an existing Secret.
+
+### Changed
+
+- Let generic per-user OAuth wrappers opt into `hideToolsUntilConnected` so disconnected callers
+  see only lifecycle helpers, and let operators configure those helper names with
+  `lifecycleToolNames`.
+
+### Upgrade Notes
+
+- The shared-Gateway profile and every new chart value are opt-in. Existing defaults and existing
+  values profiles render unchanged. The example expects an existing Gateway and Secret and does not
+  create a Gateway, Namespace, or Secret.
+- The generic-wrapper fields are backward-compatible when omitted. `hideToolsUntilConnected` is
+  accepted only for per-user OAuth wrappers, fails closed when credential lookup is unavailable,
+  and may require clients to list tools again after authorization.
+- This release requires no database migration, OAuth reconnect, provider reauthorization,
+  Secret-format change, or new required value.
+
 ## [0.6.1] - 2026-10-16
 
 ### Added
@@ -885,7 +910,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.7...v0.6.0
 [0.5.7]: https://github.com/apelogic-ai/mcp-gw/compare/v0.5.6...v0.5.7

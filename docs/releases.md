@@ -19,7 +19,22 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.6.1`.
+The current public release line is `v0.6.2`.
+
+### 0.6.2 upgrade notes
+
+- An opt-in shared-Gateway profile attaches the public `/mcp` HTTPRoute to an existing Gateway
+  through `parentRefs`. Request timeouts can be set independently on the `/mcp`, broker, and
+  governed-CLI routes, including `0s` for streaming routes. The profile also maps the database URL
+  from one named key in one existing Secret instead of importing the entire Secret.
+- Generic per-user OAuth wrappers can set `hideToolsUntilConnected: true` to expose only their
+  lifecycle helpers until a credential is available, and can rename those helpers through
+  `lifecycleToolNames`. Both settings preserve the existing behavior when omitted.
+- The shared-Gateway profile and all related values are disabled by default. It expects an existing
+  Gateway and Secret and does not create a Gateway, Namespace, or Secret. Existing chart defaults
+  and existing values profiles render unchanged.
+- No database migration, OAuth reconnect, provider reauthorization, Secret-format change, or new
+  required value is introduced.
 
 ### 0.6.1 upgrade notes
 
