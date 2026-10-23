@@ -130,6 +130,93 @@ describe("governed CLI shim", () => {
     ]);
   });
 
+  test("selects governed CLI and remote shell with a leading operation", async () => {
+    const requests: { url: string; body: unknown }[] = [];
+    const fetch = (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        body: typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined,
+      });
+      return Promise.resolve(new Response('{"type":"exit","exit_code":0}\n'));
+    };
+    const env = {
+      MCP_GW_CLI_URL: "https://gateway.example.com/cli/run",
+      MCP_GW_SHELL_URL: "https://gateway.example.com/shell/run",
+      MCP_GW_RUN_TOKEN: "edge-placeholder",
+    };
+
+    expect(
+      await runSandboxHelper({
+        argv0: "/usr/local/bin/mcp-gw-sandbox-helper",
+        args: ["--operation", "kubectl", "get", "pods"],
+        env,
+        fetch,
+        stdout: writer([]),
+        stderr: writer([]),
+      }),
+    ).toBe(0);
+    expect(
+      await runSandboxHelper({
+        argv0: "/sandbox/canonical-executable",
+        args: ["--operation", "remote-shell", "controller", "--", "uname", "-a"],
+        env,
+        fetch,
+        stdout: writer([]),
+        stderr: writer([]),
+      }),
+    ).toBe(0);
+
+    expect(requests).toEqual([
+      {
+        url: "https://gateway.example.com/cli/run",
+        body: { cli: "kubectl", args: ["get", "pods"] },
+      },
+      {
+        url: "https://gateway.example.com/shell/run",
+        body: { target: "controller", command: "uname -a" },
+      },
+    ]);
+  });
+
+  test("refuses invalid operation selectors before making a request", async () => {
+    const stderr: string[] = [];
+    let requests = 0;
+    const env = {
+      MCP_GW_CLI_URL: "https://gateway.example.com/cli/run",
+      MCP_GW_SHELL_URL: "https://gateway.example.com/shell/run",
+      MCP_GW_RUN_TOKEN: "edge-placeholder",
+    };
+
+    for (const [argv0, args] of [
+      ["mcp-gw-sandbox-helper", ["--operation", "unknown", "get", "pods"]],
+      ["mcp-gw-sandbox-helper", ["--operation"]],
+      ["kubectl", ["get", "pods", "--operation", "remote-shell"]],
+      ["kubectl", ["--operation", "remote-shell", "controller", "--", "true"]],
+    ] as const) {
+      expect(
+        await runSandboxHelper({
+          argv0,
+          args,
+          env,
+          fetch: () => {
+            requests += 1;
+            return Promise.resolve(new Response());
+          },
+          stdout: writer([]),
+          stderr: writer(stderr),
+        }),
+      ).toBe(125);
+    }
+
+    expect(requests).toBe(0);
+    expect(stderr).toEqual([
+      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed\n",
+    ]);
+  });
+
   test("refuses unsafe or missing configuration before making a request", async () => {
     const stderr: string[] = [];
     let requests = 0;

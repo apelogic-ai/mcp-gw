@@ -12,7 +12,7 @@ import type {
   SsmRunResult,
 } from "../../remote-shell/src/ssm-run-command";
 
-test("compiled helper runs governed CLI and remote shell through invocation-name symlinks", async () => {
+test("compiled helper runs explicit operations and the invocation-name fallback", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mcp-gw-sandbox-helper-"));
   const executable = join(directory, "mcp-gw-sandbox-helper");
   const build = Bun.spawn(
@@ -86,10 +86,9 @@ test("compiled helper runs governed CLI and remote shell through invocation-name
 
   try {
     const kubectl = join(directory, "kubectl");
-    const remoteShell = join(directory, "remote-shell");
-    await Promise.all([symlink(executable, kubectl), symlink(executable, remoteShell)]);
+    await symlink(executable, kubectl);
 
-    const cli = Bun.spawn([kubectl, "get", "pods"], {
+    const cli = Bun.spawn([executable, "--operation", "kubectl", "get", "pods"], {
       env: {
         MCP_GW_CLI_URL: `${origin}/cli/run`,
         MCP_GW_RUN_TOKEN: "edge-placeholder",
@@ -101,17 +100,32 @@ test("compiled helper runs governed CLI and remote shell through invocation-name
     expect(await new Response(cli.stdout).text()).toBe("accepted\n");
     expect(await new Response(cli.stderr).text()).toBe("");
 
-    const shell = Bun.spawn([remoteShell, "controller", "--", "uname", "-a"], {
+    const shell = Bun.spawn(
+      [executable, "--operation", "remote-shell", "controller", "--", "uname", "-a"],
+      {
+        env: {
+          MCP_GW_SHELL_URL: `${origin}/shell/run`,
+          MCP_GW_RUN_TOKEN: "edge-placeholder",
+        },
+        stderr: "pipe",
+        stdout: "pipe",
+      },
+    );
+    expect(await shell.exited).toBe(0);
+    expect(await new Response(shell.stdout).text()).toBe("accepted\n");
+    expect(await new Response(shell.stderr).text()).toBe("");
+
+    const fallback = Bun.spawn([kubectl, "get", "services"], {
       env: {
-        MCP_GW_SHELL_URL: `${origin}/shell/run`,
+        MCP_GW_CLI_URL: `${origin}/cli/run`,
         MCP_GW_RUN_TOKEN: "edge-placeholder",
       },
       stderr: "pipe",
       stdout: "pipe",
     });
-    expect(await shell.exited).toBe(0);
-    expect(await new Response(shell.stdout).text()).toBe("accepted\n");
-    expect(await new Response(shell.stderr).text()).toBe("");
+    expect(await fallback.exited).toBe(0);
+    expect(await new Response(fallback.stdout).text()).toBe("accepted\n");
+    expect(await new Response(fallback.stderr).text()).toBe("");
   } finally {
     await server.stop(true);
   }
@@ -126,6 +140,11 @@ test("compiled helper runs governed CLI and remote shell through invocation-name
       path: "/shell/run",
       authorization: "Bearer edge-placeholder",
       body: { target: "controller", command: "uname -a" },
+    },
+    {
+      path: "/cli/run",
+      authorization: "Bearer edge-placeholder",
+      body: { cli: "kubectl", args: ["get", "services"] },
     },
   ]);
   expect(remoteRuns).toEqual([

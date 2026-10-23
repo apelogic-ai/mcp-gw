@@ -38,12 +38,25 @@ placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` be
 ## Sandbox Helper Contract
 
 Each helper archive contains one executable named `mcp-gw-sandbox-helper`. A sandbox image installs
-the executable at a fixed path and creates only its enabled command symlinks. `kubectl` sends the
-literal argument vector to `POST /cli/run`; `remote-shell <target-role> -- <command...>` sends the
-configured role and joins every argument after `--` with spaces into one shell command line, like
-ssh, for `POST /shell/run`. Selecting a request shape by invocation name is not an authorization control.
-Only server-side grants and role bindings enforce authority. These are agent CLI
-routes, not MCP tools, and neither is exposed below `/mcp`.
+the executable at a fixed path. A leading `--operation kubectl` or `--operation remote-shell`
+selects the request shape even when the sandbox runtime does not preserve the executable's
+invocation name. For example, install this tiny `kubectl` wrapper:
+
+```sh
+#!/bin/sh
+exec mcp-gw-sandbox-helper --operation kubectl "$@"
+```
+
+Invocation-name symlinks remain supported as a fallback. `kubectl` sends the literal argument
+vector to `POST /cli/run`; `remote-shell <target-role> -- <command...>` sends the configured role
+and joins every argument after `--` with spaces into one shell command line, like ssh, for
+`POST /shell/run`. Selecting a request shape by argument or invocation name is
+not an authorization control. Only server-side grants and role bindings enforce authority. These are
+agent CLI routes, not MCP tools, and neither is exposed below `/mcp`.
+
+The explicit selector must be the first argument. An unknown or missing operation, a late selector,
+or a selector that conflicts with a known invocation name fails with exit code `125` before making
+a request.
 
 The consuming image must pin all of:
 
@@ -55,7 +68,7 @@ The consuming image must pin all of:
 Never download a helper from a branch URL or accept a checksum as a build argument without pinning
 that value in the image source. Verify the checksum before extracting the archive.
 
-Runtime configuration comes only from `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and
+Endpoint and credential configuration comes only from `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and
 `MCP_GW_RUN_TOKEN`; there are no endpoint or credential flags. URLs must use HTTPS except for a
 literal loopback address in local tests. `MCP_GW_RUN_TOKEN` carries only a non-secret placeholder
 that an isolated edge replaces with the run credential. The real run token must never be placed in
