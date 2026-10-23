@@ -18,7 +18,7 @@ agentgateway:
   enabled: true
   image:
     repository: registry.example.com/mcp/agentgateway
-    tag: 0.7.0
+    tag: 0.7.1
     digest: ""
   nodeSelector:
     kubernetes.io/arch: amd64
