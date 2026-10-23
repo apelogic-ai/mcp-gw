@@ -139,8 +139,22 @@
 {{- end }}
 
 {{- $agentgatewayHttpRoute := .Values.agentgateway.gatewayApi.httpRoute }}
+{{- $providerCallbacks := $agentgatewayHttpRoute.providerCallbacks }}
 {{- if and $agentgatewayHttpRoute.enabled (not .Values.agentgateway.enabled) }}
 {{- fail "agentgateway.gatewayApi.httpRoute.enabled requires agentgateway.enabled=true" }}
+{{- end }}
+{{- if and $providerCallbacks.enabled (not $agentgatewayHttpRoute.enabled) }}
+{{- fail "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled requires agentgateway.gatewayApi.httpRoute.enabled=true" }}
+{{- end }}
+{{- if $providerCallbacks.enabled }}
+{{- range $routePath := .Values.agentgateway.ingress.paths }}
+{{- $normalizedRoutePath := trimSuffix "/" $routePath }}
+{{- range $privatePath := list "/oauth/google/start" "/oauth/google/status" "/oauth/google/disconnect" "/oauth/github/start" "/oauth/github/status" "/oauth/github/disconnect" }}
+{{- if or (eq $normalizedRoutePath $privatePath) (hasPrefix (printf "%s/" $normalizedRoutePath) $privatePath) }}
+{{- fail "provider callback routing must not publish private OAuth lifecycle paths" }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- if and $agentgatewayHttpRoute.enabled .Values.agentgateway.ingress.enabled }}
 {{- fail "agentgateway ingress and gatewayApi.httpRoute cannot both be enabled" }}
@@ -597,6 +611,9 @@
 {{- $issuerUrl := urlParse $brokerIssuer }}
 {{- $resourceUrl := urlParse $broker.resource }}
 {{- $callbackUrl := urlParse $broker.googleCallbackUri }}
+{{- if and $providerCallbacks.enabled (eq $callbackUrl.path "/oauth/google/callback") }}
+{{- fail "googleWorkspace.authorizationBroker.googleCallbackUri must not overlap the chart-managed Google provider callback" }}
+{{- end }}
 {{- $issuerPath := trimSuffix "/" ($issuerUrl.path | default "") }}
 {{- $resourcePath := trimSuffix "/" ($resourceUrl.path | default "/") }}
 {{- if not $resourcePath }}{{- $resourcePath = "/" }}{{- end }}
