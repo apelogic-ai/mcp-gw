@@ -19,7 +19,23 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.7.0`.
+The current public release line is `v0.7.1`.
+
+### 0.7.1 upgrade notes
+
+- The sandbox helper now accepts a leading `--operation kubectl` or
+  `--operation remote-shell` selector before the command arguments. This supports sandbox runtimes
+  that launch the helper under its canonical executable name instead of preserving a wrapper or
+  symlink name.
+- A sandbox can install a tiny command wrapper such as
+  `exec mcp-gw-sandbox-helper --operation kubectl "$@"`. Invocation-name symlinks remain supported.
+  Unknown, missing, late, or conflicting selectors fail with exit code `125` before any request.
+- The release publishes the same `mcp-gw-sandbox-helper-linux-{amd64,arm64}.tar.gz` archives,
+  `mcp-gw-sandbox-helper-checksums.txt`, and workflow-bound build provenance as v0.7.0. Endpoint and
+  credential configuration remains limited to `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and
+  `MCP_GW_RUN_TOKEN`; `/cli/run`, `/shell/run`, and the remote exit-code contract are unchanged.
+- Existing deployments require no database migration, OAuth reconnect, provider reauthorization,
+  Secret-format change, chart behavior change, or new required value.
 
 ### 0.7.0 upgrade notes
 

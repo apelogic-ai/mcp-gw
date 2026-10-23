@@ -8,11 +8,24 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-22
+
 ### Fixed
 
 - Let the sandbox helper select governed CLI or remote-shell requests with a leading explicit
   operation when runtimes do not preserve the invocation name, while retaining the invocation-name
   fallback and refusing malformed or conflicting selectors before making a request.
+
+### Upgrade Notes
+
+- Sandbox images whose runtime canonicalizes the executable name should invoke
+  `mcp-gw-sandbox-helper --operation kubectl` or `--operation remote-shell` from a command wrapper.
+  Invocation-name symlinks remain compatible.
+- The helper release assets remain the linux amd64/arm64 archives plus their checksum manifest and
+  provenance. The three environment variables, `/cli/run` and `/shell/run` routes, and exit-125
+  failure contract are unchanged.
+- This release requires no database migration, OAuth reconnect, provider reauthorization,
+  Secret-format change, chart behavior change, or new required value.
 
 ## [0.7.0] - 2026-10-22
 
@@ -953,7 +966,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.0...v0.6.1
