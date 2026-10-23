@@ -8,6 +8,8 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-23
+
 ### Fixed
 
 - Let a default-off chart option add exact Gateway API callback routes for enabled Google Workspace
@@ -976,7 +978,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.1...v0.6.2
