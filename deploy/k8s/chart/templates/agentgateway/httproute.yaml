@@ -25,4 +25,32 @@ spec:
       backendRefs:
         - name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "agentgateway") }}
           port: {{ .Values.agentgateway.port }}
+    {{- if .Values.agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled }}
+    {{- if .Values.googleWorkspace.enabled }}
+    - matches:
+        - path:
+            type: Exact
+            value: "/oauth/google/callback"
+      {{- with .Values.agentgateway.gatewayApi.httpRoute.timeouts.request }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "google-workspace") }}
+          port: {{ .Values.googleWorkspace.port }}
+    {{- end }}
+    {{- if .Values.githubWrapper.enabled }}
+    - matches:
+        - path:
+            type: Exact
+            value: "/oauth/github/callback"
+      {{- with .Values.agentgateway.gatewayApi.httpRoute.timeouts.request }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
+          port: {{ .Values.githubWrapper.port }}
+    {{- end }}
+    {{- end }}
 {{- end }}

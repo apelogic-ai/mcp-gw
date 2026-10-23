@@ -8,6 +8,16 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Let a default-off chart option add exact Gateway API callback routes for enabled Google Workspace
+  and GitHub wrappers without publishing their private connection lifecycle paths.
+
+### Upgrade Notes
+
+- No migration or new required value is needed. Provider callback routing remains off by default,
+  so existing chart renders are unchanged until it is enabled.
+
 ## [0.7.1] - 2026-10-22
 
 ### Fixed

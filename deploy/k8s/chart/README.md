@@ -183,7 +183,14 @@ To let this chart own the `/mcp` route on an existing shared Gateway, keep
 `agentgateway.gatewayApi.httpRoute`. Set its hostname and `parentRefs` with the
 Gateway name, optional namespace, and listener `sectionName`. An optional
 `timeouts.request` is rendered on the route rule; use `0s` when streaming
-requests must have no route-level deadline. The provider-neutral
+requests must have no route-level deadline. To publish the browser return for
+each enabled built-in provider, set
+`agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true`. The chart
+adds only the exact `/oauth/google/callback` and `/oauth/github/callback` rules
+for enabled providers, pointing directly to their wrapper Services and reusing
+the HTTPRoute's hostname, `parentRefs`, and timeout. It never publishes the
+`start`, `status`, or `disconnect` paths. Leave this option off when another
+route already owns those callbacks. The provider-neutral
 `deploy/k8s/examples/values-shared-gateway.example.yaml` profile combines this
 route with exact image repository/tag values, amd64 scheduling, and one
 externally synchronized Secret. The chart does not create that Gateway,
@@ -523,6 +530,7 @@ and are left in place.
 | `agentgateway.ingress.enabled`                                    | `false`                                             | Expose `/mcp` and the protected-resource metadata path via Ingress.                                                     |
 | `agentgateway.gatewayApi.httpRoute.enabled`                       | `false`                                             | Create `/mcp` and protected-resource routes on an existing shared Gateway.                                              |
 | `agentgateway.gatewayApi.httpRoute.parentRefs`                    | `[]`                                                | Existing Gateway listener references with name, optional namespace, and optional section name.                          |
+| `agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled`     | `false`                                             | Add exact callback rules for enabled Google Workspace and GitHub wrappers to the shared HTTPRoute.                      |
 | `agentgateway.gatewayApi.httpRoute.timeouts.request`              | `""`                                                | Optional Gateway API request timeout; `0s` disables the route-level deadline for streams.                               |
 | `agentgateway.gatewayApi.brokerHttpRoute.enabled`                 | `false`                                             | Create only the broker's exact public HTTPRoute; requires an externally owned `/mcp` route and disables chart Ingress.  |
 | `agentgateway.gatewayApi.brokerHttpRoute.parentRefs`              | `[]`                                                | Gateway listener references for the broker HTTPRoute when enabled.                                                      |
