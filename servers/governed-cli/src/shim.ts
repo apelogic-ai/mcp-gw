@@ -71,12 +71,27 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
   };
 
   try {
-    const command = basename(options.argv0);
+    const invokedAs = basename(options.argv0);
+    const operationIndex = options.args.indexOf("--operation");
+    if (operationIndex > 0) return fail();
+
+    let command = invokedAs;
+    let args = options.args;
+    if (operationIndex === 0) {
+      const operation = options.args[1];
+      if (operation !== "kubectl" && operation !== "remote-shell") return fail();
+      if ((invokedAs === "kubectl" || invokedAs === "remote-shell") && invokedAs !== operation) {
+        return fail();
+      }
+      command = operation;
+      args = options.args.slice(2);
+    }
+
     const token = required(options.env, "MCP_GW_RUN_TOKEN");
     if (command === "remote-shell") {
-      if (options.args.length < 3 || options.args[1] !== "--") return fail();
-      const target = options.args[0];
-      const remoteCommand = options.args.slice(2).join(" ");
+      if (args.length < 3 || args[1] !== "--") return fail();
+      const target = args[0];
+      const remoteCommand = args.slice(2).join(" ");
       if (!target?.trim() || !remoteCommand.trim()) return fail();
       return await runRemoteShellShim({
         target,
@@ -91,7 +106,7 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
     if (!command || command === "mcp-gw-sandbox-helper") return fail();
     return await runCliShim({
       cli: command,
-      args: options.args,
+      args,
       endpoint: endpoint(options.env, "MCP_GW_CLI_URL"),
       token,
       fetch: options.fetch,

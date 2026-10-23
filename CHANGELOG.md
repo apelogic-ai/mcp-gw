@@ -8,6 +8,12 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Let the sandbox helper select governed CLI or remote-shell requests with a leading explicit
+  operation when runtimes do not preserve the invocation name, while retaining the invocation-name
+  fallback and refusing malformed or conflicting selectors before making a request.
+
 ## [0.7.0] - 2026-10-22
 
 ### Added

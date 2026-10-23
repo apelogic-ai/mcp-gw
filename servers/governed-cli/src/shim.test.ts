@@ -209,7 +209,12 @@ describe("governed CLI shim", () => {
     }
 
     expect(requests).toBe(0);
-    expect(stderr).toEqual(Array(4).fill("Sandbox helper configuration failed\n"));
+    expect(stderr).toEqual([
+      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed\n",
+    ]);
   });
 
   test("refuses unsafe or missing configuration before making a request", async () => {

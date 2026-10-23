@@ -68,10 +68,21 @@ helm upgrade --install mcp-gateway ${chart} \\
 | linux/arm64 | \`${sandboxHelperAssets[1]}\` | \`${sandboxHelperChecksums.get(sandboxHelperAssets[1])}\` |
 
 The archive contains one executable, \`mcp-gw-sandbox-helper\`. Install it at a fixed path and
-create only the command symlinks enabled in the sandbox: \`kubectl\` selects \`POST /cli/run\`, and
-\`remote-shell\` selects \`POST /shell/run\`. Pin the exact release URL and the architecture-specific
-SHA-256 above; do not download a moving branch asset. Verify the downloaded archive and its
-tag-scoped provenance:
+use a leading \`--operation kubectl\` or \`--operation remote-shell\` when the sandbox runtime does
+not preserve the executable's invocation name. For example, install this tiny \`kubectl\` wrapper:
+
+\`\`\`sh
+#!/bin/sh
+exec mcp-gw-sandbox-helper --operation kubectl "$@"
+\`\`\`
+
+Invocation-name symlinks remain supported as a fallback.
+The explicit selector must be the first argument. An unknown or missing operation, a late selector,
+or a selector that conflicts with a known invocation name fails with exit code \`125\` before making
+a request.
+
+Pin the exact release URL and the architecture-specific SHA-256 above; do not download a moving
+branch asset. Verify the downloaded archive and its tag-scoped provenance:
 
 \`\`\`bash
 echo '<sha256>  <archive>' | sha256sum --check
@@ -80,7 +91,7 @@ gh attestation verify <archive> \\
   --cert-identity "https://github.com/${options.owner}/mcp-gw/.github/workflows/release.yml@refs/tags/v${options.version}"
 \`\`\`
 
-Configuration comes only from \`MCP_GW_CLI_URL\`, \`MCP_GW_SHELL_URL\`, and
+Endpoint and credential configuration comes only from \`MCP_GW_CLI_URL\`, \`MCP_GW_SHELL_URL\`, and
 \`MCP_GW_RUN_TOKEN\`; it is never accepted in command arguments. Endpoint URLs must use HTTPS,
 except a literal loopback address used by local tests. \`MCP_GW_RUN_TOKEN\` carries only a
 non-secret placeholder that an isolated edge replaces with the real run credential.
@@ -88,8 +99,8 @@ The real run token must never be placed in the sandbox, its environment, or its 
 
 Usage is \`kubectl <args...>\` and \`remote-shell <target-role> -- <command...>\`. The target is a
 configured role name, never an address. Remote-shell joins every argument after \`--\` with spaces
-into one shell command line, like ssh. Selecting a request shape by invocation name is not an authorization control.
-Only server-side grants and role bindings enforce authority. Both modes print
+into one shell command line, like ssh. Selecting a request shape by argument or invocation name is
+not an authorization control. Only server-side grants and role bindings enforce authority. Both modes print
 the returned stdout/stderr and exit with the exact remote exit code; helper configuration, request,
 or stream failures use exit code \`125\`.
 
