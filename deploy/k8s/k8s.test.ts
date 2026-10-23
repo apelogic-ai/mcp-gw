@@ -234,6 +234,124 @@ describe("Kubernetes production chart", () => {
     expect(database).not.toContain("envFrom:");
   });
 
+  test("keeps provider callback routing byte-identical when disabled", () => {
+    const args = [
+      ...providerCallbackRouteArgs(),
+      "--set",
+      "googleWorkspace.enabled=true",
+      "--set-string",
+      "googleWorkspace.secretRef.name=mcp-runtime",
+      "--set",
+      "githubWrapper.enabled=true",
+      "--set-string",
+      "githubWrapper.secretRef.name=mcp-runtime",
+    ];
+    const implicitDefault = helmTemplate(args);
+    const explicitDefault = helmTemplate([
+      ...args,
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=false",
+    ]);
+
+    expect(explicitDefault).toBe(implicitDefault);
+    expect(implicitDefault).not.toContain("/oauth/google/callback");
+    expect(implicitDefault).not.toContain("/oauth/github/callback");
+  });
+
+  test.each([
+    [
+      "Google Workspace",
+      [
+        "--set",
+        "googleWorkspace.enabled=true",
+        "--set-string",
+        "googleWorkspace.secretRef.name=mcp-runtime",
+      ],
+      "/oauth/google/callback",
+      "mcp-gateway-google-workspace",
+      "/oauth/github/callback",
+    ],
+    [
+      "GitHub",
+      [
+        "--set",
+        "githubWrapper.enabled=true",
+        "--set-string",
+        "githubWrapper.secretRef.name=mcp-runtime",
+      ],
+      "/oauth/github/callback",
+      "mcp-gateway-github-wrapper",
+      "/oauth/google/callback",
+    ],
+  ])(
+    "renders only the enabled %s provider callback on the shared HTTPRoute",
+    (_provider, providerArgs, callbackPath, serviceName, disabledCallbackPath) => {
+      const rendered = helmTemplate([
+        ...providerCallbackRouteArgs(),
+        "--set",
+        "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true",
+        ...providerArgs,
+      ]);
+      const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway");
+
+      expect(route).toContain("name: shared-gateway");
+      expect(route).toContain("namespace: gateway-system");
+      expect(route).toContain("sectionName: https");
+      expect(route).toContain('"mcp.example.com"');
+      expect(route).toContain(`value: "${callbackPath}"`);
+      expect(route).toContain(`name: ${serviceName}`);
+      expect(route).not.toContain(disabledCallbackPath);
+      expect(countOccurrences(route, "type: Exact")).toBe(1);
+      expect(countOccurrences(route, "request: 0s")).toBe(2);
+      for (const operation of ["start", "status", "disconnect"]) {
+        expect(route).not.toContain(`/oauth/google/${operation}`);
+        expect(route).not.toContain(`/oauth/github/${operation}`);
+      }
+    },
+  );
+
+  test("rejects provider callback routing without the shared AgentGateway HTTPRoute", () => {
+    const result = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-k8s-smoke.yaml",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true",
+    ]);
+
+    assertHelmRejected(result);
+    expect(result.stderr.toString()).toContain(
+      "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled requires agentgateway.gatewayApi.httpRoute.enabled=true",
+    );
+  });
+
+  test("rejects a broker-owned Google callback that duplicates the provider callback route", () => {
+    const result = helmTemplateResult([
+      "--values",
+      "deploy/k8s/examples/values-oauth-broker.example.yaml",
+      "--set",
+      "agentgateway.ingress.enabled=false",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.enabled=true",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true",
+      "--set-string",
+      "agentgateway.gatewayApi.httpRoute.hostname=mcp.example.com",
+      "--set-json",
+      'agentgateway.gatewayApi.httpRoute.parentRefs=[{"name":"shared-gateway"}]',
+      "--set",
+      "agentgateway.gatewayApi.brokerHttpRoute.enabled=true",
+      "--set-json",
+      'agentgateway.gatewayApi.brokerHttpRoute.parentRefs=[{"name":"shared-gateway"}]',
+      "--set-string",
+      "googleWorkspace.authorizationBroker.googleCallbackUri=https://mcp.example.com/oauth/google/callback",
+    ]);
+
+    assertHelmRejected(result);
+    expect(result.stderr.toString()).toContain(
+      "googleWorkspace.authorizationBroker.googleCallbackUri must not overlap the chart-managed Google provider callback",
+    );
+  });
+
   test("rejects incomplete shared routes and ambiguous named database keys", () => {
     const routeBase = [
       "--values",
@@ -3896,6 +4014,21 @@ function brokerWithGithubArgs(): string[] {
         path: "/mcp",
       },
     ])}`,
+  ];
+}
+
+function providerCallbackRouteArgs(): string[] {
+  return [
+    "--values",
+    "deploy/k8s/examples/values-k8s-smoke.yaml",
+    "--set",
+    "agentgateway.gatewayApi.httpRoute.enabled=true",
+    "--set-string",
+    "agentgateway.gatewayApi.httpRoute.hostname=mcp.example.com",
+    "--set-json",
+    'agentgateway.gatewayApi.httpRoute.parentRefs=[{"name":"shared-gateway","namespace":"gateway-system","sectionName":"https"}]',
+    "--set-string",
+    "agentgateway.gatewayApi.httpRoute.timeouts.request=0s",
   ];
 }
 
