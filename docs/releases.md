@@ -19,7 +19,19 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.7.1`.
+The current public release line is `v0.7.2`.
+
+### 0.7.2 upgrade notes
+
+- Set `agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true` to add exact
+  `/oauth/google/callback` and `/oauth/github/callback` rules for the enabled built-in wrappers to
+  the shared AgentGateway HTTPRoute. The rules reuse that route's hostname, `parentRefs`, and
+  request timeout and point directly to the matching wrapper Services.
+- The chart refuses private `start`, `status`, and `disconnect` lifecycle paths on the
+  callback-enabled public route. It also refuses a Google callback already exposed by the
+  authorization broker, preventing duplicate ownership.
+- Release compatibility: **no migration, no required value, new option off by default**. Existing
+  rendered manifests remain unchanged until callback routing is enabled.
 
 ### 0.7.1 upgrade notes
 
