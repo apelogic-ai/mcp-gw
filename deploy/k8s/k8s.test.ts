@@ -324,6 +324,30 @@ describe("Kubernetes production chart", () => {
     );
   });
 
+  test("rejects private provider lifecycle paths on the callback-enabled public route", () => {
+    for (const path of [
+      "/oauth/google/start",
+      "/oauth/google/status",
+      "/oauth/google/disconnect",
+      "/oauth/github/start",
+      "/oauth/github/status",
+      "/oauth/github/disconnect",
+    ]) {
+      const result = helmTemplateResult([
+        ...providerCallbackRouteArgs(),
+        "--set",
+        "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true",
+        "--set-json",
+        `agentgateway.ingress.paths=["/mcp","${path}"]`,
+      ]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), path).toContain(
+        "provider callback routing must not publish private OAuth lifecycle paths",
+      );
+    }
+  });
+
   test("rejects a broker-owned Google callback that duplicates the provider callback route", () => {
     const result = helmTemplateResult([
       "--values",
