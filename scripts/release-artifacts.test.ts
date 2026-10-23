@@ -405,6 +405,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("MCP_GW_CLI_URL");
     expect(handoff).toContain("MCP_GW_SHELL_URL");
     expect(handoff).toContain("MCP_GW_RUN_TOKEN");
+    expect(handoff).toContain('exec mcp-gw-sandbox-helper --operation kubectl "$@"');
     expect(handoff).toContain("non-secret placeholder");
     expect(handoff).toContain("must never be placed in the sandbox");
     expect(handoff).toContain("one shell command line");
@@ -471,6 +472,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("one shell command line");
     expect(handoff).toContain("not an authorization control");
     expect(handoff).toContain("server-side grants and role bindings");
+    expect(handoff).toContain('exec mcp-gw-sandbox-helper --operation kubectl "$@"');
     expect(handoff).toContain("exit code `125`");
   });
 });
