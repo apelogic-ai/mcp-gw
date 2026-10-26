@@ -140,18 +140,25 @@
 
 {{- $agentgatewayHttpRoute := .Values.agentgateway.gatewayApi.httpRoute }}
 {{- $providerCallbacks := $agentgatewayHttpRoute.providerCallbacks }}
+{{- $githubLifecycle := $agentgatewayHttpRoute.githubLifecycle }}
 {{- if and $agentgatewayHttpRoute.enabled (not .Values.agentgateway.enabled) }}
 {{- fail "agentgateway.gatewayApi.httpRoute.enabled requires agentgateway.enabled=true" }}
 {{- end }}
 {{- if and $providerCallbacks.enabled (not $agentgatewayHttpRoute.enabled) }}
 {{- fail "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled requires agentgateway.gatewayApi.httpRoute.enabled=true" }}
 {{- end }}
-{{- if $providerCallbacks.enabled }}
+{{- if and $githubLifecycle.enabled (not $agentgatewayHttpRoute.enabled) }}
+{{- fail "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled requires agentgateway.gatewayApi.httpRoute.enabled=true" }}
+{{- end }}
+{{- if and $githubLifecycle.enabled (not .Values.githubWrapper.enabled) }}
+{{- fail "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled requires githubWrapper.enabled=true" }}
+{{- end }}
+{{- if or $providerCallbacks.enabled $githubLifecycle.enabled }}
 {{- range $routePath := .Values.agentgateway.ingress.paths }}
 {{- $normalizedRoutePath := trimSuffix "/" $routePath }}
-{{- range $privatePath := list "/oauth/google/start" "/oauth/google/status" "/oauth/google/disconnect" "/oauth/github/start" "/oauth/github/status" "/oauth/github/disconnect" }}
+{{- range $privatePath := list "/oauth/google/start" "/oauth/google/status" "/oauth/google/disconnect" "/connections/google/status" "/oauth/github/start" "/oauth/github/status" "/oauth/github/disconnect" "/connections/github/start" "/connections/github/status" "/connections/github/disconnect" }}
 {{- if or (eq $normalizedRoutePath $privatePath) (hasPrefix (printf "%s/" $normalizedRoutePath) $privatePath) }}
-{{- fail "provider callback routing must not publish private OAuth lifecycle paths" }}
+{{- fail "provider lifecycle paths must use chart-managed exact routes" }}
 {{- end }}
 {{- end }}
 {{- end }}

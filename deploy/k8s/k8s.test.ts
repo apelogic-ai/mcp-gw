@@ -343,7 +343,7 @@ describe("Kubernetes production chart", () => {
 
       assertHelmRejected(result);
       expect(result.stderr.toString(), path).toContain(
-        "provider callback routing must not publish private OAuth lifecycle paths",
+        "provider lifecycle paths must use chart-managed exact routes",
       );
     }
   });
@@ -407,9 +407,7 @@ describe("Kubernetes production chart", () => {
       "--set",
       "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true",
     ]);
-    const route = parse(
-      renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway"),
-    ) as {
+    const route = parse(renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway")) as {
       spec: {
         hostnames: string[];
         parentRefs: Record<string, string>[];
@@ -515,7 +513,7 @@ describe("Kubernetes production chart", () => {
 
       assertHelmRejected(result);
       expect(result.stderr.toString(), path).toContain(
-        "public provider routing must not publish non-allowlisted lifecycle paths",
+        "provider lifecycle paths must use chart-managed exact routes",
       );
     }
   });

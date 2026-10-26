@@ -1706,6 +1706,7 @@
                     "hostname",
                     "parentRefs",
                     "providerCallbacks",
+                    "githubLifecycle",
                     "timeouts"
                   ],
                   "allOf": [
@@ -1746,6 +1747,12 @@
                       }
                     },
                     "providerCallbacks": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["enabled"],
+                      "properties": { "enabled": { "type": "boolean" } }
+                    },
+                    "githubLifecycle": {
                       "type": "object",
                       "additionalProperties": false,
                       "required": ["enabled"],

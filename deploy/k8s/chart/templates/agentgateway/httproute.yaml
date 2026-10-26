@@ -53,4 +53,23 @@ spec:
           port: {{ .Values.githubWrapper.port }}
     {{- end }}
     {{- end }}
+    {{- if .Values.agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled }}
+    - matches:
+        - path:
+            type: Exact
+            value: "/oauth/github/start"
+        - path:
+            type: Exact
+            value: "/connections/github/status"
+        - path:
+            type: Exact
+            value: "/oauth/github/disconnect"
+      {{- with .Values.agentgateway.gatewayApi.httpRoute.timeouts.request }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
+          port: {{ .Values.githubWrapper.port }}
+    {{- end }}
 {{- end }}
