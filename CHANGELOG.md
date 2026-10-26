@@ -8,6 +8,11 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Added
+
+- Let a default-off chart option publish only the three exact authenticated GitHub connection
+  lifecycle paths on the existing shared Gateway API route.
+
 ## [0.7.2] - 2026-10-23
 
 ### Fixed

@@ -195,6 +195,9 @@ agentgateway:
       # Publish exact callback paths only for enabled built-in providers.
       providerCallbacks:
         enabled: false
+      # Publish the exact authenticated GitHub connection lifecycle paths.
+      githubLifecycle:
+        enabled: false
       timeouts:
         request: ""
     # Opt-in broker-only HTTPRoute for an existing Gateway API /mcp route.

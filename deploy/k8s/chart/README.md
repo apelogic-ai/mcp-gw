@@ -196,6 +196,14 @@ route with exact image repository/tag values, amd64 scheduling, and one
 externally synchronized Secret. The chart does not create that Gateway,
 Namespace, or Secret.
 
+To publish the authenticated GitHub connection lifecycle endpoints on the same
+shared route, set
+`agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true`. The chart adds
+only exact matches for `/oauth/github/start`, `/connections/github/status`, and
+`/oauth/github/disconnect`, pointing to the existing GitHub wrapper Service and
+reusing the HTTPRoute timeout. The option has no configurable path list and is
+off by default. Callers must still provide a valid HOP-1 bearer token.
+
 For an existing Gateway API `/mcp` HTTPRoute, set `agentgateway.ingress.enabled=false`
 and `agentgateway.gatewayApi.brokerHttpRoute.enabled=true`, with one or more
 `parentRefs` to the public HTTPS Gateway listener. The chart then creates only
@@ -367,8 +375,9 @@ for the complete stable error-code contract.
 An internal control plane can use the canonical authenticated
 `/connections/{provider}/*` routes through each enabled wrapper's existing
 ClusterIP Service. The chart does not publish those routes through its public
-Ingress or HTTPRoute. Opt in by selecting the trusted caller Namespace and,
-optionally, its Pods:
+Ingress or HTTPRoute except for the separately opt-in exact GitHub rules
+described above. Opt in to private access by selecting the trusted caller
+Namespace and, optionally, its Pods:
 
 ```yaml
 connectionLifecycle:
@@ -531,6 +540,7 @@ and are left in place.
 | `agentgateway.gatewayApi.httpRoute.enabled`                       | `false`                                             | Create `/mcp` and protected-resource routes on an existing shared Gateway.                                              |
 | `agentgateway.gatewayApi.httpRoute.parentRefs`                    | `[]`                                                | Existing Gateway listener references with name, optional namespace, and optional section name.                          |
 | `agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled`     | `false`                                             | Add exact callback rules for enabled Google Workspace and GitHub wrappers to the shared HTTPRoute.                      |
+| `agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled`       | `false`                                             | Add the three exact authenticated GitHub lifecycle paths to the shared HTTPRoute.                                       |
 | `agentgateway.gatewayApi.httpRoute.timeouts.request`              | `""`                                                | Optional Gateway API request timeout; `0s` disables the route-level deadline for streams.                               |
 | `agentgateway.gatewayApi.brokerHttpRoute.enabled`                 | `false`                                             | Create only the broker's exact public HTTPRoute; requires an externally owned `/mcp` route and disables chart Ingress.  |
 | `agentgateway.gatewayApi.brokerHttpRoute.parentRefs`              | `[]`                                                | Gateway listener references for the broker HTTPRoute when enabled.                                                      |
