@@ -376,6 +376,150 @@ describe("Kubernetes production chart", () => {
     );
   });
 
+  test("keeps public GitHub lifecycle routing byte-identical when disabled", () => {
+    const args = [
+      ...providerCallbackRouteArgs(),
+      "--set",
+      "githubWrapper.enabled=true",
+      "--set-string",
+      "githubWrapper.secretRef.name=mcp-runtime",
+    ];
+    const implicitDefault = helmTemplate(args);
+    const explicitDefault = helmTemplate([
+      ...args,
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=false",
+    ]);
+
+    expect(explicitDefault).toBe(implicitDefault);
+    expect(implicitDefault).not.toContain("/oauth/github/start");
+    expect(implicitDefault).not.toContain("/connections/github/status");
+    expect(implicitDefault).not.toContain("/oauth/github/disconnect");
+  });
+
+  test("routes only the three exact public GitHub lifecycle paths to its wrapper", () => {
+    const rendered = helmTemplate([
+      ...providerCallbackRouteArgs(),
+      "--set",
+      "githubWrapper.enabled=true",
+      "--set-string",
+      "githubWrapper.secretRef.name=mcp-runtime",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true",
+    ]);
+    const route = parse(
+      renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway"),
+    ) as {
+      spec: {
+        hostnames: string[];
+        parentRefs: Record<string, string>[];
+        rules: Array<{
+          matches: Array<{ path: { type: string; value: string } }>;
+          timeouts?: { request?: string };
+          backendRefs: Array<{ name: string; port: number }>;
+        }>;
+      };
+    };
+    const lifecycleRules = route.spec.rules.filter((rule) =>
+      rule.backendRefs.some((backend) => backend.name === "mcp-gateway-github-wrapper"),
+    );
+
+    expect(route.spec.hostnames).toEqual(["mcp.example.com"]);
+    expect(route.spec.parentRefs).toEqual([
+      { name: "shared-gateway", namespace: "gateway-system", sectionName: "https" },
+    ]);
+    expect(lifecycleRules).toEqual([
+      {
+        matches: [
+          { path: { type: "Exact", value: "/oauth/github/start" } },
+          { path: { type: "Exact", value: "/connections/github/status" } },
+          { path: { type: "Exact", value: "/oauth/github/disconnect" } },
+        ],
+        timeouts: { request: "0s" },
+        backendRefs: [{ name: "mcp-gateway-github-wrapper", port: 8080 }],
+      },
+    ]);
+    expect(rendered).not.toContain("/oauth/google/start");
+    expect(rendered).not.toContain("/connections/google/status");
+    expect(rendered).not.toContain("/oauth/google/disconnect");
+    expect(rendered).not.toContain("/oauth/github/status");
+  });
+
+  test.each([
+    {
+      label: "shared HTTPRoute disabled",
+      args: [
+        "--values",
+        "deploy/k8s/examples/values-k8s-smoke.yaml",
+        "--set",
+        "githubWrapper.enabled=true",
+        "--set-string",
+        "githubWrapper.secretRef.name=mcp-runtime",
+      ],
+      expected:
+        "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled requires agentgateway.gatewayApi.httpRoute.enabled=true",
+    },
+    {
+      label: "GitHub wrapper disabled",
+      args: providerCallbackRouteArgs(),
+      expected:
+        "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled requires githubWrapper.enabled=true",
+    },
+  ])("rejects public GitHub lifecycle routing with $label", ({ args, expected }) => {
+    const result = helmTemplateResult([
+      ...args,
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true",
+    ]);
+
+    assertHelmRejected(result);
+    expect(result.stderr.toString()).toContain(expected);
+  });
+
+  test("rejects configurable or extra public lifecycle paths", () => {
+    const configurablePath = helmTemplateResult([
+      ...providerCallbackRouteArgs(),
+      "--set",
+      "githubWrapper.enabled=true",
+      "--set-string",
+      "githubWrapper.secretRef.name=mcp-runtime",
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true",
+      "--set-string",
+      "agentgateway.gatewayApi.httpRoute.githubLifecycle.path=/oauth/github/other",
+    ]);
+    assertHelmRejected(configurablePath);
+    expect(configurablePath.stderr.toString()).toContain("path");
+    expect(configurablePath.stderr.toString()).toContain("not allowed");
+
+    for (const path of [
+      "/oauth/google/start",
+      "/oauth/google/status",
+      "/oauth/google/disconnect",
+      "/connections/google/status",
+      "/oauth/github/status",
+      "/connections/github/start",
+      "/connections/github/disconnect",
+    ]) {
+      const result = helmTemplateResult([
+        ...providerCallbackRouteArgs(),
+        "--set",
+        "githubWrapper.enabled=true",
+        "--set-string",
+        "githubWrapper.secretRef.name=mcp-runtime",
+        "--set",
+        "agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true",
+        "--set-json",
+        `agentgateway.ingress.paths=["/mcp","${path}"]`,
+      ]);
+
+      assertHelmRejected(result);
+      expect(result.stderr.toString(), path).toContain(
+        "public provider routing must not publish non-allowlisted lifecycle paths",
+      );
+    }
+  });
+
   test("rejects incomplete shared routes and ambiguous named database keys", () => {
     const routeBase = [
       "--values",
