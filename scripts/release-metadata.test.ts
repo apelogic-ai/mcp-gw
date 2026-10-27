@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.7.2";
+  const expectedVersion = "0.7.3";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -160,8 +160,10 @@ describe("release metadata", () => {
     expect(chart.annotations["artifacthub.io/images"]).toContain(
       `ghcr.io/apelogic-ai/mcp-gw-remote-shell:${packageVersion}`,
     );
-    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: fixed");
-    expect(chart.annotations["artifacthub.io/changes"]).toContain("provider OAuth callback routes");
+    expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: added");
+    expect(chart.annotations["artifacthub.io/changes"]).toContain(
+      "GitHub connection lifecycle routes",
+    );
   });
 
   test("publishes organization-owned chart and Artifact Hub metadata", async () => {
