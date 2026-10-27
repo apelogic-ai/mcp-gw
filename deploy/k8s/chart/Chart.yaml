@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.7.2
-appVersion: "0.7.2"
+version: 0.7.3
+appVersion: "0.7.3"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,17 +21,17 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.7.2
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.7.3
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.7.2
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.7.3
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.7.2
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.7.3
     - name: mcp-gw-generic-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.7.2
+      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.7.3
     - name: mcp-gw-governed-cli
-      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.7.2
+      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.7.3
     - name: mcp-gw-remote-shell
-      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.7.2
+      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.7.3
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -39,5 +39,5 @@ annotations:
   # artifacthub.io/signKey annotation requires a PGP fingerprint and key URL,
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
-    - kind: fixed
-      description: Add default-off provider OAuth callback routes to the shared Gateway API HTTPRoute.
+    - kind: added
+      description: Add default-off exact GitHub connection lifecycle routes to the shared Gateway API HTTPRoute.

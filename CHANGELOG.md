@@ -8,10 +8,17 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-26
+
 ### Added
 
 - Let a default-off chart option publish only the three exact authenticated GitHub connection
   lifecycle paths on the existing shared Gateway API route.
+
+### Upgrade Notes
+
+- No migration or new required value is needed. GitHub lifecycle routing remains off by default,
+  so existing chart renders are unchanged until it is enabled.
 
 ## [0.7.2] - 2026-10-23
 
@@ -983,7 +990,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.6.2...v0.7.0
