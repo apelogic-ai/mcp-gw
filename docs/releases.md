@@ -19,7 +19,21 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.7.2`.
+The current public release line is `v0.7.3`.
+
+### 0.7.3 upgrade notes
+
+- Set `agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled=true` to add exact
+  `/oauth/github/start`, `/connections/github/status`, and `/oauth/github/disconnect` rules to the
+  shared AgentGateway HTTPRoute. The rules reuse that route's hostname, `parentRefs`, and request
+  timeout and point directly to the GitHub wrapper Service. Callers still need a valid HOP-1 bearer
+  token.
+- The option requires `agentgateway.gatewayApi.httpRoute.enabled=true` and
+  `githubWrapper.enabled=true`, and its path list is not configurable. When either this option or
+  provider callback routing is enabled, the chart refuses `agentgateway.ingress.paths` entries that
+  would publish Google or GitHub lifecycle paths, including `/connections/{provider}/*`.
+- Release compatibility: **no migration, no required value, new option off by default**. Existing
+  rendered manifests remain unchanged until GitHub lifecycle routing is enabled.
 
 ### 0.7.2 upgrade notes
 
