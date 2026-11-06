@@ -8,6 +8,19 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-11-05
+
+### Fixed
+
+- Refresh the AgentGateway runner base image so the release contains the fixed CA certificate
+  bundle for CVE-2026-91403.
+
+### Upgrade Notes
+
+- No upgrade action is required. This release changes only the AgentGateway image base layer;
+  deployment configuration, Secrets, OAuth connections, provider authorization, and public
+  interfaces are unchanged.
+
 ## [0.7.4] - 2026-11-05
 
 ### Fixed
@@ -1002,7 +1015,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.1...v0.7.2
