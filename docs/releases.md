@@ -19,7 +19,17 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.7.3`.
+The current public release line is `v0.7.4`.
+
+### 0.7.4 upgrade notes
+
+- Google Workspace tools that accept media uploads can now use `uploadBase64` successfully. The
+  wrapper decodes the bytes into its per-call staging directory, runs the pinned `gws` binary from
+  that directory, and passes the relative upload filename so the CLI's path-safety validation
+  accepts it.
+- Server-path `upload` requests and non-upload commands are unchanged. The fix adds no migration,
+  configuration or Secret change, OAuth reconnect, provider reauthorization, or new required
+  value.
 
 ### 0.7.3 upgrade notes
 
