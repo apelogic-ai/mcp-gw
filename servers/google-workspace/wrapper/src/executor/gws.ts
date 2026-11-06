@@ -45,6 +45,7 @@ export async function executeGwsTool(options: ExecuteGwsToolOptions): Promise<un
       childArgs: buildGwsArgs(options.tool, prepared.args),
       homeDir,
       configDir,
+      cwd: prepared.uploadDir ?? process.cwd(),
     });
 
     if (options.tool.resultMode === "text") {
@@ -119,10 +120,11 @@ async function prepareInlineUpload(args: Record<string, unknown>): Promise<{
   }
 
   const uploadDir = await mkdtemp(join(tmpdir(), "gws-upload-"));
-  const uploadPath = join(uploadDir, "upload.bin");
+  const uploadFileName = "upload.bin";
+  const uploadPath = join(uploadDir, uploadFileName);
   await writeFile(uploadPath, contents, { mode: 0o600 });
 
-  const preparedArgs: Record<string, unknown> = { ...args, upload: uploadPath };
+  const preparedArgs: Record<string, unknown> = { ...args, upload: uploadFileName };
   delete preparedArgs.uploadBase64;
   return { args: preparedArgs, uploadDir };
 }
@@ -248,6 +250,7 @@ interface SpawnGwsOptions extends ExecuteGwsToolOptions {
   childArgs: string[];
   homeDir: string;
   configDir: string;
+  cwd: string;
 }
 
 interface SpawnGwsResult {
@@ -260,7 +263,7 @@ async function spawnGws(options: SpawnGwsOptions): Promise<SpawnGwsResult> {
       {
         binary: options.gwsBinary,
         env: childEnv(options),
-        cwd: process.cwd(),
+        cwd: options.cwd,
         defaultTimeoutSeconds: DEFAULT_TIMEOUT_MS / 1000,
         maxTimeoutSeconds: DEFAULT_TIMEOUT_MS / 1000,
         maxOutputBytes: Number.POSITIVE_INFINITY,

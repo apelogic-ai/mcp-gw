@@ -103,6 +103,22 @@ jobs:
           cache-from: type=gha,scope=generic-wrapper-ci
           cache-to: type=gha,mode=max,scope=generic-wrapper-ci
 
+      - name: Build Google Workspace wrapper candidate
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: servers/google-workspace/wrapper/Dockerfile
+          load: true
+          tags: mcp-gw-google-workspace:ci
+          cache-from: type=gha,scope=google-workspace-ci
+          cache-to: type=gha,mode=max,scope=google-workspace-ci
+
+      - name: Run real gws inline-upload integration
+        run: >-
+          docker run --rm --entrypoint bun mcp-gw-google-workspace:ci
+          test servers/google-workspace/wrapper/src/executor/gws.test.ts
+          --test-name-pattern "passes byte-identical inline upload content to the real gws dry-run"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
