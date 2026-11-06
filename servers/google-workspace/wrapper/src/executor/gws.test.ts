@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -8,6 +8,8 @@ import { getGoogleWorkspaceTool } from "../catalog/google-workspace";
 import { buildGwsArgs, executeGwsTool, GwsExecutionError } from "./gws";
 
 const tempDirs: string[] = [];
+const realGwsBinary = process.env.GWS_BINARY_PATH ?? "";
+const testWithRealGws = realGwsBinary ? test : test.skip;
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
@@ -233,6 +235,55 @@ node -e '
     expect(typeof result.uploadPath).toBe("string");
     expect(existsSync(String(result.uploadPath))).toBe(false);
   });
+
+  testWithRealGws(
+    "passes byte-identical inline upload content to the real gws dry-run",
+    async () => {
+      const captureDir = await mkdtemp(join(tmpdir(), "mcp-gw-real-gws-"));
+      tempDirs.push(captureDir);
+      const capturePath = join(captureDir, "upload.bin");
+      const binary = await fakeGws(`
+capture_upload() {
+  set -- "$@"
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--upload" ]; then
+      cp "$2" "$GWS_UPLOAD_CAPTURE"
+      return
+    fi
+    shift
+  done
+  return 1
+}
+capture_upload "$@"
+exec "$GWS_REAL_BINARY" "$@"
+`);
+      const contents = Buffer.from([0x00, 0x01, 0x7f, 0x80, 0xff, 0x0a, 0x41]);
+
+      const result = await executeGwsTool({
+        tool: getGoogleWorkspaceTool("gws_drive_files_create"),
+        args: {
+          params: { fields: "id,name" },
+          json: { name: "bytes.bin" },
+          uploadBase64: contents.toString("base64"),
+          uploadContentType: "application/octet-stream",
+          dryRun: true,
+        },
+        accessToken: "unused-dry-run-token",
+        gwsBinary: binary,
+        parentEnv: {
+          ...process.env,
+          GWS_REAL_BINARY: realGwsBinary,
+          GWS_UPLOAD_CAPTURE: capturePath,
+        },
+      });
+
+      expect(JSON.parse(String(result))).toMatchObject({
+        dry_run: true,
+        is_multipart_upload: true,
+      });
+      expect(await readFile(capturePath)).toEqual(contents);
+    },
+  );
 
   test("rejects ambiguous inline and server-path uploads", async () => {
     const binary = await fakeGws("printf '{}'");

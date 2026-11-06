@@ -8,6 +8,11 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Let inline Google Workspace uploads run from their per-call staging directory so the pinned
+  `gws` CLI can safely read the decoded upload bytes.
+
 ## [0.7.3] - 2026-10-26
 
 ### Added
