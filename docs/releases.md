@@ -19,7 +19,14 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.7.4`.
+The current public release line is `v0.7.5`.
+
+### 0.7.5 upgrade notes
+
+- The AgentGateway image uses a refreshed Chainguard runner base whose
+  `ca-certificates-bundle 20261020-r0` includes the fix for CVE-2026-91403.
+- **No upgrade action is required.** Deployment configuration, Secrets, OAuth connections,
+  provider authorization, and public interfaces are unchanged.
 
 ### 0.7.4 upgrade notes
 

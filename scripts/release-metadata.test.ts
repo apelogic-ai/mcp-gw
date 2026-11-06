@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.7.4";
+  const expectedVersion = "0.7.5";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -162,7 +162,7 @@ describe("release metadata", () => {
     );
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: fixed");
     expect(chart.annotations["artifacthub.io/changes"]).toContain(
-      "inline Google Workspace uploads",
+      "AgentGateway base image CA certificate bundle",
     );
   });
 
