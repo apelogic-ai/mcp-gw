@@ -8,10 +8,17 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-05
+
 ### Fixed
 
 - Let inline Google Workspace uploads run from their per-call staging directory so the pinned
   `gws` CLI can safely read the decoded upload bytes.
+
+### Upgrade Notes
+
+- No migration, configuration change, OAuth reconnect, or provider reauthorization is needed.
+  Existing inline-upload callers work without changing their `uploadBase64` requests.
 
 ## [0.7.3] - 2026-10-26
 
@@ -995,7 +1002,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.0...v0.7.1
