@@ -8,6 +8,8 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-06
+
 ### Changed
 
 - Authorize remote-shell roles from the verified run token's signed
@@ -1026,7 +1028,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.5...v0.8.0
 [0.7.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.2...v0.7.3
