@@ -51,7 +51,7 @@ agentgateway:
       timeouts:
         request: 0s
 
-# Opt in after supplying the target-binding Secret and workload identity.
+# Opt in after supplying workload identity and a run-token issuer that signs target bindings.
 remoteShell:
   enabled: false
   image:
@@ -66,11 +66,6 @@ remoteShell:
     podIdentity: false
   aws:
     region: us-east-1
-  bindingsSecretRef:
-    name: runtime-secrets
-    key: remote-shell-bindings
-  runBinding:
-    tagKey: example:run-id
   networkPolicy:
     ingressPeers:
       - namespaceSelector:

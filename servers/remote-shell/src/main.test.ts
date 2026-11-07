@@ -10,53 +10,27 @@ const issuer = {
   allowedAlgorithms: ["RS256"],
   emailClaim: "email",
 };
-const binding = {
-  issuer: "https://identity.example.com",
-  subject: "user-123",
-  targets: { controller: "i-0123456789abcdef0" },
-};
-
 describe("remote shell configuration", () => {
-  test("loads verified-principal bindings and bounded defaults", () => {
+  test("loads verified issuers and bounded defaults without mutable target configuration", () => {
     const config = loadRemoteShellConfig({
       HOP1_ISSUERS_JSON: JSON.stringify([issuer]),
-      REMOTE_SHELL_BINDINGS_JSON: JSON.stringify([binding]),
     });
 
     expect(config).toMatchObject({
       port: 8080,
       awsCliPath: "/usr/local/bin/aws",
-      runTagKey: "hypershell:run-id",
       maxTimeoutSeconds: 60,
       maxOutputBytes: 24 * 1024,
       requestLimits: { maxBodyBytes: 17 * 1024, maxCommandBytes: 16 * 1024 },
       jobLimits: { maxJobs: 64, maxRunningJobsPerOwner: 4, retentionSeconds: 30 * 60 },
-      bindings: [binding],
     });
-  });
-
-  test("rejects malformed, duplicate, or address-shaped bindings", () => {
-    const invalidBindings = [
-      [],
-      [binding, binding],
-      [{ ...binding, targets: { "host.example.com": "i-0123456789abcdef0" } }],
-      [{ ...binding, targets: { controller: "host.example.com" } }],
-    ];
-
-    for (const bindings of invalidBindings) {
-      expect(() =>
-        loadRemoteShellConfig({
-          HOP1_ISSUERS_JSON: JSON.stringify([issuer]),
-          REMOTE_SHELL_BINDINGS_JSON: JSON.stringify(bindings),
-        }),
-      ).toThrow();
-    }
+    expect(config).not.toHaveProperty("bindings");
+    expect(config).not.toHaveProperty("runTagKey");
   });
 
   test("loads and validates request and job limits", () => {
     const env = {
       HOP1_ISSUERS_JSON: JSON.stringify([issuer]),
-      REMOTE_SHELL_BINDINGS_JSON: JSON.stringify([binding]),
       REMOTE_SHELL_MAX_COMMAND_BYTES: "100",
       REMOTE_SHELL_MAX_BODY_BYTES: "200",
       REMOTE_SHELL_MAX_JOBS: "3",

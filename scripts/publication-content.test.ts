@@ -26,6 +26,7 @@ const INTERNAL_PRODUCT_NAMES = [
 ];
 const PUBLIC_CONTRACT_IDENTIFIERS = [
   "steward.capability-catalog/v2",
+  "steward.remote_shell_targets",
   '"steward":',
   "`steward`",
   "`steward-apiserver`",

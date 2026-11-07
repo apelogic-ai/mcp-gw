@@ -41,13 +41,6 @@ spec:
           env:
             - name: PORT
               value: {{ .Values.remoteShell.port | quote }}
-            - name: REMOTE_SHELL_BINDINGS_JSON
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.remoteShell.bindingsSecretRef.name }}
-                  key: {{ .Values.remoteShell.bindingsSecretRef.key }}
-            - name: REMOTE_SHELL_RUN_TAG_KEY
-              value: {{ .Values.remoteShell.runBinding.tagKey | quote }}
             - name: REMOTE_SHELL_MAX_TIMEOUT_SECONDS
               value: {{ .Values.remoteShell.limits.maxTimeoutSeconds | quote }}
             - name: REMOTE_SHELL_MAX_OUTPUT_BYTES

@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
-import type { Hop1Identity } from "../../../shared/identity/hop1";
+import {
+  validateHop1Jwt,
+  type Hop1Identity,
+  type IssuerProfile,
+} from "../../../shared/identity/hop1";
 import {
   createRemoteShellHttpHandler,
   REMOTE_SHELL_GRANT,
   type RemoteShellAuditEvent,
 } from "./http";
 import {
-  SsmRunCommandError,
   type SsmCommandJob,
   type SsmRunCommand,
   type SsmRunRequest,
@@ -57,7 +61,6 @@ describe("remote shell HTTP", () => {
     expect(requests).toEqual([
       {
         instanceId: "i-0123456789abcdef0",
-        runtimeUid: "runtime-a",
         command: "pwd && printf ok",
         timeoutSeconds: 20,
       },
@@ -83,7 +86,7 @@ describe("remote shell HTTP", () => {
     expect(await handler(apiRequest("/shell/jobs/cmd-1/stream"))).toMatchObject({ status: 404 });
   });
 
-  test("refuses missing authority, runtime identity, bindings, and caller-controlled fields", async () => {
+  test("refuses missing authority, runtime identity, targets, and caller-controlled fields", async () => {
     const calls: SsmRunRequest[] = [];
     const handler = createRemoteShellHttpHandler({
       ...baseOptions(
@@ -98,7 +101,10 @@ describe("remote shell HTTP", () => {
         if (token === "read") return Promise.resolve(taskIdentity("read"));
         if (token === "no-runtime") return Promise.resolve(taskIdentity("write", null));
         if (token === "unbound") {
-          return Promise.resolve({ ...taskIdentity("write"), subject: "unbound" });
+          const identity = taskIdentity("write");
+          const authority = identity.claims[claim] as Record<string, unknown>;
+          delete authority.remote_shell_targets;
+          return Promise.resolve(identity);
         }
         return Promise.resolve(taskIdentity("write"));
       },
@@ -137,26 +143,143 @@ describe("remote shell HTTP", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("maps run-bound and execution failures without leaking command data", async () => {
-    for (const [error, status, code] of [
-      [new SsmRunCommandError("target_not_run_bound"), 403, "remote_shell_target_not_run_bound"],
-      [new Error("AWS_SECRET_ACCESS_KEY=server-secret"), 502, "remote_shell_execution_failed"],
-    ] as const) {
-      const events: RemoteShellAuditEvent[] = [];
-      const handler = createRemoteShellHttpHandler(
-        baseOptions(fakeSsm({ execute: () => Promise.reject(error) }), events),
-      );
+  test("refuses targets absent from the signed run-token claim", async () => {
+    const calls: SsmRunRequest[] = [];
+    const handler = createRemoteShellHttpHandler({
+      ...baseOptions(
+        fakeSsm({
+          execute: (request) => {
+            calls.push(request);
+            return Promise.resolve(success);
+          },
+        }),
+      ),
+      authenticate: () => Promise.resolve(taskIdentity("write", "runtime-a", binding.targets)),
+    });
+
+    for (const target of ["worker", "constructor", "tostring", "valueof", "hasownproperty"]) {
       const response = await handler(
         apiRequest("/shell/run?wait=full", {
           method: "POST",
-          body: { target: "controller", command: "printf server-secret" },
+          body: { target, command: "true" },
         }),
       );
-      expect(response.status).toBe(status);
-      expect(await response.json()).toMatchObject({ error: code });
-      expect(JSON.stringify(events)).not.toContain("server-secret");
-      expect(events[0]).toMatchObject({ status: status === 403 ? "deny" : "error", error: code });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: "remote_shell_target_not_bound" });
     }
+    expect(calls).toHaveLength(0);
+  });
+
+  test("refuses a legacy tag-only match when the signed run token has no targets", async () => {
+    const calls: SsmRunRequest[] = [];
+    const identity = taskIdentity("write");
+    const authority = identity.claims[claim] as Record<string, unknown>;
+    delete authority.remote_shell_targets;
+    const handler = createRemoteShellHttpHandler({
+      ...baseOptions(
+        fakeSsm({
+          execute: (request) => {
+            calls.push(request);
+            return Promise.resolve(success);
+          },
+        }),
+      ),
+      authenticate: () => Promise.resolve(identity),
+    });
+
+    const response = await handler(
+      apiRequest("/shell/run?wait=full", {
+        method: "POST",
+        body: { target: "controller", command: "true" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "remote_shell_target_not_bound" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("refuses tampered and expired signed run tokens before SSM", async () => {
+    const profile: IssuerProfile = {
+      name: "test",
+      issuer: binding.issuer,
+      audiences: ["remote-shell-test"],
+      allowedAlgorithms: ["EdDSA"],
+      emailClaim: "email",
+    };
+    const pair = await generateKeyPair("EdDSA", { extractable: true });
+    const publicJwk = {
+      ...(await exportJWK(pair.publicKey)),
+      alg: "EdDSA",
+      kid: "remote-shell-test",
+      use: "sig",
+    };
+    const claims = {
+      iss: profile.issuer,
+      aud: profile.audiences[0],
+      sub: binding.subject,
+      email: "user@example.com",
+      [claim]: taskIdentity("write").claims[claim],
+    };
+    const valid = await new SignJWT(claims)
+      .setProtectedHeader({ alg: "EdDSA", kid: "remote-shell-test" })
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(pair.privateKey);
+    const [header = "", payload = "", signature = ""] = valid.split(".");
+    const tampered = `${header}.${payload.slice(0, -1)}${payload.endsWith("A") ? "B" : "A"}.${signature}`;
+    const expired = await new SignJWT(claims)
+      .setProtectedHeader({ alg: "EdDSA", kid: "remote-shell-test" })
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 1)
+      .sign(pair.privateKey);
+    const calls: SsmRunRequest[] = [];
+    const handler = createRemoteShellHttpHandler({
+      ...baseOptions(
+        fakeSsm({
+          execute: (request) => {
+            calls.push(request);
+            return Promise.resolve(success);
+          },
+        }),
+      ),
+      authenticate: (token) => validateHop1Jwt(token, profile, [publicJwk]),
+    });
+
+    for (const token of [tampered, expired]) {
+      const response = await handler(
+        apiRequest("/shell/run?wait=full", {
+          method: "POST",
+          token,
+          body: { target: "controller", command: "true" },
+        }),
+      );
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ error: "unauthorized" });
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  test("maps execution failures without leaking command data", async () => {
+    const events: RemoteShellAuditEvent[] = [];
+    const handler = createRemoteShellHttpHandler(
+      baseOptions(
+        fakeSsm({
+          execute: () => Promise.reject(new Error("AWS_SECRET_ACCESS_KEY=server-secret")),
+        }),
+        events,
+      ),
+    );
+    const response = await handler(
+      apiRequest("/shell/run?wait=full", {
+        method: "POST",
+        body: { target: "controller", command: "printf server-secret" },
+      }),
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: "remote_shell_execution_failed" });
+    expect(JSON.stringify(events)).not.toContain("server-secret");
+    expect(events[0]).toMatchObject({ status: "error", error: "remote_shell_execution_failed" });
   });
 
   test("uses the SSM command ID for an owned async job", async () => {
@@ -294,7 +417,6 @@ describe("remote shell HTTP", () => {
 function baseOptions(ssm: SsmRunCommand, events: RemoteShellAuditEvent[] = []) {
   return {
     authenticate: () => Promise.resolve(taskIdentity("write")),
-    bindings: [binding],
     maxTimeoutSeconds: 60,
     requestLimits: { maxBodyBytes: 17 * 1024, maxCommandBytes: 16 * 1024 },
     jobLimits: { maxJobs: 64, maxRunningJobsPerOwner: 4, retentionSeconds: 30 * 60 },
@@ -306,7 +428,11 @@ function baseOptions(ssm: SsmRunCommand, events: RemoteShellAuditEvent[] = []) {
   };
 }
 
-function taskIdentity(action: string, runtimeUid: string | null = "runtime-a"): Hop1Identity {
+function taskIdentity(
+  action: string,
+  runtimeUid: string | null = "runtime-a",
+  targets: Record<string, string> = binding.targets,
+): Hop1Identity {
   return {
     profile: "test",
     issuer: binding.issuer,
@@ -317,6 +443,7 @@ function taskIdentity(action: string, runtimeUid: string | null = "runtime-a"): 
         version: 3,
         acting_as: "user",
         ...(runtimeUid ? { runtime_uid: runtimeUid } : {}),
+        remote_shell_targets: targets,
         tools: [{ ...REMOTE_SHELL_GRANT, action }],
       },
     },

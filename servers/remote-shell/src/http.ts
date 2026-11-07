@@ -10,7 +10,6 @@ import {
 } from "../../../packages/wrapper-kit/src/governed-http";
 import type { TaskToolAuthorization } from "../../../packages/wrapper-kit/src/task-tool-authorization";
 import {
-  SsmRunCommandError,
   type SsmCommandJob,
   type SsmRunCommand,
   type SsmRunRequest,
@@ -24,14 +23,9 @@ export const REMOTE_SHELL_GRANT = {
 } as const;
 
 const ROLE_PATTERN = /^[a-z][a-z0-9-]{0,62}$/;
+const INSTANCE_ID_PATTERN = /^i-[0-9a-f]{8}(?:[0-9a-f]{9})?$/;
 const MIN_TIMEOUT_SECONDS = 10;
 const TASK_AUTHORITY_CLAIM = ["ste", "ward"].join("");
-
-export interface RemoteShellBinding {
-  issuer: string;
-  subject: string;
-  targets: Record<string, string>;
-}
 
 export interface RemoteShellAuditEvent extends Record<
   string,
@@ -49,7 +43,6 @@ export interface RemoteShellAuditSink {
 
 export interface CreateRemoteShellHttpHandlerOptions {
   authenticate(token: string): Promise<Hop1Identity>;
-  bindings: readonly RemoteShellBinding[];
   maxTimeoutSeconds: number;
   requestLimits: { maxBodyBytes: number; maxCommandBytes: number };
   jobLimits: {
@@ -101,17 +94,11 @@ export function createRemoteShellHttpHandler(
     if (!authenticated.ok) return authenticated;
     const runtimeUid = taskRuntimeUid(authenticated.identity);
     const owner = taskOwner(authenticated.identity);
-    const binding = options.bindings.find(
-      (candidate) =>
-        candidate.issuer === authenticated.identity.issuer &&
-        candidate.subject === authenticated.identity.subject,
-    );
     if (
       !authenticated.authorization.restricted ||
       !authenticated.authorization.allows(REMOTE_SHELL_GRANT) ||
       !runtimeUid ||
-      !owner ||
-      !binding
+      !owner
     ) {
       await emit(
         options.audit,
@@ -143,7 +130,13 @@ export function createRemoteShellHttpHandler(
         response: jsonError(400, "remote_shell_invalid_arguments", parsed.error),
       };
     }
-    const instanceId = binding.targets[parsed.target];
+    const targets = taskRemoteShellTargets(authenticated.identity);
+    const claimedInstanceId =
+      targets && Object.hasOwn(targets, parsed.target) ? targets[parsed.target] : undefined;
+    const instanceId =
+      typeof claimedInstanceId === "string" && INSTANCE_ID_PATTERN.test(claimedInstanceId)
+        ? claimedInstanceId
+        : undefined;
     if (!instanceId) {
       await emit(
         options.audit,
@@ -171,7 +164,6 @@ export function createRemoteShellHttpHandler(
         command: parsed.command,
         request: {
           instanceId,
-          runtimeUid,
           command: parsed.command,
           timeoutSeconds: parsed.timeoutSeconds,
         },
@@ -270,8 +262,8 @@ export function createRemoteShellHttpHandler(
         const result = await options.ssm(prepared.run.request);
         await emit(options.audit, runEvent("allow", prepared.run, { exit_code: result.exit_code }));
         return wait === "full" ? Response.json(publicResult(result)) : resultNdjson(result);
-      } catch (error) {
-        return await executionFailure(options.audit, prepared.run, error);
+      } catch {
+        return await executionFailure(options.audit, prepared.run);
       }
     }
 
@@ -300,8 +292,8 @@ export function createRemoteShellHttpHandler(
         jobs.set(job.id, job);
         startWait(job);
         return Response.json({ job_id: job.id, status: job.status }, { status: 202 });
-      } catch (error) {
-        return await executionFailure(options.audit, prepared.run, error);
+      } catch {
+        return await executionFailure(options.audit, prepared.run);
       } finally {
         releaseAdmission(prepared.run.owner);
       }
@@ -369,12 +361,7 @@ function parseRunRequest(
 async function executionFailure(
   audit: RemoteShellAuditSink | undefined,
   run: PreparedRun,
-  error: unknown,
 ): Promise<Response> {
-  if (error instanceof SsmRunCommandError && error.code === "target_not_run_bound") {
-    await emit(audit, runEvent("deny", run, { error: "remote_shell_target_not_run_bound" }));
-    return jsonError(403, "remote_shell_target_not_run_bound", "Target is not bound to this run");
-  }
   await emit(audit, runEvent("error", run));
   return jsonError(502, "remote_shell_execution_failed", "Remote command execution failed");
 }
@@ -457,6 +444,24 @@ function taskRuntimeUid(identity: Hop1Identity): string | undefined {
   if (!isRecord(authority) || typeof authority.runtime_uid !== "string") return undefined;
   const value = authority.runtime_uid.trim();
   return value || undefined;
+}
+
+function taskRemoteShellTargets(identity: Hop1Identity): Record<string, string> | undefined {
+  const authority = identity.claims[TASK_AUTHORITY_CLAIM];
+  if (!isRecord(authority) || !isRecord(authority.remote_shell_targets)) return undefined;
+  const targets = Object.entries(authority.remote_shell_targets);
+  if (
+    targets.length === 0 ||
+    targets.some(
+      ([role, instanceId]) =>
+        !ROLE_PATTERN.test(role) ||
+        typeof instanceId !== "string" ||
+        !INSTANCE_ID_PATTERN.test(instanceId),
+    )
+  ) {
+    return undefined;
+  }
+  return Object.fromEntries(targets) as Record<string, string>;
 }
 
 function principal(identity: Hop1Identity): string {

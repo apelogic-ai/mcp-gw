@@ -431,8 +431,8 @@ shared job store is implemented. Enabling the workload requires either
 ### Remote shell
 
 Remote shell is disabled by default. Its route is limited to `/shell`, it serves commands at
-`/shell/run`, and it never uses `/mcp`. Enabling it requires one named key in an existing Secret for
-principal-to-role bindings, a non-empty run-tag key, a service account that carries the
+`/shell/run`, and it never uses `/mcp`. Enabling it requires a run-token issuer that signs the
+`steward.remote_shell_targets` role-to-instance object, a service account that carries the
 deployment-owned workload identity, trusted ingress peers, and exactly one Ingress or HTTPRoute.
 Keep `remoteShell.replicas: 1`: async job ownership is held in process memory. The HTTPRoute
 supports `timeouts.request`; set an explicit duration or `0s` when commands may outlast a shared
@@ -444,10 +444,10 @@ existing service account, set `create: false` and its exact `name`. Set the targ
 `remoteShell.aws.region`; the chart supplies it as `AWS_REGION`. Kubernetes API tokens are not
 mounted into the pod.
 
-Only configured role names reach the service. The agent cannot supply an address, machine ID,
-credential, run-tag key, or execution document. Keep target networks isolated, target permissions
-minimal, instance metadata protected, and target lifetimes bounded. The complete binding and
-least-privilege contract is in `servers/remote-shell/README.md`.
+Only role names present in the verified run token reach the service. The agent cannot supply an
+address, machine ID, credential, or execution document. Keep target networks isolated, target
+permissions minimal, instance metadata protected, and target lifetimes bounded. The complete
+signed-claim and least-privilege contract is in `servers/remote-shell/README.md`.
 
 ## Upgrade
 

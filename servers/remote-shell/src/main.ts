@@ -3,17 +3,13 @@ import {
   createAuthenticator,
   createRemoteJwksProvider,
 } from "../../../packages/wrapper-kit/src/authenticator";
-import { createRemoteShellHttpHandler, type RemoteShellBinding } from "./http";
+import { createRemoteShellHttpHandler } from "./http";
 import { createAwsCliRunner, createSsmRunCommand, credentialValues } from "./ssm-run-command";
-
-const INSTANCE_ID = /^i-[0-9a-f]{8}(?:[0-9a-f]{9})?$/;
-const ROLE = /^[a-z][a-z0-9-]{0,62}$/;
 
 export interface RemoteShellConfig {
   port: number;
   awsCliPath: string;
   awsRegion?: string;
-  runTagKey: string;
   maxTimeoutSeconds: number;
   maxOutputBytes: number;
   requestLimits: { maxBodyBytes: number; maxCommandBytes: number };
@@ -23,24 +19,11 @@ export interface RemoteShellConfig {
     retentionSeconds: number;
   };
   hop1Issuers: Hop1IssuerConfig[];
-  bindings: RemoteShellBinding[];
 }
 
 export function loadRemoteShellConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): RemoteShellConfig {
-  const bindings = parseJson(required(env, "REMOTE_SHELL_BINDINGS_JSON"));
-  if (
-    !Array.isArray(bindings) ||
-    bindings.length === 0 ||
-    bindings.some((value) => !isBinding(value))
-  ) {
-    throw new Error("REMOTE_SHELL_BINDINGS_JSON must contain valid bindings");
-  }
-  const validBindings = bindings as RemoteShellBinding[];
-  const keys = validBindings.map((value) => `${value.issuer}\0${value.subject}`);
-  if (new Set(keys).size !== keys.length) throw new Error("Duplicate remote-shell principal");
-
   const rawIssuers = parseJson(required(env, "HOP1_ISSUERS_JSON"));
   if (!Array.isArray(rawIssuers)) throw new Error("HOP1_ISSUERS_JSON must be an array");
   const hop1Issuers = validateHop1IssuerProfiles(
@@ -59,7 +42,6 @@ export function loadRemoteShellConfig(
     port: integer(env.PORT, 8080, 1, 65_535),
     awsCliPath: text(env.REMOTE_SHELL_AWS_CLI_PATH) ?? "/usr/local/bin/aws",
     awsRegion: text(env.AWS_REGION ?? env.AWS_DEFAULT_REGION),
-    runTagKey: text(env.REMOTE_SHELL_RUN_TAG_KEY) ?? "hypershell:run-id",
     maxTimeoutSeconds: integer(env.REMOTE_SHELL_MAX_TIMEOUT_SECONDS, 60, 10, 3_600),
     maxOutputBytes: integer(env.REMOTE_SHELL_MAX_OUTPUT_BYTES, 24 * 1024, 1, 1024 * 1024),
     requestLimits: { maxBodyBytes, maxCommandBytes },
@@ -69,7 +51,6 @@ export function loadRemoteShellConfig(
       retentionSeconds: integer(env.REMOTE_SHELL_JOB_RETENTION_SECONDS, 30 * 60, 1, 86_400),
     },
     hop1Issuers,
-    bindings: validBindings,
   };
 }
 
@@ -88,20 +69,6 @@ function issuerWithCredential(
     ...(profile as unknown as Hop1IssuerConfig),
     ...(credential ? { introspectionClientCredential: credential } : {}),
   };
-}
-
-function isBinding(value: unknown): value is RemoteShellBinding {
-  if (!isRecord(value) || !text(value.issuer) || !text(value.subject) || !isRecord(value.targets)) {
-    return false;
-  }
-  const targets = Object.entries(value.targets);
-  return (
-    targets.length > 0 &&
-    targets.every(
-      ([role, instance]) =>
-        ROLE.test(role) && typeof instance === "string" && INSTANCE_ID.test(instance),
-    )
-  );
 }
 
 function parseJson(value: string): unknown {
@@ -153,14 +120,12 @@ if (import.meta.main) {
   });
   const handler = createRemoteShellHttpHandler({
     authenticate,
-    bindings: config.bindings,
     maxTimeoutSeconds: config.maxTimeoutSeconds,
     requestLimits: config.requestLimits,
     jobLimits: config.jobLimits,
     ssm: createSsmRunCommand({
       runner,
       region: config.awsRegion,
-      runTagKey: config.runTagKey,
       outputLimitBytes: config.maxOutputBytes,
       credentialValues: credentialValues(process.env),
     }),
