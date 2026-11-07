@@ -157,7 +157,7 @@ describe("remote shell HTTP", () => {
       authenticate: () => Promise.resolve(taskIdentity("write", "runtime-a", binding.targets)),
     });
 
-    for (const target of ["worker", "constructor"]) {
+    for (const target of ["worker", "constructor", "tostring", "valueof", "hasownproperty"]) {
       const response = await handler(
         apiRequest("/shell/run?wait=full", {
           method: "POST",

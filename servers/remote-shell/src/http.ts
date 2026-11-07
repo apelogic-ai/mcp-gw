@@ -131,8 +131,12 @@ export function createRemoteShellHttpHandler(
       };
     }
     const targets = taskRemoteShellTargets(authenticated.identity);
-    const instanceId =
+    const claimedInstanceId =
       targets && Object.hasOwn(targets, parsed.target) ? targets[parsed.target] : undefined;
+    const instanceId =
+      typeof claimedInstanceId === "string" && INSTANCE_ID_PATTERN.test(claimedInstanceId)
+        ? claimedInstanceId
+        : undefined;
     if (!instanceId) {
       await emit(
         options.audit,
