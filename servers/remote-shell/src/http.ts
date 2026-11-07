@@ -130,7 +130,9 @@ export function createRemoteShellHttpHandler(
         response: jsonError(400, "remote_shell_invalid_arguments", parsed.error),
       };
     }
-    const instanceId = taskRemoteShellTargets(authenticated.identity)?.[parsed.target];
+    const targets = taskRemoteShellTargets(authenticated.identity);
+    const instanceId =
+      targets && Object.hasOwn(targets, parsed.target) ? targets[parsed.target] : undefined;
     if (!instanceId) {
       await emit(
         options.audit,

@@ -157,15 +157,16 @@ describe("remote shell HTTP", () => {
       authenticate: () => Promise.resolve(taskIdentity("write", "runtime-a", binding.targets)),
     });
 
-    const response = await handler(
-      apiRequest("/shell/run?wait=full", {
-        method: "POST",
-        body: { target: "worker", command: "true" },
-      }),
-    );
-
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: "remote_shell_target_not_bound" });
+    for (const target of ["worker", "constructor"]) {
+      const response = await handler(
+        apiRequest("/shell/run?wait=full", {
+          method: "POST",
+          body: { target, command: "true" },
+        }),
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: "remote_shell_target_not_bound" });
+    }
     expect(calls).toHaveLength(0);
   });
 
