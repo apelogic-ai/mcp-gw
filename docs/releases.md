@@ -19,7 +19,18 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.7.5`.
+The current public release line is `v0.8.0`.
+
+### 0.8.0 upgrade notes
+
+- Remote shell now authorizes each role-to-instance target only from the verified run token's
+  signed `steward.remote_shell_targets` claim. Mutable EC2 instance tags no longer participate in
+  authorization, and the remote-shell workload no longer needs `ec2:DescribeTags`.
+- Before enabling remote shell, configure the run-token issuer to sign the exact role-to-instance
+  mapping. Remove the retired `remoteShell.bindingsSecretRef` and `remoteShell.runBinding` values;
+  the `/shell` request and response contract is unchanged.
+- Remote shell remains disabled by default. No database migration, OAuth reconnect, or provider
+  reauthorization is required.
 
 ### 0.7.5 upgrade notes
 
