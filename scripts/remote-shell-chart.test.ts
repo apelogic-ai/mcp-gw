@@ -36,12 +36,6 @@ const enabledValues = [
   "remoteShell.serviceAccount.create=true",
   "--set-json",
   'remoteShell.serviceAccount.annotations={"identity.example.com/role":"remote-shell"}',
-  "--set-string",
-  "remoteShell.bindingsSecretRef.name=remote-shell-bindings",
-  "--set-string",
-  "remoteShell.bindingsSecretRef.key=bindings.json",
-  "--set-string",
-  "remoteShell.runBinding.tagKey=example:run-id",
   "--set-json",
   `remoteShell.networkPolicy.ingressPeers=${ingressPeers}`,
   "--set",
@@ -66,18 +60,15 @@ describe("remote-shell chart", () => {
     expect(rendered.stdout).not.toContain("value: /shell");
   });
 
-  test("renders the isolated service, identity, binding Secret, and timed shell route", () => {
+  test("renders the isolated service, identity, and timed shell route", () => {
     const rendered = render(enabledValues);
     expect(rendered.exitCode, rendered.stderr).toBe(0);
     expect(rendered.stdout).toContain("app.kubernetes.io/component: remote-shell");
     expect(rendered.stdout).toContain("image: registry.example.com/mcp/remote-shell:candidate");
     expect(rendered.stdout).toContain("serviceAccountName: mcp-gateway-remote-shell");
     expect(rendered.stdout).toContain("automountServiceAccountToken: false");
-    expect(rendered.stdout).toContain("name: REMOTE_SHELL_BINDINGS_JSON");
-    expect(rendered.stdout).toContain("name: remote-shell-bindings");
-    expect(rendered.stdout).toContain("key: bindings.json");
-    expect(rendered.stdout).toContain("name: REMOTE_SHELL_RUN_TAG_KEY");
-    expect(rendered.stdout).toContain('value: "example:run-id"');
+    expect(rendered.stdout).not.toContain("REMOTE_SHELL_BINDINGS_JSON");
+    expect(rendered.stdout).not.toContain("REMOTE_SHELL_RUN_TAG_KEY");
     expect(rendered.stdout).toContain("value: /shell");
     expect(rendered.stdout).toContain("request: 2m");
     expect(rendered.stdout).not.toContain("value: /mcp");
@@ -125,21 +116,6 @@ describe("remote-shell chart", () => {
         "unsupported extra environment",
         ["--set-json", 'remoteShell.extraEnv=[{"name":"EXAMPLE","value":"value"}]'],
         "remoteShell.extraEnv",
-      ],
-      [
-        "binding Secret name",
-        ["--set-string", "remoteShell.bindingsSecretRef.name="],
-        "remoteShell.enabled requires bindingsSecretRef.name and key",
-      ],
-      [
-        "binding Secret key",
-        ["--set-string", "remoteShell.bindingsSecretRef.key="],
-        "remoteShell.enabled requires bindingsSecretRef.name and key",
-      ],
-      [
-        "run tag key",
-        ["--set-string", "remoteShell.runBinding.tagKey="],
-        "remoteShell.enabled requires runBinding.tagKey",
       ],
       [
         "trusted ingress peer",

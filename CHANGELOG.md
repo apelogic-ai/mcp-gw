@@ -8,6 +8,17 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Changed
+
+- Authorize remote-shell roles from the verified run token's signed
+  `steward.remote_shell_targets` claim instead of mutable EC2 instance tags.
+
+### Upgrade Notes
+
+- Remote shell now fails closed unless its run-token issuer signs a role-to-instance mapping in
+  `steward.remote_shell_targets`. Remove the retired `remoteShell.bindingsSecretRef` and
+  `remoteShell.runBinding` values; the workload no longer needs `ec2:DescribeTags`.
+
 ## [0.7.5] - 2026-11-05
 
 ### Fixed

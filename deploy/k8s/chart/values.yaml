@@ -299,11 +299,6 @@ remoteShell:
     podIdentity: false
   aws:
     region: ""
-  bindingsSecretRef:
-    name: ""
-    key: ""
-  runBinding:
-    tagKey: ""
   limits:
     maxTimeoutSeconds: 60
     maxOutputBytes: 24576

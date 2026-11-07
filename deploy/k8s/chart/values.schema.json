@@ -1223,8 +1223,6 @@
             "port",
             "serviceAccount",
             "aws",
-            "bindingsSecretRef",
-            "runBinding",
             "limits",
             "podSecurityContext",
             "securityContext",
@@ -1242,21 +1240,6 @@
               "properties": { "region": { "type": "string", "maxLength": 128 } }
             },
             "extraEnv": false,
-            "bindingsSecretRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["name", "key"],
-              "properties": {
-                "name": { "type": "string" },
-                "key": { "type": "string" }
-              }
-            },
-            "runBinding": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["tagKey"],
-              "properties": { "tagKey": { "type": "string", "maxLength": 256 } }
-            },
             "limits": {
               "type": "object",
               "additionalProperties": false,

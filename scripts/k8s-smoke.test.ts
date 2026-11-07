@@ -150,7 +150,7 @@ exit 0
     const smoke = await readFile("scripts/smoke-k8s.sh", "utf8");
 
     expect(smoke).toContain("K8S_SMOKE_REMOTE_SHELL_REPOSITORY");
-    expect(smoke).toContain("remote-shell-bindings");
+    expect(smoke).not.toContain("remote-shell-bindings");
     expect(smoke).toContain('rollout status \\\n    "deployment/$RELEASE_NAME-remote-shell"');
     expect(smoke).toContain(
       "$RELEASE_NAME-remote-shell.$NAMESPACE.svc.cluster.local:8080/shell/run",

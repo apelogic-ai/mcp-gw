@@ -11,7 +11,6 @@ export interface AwsCliRunner {
 
 export interface SsmRunRequest {
   instanceId: string;
-  runtimeUid: string;
   command: string;
   timeoutSeconds: number;
 }
@@ -43,12 +42,7 @@ export interface SsmRunCommand {
 
 export class SsmRunCommandError extends Error {
   constructor(
-    public readonly code:
-      | "aws_cli_failed"
-      | "invalid_response"
-      | "invocation_pending"
-      | "target_not_run_bound"
-      | "timeout",
+    public readonly code: "aws_cli_failed" | "invalid_response" | "invocation_pending" | "timeout",
   ) {
     super(code);
     this.name = "SsmRunCommandError";
@@ -104,7 +98,6 @@ export function createAwsCliRunner(
 export function createSsmRunCommand(options: {
   runner: AwsCliRunner;
   region?: string;
-  runTagKey: string;
   outputLimitBytes: number;
   credentialValues?: readonly string[];
   pollIntervalMs?: number;
@@ -115,26 +108,6 @@ export function createSsmRunCommand(options: {
   const sleep = options.sleep ?? Bun.sleep;
 
   const start = async (request: SsmRunRequest): Promise<SsmCommandJob> => {
-    const filters = JSON.stringify([
-      { Name: "resource-id", Values: [request.instanceId] },
-      { Name: "key", Values: [options.runTagKey] },
-    ]);
-    let runId: unknown;
-    try {
-      const response = await runJson(
-        options.runner,
-        regional(
-          ["ec2", "describe-tags", "--filters", filters, "--output", "json", "--no-cli-pager"],
-          options.region,
-        ),
-      );
-      runId = record(Array.isArray(response.Tags) ? response.Tags[0] : undefined)?.Value;
-    } catch {
-      throw new SsmRunCommandError("target_not_run_bound");
-    }
-    if (runId !== request.runtimeUid) {
-      throw new SsmRunCommandError("target_not_run_bound");
-    }
     const started = now();
     const parameters = JSON.stringify({
       commands: [request.command],

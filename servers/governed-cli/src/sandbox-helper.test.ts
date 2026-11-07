@@ -52,13 +52,6 @@ test("compiled helper runs explicit operations and the invocation-name fallback"
   }) satisfies SsmRunCommand;
   const shellHandler = createRemoteShellHttpHandler({
     authenticate: () => Promise.resolve(taskIdentity()),
-    bindings: [
-      {
-        issuer: "https://identity.example.com",
-        subject: "user-123",
-        targets: { controller: "target-fixture" },
-      },
-    ],
     maxTimeoutSeconds: 60,
     requestLimits: { maxBodyBytes: 17 * 1024, maxCommandBytes: 16 * 1024 },
     jobLimits: { maxJobs: 4, maxRunningJobsPerOwner: 1, retentionSeconds: 60 },
@@ -149,8 +142,7 @@ test("compiled helper runs explicit operations and the invocation-name fallback"
   ]);
   expect(remoteRuns).toEqual([
     {
-      instanceId: "target-fixture",
-      runtimeUid: "runtime-a",
+      instanceId: "i-0123456789abcdef0",
       command: "uname -a",
       timeoutSeconds: 60,
     },
@@ -168,6 +160,7 @@ function taskIdentity(): Hop1Identity {
         version: 3,
         acting_as: "user",
         runtime_uid: "runtime-a",
+        remote_shell_targets: { controller: "i-0123456789abcdef0" },
         tools: [REMOTE_SHELL_GRANT],
       },
     },
