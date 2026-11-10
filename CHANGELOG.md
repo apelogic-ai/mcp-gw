@@ -8,6 +8,8 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-10
+
 ### Fixed
 
 - Approved `kubectl` and `remote-shell` calls no longer fail with "Sandbox helper configuration
@@ -1043,7 +1045,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.5...v0.8.0
 [0.7.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.7.3...v0.7.4

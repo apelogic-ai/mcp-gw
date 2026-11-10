@@ -19,7 +19,19 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.8.0`.
+The current public release line is `v0.8.1`.
+
+### 0.8.1 upgrade notes
+
+- The sandbox helper accepts leading `--run-token`, `--cli-url`, and `--shell-url` options directly
+  before `--operation`. Under process supervisors that start it with an empty environment, update
+  the image's wrappers to pass the run-token placeholder and command route this way, for example
+  `exec mcp-gw-sandbox-helper --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"`.
+  The environment variables remain a fallback, so existing wrappers keep working where the
+  environment is visible.
+- Configuration failures now name a fixed, non-secret reason after
+  `Sandbox helper configuration failed:`. The exit code (`125`), `/cli/run`, `/shell/run`, and the
+  chart and deployment contract are unchanged. No migration or reauthorization is required.
 
 ### 0.8.0 upgrade notes
 
