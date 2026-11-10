@@ -210,10 +210,10 @@ describe("governed CLI shim", () => {
 
     expect(requests).toBe(0);
     expect(stderr).toEqual([
-      "Sandbox helper configuration failed\n",
-      "Sandbox helper configuration failed\n",
-      "Sandbox helper configuration failed\n",
-      "Sandbox helper configuration failed\n",
+      "Sandbox helper configuration failed: invalid operation\n",
+      "Sandbox helper configuration failed: invalid operation\n",
+      "Sandbox helper configuration failed: invalid operation\n",
+      "Sandbox helper configuration failed: invalid operation\n",
     ]);
   });
 
@@ -249,6 +249,11 @@ describe("governed CLI shim", () => {
     }
 
     expect(requests).toBe(0);
+    expect(stderr).toEqual([
+      "Sandbox helper configuration failed: missing run token\n",
+      "Sandbox helper configuration failed: MCP_GW_CLI_URL must use HTTPS\n",
+      "Sandbox helper configuration failed: missing run token\n",
+    ]);
     expect(stderr.join("")).not.toContain("edge-placeholder");
     expect(stderr.join("")).not.toContain("/run/secrets/token");
   });
@@ -315,5 +320,193 @@ describe("governed CLI shim", () => {
     } finally {
       await Promise.all([origin.stop(true), destination.stop(true)]);
     }
+  });
+});
+
+describe("explicit helper configuration options", () => {
+  // Under some process supervisors the helper starts with an empty environment, so wrappers pass
+  // the run-token placeholder and the command route as leading options instead (steward #77).
+  const requests: { url: string; authorization: string | null; body: unknown }[] = [];
+  const fetch = (input: string | URL | Request, init?: RequestInit) => {
+    requests.push({
+      url: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      authorization: new Headers(init?.headers).get("authorization"),
+      body: typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined,
+    });
+    return Promise.resolve(new Response('{"type":"exit","exit_code":0}\n'));
+  };
+
+  test("leading options configure kubectl and remote-shell with an empty environment", async () => {
+    requests.length = 0;
+    expect(
+      await runSandboxHelper({
+        argv0: "/usr/local/bin/mcp-gw-sandbox-helper",
+        args: [
+          "--run-token",
+          "edge-placeholder",
+          "--cli-url",
+          "https://gateway.example.com/cli/run",
+          "--operation",
+          "kubectl",
+          "get",
+          "pods",
+        ],
+        env: {},
+        fetch,
+        stdout: writer([]),
+        stderr: writer([]),
+      }),
+    ).toBe(0);
+    expect(
+      await runSandboxHelper({
+        argv0: "/usr/local/bin/mcp-gw-sandbox-helper",
+        args: [
+          "--shell-url",
+          "https://gateway.example.com/shell/run",
+          "--run-token",
+          "edge-placeholder",
+          "--operation",
+          "remote-shell",
+          "controller",
+          "--",
+          "uname",
+          "-a",
+        ],
+        env: {},
+        fetch,
+        stdout: writer([]),
+        stderr: writer([]),
+      }),
+    ).toBe(0);
+
+    expect(requests).toEqual([
+      {
+        url: "https://gateway.example.com/cli/run",
+        authorization: "Bearer edge-placeholder",
+        body: { cli: "kubectl", args: ["get", "pods"] },
+      },
+      {
+        url: "https://gateway.example.com/shell/run",
+        authorization: "Bearer edge-placeholder",
+        body: { target: "controller", command: "uname -a" },
+      },
+    ]);
+  });
+
+  test("leading options take precedence over the environment", async () => {
+    requests.length = 0;
+    expect(
+      await runSandboxHelper({
+        argv0: "mcp-gw-sandbox-helper",
+        args: [
+          "--run-token",
+          "option-placeholder",
+          "--cli-url",
+          "https://option.example.com/cli/run",
+          "--operation",
+          "kubectl",
+          "version",
+        ],
+        env: {
+          MCP_GW_RUN_TOKEN: "environment-placeholder",
+          MCP_GW_CLI_URL: "https://environment.example.com/cli/run",
+        },
+        fetch,
+        stdout: writer([]),
+        stderr: writer([]),
+      }),
+    ).toBe(0);
+    expect(requests).toEqual([
+      {
+        url: "https://option.example.com/cli/run",
+        authorization: "Bearer option-placeholder",
+        body: { cli: "kubectl", args: ["version"] },
+      },
+    ]);
+  });
+
+  test("kubectl arguments after the operation are never read as helper options", async () => {
+    requests.length = 0;
+    expect(
+      await runSandboxHelper({
+        argv0: "mcp-gw-sandbox-helper",
+        args: ["--run-token", "p", "--cli-url", "https://gw.example.com/cli/run", "--operation", "kubectl", "--cli-url", "x"],
+        env: {},
+        fetch,
+        stdout: writer([]),
+        stderr: writer([]),
+      }),
+    ).toBe(0);
+    expect(requests).toEqual([
+      {
+        url: "https://gw.example.com/cli/run",
+        authorization: "Bearer p",
+        body: { cli: "kubectl", args: ["--cli-url", "x"] },
+      },
+    ]);
+  });
+
+  test("refuses unknown, duplicate, empty or misplaced options before making a request", async () => {
+    requests.length = 0;
+    const stderr: string[] = [];
+    for (const [argv0, args] of [
+      ["mcp-gw-sandbox-helper", ["--token", "p", "--operation", "kubectl", "get", "pods"]],
+      ["mcp-gw-sandbox-helper", ["--run-token", "p", "--run-token", "q", "--operation", "kubectl", "get"]],
+      ["mcp-gw-sandbox-helper", ["--run-token"]],
+      ["mcp-gw-sandbox-helper", ["--run-token", "--operation", "kubectl", "get"]],
+      ["kubectl", ["--run-token", "p", "get", "pods"]],
+    ] as const) {
+      expect(
+        await runSandboxHelper({
+          argv0,
+          args,
+          env: { MCP_GW_CLI_URL: "https://gw.example.com/cli/run", MCP_GW_RUN_TOKEN: "env-placeholder" },
+          fetch,
+          stdout: writer([]),
+          stderr: writer(stderr),
+        }),
+      ).toBe(125);
+    }
+    expect(requests).toEqual([]);
+    expect(stderr).toEqual([
+      "Sandbox helper configuration failed: invalid operation\n",
+      "Sandbox helper configuration failed: invalid helper option\n",
+      "Sandbox helper configuration failed: invalid helper option\n",
+      "Sandbox helper configuration failed: invalid helper option\n",
+      "Sandbox helper configuration failed: invalid helper option\n",
+    ]);
+  });
+
+  test("validates option values like environment values and never prints them", async () => {
+    requests.length = 0;
+    const stderr: string[] = [];
+    for (const args of [
+      ["--run-token", " ", "--cli-url", "https://gw.example.com/cli/run", "--operation", "kubectl", "get"],
+      ["--run-token", "secret-looking", "--cli-url", "http://192.0.2.1/cli/run", "--operation", "kubectl", "get"],
+      ["--run-token", "secret-looking", "--cli-url", "not a url", "--operation", "kubectl", "get"],
+      ["--run-token", "secret-looking", "--operation", "kubectl", "get"],
+      ["--run-token", "secret-looking", "--shell-url", "http://192.0.2.1/shell/run", "--operation", "remote-shell", "c", "--", "true"],
+    ]) {
+      expect(
+        await runSandboxHelper({
+          argv0: "mcp-gw-sandbox-helper",
+          args,
+          env: {},
+          fetch,
+          stdout: writer([]),
+          stderr: writer(stderr),
+        }),
+      ).toBe(125);
+    }
+    expect(requests).toEqual([]);
+    expect(stderr).toEqual([
+      "Sandbox helper configuration failed: missing run token\n",
+      "Sandbox helper configuration failed: MCP_GW_CLI_URL must use HTTPS\n",
+      "Sandbox helper configuration failed: MCP_GW_CLI_URL is not a valid URL\n",
+      "Sandbox helper configuration failed: missing MCP_GW_CLI_URL\n",
+      "Sandbox helper configuration failed: MCP_GW_SHELL_URL must use HTTPS\n",
+    ]);
+    expect(stderr.join("")).not.toContain("secret-looking");
+    expect(stderr.join("")).not.toContain("192.0.2.1");
   });
 });

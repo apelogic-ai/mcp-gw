@@ -108,6 +108,25 @@ test("compiled helper runs explicit operations and the invocation-name fallback"
     expect(await new Response(shell.stdout).text()).toBe("accepted\n");
     expect(await new Response(shell.stderr).text()).toBe("");
 
+    // An empty environment, as under some process supervisors: the options alone configure it.
+    const optionsOnly = Bun.spawn(
+      [
+        executable,
+        "--run-token",
+        "edge-placeholder",
+        "--cli-url",
+        `${origin}/cli/run`,
+        "--operation",
+        "kubectl",
+        "get",
+        "nodes",
+      ],
+      { env: {}, stderr: "pipe", stdout: "pipe" },
+    );
+    expect(await optionsOnly.exited).toBe(0);
+    expect(await new Response(optionsOnly.stdout).text()).toBe("accepted\n");
+    expect(await new Response(optionsOnly.stderr).text()).toBe("");
+
     const fallback = Bun.spawn([kubectl, "get", "services"], {
       env: {
         MCP_GW_CLI_URL: `${origin}/cli/run`,
@@ -133,6 +152,11 @@ test("compiled helper runs explicit operations and the invocation-name fallback"
       path: "/shell/run",
       authorization: "Bearer edge-placeholder",
       body: { target: "controller", command: "uname -a" },
+    },
+    {
+      path: "/cli/run",
+      authorization: "Bearer edge-placeholder",
+      body: { cli: "kubectl", args: ["get", "nodes"] },
     },
     {
       path: "/cli/run",
