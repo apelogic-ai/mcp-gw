@@ -325,7 +325,7 @@ describe("governed CLI shim", () => {
 
 describe("explicit helper configuration options", () => {
   // Under some process supervisors the helper starts with an empty environment, so wrappers pass
-  // the run-token placeholder and the command route as leading options instead (steward #77).
+  // the run-token placeholder and the command route as leading options instead.
   const requests: { url: string; authorization: string | null; body: unknown }[] = [];
   const fetch = (input: string | URL | Request, init?: RequestInit) => {
     requests.push({
@@ -430,7 +430,16 @@ describe("explicit helper configuration options", () => {
     expect(
       await runSandboxHelper({
         argv0: "mcp-gw-sandbox-helper",
-        args: ["--run-token", "p", "--cli-url", "https://gw.example.com/cli/run", "--operation", "kubectl", "--cli-url", "x"],
+        args: [
+          "--run-token",
+          "p",
+          "--cli-url",
+          "https://gw.example.com/cli/run",
+          "--operation",
+          "kubectl",
+          "--cli-url",
+          "x",
+        ],
         env: {},
         fetch,
         stdout: writer([]),
@@ -451,7 +460,10 @@ describe("explicit helper configuration options", () => {
     const stderr: string[] = [];
     for (const [argv0, args] of [
       ["mcp-gw-sandbox-helper", ["--token", "p", "--operation", "kubectl", "get", "pods"]],
-      ["mcp-gw-sandbox-helper", ["--run-token", "p", "--run-token", "q", "--operation", "kubectl", "get"]],
+      [
+        "mcp-gw-sandbox-helper",
+        ["--run-token", "p", "--run-token", "q", "--operation", "kubectl", "get"],
+      ],
       ["mcp-gw-sandbox-helper", ["--run-token"]],
       ["mcp-gw-sandbox-helper", ["--run-token", "--operation", "kubectl", "get"]],
       ["kubectl", ["--run-token", "p", "get", "pods"]],
@@ -460,7 +472,10 @@ describe("explicit helper configuration options", () => {
         await runSandboxHelper({
           argv0,
           args,
-          env: { MCP_GW_CLI_URL: "https://gw.example.com/cli/run", MCP_GW_RUN_TOKEN: "env-placeholder" },
+          env: {
+            MCP_GW_CLI_URL: "https://gw.example.com/cli/run",
+            MCP_GW_RUN_TOKEN: "env-placeholder",
+          },
           fetch,
           stdout: writer([]),
           stderr: writer(stderr),
@@ -481,11 +496,37 @@ describe("explicit helper configuration options", () => {
     requests.length = 0;
     const stderr: string[] = [];
     for (const args of [
-      ["--run-token", " ", "--cli-url", "https://gw.example.com/cli/run", "--operation", "kubectl", "get"],
-      ["--run-token", "secret-looking", "--cli-url", "http://192.0.2.1/cli/run", "--operation", "kubectl", "get"],
+      [
+        "--run-token",
+        " ",
+        "--cli-url",
+        "https://gw.example.com/cli/run",
+        "--operation",
+        "kubectl",
+        "get",
+      ],
+      [
+        "--run-token",
+        "secret-looking",
+        "--cli-url",
+        "http://192.0.2.1/cli/run",
+        "--operation",
+        "kubectl",
+        "get",
+      ],
       ["--run-token", "secret-looking", "--cli-url", "not a url", "--operation", "kubectl", "get"],
       ["--run-token", "secret-looking", "--operation", "kubectl", "get"],
-      ["--run-token", "secret-looking", "--shell-url", "http://192.0.2.1/shell/run", "--operation", "remote-shell", "c", "--", "true"],
+      [
+        "--run-token",
+        "secret-looking",
+        "--shell-url",
+        "http://192.0.2.1/shell/run",
+        "--operation",
+        "remote-shell",
+        "c",
+        "--",
+        "true",
+      ],
     ]) {
       expect(
         await runSandboxHelper({
