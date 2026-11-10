@@ -8,6 +8,14 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- The sandbox command helper now works under process supervisors that start a Bun standalone
+  executable with an empty `process.env` (seen in OpenShell sandboxes with seccomp and
+  no-new-privileges). In that case only, it reads its own `/proc/self/environ`. Approved `kubectl`
+  and `remote-shell` calls previously failed there with "Sandbox helper configuration failed".
+  An unreadable environ still fails closed.
+
 ## [0.8.0] - 2026-11-06
 
 ### Changed
