@@ -8,6 +8,21 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Approved `kubectl` and `remote-shell` calls no longer fail with "Sandbox helper configuration
+  failed" under process supervisors that start the helper with an empty environment (seen in
+  OpenShell sandboxes). The helper accepts leading `--run-token`, `--cli-url`, and `--shell-url`
+  options directly before `--operation`; they take precedence over `MCP_GW_RUN_TOKEN`,
+  `MCP_GW_CLI_URL`, and `MCP_GW_SHELL_URL`, which remain the fallback. Unknown, repeated, empty, or
+  misplaced options are refused before any request. Wrappers pass only the non-secret run-token
+  placeholder.
+
+### Changed
+
+- Sandbox helper configuration failures now name a fixed, non-secret reason, for example
+  `Sandbox helper configuration failed: missing run token`. They never print a value.
+
 ## [0.8.0] - 2026-11-06
 
 ### Changed

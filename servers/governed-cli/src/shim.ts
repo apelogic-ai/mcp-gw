@@ -63,58 +63,97 @@ export async function runRemoteShellShim(options: RunRemoteShellShimOptions): Pr
   );
 }
 
+/** A configuration refusal with a fixed, non-secret reason. Never carries a value. */
+class HelperConfigurationError extends Error {}
+
+const HELPER_OPTIONS = {
+  "--run-token": "MCP_GW_RUN_TOKEN",
+  "--cli-url": "MCP_GW_CLI_URL",
+  "--shell-url": "MCP_GW_SHELL_URL",
+} as const;
+
+/**
+ * Leading `--run-token`, `--cli-url` and `--shell-url` options, accepted only directly before
+ * `--operation`. Some process supervisors start the helper with an empty environment, so
+ * wrappers pass the run-token placeholder and command route this way; options win over the
+ * environment, which stays the fallback.
+ */
+function leadingOptions(args: readonly string[]): {
+  overrides: Record<string, string>;
+  rest: readonly string[];
+} {
+  const overrides: Record<string, string> = {};
+  let index = 0;
+  while (index < args.length && Object.hasOwn(HELPER_OPTIONS, args[index] ?? "")) {
+    const name = HELPER_OPTIONS[args[index] as keyof typeof HELPER_OPTIONS];
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--") || Object.hasOwn(overrides, name)) {
+      throw new HelperConfigurationError("invalid helper option");
+    }
+    overrides[name] = value;
+    index += 2;
+  }
+  if (index > 0 && args[index] !== "--operation") {
+    throw new HelperConfigurationError("invalid helper option");
+  }
+  return { overrides, rest: args.slice(index) };
+}
+
 export async function runSandboxHelper(options: RunSandboxHelperOptions): Promise<number> {
   const stderr = options.stderr ?? process.stderr;
-  const fail = () => {
-    stderr.write("Sandbox helper configuration failed\n");
+  const fail = (reason: string) => {
+    stderr.write(`Sandbox helper configuration failed: ${reason}\n`);
     return HELPER_FAILURE_EXIT_CODE;
   };
 
   try {
     const invokedAs = basename(options.argv0);
-    const operationIndex = options.args.indexOf("--operation");
-    if (operationIndex > 0) return fail();
+    const { overrides, rest } = leadingOptions(options.args);
+    const env = { ...options.env, ...overrides };
+    const operationIndex = rest.indexOf("--operation");
+    if (operationIndex > 0) return fail("invalid operation");
 
     let command = invokedAs;
-    let args = options.args;
+    let args = rest;
     if (operationIndex === 0) {
-      const operation = options.args[1];
-      if (operation !== "kubectl" && operation !== "remote-shell") return fail();
+      const operation = rest[1];
+      if (operation !== "kubectl" && operation !== "remote-shell") return fail("invalid operation");
       if ((invokedAs === "kubectl" || invokedAs === "remote-shell") && invokedAs !== operation) {
-        return fail();
+        return fail("invalid operation");
       }
       command = operation;
-      args = options.args.slice(2);
+      args = rest.slice(2);
     }
 
-    const token = required(options.env, "MCP_GW_RUN_TOKEN");
+    const token = env.MCP_GW_RUN_TOKEN?.trim();
+    if (!token) return fail("missing run token");
     if (command === "remote-shell") {
-      if (args.length < 3 || args[1] !== "--") return fail();
+      if (args.length < 3 || args[1] !== "--") return fail("invalid remote-shell arguments");
       const target = args[0];
       const remoteCommand = args.slice(2).join(" ");
-      if (!target?.trim() || !remoteCommand.trim()) return fail();
+      if (!target?.trim() || !remoteCommand.trim()) return fail("invalid remote-shell arguments");
       return await runRemoteShellShim({
         target,
         command: remoteCommand,
-        endpoint: endpoint(options.env, "MCP_GW_SHELL_URL"),
+        endpoint: endpoint(env, "MCP_GW_SHELL_URL"),
         token,
         fetch: options.fetch,
         stdout: options.stdout,
         stderr: options.stderr,
       });
     }
-    if (!command || command === "mcp-gw-sandbox-helper") return fail();
+    if (!command || command === "mcp-gw-sandbox-helper") return fail("invalid operation");
     return await runCliShim({
       cli: command,
       args,
-      endpoint: endpoint(options.env, "MCP_GW_CLI_URL"),
+      endpoint: endpoint(env, "MCP_GW_CLI_URL"),
       token,
       fetch: options.fetch,
       stdout: options.stdout,
       stderr: options.stderr,
     });
-  } catch {
-    return fail();
+  } catch (error) {
+    return fail(error instanceof HelperConfigurationError ? error.message : "unexpected error");
   }
 }
 
@@ -206,18 +245,20 @@ function consumeEvent(
   return event.exit_code as number;
 }
 
-function required(env: Readonly<Record<string, string | undefined>>, name: string): string {
-  const value = env[name]?.trim();
-  if (!value) throw new Error(`Missing ${name}`);
-  return value;
-}
-
 function endpoint(env: Readonly<Record<string, string | undefined>>, name: string): string {
-  const value = required(env, name);
-  const url = new URL(value);
+  const value = env[name]?.trim();
+  if (!value) throw new HelperConfigurationError(`missing ${name}`);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new HelperConfigurationError(`${name} is not a valid URL`);
+  }
   const loopback =
     url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
-  if (url.protocol !== "https:" && !loopback) throw new Error(`${name} must use HTTPS`);
+  if (url.protocol !== "https:" && !loopback) {
+    throw new HelperConfigurationError(`${name} must use HTTPS`);
+  }
   return value;
 }
 

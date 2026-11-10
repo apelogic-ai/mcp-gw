@@ -40,11 +40,13 @@ placeholder; set `dbMcp.image.repository` and preferably `dbMcp.image.digest` be
 Each helper archive contains one executable named `mcp-gw-sandbox-helper`. A sandbox image installs
 the executable at a fixed path. A leading `--operation kubectl` or `--operation remote-shell`
 selects the request shape even when the sandbox runtime does not preserve the executable's
-invocation name. For example, install this tiny `kubectl` wrapper:
+invocation name. Some process supervisors also start the helper with an empty environment, so
+wrappers pass the run-token placeholder and command route as leading options, expanded by the
+shell. For example, install this tiny `kubectl` wrapper:
 
 ```sh
 #!/bin/sh
-exec mcp-gw-sandbox-helper --operation kubectl "$@"
+exec mcp-gw-sandbox-helper --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"
 ```
 
 Invocation-name symlinks remain supported as a fallback. `kubectl` sends the literal argument
@@ -68,10 +70,13 @@ The consuming image must pin all of:
 Never download a helper from a branch URL or accept a checksum as a build argument without pinning
 that value in the image source. Verify the checksum before extracting the archive.
 
-Endpoint and credential configuration comes only from `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and
-`MCP_GW_RUN_TOKEN`; there are no endpoint or credential flags. URLs must use HTTPS except for a
-literal loopback address in local tests. `MCP_GW_RUN_TOKEN` carries only a non-secret placeholder
-that an isolated edge replaces with the run credential. The real run token must never be placed in
+Endpoint and credential configuration comes from the leading `--cli-url`, `--shell-url`, and
+`--run-token` options, which are accepted only directly before `--operation` and take precedence,
+or from `MCP_GW_CLI_URL`, `MCP_GW_SHELL_URL`, and `MCP_GW_RUN_TOKEN`. Unknown, repeated, empty, or
+misplaced options fail with exit code `125` before making a request. URLs must use HTTPS except for
+a literal loopback address in local tests. The run token is only a non-secret placeholder that an
+isolated edge replaces with the run credential, so passing it as an argument exposes nothing.
+Configuration failures name a fixed reason and never print a value. The real run token must never be placed in
 the sandbox, its environment, or its files.
 
 Successful remote execution returns the exact remote exit code. Helper configuration, request, or

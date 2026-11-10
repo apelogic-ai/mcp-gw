@@ -69,11 +69,13 @@ helm upgrade --install mcp-gateway ${chart} \\
 
 The archive contains one executable, \`mcp-gw-sandbox-helper\`. Install it at a fixed path and
 use a leading \`--operation kubectl\` or \`--operation remote-shell\` when the sandbox runtime does
-not preserve the executable's invocation name. For example, install this tiny \`kubectl\` wrapper:
+not preserve the executable's invocation name. Some process supervisors also start the helper with
+an empty environment, so wrappers pass the run-token placeholder and command route as leading
+options, expanded by the shell. For example, install this tiny \`kubectl\` wrapper:
 
 \`\`\`sh
 #!/bin/sh
-exec mcp-gw-sandbox-helper --operation kubectl "$@"
+exec mcp-gw-sandbox-helper --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"
 \`\`\`
 
 Invocation-name symlinks remain supported as a fallback.
@@ -91,10 +93,13 @@ gh attestation verify <archive> \\
   --cert-identity "https://github.com/${options.owner}/mcp-gw/.github/workflows/release.yml@refs/tags/v${options.version}"
 \`\`\`
 
-Endpoint and credential configuration comes only from \`MCP_GW_CLI_URL\`, \`MCP_GW_SHELL_URL\`, and
-\`MCP_GW_RUN_TOKEN\`; it is never accepted in command arguments. Endpoint URLs must use HTTPS,
-except a literal loopback address used by local tests. \`MCP_GW_RUN_TOKEN\` carries only a
-non-secret placeholder that an isolated edge replaces with the real run credential.
+Endpoint and credential configuration comes from the leading \`--cli-url\`, \`--shell-url\`, and
+\`--run-token\` options, which are accepted only directly before \`--operation\` and take
+precedence, or from \`MCP_GW_CLI_URL\`, \`MCP_GW_SHELL_URL\`, and \`MCP_GW_RUN_TOKEN\`. Unknown,
+repeated, empty, or misplaced options fail with exit code \`125\` before making a request. Endpoint
+URLs must use HTTPS, except a literal loopback address used by local tests. The run token is only a
+non-secret placeholder that an isolated edge replaces with the real run credential, so passing it
+as an argument exposes nothing. Configuration failures name a fixed reason and never print a value.
 The real run token must never be placed in the sandbox, its environment, or its files.
 
 Usage is \`kubectl <args...>\` and \`remote-shell <target-role> -- <command...>\`. The target is a
