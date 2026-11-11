@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 describe("release metadata", () => {
-  const expectedVersion = "0.8.1";
+  const expectedVersion = "0.8.2";
 
   test("documents the release process and current package version", async () => {
     const [packageJson, changelog, releaseDocs, readme, skill] = await Promise.all([
@@ -162,7 +162,7 @@ describe("release metadata", () => {
     );
     expect(chart.annotations["artifacthub.io/changes"]).toContain("kind: fixed");
     expect(chart.annotations["artifacthub.io/changes"]).toContain(
-      "sandbox helper accepts its configuration as leading options",
+      "sandbox helper accepts its egress proxy and CA as leading options",
     );
   });
 
