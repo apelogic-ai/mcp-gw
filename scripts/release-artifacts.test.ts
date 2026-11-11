@@ -406,7 +406,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("MCP_GW_SHELL_URL");
     expect(handoff).toContain("MCP_GW_RUN_TOKEN");
     expect(handoff).toContain(
-      'exec mcp-gw-sandbox-helper --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"',
+      'exec mcp-gw-sandbox-helper ${HTTPS_PROXY:+--proxy "$HTTPS_PROXY"} ${SSL_CERT_FILE:+--ca-file "$SSL_CERT_FILE"} \\\n  --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"',
     );
     expect(handoff).toContain("non-secret placeholder");
     expect(handoff).toContain("must never be placed in the sandbox");
@@ -475,7 +475,7 @@ describe("release artifacts", () => {
     expect(handoff).toContain("not an authorization control");
     expect(handoff).toContain("server-side grants and role bindings");
     expect(handoff).toContain(
-      'exec mcp-gw-sandbox-helper --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"',
+      'exec mcp-gw-sandbox-helper ${HTTPS_PROXY:+--proxy "$HTTPS_PROXY"} ${SSL_CERT_FILE:+--ca-file "$SSL_CERT_FILE"} \\\n  --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"',
     );
     expect(handoff).toContain("exit code `125`");
   });

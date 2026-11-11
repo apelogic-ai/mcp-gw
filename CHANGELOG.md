@@ -8,6 +8,17 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Approved `kubectl` and `remote-shell` calls no longer fail with "CLI request failed" or "Remote
+  shell request failed" in OpenShell sandboxes. The compiled helper starts with an empty
+  environment there, so it couldn't see the sandbox egress proxy or the CA of the proxy's TLS
+  termination, and its direct connection was refused. The helper accepts leading `--proxy` and
+  `--ca-file` options directly before `--operation`, under the same rules as the v0.8.1 options.
+  Loopback endpoints never use the proxy. An invalid proxy URL or an unreadable or certificate-free
+  CA file is refused by name before any request, without printing the value. Without these options
+  behavior is unchanged.
+
 ## [0.8.1] - 2026-11-10
 
 ### Fixed
