@@ -41,7 +41,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(manifestGoldenDigest(rendered)).toBe(
-      "b36837f7b5060ff396c962f40a50e7018671f24c6609a6353faafb3b9f53dfc8",
+      "cec92be525ed161a0892f8ac5164a721c2983054be76f0ffb62e41acb87776f4",
     );
   });
 

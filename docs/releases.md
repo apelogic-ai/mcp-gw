@@ -19,7 +19,19 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.8.1`.
+The current public release line is `v0.8.2`.
+
+### 0.8.2 upgrade notes
+
+- The sandbox helper accepts leading `--proxy <http(s) URL>` and `--ca-file <path>` options
+  directly before `--operation`, under the same rules as the 0.8.1 options. In sandboxes that route
+  egress through a TLS-terminating proxy and start the helper with an empty environment (seen in
+  OpenShell), update the image's wrappers to pass the sandbox's own values, for example
+  `exec mcp-gw-sandbox-helper ${HTTPS_PROXY:+--proxy "$HTTPS_PROXY"} ${SSL_CERT_FILE:+--ca-file "$SSL_CERT_FILE"} --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"`.
+  Without them the helper connects directly, which such sandboxes refuse.
+- Loopback endpoints never use the proxy. Without these options behavior is unchanged. The exit
+  code (`125`), `/cli/run`, `/shell/run`, and the chart and deployment contract are unchanged. No
+  migration or reauthorization is required.
 
 ### 0.8.1 upgrade notes
 

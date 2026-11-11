@@ -4,8 +4,8 @@ description: Agent-agnostic MCP gateway with independently enabled provider adap
 type: application
 icon: https://github.com/apelogic-ai.png
 kubeVersion: ">=1.32.0-0"
-version: 0.8.1
-appVersion: "0.8.1"
+version: 0.8.2
+appVersion: "0.8.2"
 maintainers:
   - name: HyperShell
     url: https://hypershell.ai
@@ -21,17 +21,17 @@ annotations:
       url: https://github.com/apelogic-ai/mcp-gw/issues
   artifacthub.io/images: |
     - name: mcp-gw-agentgateway
-      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.8.1
+      image: ghcr.io/apelogic-ai/mcp-gw-agentgateway:0.8.2
     - name: mcp-gw-google-workspace
-      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.8.1
+      image: ghcr.io/apelogic-ai/mcp-gw-google-workspace:0.8.2
     - name: mcp-gw-github-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.8.1
+      image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.8.2
     - name: mcp-gw-generic-wrapper
-      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.8.1
+      image: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper:0.8.2
     - name: mcp-gw-governed-cli
-      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.8.1
+      image: ghcr.io/apelogic-ai/mcp-gw-governed-cli:0.8.2
     - name: mcp-gw-remote-shell
-      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.8.1
+      image: ghcr.io/apelogic-ai/mcp-gw-remote-shell:0.8.2
     - name: github-mcp-server
       image: ghcr.io/github/github-mcp-server:v1.6.0
   # Release images and the chart have signed GitHub build-provenance
@@ -40,4 +40,4 @@ annotations:
   # so it does not describe this Sigstore-backed evidence and is omitted.
   artifacthub.io/changes: |
     - kind: fixed
-      description: The sandbox helper accepts its configuration as leading options, so governed commands work under process supervisors that start it with an empty environment.
+      description: The sandbox helper accepts its egress proxy and CA as leading options, so governed commands reach the gateway through a sandbox egress proxy when the helper starts with an empty environment.
