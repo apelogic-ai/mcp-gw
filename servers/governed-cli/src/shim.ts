@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 
 const HELPER_FAILURE_EXIT_CODE = 125;
@@ -6,7 +7,15 @@ interface ShimWriter {
   write(data: string): unknown;
 }
 
-export interface RunCliShimOptions {
+/** Egress settings passed explicitly when the helper can't see the sandbox environment. */
+export interface HelperEgress {
+  /** HTTP(S) proxy for non-loopback endpoints. */
+  proxy?: string;
+  /** PEM certificates trusted for the gateway connection, replacing the default roots. */
+  ca?: string;
+}
+
+export interface RunCliShimOptions extends HelperEgress {
   cli: string;
   args: readonly string[];
   endpoint: string;
@@ -16,7 +25,7 @@ export interface RunCliShimOptions {
   stderr?: ShimWriter;
 }
 
-export interface RunRemoteShellShimOptions {
+export interface RunRemoteShellShimOptions extends HelperEgress {
   target: string;
   command: string;
   endpoint: string;
@@ -41,6 +50,8 @@ export async function runCliShim(options: RunCliShimOptions): Promise<number> {
       endpoint: options.endpoint,
       token: options.token,
       body: { cli: options.cli, args: options.args },
+      proxy: options.proxy,
+      ca: options.ca,
       fetch: options.fetch,
       stdout: options.stdout,
       stderr: options.stderr,
@@ -55,6 +66,8 @@ export async function runRemoteShellShim(options: RunRemoteShellShimOptions): Pr
       endpoint: options.endpoint,
       token: options.token,
       body: { target: options.target, command: options.command },
+      proxy: options.proxy,
+      ca: options.ca,
       fetch: options.fetch,
       stdout: options.stdout,
       stderr: options.stderr,
@@ -70,13 +83,17 @@ const HELPER_OPTIONS = {
   "--run-token": "MCP_GW_RUN_TOKEN",
   "--cli-url": "MCP_GW_CLI_URL",
   "--shell-url": "MCP_GW_SHELL_URL",
+  "--proxy": "proxy",
+  "--ca-file": "caFile",
 } as const;
 
 /**
- * Leading `--run-token`, `--cli-url` and `--shell-url` options, accepted only directly before
- * `--operation`. Some process supervisors start the helper with an empty environment, so
- * wrappers pass the run-token placeholder and command route this way; options win over the
- * environment, which stays the fallback.
+ * Leading `--run-token`, `--cli-url`, `--shell-url`, `--proxy` and `--ca-file` options, accepted
+ * only directly before `--operation`. Some process supervisors start the helper with an empty
+ * environment, so wrappers pass the run-token placeholder, the command route, the sandbox egress
+ * proxy and the CA of its TLS termination this way. Configuration options win over the
+ * environment, which stays the fallback; without egress options the runtime's own proxy and
+ * trust handling applies, unchanged.
  */
 function leadingOptions(args: readonly string[]): {
   overrides: Record<string, string>;
@@ -108,8 +125,12 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
 
   try {
     const invokedAs = basename(options.argv0);
-    const { overrides, rest } = leadingOptions(options.args);
-    const env = { ...options.env, ...overrides };
+    const {
+      overrides: { proxy, caFile, ...configuration },
+      rest,
+    } = leadingOptions(options.args);
+    const env = { ...options.env, ...configuration };
+    const egress = helperEgress(proxy, caFile);
     const operationIndex = rest.indexOf("--operation");
     if (operationIndex > 0) return fail("invalid operation");
 
@@ -137,6 +158,7 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
         command: remoteCommand,
         endpoint: endpoint(env, "MCP_GW_SHELL_URL"),
         token,
+        ...egress,
         fetch: options.fetch,
         stdout: options.stdout,
         stderr: options.stderr,
@@ -148,6 +170,7 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
       args,
       endpoint: endpoint(env, "MCP_GW_CLI_URL"),
       token,
+      ...egress,
       fetch: options.fetch,
       stdout: options.stdout,
       stderr: options.stderr,
@@ -157,7 +180,7 @@ export async function runSandboxHelper(options: RunSandboxHelperOptions): Promis
   }
 }
 
-interface RunRequestOptions {
+interface RunRequestOptions extends HelperEgress {
   endpoint: string;
   token: string;
   body: unknown;
@@ -176,7 +199,7 @@ async function runRequest(options: RunRequestOptions, failureMessage: string): P
 
   let response: Response;
   try {
-    response = await (options.fetch ?? fetch)(options.endpoint, {
+    const init: RequestInit & { proxy?: string; tls?: { ca: string } } = {
       method: "POST",
       headers: {
         authorization: `Bearer ${options.token}`,
@@ -184,7 +207,13 @@ async function runRequest(options: RunRequestOptions, failureMessage: string): P
       },
       body: JSON.stringify(options.body),
       redirect: "error",
-    });
+    };
+    // Loopback endpoints never go through the sandbox proxy (it lists them in NO_PROXY).
+    if (options.proxy !== undefined && !isLoopback(new URL(options.endpoint))) {
+      init.proxy = options.proxy;
+    }
+    if (options.ca !== undefined) init.tls = { ca: options.ca };
+    response = await (options.fetch ?? fetch)(options.endpoint, init);
   } catch {
     return fail();
   }
@@ -254,9 +283,7 @@ function endpoint(env: Readonly<Record<string, string | undefined>>, name: strin
   } catch {
     throw new HelperConfigurationError(`${name} is not a valid URL`);
   }
-  const loopback =
-    url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
-  if (url.protocol !== "https:" && !loopback) {
+  if (url.protocol !== "https:" && !isLoopback(url)) {
     throw new HelperConfigurationError(`${name} must use HTTPS`);
   }
   return value;
@@ -264,4 +291,38 @@ function endpoint(env: Readonly<Record<string, string | undefined>>, name: strin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isLoopback(url: URL): boolean {
+  return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+}
+
+/** Validates explicit egress options; refusals name a fixed reason and never print a value. */
+function helperEgress(proxy: string | undefined, caFile: string | undefined): HelperEgress {
+  const egress: HelperEgress = {};
+  if (proxy !== undefined) {
+    let url: URL;
+    try {
+      url = new URL(proxy.trim());
+    } catch {
+      throw new HelperConfigurationError("invalid proxy URL");
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new HelperConfigurationError("invalid proxy URL");
+    }
+    egress.proxy = proxy.trim();
+  }
+  if (caFile !== undefined) {
+    let ca: string;
+    try {
+      ca = readFileSync(caFile.trim(), "utf8");
+    } catch {
+      throw new HelperConfigurationError("unreadable CA file");
+    }
+    if (!ca.includes("-----BEGIN CERTIFICATE-----")) {
+      throw new HelperConfigurationError("invalid CA file");
+    }
+    egress.ca = ca;
+  }
+  return egress;
 }

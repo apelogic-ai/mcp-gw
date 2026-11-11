@@ -1,3 +1,7 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 import { runCliShim, runSandboxHelper } from "./shim";
 
@@ -549,5 +553,162 @@ describe("explicit helper configuration options", () => {
     ]);
     expect(stderr.join("")).not.toContain("secret-looking");
     expect(stderr.join("")).not.toContain("192.0.2.1");
+  });
+});
+
+describe("explicit egress options", () => {
+  // The same supervisors also hide the sandbox's egress proxy and its TLS-terminating CA from the
+  // helper, so a direct connection is refused. Wrappers pass both as leading options.
+  const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
+  const seen: { url: string; proxy: unknown; tls: unknown }[] = [];
+  const fetch = (input: string | URL | Request, init?: RequestInit) => {
+    seen.push({
+      url: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      proxy: (init as { proxy?: unknown } | undefined)?.proxy,
+      tls: (init as { tls?: unknown } | undefined)?.tls,
+    });
+    return Promise.resolve(new Response('{"type":"exit","exit_code":0}\n'));
+  };
+  async function caFile(contents: string): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), "mcp-gw-helper-ca-"));
+    const path = join(directory, "ca-bundle.pem");
+    await writeFile(path, contents);
+    return path;
+  }
+  function helper(args: readonly string[], stderr: string[] = []) {
+    return runSandboxHelper({
+      argv0: "mcp-gw-sandbox-helper",
+      args,
+      env: {},
+      fetch,
+      stdout: writer([]),
+      stderr: writer(stderr),
+    });
+  }
+
+  test("--proxy and --ca-file reach the request for kubectl and remote-shell", async () => {
+    seen.length = 0;
+    const ca = await caFile(pem);
+    const egress = ["--proxy", "http://127.0.0.1:3128", "--ca-file", ca];
+    expect(
+      await helper([
+        ...egress,
+        "--run-token",
+        "p",
+        "--cli-url",
+        "https://gw.example.com/cli/run",
+        "--operation",
+        "kubectl",
+        "get",
+        "pods",
+      ]),
+    ).toBe(0);
+    expect(
+      await helper([
+        "--run-token",
+        "p",
+        "--shell-url",
+        "https://gw.example.com/shell/run",
+        ...egress,
+        "--operation",
+        "remote-shell",
+        "c",
+        "--",
+        "true",
+      ]),
+    ).toBe(0);
+    expect(seen).toEqual([
+      { url: "https://gw.example.com/cli/run", proxy: "http://127.0.0.1:3128", tls: { ca: pem } },
+      { url: "https://gw.example.com/shell/run", proxy: "http://127.0.0.1:3128", tls: { ca: pem } },
+    ]);
+  });
+
+  test("without egress options the request is unchanged", async () => {
+    seen.length = 0;
+    expect(
+      await helper([
+        "--run-token",
+        "p",
+        "--cli-url",
+        "https://gw.example.com/cli/run",
+        "--operation",
+        "kubectl",
+        "get",
+      ]),
+    ).toBe(0);
+    expect(seen).toEqual([
+      { url: "https://gw.example.com/cli/run", proxy: undefined, tls: undefined },
+    ]);
+  });
+
+  test("a loopback endpoint never uses the proxy", async () => {
+    seen.length = 0;
+    expect(
+      await helper([
+        "--proxy",
+        "http://127.0.0.1:3128",
+        "--run-token",
+        "p",
+        "--cli-url",
+        "http://127.0.0.1:9/cli/run",
+        "--operation",
+        "kubectl",
+        "get",
+      ]),
+    ).toBe(0);
+    expect(seen).toEqual([{ url: "http://127.0.0.1:9/cli/run", proxy: undefined, tls: undefined }]);
+  });
+
+  test("egress options after the operation stay command arguments", async () => {
+    seen.length = 0;
+    expect(
+      await helper([
+        "--run-token",
+        "p",
+        "--cli-url",
+        "https://gw.example.com/cli/run",
+        "--operation",
+        "kubectl",
+        "--proxy",
+        "http://127.0.0.1:3128",
+      ]),
+    ).toBe(0);
+    expect(seen).toEqual([
+      { url: "https://gw.example.com/cli/run", proxy: undefined, tls: undefined },
+    ]);
+  });
+
+  test("refuses bad egress options before any request and never prints their values", async () => {
+    seen.length = 0;
+    const stderr: string[] = [];
+    const ca = await caFile(pem);
+    const notPem = await caFile("secret-looking contents\n");
+    const route = ["--run-token", "p", "--cli-url", "https://gw.example.com/cli/run"];
+    for (const egress of [
+      ["--proxy", " "],
+      ["--proxy", "not a url"],
+      ["--proxy", "socks5://secret-looking@127.0.0.1:1080"],
+      ["--proxy", "http://127.0.0.1:3128", "--proxy", "http://127.0.0.1:3129"],
+      ["--ca-file", ca, "--ca-file", ca],
+      ["--ca-file", "/nonexistent/secret-looking.pem"],
+      ["--ca-file", notPem],
+      ["--ca-file", " "],
+    ]) {
+      expect(await helper([...egress, ...route, "--operation", "kubectl", "get"], stderr)).toBe(
+        125,
+      );
+    }
+    expect(seen).toEqual([]);
+    expect(stderr).toEqual([
+      "Sandbox helper configuration failed: invalid proxy URL\n",
+      "Sandbox helper configuration failed: invalid proxy URL\n",
+      "Sandbox helper configuration failed: invalid proxy URL\n",
+      "Sandbox helper configuration failed: invalid helper option\n",
+      "Sandbox helper configuration failed: invalid helper option\n",
+      "Sandbox helper configuration failed: unreadable CA file\n",
+      "Sandbox helper configuration failed: invalid CA file\n",
+      "Sandbox helper configuration failed: unreadable CA file\n",
+    ]);
+    expect(stderr.join("")).not.toContain("secret-looking");
   });
 });

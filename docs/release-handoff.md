@@ -41,13 +41,21 @@ Each helper archive contains one executable named `mcp-gw-sandbox-helper`. A san
 the executable at a fixed path. A leading `--operation kubectl` or `--operation remote-shell`
 selects the request shape even when the sandbox runtime does not preserve the executable's
 invocation name. Some process supervisors also start the helper with an empty environment, so
-wrappers pass the run-token placeholder and command route as leading options, expanded by the
-shell. For example, install this tiny `kubectl` wrapper:
+wrappers pass the run-token placeholder, command route, egress proxy and CA file as leading
+options, expanded by the shell. For example, install this tiny `kubectl` wrapper:
 
 ```sh
 #!/bin/sh
-exec mcp-gw-sandbox-helper --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"
+exec mcp-gw-sandbox-helper ${HTTPS_PROXY:+--proxy "$HTTPS_PROXY"} ${SSL_CERT_FILE:+--ca-file "$SSL_CERT_FILE"} \
+  --run-token <placeholder> --cli-url "$MCP_GW_CLI_URL" --operation kubectl "$@"
 ```
+
+The same supervisors hide the sandbox's egress proxy and the CA of its TLS termination, so a direct
+connection is refused. The leading `--proxy <http(s) URL>` option sends the request through that
+proxy, except to a loopback endpoint, and `--ca-file <path>` trusts only the PEM certificates in
+that file for the gateway connection. Pass the sandbox's own values, as in the wrapper above. An
+invalid proxy URL or an unreadable or certificate-free CA file fails with exit code `125` before
+making a request. Without these options the runtime's own proxy and trust handling applies.
 
 Invocation-name symlinks remain supported as a fallback. `kubectl` sends the literal argument
 vector to `POST /cli/run`; `remote-shell <target-role> -- <command...>` sends the configured role
