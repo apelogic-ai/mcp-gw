@@ -52,6 +52,21 @@ spec:
         - name: {{ include "mcp-gateway.componentName" (dict "root" . "component" "github-wrapper") }}
           port: {{ .Values.githubWrapper.port }}
     {{- end }}
+    {{- range .Values.wrappers }}
+    {{- if and .enabled (eq .credential.mode "per_user_oauth") }}
+    - matches:
+        - path:
+            type: Exact
+            value: {{ (urlParse .credential.redirectUri).path | quote }}
+      {{- with $.Values.agentgateway.gatewayApi.httpRoute.timeouts.request }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "mcp-gateway.componentName" (dict "root" $ "component" (printf "generic-wrapper-%s" .name)) }}
+          port: {{ .port | default 8080 }}
+    {{- end }}
+    {{- end }}
     {{- end }}
     {{- if .Values.agentgateway.gatewayApi.httpRoute.githubLifecycle.enabled }}
     - matches:

@@ -80,7 +80,10 @@ After changing an app callback, start a new authorization through
 
 For Kubernetes, publish only an exact `/oauth/jira/callback` match to the Jira
 wrapper Service. Do not publish `/connections/jira/*`, `/oauth/jira/*` as a
-prefix, or the wrapper Service wholesale. Start from
+prefix, or the wrapper Service wholesale. When the chart renders the shared
+AgentGateway HTTPRoute, set
+`agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true` and the chart
+adds exactly that callback rule for you. Otherwise, start from
 [`jira-provider-callback.example.yaml`](../deploy/k8s/examples/jira-provider-callback.example.yaml).
 The complete opt-in wrapper configuration is
 [`values-jira.example.yaml`](../deploy/k8s/examples/values-jira.example.yaml);
