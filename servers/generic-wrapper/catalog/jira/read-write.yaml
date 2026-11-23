@@ -1,0 +1,202 @@
+schemaVersion: mcp-gateway.generic-catalog/v1
+catalogId: jira-cloud-rest-v3-read-write
+tools:
+  - name: getJiraCurrentUser
+    alias: get_current_user
+    description: Get the current Jira user's fixed public profile fields.
+    inputSchema:
+      type: object
+      properties: {}
+      required: []
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.user.current.get
+      scopes: [read:jira-user]
+  - name: searchJiraIssuesUsingJql
+    alias: search_issues
+    description: Search Jira issues with JQL and return fixed issue fields.
+    inputSchema:
+      type: object
+      properties:
+        jql:
+          type: string
+          maxLength: 4000
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 25
+      required: [jql]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.issue.search
+      scopes: [read:jira-work]
+  - name: getJiraIssue
+    alias: get_issue
+    description: Get fixed fields for one Jira issue by key or ID.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+      required: [issueKey]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.issue.get
+      scopes: [read:jira-work]
+  - name: listJiraIssueTransitions
+    alias: list_transitions
+    description: List the workflow transitions you can apply to one Jira issue now.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+      required: [issueKey]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: true
+    grants:
+      actionClass: read
+      operation: jira.issue.transitions.list
+      scopes: [read:jira-work]
+  - name: createJiraIssue
+    alias: create_issue
+    description: Create a Jira issue in a project and return its key and link.
+    inputSchema:
+      type: object
+      properties:
+        projectKey:
+          type: string
+          maxLength: 64
+          pattern: ^[A-Z][A-Z0-9_]{0,63}$
+        issueType:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Issue type name, for example Task or Bug.
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 32000
+          description: Plain text. Each line becomes a paragraph.
+      required: [projectKey, issueType, summary]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: false
+    grants:
+      actionClass: write
+      operation: jira.issue.create
+      scopes: [write:jira-work]
+  - name: addJiraIssueComment
+    alias: add_comment
+    description: Add a plain-text comment to one Jira issue.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+        body:
+          type: string
+          minLength: 1
+          maxLength: 32000
+          description: Plain text. Each line becomes a paragraph.
+      required: [issueKey, body]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: false
+    grants:
+      actionClass: write
+      operation: jira.issue.comment.add
+      scopes: [write:jira-work]
+  - name: transitionJiraIssue
+    alias: transition_issue
+    description: Move one Jira issue through a workflow transition listed by jira_list_transitions.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+        transitionId:
+          type: string
+          maxLength: 18
+          pattern: ^[1-9][0-9]{0,17}$
+      required: [issueKey, transitionId]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: false
+    grants:
+      actionClass: write
+      operation: jira.issue.transition
+      scopes: [write:jira-work]
+  - name: editJiraIssue
+    alias: update_issue
+    description: Change the summary, the description, or both, of one Jira issue.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 32000
+          description: Plain text that replaces the whole description. Each line becomes a paragraph.
+      required: [issueKey]
+      anyOf:
+        - required: [summary]
+        - required: [description]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: false
+    grants:
+      actionClass: write
+      operation: jira.issue.edit
+      scopes: [write:jira-work]
+  - name: assignJiraIssue
+    alias: assign_issue
+    description: Assign one Jira issue to an account ID, or pass null to unassign it. jira_get_current_user returns your own account ID.
+    inputSchema:
+      type: object
+      properties:
+        issueKey:
+          type: string
+          maxLength: 128
+          pattern: ^([A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}|[1-9][0-9]{0,17})$
+        accountId:
+          type: [string, "null"]
+          maxLength: 128
+          pattern: ^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$
+      required: [issueKey, accountId]
+      additionalProperties: false
+    annotations:
+      readOnlyHint: false
+    grants:
+      actionClass: write
+      operation: jira.issue.assign
+      scopes: [write:jira-work]

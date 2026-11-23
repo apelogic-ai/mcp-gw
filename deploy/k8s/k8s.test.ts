@@ -1535,6 +1535,124 @@ describe("Kubernetes production chart", () => {
     expect(rendered).not.toContain("kind: Job");
   });
 
+  function jiraPresetWrapper(preset: string, scopes: string[]): Record<string, unknown> {
+    const wrapper = genericOAuthWrapper("jira", "jira", "jira");
+    wrapper.credential = {
+      mode: "per_user_oauth",
+      providerId: "jira",
+      authorizationUrl: "https://auth.atlassian.com/authorize",
+      tokenUrl: "https://auth.atlassian.com/oauth/token",
+      userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
+      redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
+      scopes,
+      clientIdEnv: "JIRA_OAUTH_CLIENT_ID",
+      clientSecretEnv: "JIRA_OAUTH_CLIENT_SECRET",
+      encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
+      tokenStoreDsnEnv: "TOKEN_STORE_DSN",
+      identity: { mode: "atlassian_jira_asserted_email", siteUrl: "https://example.atlassian.net" },
+      authorizationParams: { audience: "api.atlassian.com", prompt: "consent" },
+      tokenEndpointAuthMethod: "client_secret_post",
+    };
+    wrapper.secretRef = {
+      name: "jira-oauth",
+      envKeys: [
+        "JIRA_OAUTH_CLIENT_ID",
+        "JIRA_OAUTH_CLIENT_SECRET",
+        "JIRA_TOKEN_ENCRYPTION_KEY",
+        "TOKEN_STORE_DSN",
+      ],
+    };
+    wrapper.upstream = { transport: "http", url: "https://mcp.atlassian.com/v2/mcp?tools=all" };
+    wrapper.catalog = { preset };
+    return wrapper;
+  }
+
+  function jiraPresetResult(preset: string, scopes: string[]) {
+    return helmTemplateResult([
+      ...genericWrapperBaseArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([jiraPresetWrapper(preset, scopes)])}`,
+    ]);
+  }
+
+  const jiraReadOnlyScopes = ["read:jira-user", "read:jira-work", "offline_access"];
+  const jiraReadWriteScopes = [
+    "read:jira-user",
+    "read:jira-work",
+    "write:jira-work",
+    "offline_access",
+  ];
+
+  test("renders the Jira read-write preset with exactly the reviewed REST tools", () => {
+    const result = jiraPresetResult("jira-read-write", jiraReadWriteScopes);
+    expect(result.exitCode).toBe(0);
+    const rendered = result.stdout.toString();
+    const configObject = parseAllDocuments(rendered)
+      .map((document) => document.toJSON() as Record<string, unknown>)
+      .find(
+        (resource) =>
+          resource.kind === "ConfigMap" &&
+          (resource.metadata as { name?: string } | undefined)?.name ===
+            "mcp-gateway-generic-wrapper-jira-config",
+      );
+    const data = configObject?.data as Record<string, string> | undefined;
+    const descriptor = parseGenericWrapperDescriptor(parse(data?.["descriptor.yaml"] ?? ""));
+    expect(descriptor.catalogPath).toBe(
+      "/app/servers/generic-wrapper/catalog/jira/read-write.yaml",
+    );
+    expect(descriptor.credential).toMatchObject({ scopes: jiraReadWriteScopes });
+    const catalog = loadGenericToolSource(
+      "servers/generic-wrapper/catalog/jira/read-write.yaml",
+      descriptor.toolPrefix,
+    );
+    expect(isLiveToolCatalog(catalog)).toBeFalse();
+    expect(catalog.catalogId).toBe("jira-cloud-rest-v3-read-write");
+    expect(catalog.tools.map((tool) => `${tool.exposedName}:${tool.grants.actionClass}`)).toEqual([
+      "jira_get_current_user:read",
+      "jira_search_issues:read",
+      "jira_get_issue:read",
+      "jira_list_transitions:read",
+      "jira_create_issue:write",
+      "jira_add_comment:write",
+      "jira_transition_issue:write",
+      "jira_update_issue:write",
+      "jira_assign_issue:write",
+    ]);
+    expect(rendered).not.toContain("jira:agent-interface");
+    expect(data).not.toHaveProperty("catalog.yaml");
+  });
+
+  test("refuses any OAuth scope outside each Jira REST preset", () => {
+    const readOnlyWithWrite = jiraPresetResult("jira-read-only", [
+      ...jiraReadOnlyScopes,
+      "write:jira-work",
+    ]);
+    assertHelmRejected(readOnlyWithWrite);
+    expect(readOnlyWithWrite.stderr.toString()).toContain(
+      "Jira jira-read-only preset must not request OAuth consent scope write:jira-work",
+    );
+
+    for (const extra of [
+      "write:jira:agent-interface",
+      "manage:jira-project",
+      "manage:jira-configuration",
+      "delete:issue:jira",
+    ]) {
+      const excessive = jiraPresetResult("jira-read-write", [...jiraReadWriteScopes, extra]);
+      assertHelmRejected(excessive);
+      expect(excessive.stderr.toString()).toContain(
+        `Jira jira-read-write preset must not request OAuth consent scope ${extra}`,
+      );
+    }
+
+    const missingWrite = jiraPresetResult("jira-read-write", jiraReadOnlyScopes);
+    assertHelmRejected(missingWrite);
+    expect(missingWrite.stderr.toString()).toContain(
+      "Jira jira-read-write preset requires OAuth consent scope write:jira-work",
+    );
+  });
+
   test("renders the opt-in Jira values example with the governed catalog", () => {
     const rendered = helmTemplate(["--values", "deploy/k8s/examples/values-jira.example.yaml"]);
     const config = renderedResource(

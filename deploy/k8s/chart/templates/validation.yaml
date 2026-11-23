@@ -210,7 +210,7 @@
 {{- $wrapperPrefixes = append $wrapperPrefixes $wrapper.toolPrefix }}
 {{- $catalog := $wrapper.catalog }}
 {{- $catalogPreset := $catalog.preset | default "" }}
-{{- $jiraPreset := has $catalogPreset (list "jira" "jira-read-only") }}
+{{- $jiraPreset := has $catalogPreset (list "jira" "jira-read-only" "jira-read-write") }}
 {{- if and (eq $catalogPreset "jira") (not ($catalog.experimental | default false)) }}
 {{- fail (printf "wrappers[%d] catalog.preset jira does not work with custom OAuth apps; use jira-read-only, or set catalog.experimental=true to opt in to the unsupported full preset" $index) }}
 {{- end }}
@@ -273,9 +273,12 @@
 {{- $requiredScopes = append $requiredScopes "write:jira:agent-interface" }}
 {{- else }}
 {{- $requiredScopes = list "read:jira-user" "read:jira-work" "offline_access" }}
+{{- if eq $catalogPreset "jira-read-write" }}
+{{- $requiredScopes = append $requiredScopes "write:jira-work" }}
+{{- end }}
 {{- range $scope := $wrapper.credential.scopes }}
 {{- if not (has $scope $requiredScopes) }}
-{{- fail (printf "Jira jira-read-only preset must not request OAuth consent scope %s" $scope) }}
+{{- fail (printf "Jira %s preset must not request OAuth consent scope %s" $catalogPreset $scope) }}
 {{- end }}
 {{- end }}
 {{- end }}

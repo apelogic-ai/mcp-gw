@@ -11,7 +11,8 @@ import {
   createGenericOAuthRuntimeConfig,
   startGenericOAuth,
 } from "./oauth";
-import type { GenericOAuthCredentialDescriptor } from "./descriptor";
+import { ProviderToolScopeError } from "../../../shared/oauth/connection-types";
+import { loadGenericToolCatalog, type GenericOAuthCredentialDescriptor } from "./descriptor";
 
 const identity: Hop1Identity = {
   profile: "fixture",
@@ -286,6 +287,111 @@ describe("generic per-user OAuth", () => {
       expect(adapter.validateIdentity(generation, identity)).rejects.toMatchObject({
         category: "identity_mismatch",
       });
+    }
+  });
+});
+
+describe("Jira read-write connections", () => {
+  const readWriteDescriptor: GenericOAuthCredentialDescriptor = {
+    ...descriptor,
+    providerId: "jira",
+    authorizationUrl: "https://auth.atlassian.com/authorize",
+    tokenUrl: "https://auth.atlassian.com/oauth/token",
+    userInfoUrl: "https://api.atlassian.com/oauth/token/accessible-resources",
+    revocationUrl: undefined,
+    redirectUri: "http://127.0.0.1:28080/oauth/jira/callback",
+    scopes: ["read:jira-user", "read:jira-work", "write:jira-work", "offline_access"],
+    encryptionKeyEnv: "JIRA_TOKEN_ENCRYPTION_KEY",
+    identity: { mode: "atlassian_jira_asserted_email", siteUrl: "https://example.atlassian.net" },
+    authorizationParams: { audience: "api.atlassian.com", prompt: "consent" },
+    tokenEndpointAuthMethod: "client_secret_post",
+  };
+  const catalog = loadGenericToolCatalog(
+    "servers/generic-wrapper/catalog/jira/read-write.yaml",
+    "jira",
+  );
+
+  const readOnlyScopes = ["read:jira-user", "read:jira-work", "offline_access"];
+
+  async function connectGranting(grantedScopes: string[]) {
+    const grantedScope = grantedScopes.join(" ");
+    const stateStore = new InMemoryOAuthStateStore();
+    const tokenStore = new InMemoryOAuthTokenStore();
+    const fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const request =
+        input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
+      if (request.url === readWriteDescriptor.tokenUrl) {
+        return Promise.resolve(
+          Response.json({
+            access_token: "jira-access",
+            refresh_token: "jira-refresh",
+            token_type: "Bearer",
+            expires_in: 3600,
+            scope: grantedScope,
+          }),
+        );
+      }
+      if (request.url === readWriteDescriptor.userInfoUrl) {
+        return Promise.resolve(
+          Response.json([{ id: "cloud-123", url: "https://example.atlassian.net" }]),
+        );
+      }
+      if (request.url === "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/myself") {
+        return Promise.resolve(
+          Response.json({ accountId: "account-1", emailAddress: identity.email, active: true }),
+        );
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    // Connect with exactly the scopes requested at that time, as Atlassian grants them.
+    const connectConfig = createGenericOAuthRuntimeConfig(
+      { ...readWriteDescriptor, scopes: grantedScopes },
+      env,
+    );
+    const started = await startGenericOAuth({
+      identity,
+      config: connectConfig,
+      stateStore,
+      tokenStore,
+      fetch,
+    });
+    await completeGenericOAuth({
+      code: "authorization-code",
+      state: started.state,
+      config: connectConfig,
+      stateStore,
+      tokenStore,
+      fetch,
+    });
+    // The operator then runs the read-write preset over the same stored connection.
+    return createGenericOAuthRuntimeConfig(readWriteDescriptor, env).lifecycle(tokenStore, fetch);
+  }
+
+  test("a connection made under the read-only preset brokers no credential for any write tool", async () => {
+    const lifecycle = await connectGranting(readOnlyScopes);
+    const writeTools = catalog.tools.filter((tool) => tool.grants.actionClass === "write");
+    expect(writeTools).toHaveLength(5);
+
+    for (const tool of writeTools) {
+      expect(lifecycle.getActiveCredential(identity, tool.grants.scopes)).rejects.toBeInstanceOf(
+        ProviderToolScopeError,
+      );
+    }
+    for (const tool of catalog.tools.filter((entry) => entry.grants.actionClass === "read")) {
+      expect(await lifecycle.getActiveCredential(identity, tool.grants.scopes)).toBe("jira-access");
+    }
+    expect(await lifecycle.status(identity, readWriteDescriptor.scopes)).toMatchObject({
+      phase: "reauthorization_required",
+      connected: false,
+      missingScopes: ["write:jira-work"],
+    });
+  });
+
+  test("a connection with write:jira-work brokers the credential for every tool", async () => {
+    const lifecycle = await connectGranting(readWriteDescriptor.scopes);
+
+    for (const tool of catalog.tools) {
+      expect(await lifecycle.getActiveCredential(identity, tool.grants.scopes)).toBe("jira-access");
     }
   });
 });

@@ -17,6 +17,20 @@ records the human-maintained compatibility summary.
   Service with the route's timeout. Start, status, and disconnect paths stay private, and wrappers
   without per-user OAuth get no rule. Before, these callbacks needed a separate operator-owned
   route.
+- New Jira preset `catalog.preset: jira-read-write` lets agents create and update issues with each
+  user's own Jira connection, through the same direct Jira Cloud REST v3 path as `jira-read-only`.
+  It keeps the three read tools and adds `jira_list_transitions` (read) plus five write tools:
+  `jira_create_issue`, `jira_add_comment`, `jira_transition_issue`, `jira_update_issue` (summary
+  and description only), and `jira_assign_issue`. Every write tool needs `write:jira-work`. The
+  chart requires exactly `read:jira-user`, `read:jira-work`, `write:jira-work`, and
+  `offline_access` for this preset and refuses any other scope. There are no delete,
+  attachment, administration, or user-search tools.
+
+### Changed
+
+- When Jira refuses a request with HTTP 400, 404, 409, or 422, for example an unknown issue or
+  issue type, the tool now returns a `provider_rejected` error instead of an empty HTTP error.
+  Jira's response body is still not copied.
 
 ### Upgrade notes
 
@@ -24,6 +38,10 @@ records the human-maintained compatibility summary.
   per-user OAuth wrapper is configured. If you already publish such a callback with your own
   route, such as one based on `jira-provider-callback.example.yaml`, remove that route when you
   upgrade, so only one route owns the path.
+- `jira-read-only` is unchanged. To switch to `jira-read-write`, add `write:jira-work` to the
+  Atlassian app, to `credential.scopes`, and to the wrapper policy, then have each user connect
+  again. Until they do, their connection status reports `write:jira-work` as missing, read tools
+  keep working, and write tools ask them to connect.
 
 ## [0.8.2] - 2026-11-11
 

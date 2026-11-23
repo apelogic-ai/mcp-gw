@@ -896,6 +896,13 @@ function jiraHttpFailure(
       message: "Provider is temporarily unavailable",
     };
   }
+  if ([400, 404, 409, 422].includes(response.status)) {
+    return {
+      error: "provider_rejected",
+      message:
+        "Jira refused the request. Check the issue, project, issue type, transition, account, and text",
+    };
+  }
   return undefined;
 }
 
