@@ -41,7 +41,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(manifestGoldenDigest(rendered)).toBe(
-      "cec92be525ed161a0892f8ac5164a721c2983054be76f0ffb62e41acb87776f4",
+      "bd48ff925e542fd7481df188f828cc969ac427629aa45671802f8331c4eb4dcd",
     );
   });
 
@@ -149,11 +149,11 @@ describe("Kubernetes production chart", () => {
       "--set-string",
       "governedCli.image.digest=",
       "--set-string",
-      "governedCli.image.tag=0.8.2",
+      "governedCli.image.tag=0.8.4",
     ]);
 
     expect(digestRendered).toContain(`mcp-gw-governed-cli@${digest}`);
-    expect(tagRendered).toContain("mcp-gw-governed-cli:0.8.2");
+    expect(tagRendered).toContain("mcp-gw-governed-cli:0.8.4");
   });
 
   test("rejects incomplete or conflicting governed CLI wiring", () => {
@@ -3477,7 +3477,7 @@ describe("Kubernetes production chart", () => {
     ]);
 
     expect(rendered).toContain("name: mcp-gateway-github-wrapper");
-    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.8.2");
+    expect(rendered).toContain("image: ghcr.io/apelogic-ai/mcp-gw-github-wrapper:0.8.4");
     expect(rendered).toContain("GITHUB_MCP_UPSTREAM_URL");
     expect(rendered).toContain("name: mcp-runtime");
     expect(rendered).toContain("name: mcp-gateway-github-mcp");
