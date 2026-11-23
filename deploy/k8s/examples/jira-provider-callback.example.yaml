@@ -6,6 +6,10 @@
 # environment. Configure the same data-plane proxy labels under
 # connectionLifecycle.allowedCallers so the wrapper NetworkPolicy admits the
 # route's traffic.
+#
+# If the chart renders the shared AgentGateway HTTPRoute, use
+# agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true instead: it
+# adds this exact rule to that route. Do not use both.
 
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

@@ -310,6 +310,67 @@ describe("Kubernetes production chart", () => {
     },
   );
 
+  test("renders the callback of each per-user OAuth wrapper on the shared HTTPRoute", () => {
+    const [staticWrapper] = genericWrappers();
+    const wrapperArgs = [
+      ...providerCallbackRouteArgs(),
+      ...lifecycleCallerArgs(),
+      "--set-json",
+      `wrappers=${JSON.stringify([genericOAuthWrapper("search", "search", "search-provider"), staticWrapper])}`,
+    ];
+    const rendered = helmTemplate([
+      ...wrapperArgs,
+      "--set",
+      "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true",
+    ]);
+    const route = renderedResource(rendered, "HTTPRoute", "mcp-gateway-agentgateway");
+
+    expect(route).toContain(
+      [
+        "    - matches:",
+        "        - path:",
+        "            type: Exact",
+        '            value: "/oauth/search-provider/callback"',
+        "      timeouts:",
+        "        request: 0s",
+        "      backendRefs:",
+        "        - name: mcp-gateway-generic-wrapper-search",
+        "          port: 8080",
+      ].join("\n"),
+    );
+    expect(route).not.toContain("mcp-gateway-generic-wrapper-public-search");
+    expect(countOccurrences(route, "type: Exact")).toBe(1);
+    for (const operation of ["start", "status", "disconnect"]) {
+      expect(route).not.toContain(`/oauth/search-provider/${operation}`);
+    }
+
+    const callbacksDisabled = renderedResource(
+      helmTemplate(wrapperArgs),
+      "HTTPRoute",
+      "mcp-gateway-agentgateway",
+    );
+    expect(callbacksDisabled).not.toContain("/oauth/search-provider/callback");
+    expect(callbacksDisabled).not.toContain("mcp-gateway-generic-wrapper-search");
+  });
+
+  test("renders no callback route for a wrapper without per-user OAuth", () => {
+    const route = renderedResource(
+      helmTemplate([
+        ...providerCallbackRouteArgs(),
+        "--set",
+        "agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true",
+        "--set-json",
+        `wrappers=${JSON.stringify(genericWrappers())}`,
+      ]),
+      "HTTPRoute",
+      "mcp-gateway-agentgateway",
+    );
+
+    expect(route).not.toContain("type: Exact");
+    expect(route).not.toContain("generic-wrapper");
+    expect(route).not.toContain("/callback");
+  });
+
   test("rejects provider callback routing without the shared AgentGateway HTTPRoute", () => {
     const result = helmTemplateResult([
       "--values",

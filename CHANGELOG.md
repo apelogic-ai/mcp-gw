@@ -8,6 +8,23 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Added
+
+- With `agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true`, the shared AgentGateway
+  HTTPRoute now also publishes the OAuth callback of each enabled `wrappers` entry that uses
+  `credential.mode: per_user_oauth`, such as Jira. Each rule matches only the exact
+  `credential.redirectUri` path (`/oauth/<providerId>/callback`) and points to that wrapper's
+  Service with the route's timeout. Start, status, and disconnect paths stay private, and wrappers
+  without per-user OAuth get no rule. Before, these callbacks needed a separate operator-owned
+  route.
+
+### Upgrade notes
+
+- No migration and no new value. Renders change only when `providerCallbacks` is enabled and a
+  per-user OAuth wrapper is configured. If you already publish such a callback with your own
+  route, such as one based on `jira-provider-callback.example.yaml`, remove that route when you
+  upgrade, so only one route owns the path.
+
 ## [0.8.2] - 2026-11-11
 
 ### Fixed
