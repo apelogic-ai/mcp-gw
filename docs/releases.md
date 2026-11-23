@@ -19,7 +19,27 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.8.2`.
+The current public release line is `v0.8.4`.
+
+### 0.8.4 upgrade notes
+
+- New Jira preset `catalog.preset: jira-read-write`. It keeps the three `jira-read-only` tools and
+  adds `jira_list_transitions` plus five write tools: create issue, add comment, transition, update
+  summary and description, and assign. The chart requires exactly `read:jira-user`,
+  `read:jira-work`, `write:jira-work`, and `offline_access` for it. To switch, add
+  `write:jira-work` to the Atlassian app, to `credential.scopes`, and to the wrapper policy
+  (allow `actionClass: write`), then have each user connect again. Until they do, read tools keep
+  working and write tools ask them to connect. See [Jira](jira.md#read-and-write-preset).
+- `jira-read-only` and the full `jira` preset are unchanged.
+- With `agentgateway.gatewayApi.httpRoute.providerCallbacks.enabled=true`, the shared HTTPRoute now
+  also publishes the exact OAuth callback of each enabled `wrappers` entry with
+  `credential.mode: per_user_oauth`. If you already publish such a callback with your own route,
+  remove that route when you upgrade.
+- Jira HTTP 400, 404, 409, and 422 refusals now return the `provider_rejected` tool error instead of
+  an empty HTTP error.
+- Release compatibility: **no migration and no new required value**. Rendered manifests change only
+  for the image tags, the chart labels, and, when callbacks are enabled with a per-user OAuth
+  wrapper, the added callback rule.
 
 ### 0.8.2 upgrade notes
 
