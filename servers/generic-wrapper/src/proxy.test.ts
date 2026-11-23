@@ -1210,3 +1210,218 @@ function mcpRequest(
     body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
   });
 }
+
+describe("Jira REST write tools", () => {
+  const readWriteCatalog = loadGenericToolCatalog(
+    "servers/generic-wrapper/catalog/jira/read-write.yaml",
+    "jira",
+  );
+  const writeToolNames = readWriteCatalog.tools
+    .filter((tool) => tool.grants.actionClass === "write")
+    .map((tool) => tool.exposedName);
+  const allJiraTuples = readWriteCatalog.tools.map((tool) => ({
+    provider: "jira",
+    resource: tool.exposedName,
+    action: tool.grants.actionClass,
+  }));
+
+  function jiraProxy(
+    catalog: GenericToolCatalog,
+    tools: { provider: string; resource: string; action: string }[],
+    credential: () => Promise<{ header: string; value: string; rawValue: string } | null>,
+  ) {
+    const counts = { credential: 0, rest: 0 };
+    const transport = new RecordingTransport();
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog,
+      authenticate: () =>
+        Promise.resolve({ ...identity, claims: withTaskAuthority({ ...taskAuthority, tools }) }),
+      taskToolAuthorization: {},
+      transport,
+      requireCredential: true,
+      resolveCredential: () => {
+        counts.credential += 1;
+        return credential();
+      },
+      executeJiraRestTool: (request) => {
+        counts.rest += 1;
+        return Promise.resolve(
+          Response.json({ jsonrpc: "2.0", id: request.id, result: { content: [] } }),
+        );
+      },
+    });
+    return { proxy, counts, transport };
+  }
+
+  const connected = () =>
+    Promise.resolve({
+      header: "authorization",
+      value: "Bearer provider-token",
+      rawValue: "provider-token",
+    });
+
+  test("ships exactly the reviewed write tools", () => {
+    expect(writeToolNames).toEqual([
+      "jira_create_issue",
+      "jira_add_comment",
+      "jira_transition_issue",
+      "jira_update_issue",
+      "jira_assign_issue",
+    ]);
+    for (const tool of readWriteCatalog.tools) {
+      expect(tool.grants.scopes).toEqual(
+        tool.grants.actionClass === "write"
+          ? ["write:jira-work"]
+          : [tool.exposedName === "jira_get_current_user" ? "read:jira-user" : "read:jira-work"],
+      );
+    }
+  });
+
+  test("refuses every write tool under the read-only preset before credential lookup", async () => {
+    const { proxy, counts, transport } = jiraProxy(jiraRestCatalog, allJiraTuples, connected);
+
+    for (const name of writeToolNames) {
+      const response = await proxy(
+        mcpRequest("tools/call", { name, arguments: { issueKey: "EX-1" } }, 201),
+      );
+      expect(await response.json()).toMatchObject({
+        error: { code: -32601, message: `Unsupported MCP tool: ${name}` },
+      });
+    }
+    expect(counts).toEqual({ credential: 0, rest: 0 });
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  test("refuses each write tool the Task did not approve before credential lookup", async () => {
+    const readOnlyTuples = allJiraTuples.filter((tuple) => tuple.action === "read");
+    const { proxy, counts } = jiraProxy(readWriteCatalog, readOnlyTuples, connected);
+
+    for (const name of writeToolNames) {
+      const response = await proxy(mcpRequest("tools/call", { name, arguments: {} }, 202));
+      expect(await response.json()).toMatchObject({
+        result: { isError: true, structuredContent: { error: "task_tool_not_approved" } },
+      });
+    }
+    expect(counts).toEqual({ credential: 0, rest: 0 });
+  });
+
+  test("asks the user to reconnect when the connection lacks the write grant", async () => {
+    const { proxy, counts } = jiraProxy(readWriteCatalog, allJiraTuples, () =>
+      Promise.resolve(null),
+    );
+
+    for (const name of writeToolNames) {
+      const response = await proxy(mcpRequest("tools/call", { name, arguments: {} }, 203));
+      expect(await response.json()).toMatchObject({
+        result: {
+          isError: true,
+          structuredContent: {
+            error: "provider_oauth_required",
+            connectionHelper: "jira_oauth_start",
+          },
+        },
+      });
+    }
+    expect(counts).toEqual({ credential: writeToolNames.length, rest: 0 });
+  });
+
+  test.each([400, 404, 409, 422])(
+    "turns a Jira %d refusal into a tool error without the provider body",
+    async (status) => {
+      const transport = new RecordingTransport();
+      let restCalls = 0;
+      const proxy = createGenericMcpProxyHandler({
+        descriptor: jiraDescriptor,
+        catalog: readWriteCatalog,
+        authenticate: () =>
+          Promise.resolve({
+            ...identity,
+            claims: withTaskAuthority({ ...taskAuthority, tools: allJiraTuples }),
+          }),
+        taskToolAuthorization: {},
+        transport,
+        requireCredential: true,
+        resolveCredential: connected,
+        executeJiraRestTool: () => {
+          restCalls += 1;
+          return Promise.resolve(new Response(null, { status }));
+        },
+      });
+
+      const response = await proxy(
+        mcpRequest(
+          "tools/call",
+          {
+            name: "jira_create_issue",
+            arguments: { projectKey: "EX", issueType: "Unknown", summary: "S" },
+          },
+          205,
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        result: { isError: true, structuredContent: { error: "provider_rejected" } },
+      });
+      expect(restCalls).toBe(1);
+    },
+  );
+
+  test("renews an expired credential but does not send a write twice", async () => {
+    const transport = new RecordingTransport();
+    let restCalls = 0;
+    const proxy = createGenericMcpProxyHandler({
+      descriptor: jiraDescriptor,
+      catalog: readWriteCatalog,
+      authenticate: () =>
+        Promise.resolve({
+          ...identity,
+          claims: withTaskAuthority({ ...taskAuthority, tools: allJiraTuples }),
+        }),
+      taskToolAuthorization: {},
+      transport,
+      requireCredential: true,
+      resolveCredential: connected,
+      recoverCredential: () =>
+        Promise.resolve({
+          header: "authorization",
+          value: "Bearer rotated-token",
+          rawValue: "rotated-token",
+        }),
+      executeJiraRestTool: () => {
+        restCalls += 1;
+        return Promise.resolve(new Response(null, { status: 401 }));
+      },
+    });
+
+    const response = await proxy(
+      mcpRequest(
+        "tools/call",
+        { name: "jira_add_comment", arguments: { issueKey: "EX-1", body: "B" } },
+        206,
+      ),
+    );
+
+    expect(await response.json()).toMatchObject({
+      result: { isError: true, structuredContent: { error: "provider_retry_required" } },
+    });
+    expect(restCalls).toBe(1);
+  });
+
+  test("runs an approved write tool through the REST executor", async () => {
+    const { proxy, counts, transport } = jiraProxy(readWriteCatalog, allJiraTuples, connected);
+
+    const response = await proxy(
+      mcpRequest(
+        "tools/call",
+        { name: "jira_add_comment", arguments: { issueKey: "EX-1", body: "B" } },
+        204,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(counts).toEqual({ credential: 1, rest: 1 });
+    expect(transport.requests).toHaveLength(0);
+  });
+});

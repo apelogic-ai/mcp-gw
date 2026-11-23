@@ -2,7 +2,8 @@
 
 > **Warning:** The full `catalog.preset: jira` path is not currently supported
 > with customer-managed Atlassian OAuth apps. Consent can succeed while hosted
-> MCP data calls fail. Use `jira-read-only`. The chart refuses the full preset
+> MCP data calls fail. Use `jira-read-only`, or `jira-read-write` when agents
+> must also create and update issues. The chart refuses the full preset
 > unless `catalog.experimental: true` explicitly opts in to this unsupported
 > path.
 
@@ -22,10 +23,12 @@ upstream page and combines current Atlassian descriptions and input schemas
 with those local decisions. It never exposes a tool merely because Atlassian
 adds it, and it does not copy Atlassian's catalog into this repository.
 
-MCP-GW does not yet consume caller-specific Jira tool authority tuples from an
-external control plane. Until [that boundary](https://github.com/apelogic-ai/mcp-gw/issues/128)
-is enforced end to end, use `jira-read-only` unless an equivalent upstream
-policy constrains every caller allowed to reach the gateway.
+When a caller's HOP-1 token carries Task tool tuples, the wrapper lists and runs
+only the Jira tools that Task approved. Each tuple names the provider `jira`, the
+exposed tool, and its action class, for example `jira / jira_create_issue /
+write`. A caller without Task tuples can use every tool that the preset and the
+wrapper policy allow, so choose the preset and policy for the least restricted
+caller that can reach the gateway.
 
 ## Prerequisites
 
@@ -45,12 +48,76 @@ policy constrains every caller allowed to reach the gateway.
   rotate the refresh credential. The read-only preset does not request
   agent-interface write, delete, or manage scopes.
 
+- For the read and write preset, the same scopes plus `write:jira-work`:
+
+  ```text
+  read:jira-user
+  read:jira-work
+  write:jira-work
+  offline_access
+  ```
+
 - App **Sharing** enabled before accounts other than the app owner connect.
 - Stable gateway egress addresses included in any Atlassian organization IP
   allowlist.
 - PostgreSQL reachable by the wrapper and the chart's OAuth migration Job.
 
 The API-token authentication toggle is unrelated to this OAuth 3LO path.
+
+## Read and write preset
+
+`catalog.preset: jira-read-write` lets agents create and update issues with each
+user's own Jira connection. It uses the same direct Jira Cloud REST v3 path as
+`jira-read-only` and keeps its three read tools unchanged. It adds:
+
+| Tool                    | Action class | What it does                                                                                                                               |
+| ----------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jira_list_transitions` | read         | Lists the workflow transitions you can apply to an issue now.                                                                              |
+| `jira_create_issue`     | write        | Creates an issue from a project key, an issue type name, a summary, and an optional plain-text description. Returns its ID, key, and link. |
+| `jira_add_comment`      | write        | Adds a plain-text comment to an issue.                                                                                                     |
+| `jira_transition_issue` | write        | Moves an issue through a transition from `jira_list_transitions`.                                                                          |
+| `jira_update_issue`     | write        | Changes an issue's summary, description, or both. A new description replaces the old one.                                                  |
+| `jira_assign_issue`     | write        | Assigns an issue to an account ID, or unassigns it with `null`. `jira_get_current_user` returns your own account ID.                       |
+
+Every write tool needs `write:jira-work`, and `jira_list_transitions` needs
+`read:jira-work`. The chart requires exactly the four scopes listed under
+Prerequisites for this preset and refuses any other scope. The preset has no
+delete, attachment, administration, or user-search tools, and it does not set
+other fields. Plain text becomes one paragraph per line.
+
+Jira still decides what each user may do. A write the user has no Jira project
+permission for, such as creating, commenting on, transitioning, editing, or
+assigning issues, fails with `provider_permission_denied` or
+`provider_rejected`, depending on how Jira answers. `provider_rejected` also
+covers an unknown issue, project, issue type, transition, or account.
+
+Users who connected under `jira-read-only` must connect again after you switch
+to this preset, so they can grant `write:jira-work`. Until they do,
+`jira_oauth_status` reports `reauthorization_required` with
+`write:jira-work` under `missingScopes`. Read tools keep working, and write tools
+return `provider_oauth_required`.
+
+If a write gets an expired credential, the wrapper renews it but does not send
+the write again. The call returns `provider_retry_required`, so the agent can
+check the issue before trying again.
+
+Allow writes in the wrapper policy as well. A deny-by-default policy for this
+preset:
+
+```yaml
+policy:
+  yaml: |
+    default: deny
+    rules:
+      - id: allow-read
+        effect: allow
+        match:
+          actionClass: read
+      - id: allow-write
+        effect: allow
+        match:
+          actionClass: write
+```
 
 ## Full preset (not currently supported)
 
@@ -226,7 +293,10 @@ the generic-wrapper image. `catalog.preset: jira-read-only` instead uses a
 static three-tool catalog backed by Jira Cloud REST v3: current user, JQL issue
 search, and issue lookup. It requests only `read:jira-user`, `read:jira-work`,
 and `offline_access`. The other read aliases and all writes are absent, and
-direct calls fail before credential lookup or provider access. Both presets
+direct calls fail before credential lookup or provider access.
+`catalog.preset: jira-read-write` uses the static catalog in
+[`read-write.yaml`](../servers/generic-wrapper/catalog/jira/read-write.yaml)
+described under [Read and write preset](#read-and-write-preset). All presets
 require provider ID `jira` and tool prefix `jira`.
 
 For a deny-by-default wrapper policy, an `actionClass: read` allow rule permits
@@ -254,6 +324,8 @@ The wrapper returns stable, sanitized result categories for Atlassian failures:
 - `provider_retry_required` when a write credential was renewed but MCP-GW did
   not automatically replay the write;
 - `provider_permission_denied` for provider authorization failures;
+- `provider_rejected` when Jira refuses the request itself (HTTP 400, 404, 409,
+  or 422), for example an unknown issue or issue type;
 - `provider_rate_limited` with a bounded `retryAfter` value when supplied;
 - `provider_unavailable` for transient server failures and Atlassian's opaque
   "trouble completing this action" result when identity validation still

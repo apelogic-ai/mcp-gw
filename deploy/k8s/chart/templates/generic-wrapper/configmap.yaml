@@ -3,13 +3,16 @@
 {{- $component := printf "generic-wrapper-%s" .name }}
 {{- $catalog := .catalog }}
 {{- $catalogPreset := $catalog.preset | default "" }}
-{{- $jiraPreset := has $catalogPreset (list "jira" "jira-read-only") }}
+{{- $jiraPreset := has $catalogPreset (list "jira" "jira-read-only" "jira-read-write") }}
 {{- $catalogPath := "/etc/mcp-gw/catalog.yaml" }}
 {{- if $jiraPreset }}
 {{- $catalogPath = "/app/servers/generic-wrapper/catalog/jira/decisions.yaml" }}
 {{- end }}
 {{- if eq $catalogPreset "jira-read-only" }}
 {{- $catalogPath = "/app/servers/generic-wrapper/catalog/jira/read-only.yaml" }}
+{{- end }}
+{{- if eq $catalogPreset "jira-read-write" }}
+{{- $catalogPath = "/app/servers/generic-wrapper/catalog/jira/read-write.yaml" }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap

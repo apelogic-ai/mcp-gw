@@ -564,7 +564,7 @@
           "additionalProperties": false,
           "required": ["preset"],
           "properties": {
-            "preset": { "enum": ["jira", "jira-read-only"] },
+            "preset": { "enum": ["jira", "jira-read-only", "jira-read-write"] },
             "experimental": { "type": "boolean", "default": false }
           }
         },
