@@ -19,7 +19,13 @@ release:
   corrections. Before 1.0, a narrowly scoped security hardening may also ship in a patch when its
   operator impact and opt-out are explicit in the upgrade notes.
 
-The current public release line is `v0.8.4`.
+The current public release line is `v0.8.5`.
+
+### 0.8.5 upgrade notes
+
+- 0.8.5 publishes the 0.8.4 changes. The v0.8.4 tag's release run failed before publishing, so no
+  v0.8.4 artifacts exist. Upgrade from 0.8.2 straight to 0.8.5 and apply the 0.8.4 notes below.
+- Release compatibility: **no migration and no new required value** beyond the 0.8.4 notes.
 
 ### 0.8.4 upgrade notes
 
