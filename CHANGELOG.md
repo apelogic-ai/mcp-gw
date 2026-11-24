@@ -16,6 +16,13 @@ records the human-maintained compatibility summary.
   provider failures, policy denials, tools not approved for the Task, failed OAuth helpers, and
   invalid arguments. Error categories and other fields are unchanged.
 
+### Changed
+
+- Jira `jira_get_issue` and `jira_search_issues` now return each issue's assignee as its account ID
+  and display name, or `null` when the issue is unassigned. The wrapper asks Jira for the
+  `assignee` field and returns no other assignee details, such as email address or avatar.
+  Applies to both `jira-read-only` and `jira-read-write`; no scope or chart change.
+
 ## [0.8.5] - 2026-11-24
 
 This release publishes the 0.8.4 changes below. The v0.8.4 tag exists, but its release run failed
