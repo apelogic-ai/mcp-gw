@@ -331,6 +331,12 @@ The wrapper returns stable, sanitized result categories for Atlassian failures:
   "trouble completing this action" result when identity validation still
   succeeds.
 
+Each error is a tool result with `isError: true`. Its `structuredContent` has
+the category in `error` and a short explanation in `message`. The same
+explanation is also the text content, because some MCP clients show the model
+only `structuredContent`. Policy refusals (`policy_denied`), unapproved Task
+tools (`task_tool_not_approved`), and invalid arguments use the same shape.
+
 Provider response bodies, tokens, issue content, cloud IDs, and site IDs are not
 copied into those errors or audit records. Live v2 responses have advertised a
 250-request server window, but Atlassian does not document its ownership

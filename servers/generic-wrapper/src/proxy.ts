@@ -308,6 +308,7 @@ export function createGenericMcpProxyHandler(
           content: [{ type: "text", text: "Tool call denied by policy" }],
           structuredContent: {
             error: "policy_denied",
+            message: "Tool call denied by policy",
             ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
           },
         });
@@ -349,7 +350,10 @@ export function createGenericMcpProxyHandler(
         return mcpResult(message.id, {
           isError: true,
           content: [{ type: "text", text: "Provider authorization operation failed" }],
-          structuredContent: { error: "provider_oauth_failure" },
+          structuredContent: {
+            error: "provider_oauth_failure",
+            message: "Provider authorization operation failed",
+          },
         });
       }
     }
@@ -381,6 +385,7 @@ export function createGenericMcpProxyHandler(
           content: [{ type: "text", text: "Tool call denied by policy" }],
           structuredContent: {
             error: "policy_denied",
+            message: "Tool call denied by policy",
             ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
           },
         });
@@ -404,18 +409,16 @@ export function createGenericMcpProxyHandler(
           latencyMs: Date.now() - started,
           error: "provider_oauth_required",
         });
+        const connectionHelper = lifecycleToolName(options, "start");
+        const text = `Provider authorization is required. Call ${connectionHelper}.`;
         return mcpResult(message.id, {
           isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Provider authorization is required. Call ${lifecycleToolName(options, "start")}.`,
-            },
-          ],
+          content: [{ type: "text", text }],
           structuredContent: {
             error: "provider_oauth_required",
+            message: text,
             provider: options.oauth?.providerId,
-            connectionHelper: lifecycleToolName(options, "start"),
+            connectionHelper,
           },
         });
       }
@@ -940,6 +943,7 @@ function providerFailure(
     content: [{ type: "text", text: message }],
     structuredContent: {
       error,
+      message,
       provider:
         options.oauth?.providerId ??
         (options.descriptor.credential.mode === "per_user_oauth"
@@ -1024,7 +1028,7 @@ function taskToolDenied(id: JsonRpcId): Response {
   return mcpResult(id, {
     isError: true,
     content: [{ type: "text", text: TASK_TOOL_DENIED_MESSAGE }],
-    structuredContent: { error: TASK_TOOL_DENIED_ERROR },
+    structuredContent: { error: TASK_TOOL_DENIED_ERROR, message: TASK_TOOL_DENIED_MESSAGE },
   });
 }
 

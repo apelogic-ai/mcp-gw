@@ -197,7 +197,9 @@ describe("generic MCP proxy", () => {
 
     for (const denied of ["search_metadata", "search_reindex"]) {
       expect(
-        await toolErrorBody(await proxy(mcpRequest("tools/call", { name: denied, arguments: {} }, 103))),
+        await toolErrorBody(
+          await proxy(mcpRequest("tools/call", { name: denied, arguments: {} }, 103)),
+        ),
       ).toMatchObject({
         result: {
           isError: true,
