@@ -167,11 +167,22 @@ describe("release artifacts", () => {
     expect(mirror).not.toContain("gh api --method PATCH");
   });
 
+  test("pins every hosted runner to a fixed Ubuntu release", async () => {
+    for (const path of [".github/workflows/ci.yml", ".github/workflows/release.yml"]) {
+      const workflow = await readFile(path, "utf8");
+      expect({ path, floating: workflow.match(/ubuntu-latest/g) ?? [] }).toEqual({
+        path,
+        floating: [],
+      });
+      expect(workflow).toContain("ubuntu-24.04");
+    }
+  });
+
   test("builds each release architecture natively before assembling the multi-platform manifest", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
 
     expect(workflow).toContain("build-platform-images:");
-    expect(workflow).toContain("runner: ubuntu-latest");
+    expect(workflow).toContain("runner: ubuntu-24.04\n");
     expect(workflow).toContain("runner: ubuntu-24.04-arm");
     expect(workflow).toContain("platform: linux/amd64");
     expect(workflow).toContain("platform: linux/arm64");
@@ -263,7 +274,7 @@ describe("release artifacts", () => {
     );
     const release = workflow.slice(workflow.indexOf("  release:"));
 
-    expect(build).toContain("runner: ubuntu-latest");
+    expect(build).toContain("runner: ubuntu-24.04\n");
     expect(build).toContain("runner: ubuntu-24.04-arm");
     expect(build).toContain("target: bun-linux-x64");
     expect(build).toContain("target: bun-linux-arm64");

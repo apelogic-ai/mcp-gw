@@ -7,7 +7,7 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -35,7 +35,7 @@ jobs:
         run: bun run release:check
 
   kubernetes-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -190,7 +190,7 @@ jobs:
 
   mirror-github-mcp-server:
     needs: [validate, kubernetes-smoke]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -254,7 +254,7 @@ jobs:
 
   publish-github-governance-catalog:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
@@ -311,7 +311,7 @@ jobs:
             dockerfile: .release/agentgateway/Dockerfile
             architecture: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - component: agentgateway
             repository: mcp-gw-agentgateway
             context: .release/agentgateway
@@ -325,7 +325,7 @@ jobs:
             dockerfile: servers/google-workspace/wrapper/Dockerfile
             architecture: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - component: google-workspace
             repository: mcp-gw-google-workspace
             context: .
@@ -339,7 +339,7 @@ jobs:
             dockerfile: servers/github-mcp/wrapper/Dockerfile
             architecture: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - component: github-wrapper
             repository: mcp-gw-github-wrapper
             context: .
@@ -353,7 +353,7 @@ jobs:
             dockerfile: servers/generic-wrapper/Dockerfile
             architecture: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - component: generic-wrapper
             repository: mcp-gw-generic-wrapper
             context: .
@@ -367,7 +367,7 @@ jobs:
             dockerfile: servers/governed-cli/Dockerfile
             architecture: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - component: governed-cli
             repository: mcp-gw-governed-cli
             context: .
@@ -381,7 +381,7 @@ jobs:
             dockerfile: servers/remote-shell/Dockerfile
             architecture: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - component: remote-shell
             repository: mcp-gw-remote-shell
             context: .
@@ -465,7 +465,7 @@ jobs:
 
   publish-images:
     needs: build-platform-images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -568,7 +568,7 @@ jobs:
 
   released-kubernetes-broker-smoke:
     needs: publish-images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -639,7 +639,7 @@ jobs:
 
   released-full-bundle-smoke:
     needs: publish-images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -679,7 +679,7 @@ jobs:
         released-kubernetes-broker-smoke,
         released-full-bundle-smoke,
       ]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -814,7 +814,7 @@ jobs:
       matrix:
         include:
           - architecture: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             target: bun-linux-x64
           - architecture: arm64
             runner: ubuntu-24.04-arm
@@ -852,7 +852,7 @@ jobs:
 
   publish-sandbox-helper:
     needs: [build-sandbox-helper]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
@@ -889,7 +889,7 @@ jobs:
   release:
     needs:
       [publish-images, publish-chart, publish-github-governance-catalog, publish-sandbox-helper]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       attestations: read
