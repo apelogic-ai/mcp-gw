@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { loadGenericToolCatalog, type GenericWrapperDescriptor } from "./descriptor";
 import { JIRA_REST_CATALOG_IDS, createJiraRestToolExecutor } from "./jira-rest";
+import { toolErrorBody } from "../../../test/support/tool-error";
 
 const descriptor: GenericWrapperDescriptor = {
   schemaVersion: "mcp-gateway.generic-wrapper/v1",
@@ -194,7 +195,7 @@ describe("Jira REST tools", () => {
       },
       credential,
     });
-    expect(await refused.json()).toMatchObject({
+    expect(await toolErrorBody(refused)).toMatchObject({
       result: { structuredContent: { error: "invalid_arguments" } },
     });
     expect(calls).toBe(0);
@@ -206,7 +207,7 @@ describe("Jira REST tools", () => {
         arguments: { issueKey },
         credential,
       });
-      expect(await invalidIssue.json()).toMatchObject({
+      expect(await toolErrorBody(invalidIssue)).toMatchObject({
         result: { structuredContent: { error: "invalid_arguments" } },
       });
     }
@@ -219,7 +220,7 @@ describe("Jira REST tools", () => {
       arguments: { jql: "order by created DESC" },
       credential,
     });
-    expect(await unbounded.json()).toMatchObject({
+    expect(await toolErrorBody(unbounded)).toMatchObject({
       result: {
         content: [{ text: "JQL must include a search restriction" }],
         structuredContent: { error: "unbounded_jql" },
@@ -507,7 +508,7 @@ describe("Jira REST write tools", () => {
       expect({ name, args, result: await structured(response) }).toEqual({
         name,
         args,
-        result: { error: "invalid_arguments" },
+        result: { error: "invalid_arguments", message: "Invalid tool arguments" },
       });
     }
     expect(calls).toBe(0);
