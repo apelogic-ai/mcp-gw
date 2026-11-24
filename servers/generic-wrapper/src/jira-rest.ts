@@ -166,7 +166,7 @@ function jiraTarget(
         withSearch(new URL(`${base}/search/jql`), {
           jql,
           maxResults: String(maxResults),
-          fields: "summary,status",
+          fields: "summary,status,assignee",
         }),
       result: (body) => {
         const issues = record(body).issues;
@@ -181,7 +181,7 @@ function jiraTarget(
       method: "GET",
       url: (base) =>
         withSearch(new URL(`${base}/issue/${encodeURIComponent(issueKey)}`), {
-          fields: "summary,status",
+          fields: "summary,status,assignee",
         }),
       result: trimIssue,
     };
@@ -374,6 +374,14 @@ function trimIssue(value: unknown): Record<string, unknown> {
     fields: {
       ...pick(fields, ["summary"]),
       status: pick(record(fields.status), ["id", "name"]),
+      ...(fields.assignee === undefined
+        ? {}
+        : {
+            assignee:
+              fields.assignee === null
+                ? null
+                : pick(record(fields.assignee), ["accountId", "displayName"]),
+          }),
     },
   };
 }

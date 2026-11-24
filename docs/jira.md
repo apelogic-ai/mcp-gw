@@ -79,6 +79,11 @@ user's own Jira connection. It uses the same direct Jira Cloud REST v3 path as
 | `jira_update_issue`     | write        | Changes an issue's summary, description, or both. A new description replaces the old one.                                                  |
 | `jira_assign_issue`     | write        | Assigns an issue to an account ID, or unassigns it with `null`. `jira_get_current_user` returns your own account ID.                       |
 
+In both presets, `jira_get_issue` and `jira_search_issues` return each issue's
+ID, key, summary, status, and assignee. The assignee is its account ID and
+display name only, or `null` when the issue is unassigned, so an agent can check
+`jira_assign_issue` against `jira_get_current_user`.
+
 Every write tool needs `write:jira-work`, and `jira_list_transitions` needs
 `read:jira-work`. The chart requires exactly the four scopes listed under
 Prerequisites for this preset and refuses any other scope. The preset has no
