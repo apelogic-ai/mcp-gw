@@ -8,6 +8,14 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
+### Fixed
+
+- Generic wrapper tool errors now include their explanation in `structuredContent.message`, as well
+  as in the text content. Some MCP clients show the model only `structuredContent`, so agents saw a
+  bare category such as `provider_rejected` without the explanation of what to fix. This covers
+  provider failures, policy denials, tools not approved for the Task, failed OAuth helpers, and
+  invalid arguments. Error categories and other fields are unchanged.
+
 ## [0.8.5] - 2026-11-24
 
 This release publishes the 0.8.4 changes below. The v0.8.4 tag exists, but its release run failed

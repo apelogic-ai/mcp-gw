@@ -10,6 +10,7 @@ import {
 } from "./descriptor";
 import { createGenericMcpProxyHandler } from "./proxy";
 import { createHttpUpstreamTransport } from "./transport";
+import { toolErrorBody } from "../../../test/support/tool-error";
 
 const identity: Hop1Identity = {
   profile: "fixture",
@@ -225,7 +226,7 @@ describe("generic wrapper live tool discovery", () => {
         sessionId,
       ),
     );
-    expect(await denied.json()).toMatchObject({
+    expect(await toolErrorBody(denied)).toMatchObject({
       result: {
         isError: true,
         content: [{ type: "text", text: "Tool is not approved for this Task" }],
@@ -264,7 +265,7 @@ describe("generic wrapper live tool discovery", () => {
         sessionId,
       ),
     );
-    expect(await denied.json()).toMatchObject({
+    expect(await toolErrorBody(denied)).toMatchObject({
       result: {
         isError: true,
         content: [{ type: "text", text: "Tool call denied by policy" }],

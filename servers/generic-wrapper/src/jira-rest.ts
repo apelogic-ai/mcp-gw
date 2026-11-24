@@ -411,7 +411,7 @@ function toolError(id: JsonRpcId, error: string, message: string): Response {
     result: {
       isError: true,
       content: [{ type: "text", text: message }],
-      structuredContent: { error },
+      structuredContent: { error, message },
     },
   });
 }

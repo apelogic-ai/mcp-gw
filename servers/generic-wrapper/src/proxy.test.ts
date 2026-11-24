@@ -11,6 +11,7 @@ import {
 } from "./descriptor";
 import { createGenericMcpProxyHandler } from "./proxy";
 import type { GenericUpstreamRequest, GenericUpstreamTransport } from "./transport";
+import { toolErrorBody } from "../../../test/support/tool-error";
 
 const identity: Hop1Identity = {
   profile: "fixture",
@@ -196,7 +197,9 @@ describe("generic MCP proxy", () => {
 
     for (const denied of ["search_metadata", "search_reindex"]) {
       expect(
-        await (await proxy(mcpRequest("tools/call", { name: denied, arguments: {} }, 103))).json(),
+        await toolErrorBody(
+          await proxy(mcpRequest("tools/call", { name: denied, arguments: {} }, 103)),
+        ),
       ).toMatchObject({
         result: {
           isError: true,
@@ -233,7 +236,7 @@ describe("generic MCP proxy", () => {
     const denied = await create("editJiraIssue")(
       mcpRequest("tools/call", { name: "jira_edit_issue", arguments: {} }, 104),
     );
-    expect(await denied.json()).toMatchObject({
+    expect(await toolErrorBody(denied)).toMatchObject({
       result: { structuredContent: { error: "task_tool_not_approved" } },
     });
     expect(transport.requests).toHaveLength(0);
@@ -517,7 +520,7 @@ describe("generic MCP proxy", () => {
     })(mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 3));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(await toolErrorBody(response)).toMatchObject({
       result: { isError: true, structuredContent: { error: "policy_denied" } },
     });
     expect(credentialCalls).toBe(0);
@@ -560,6 +563,31 @@ describe("generic MCP proxy", () => {
     };
     expect(statusBody.result.content[0]?.text).toContain('"phase":"disconnected"');
     expect(transport.requests).toHaveLength(0);
+  });
+
+  test("reports a failed OAuth helper as a tool error without the failure detail", async () => {
+    const failing = createGenericMcpProxyHandler({
+      descriptor: { ...descriptor, lifecycleRoutes: true },
+      catalog,
+      authenticate: () => Promise.resolve(identity),
+      transport: new RecordingTransport(),
+      resolveCredential: () => Promise.resolve(null),
+      oauth: {
+        providerId: "search-provider",
+        status: () => Promise.reject(new Error("token store detail")),
+        start: () => Promise.reject(new Error("token store detail")),
+      },
+    });
+
+    const response = await failing(
+      mcpRequest("tools/call", { name: "search_oauth_status", arguments: {} }, 7),
+    );
+    const body = await toolErrorBody(response);
+
+    expect(body).toMatchObject({
+      result: { structuredContent: { error: "provider_oauth_failure" } },
+    });
+    expect(JSON.stringify(body)).not.toContain("token store detail");
   });
 
   describe("hideToolsUntilConnected", () => {
@@ -696,7 +724,7 @@ describe("generic MCP proxy", () => {
       const response = await hiddenHandler(() => Promise.resolve(null))(
         mcpRequest("tools/call", { name: "analytics_query", arguments: {} }, 2),
       );
-      const body = (await response.json()) as {
+      const body = (await toolErrorBody(response)) as {
         result: { content: { text: string }[]; structuredContent: Record<string, unknown> };
       };
 
@@ -743,7 +771,7 @@ describe("generic MCP proxy", () => {
       mcpRequest("tools/call", { name: "search_oauth_start", arguments: {} }, 6),
     );
 
-    expect(await response.json()).toMatchObject({
+    expect(await toolErrorBody(response)).toMatchObject({
       result: { isError: true, structuredContent: { error: "policy_denied" } },
     });
     expect(audit.events).toMatchObject([
@@ -847,7 +875,7 @@ describe("generic MCP proxy", () => {
 
     expect(recovered).toEqual(["rejected-token"]);
     expect(requests).toHaveLength(1);
-    expect(await response.json()).toMatchObject({
+    expect(await toolErrorBody(response)).toMatchObject({
       result: {
         isError: true,
         structuredContent: {
@@ -938,7 +966,7 @@ describe("generic MCP proxy", () => {
       const response = await proxy(
         mcpRequest("tools/call", { name: "search_query", arguments: { q: "mcp" } }, 21),
       );
-      const body = (await response.json()) as {
+      const body = (await toolErrorBody(response)) as {
         result: { structuredContent: Record<string, unknown> };
       };
 
@@ -1005,7 +1033,7 @@ describe("generic MCP proxy", () => {
     );
 
     expect(validations).toBe(1);
-    expect(await response.json()).toMatchObject({
+    expect(await toolErrorBody(response)).toMatchObject({
       result: {
         isError: true,
         structuredContent: { error: "provider_unavailable" },
@@ -1111,7 +1139,7 @@ describe("generic MCP proxy", () => {
     );
 
     expect(validations).toBe(1);
-    expect(await response.json()).toMatchObject({
+    expect(await toolErrorBody(response)).toMatchObject({
       result: {
         isError: true,
         structuredContent: { error: "provider_permission_denied" },
@@ -1299,7 +1327,7 @@ describe("Jira REST write tools", () => {
 
     for (const name of writeToolNames) {
       const response = await proxy(mcpRequest("tools/call", { name, arguments: {} }, 202));
-      expect(await response.json()).toMatchObject({
+      expect(await toolErrorBody(response)).toMatchObject({
         result: { isError: true, structuredContent: { error: "task_tool_not_approved" } },
       });
     }
@@ -1313,7 +1341,7 @@ describe("Jira REST write tools", () => {
 
     for (const name of writeToolNames) {
       const response = await proxy(mcpRequest("tools/call", { name, arguments: {} }, 203));
-      expect(await response.json()).toMatchObject({
+      expect(await toolErrorBody(response)).toMatchObject({
         result: {
           isError: true,
           structuredContent: {
@@ -1361,7 +1389,7 @@ describe("Jira REST write tools", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
+      expect(await toolErrorBody(response)).toMatchObject({
         result: { isError: true, structuredContent: { error: "provider_rejected" } },
       });
       expect(restCalls).toBe(1);
@@ -1403,7 +1431,7 @@ describe("Jira REST write tools", () => {
       ),
     );
 
-    expect(await response.json()).toMatchObject({
+    expect(await toolErrorBody(response)).toMatchObject({
       result: { isError: true, structuredContent: { error: "provider_retry_required" } },
     });
     expect(restCalls).toBe(1);
