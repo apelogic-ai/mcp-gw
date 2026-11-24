@@ -159,15 +159,79 @@ describe("Jira REST tools", () => {
       "https://api.atlassian.com/oauth/token/accessible-resources",
       "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/myself",
       "https://api.atlassian.com/oauth/token/accessible-resources",
-      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/search/jql?jql=project+%3D+EX&maxResults=2&fields=summary%2Cstatus",
+      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/search/jql?jql=project+%3D+EX&maxResults=2&fields=summary%2Cstatus%2Cassignee",
       "https://api.atlassian.com/oauth/token/accessible-resources",
-      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/EX-1?fields=summary%2Cstatus",
+      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/EX-1?fields=summary%2Cstatus%2Cassignee",
       "https://api.atlassian.com/oauth/token/accessible-resources",
-      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/10001?fields=summary%2Cstatus",
+      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/issue/10001?fields=summary%2Cstatus%2Cassignee",
     ]);
     expect(
       requests.every((request) => request.headers.get("authorization") === "Bearer secret-token"),
     ).toBeTrue();
+  });
+
+  test("returns only the assignee account ID and display name from read tools", async () => {
+    const assigned = {
+      id: "10001",
+      key: "EX-1",
+      fields: {
+        summary: "Example",
+        status: { id: "1", name: "Open" },
+        assignee: {
+          accountId: "account-1",
+          displayName: "Alice",
+          emailAddress: "alice@example.com",
+          avatarUrls: { "48x48": "https://avatar.example.com/drop" },
+          active: true,
+          timeZone: "drop",
+        },
+      },
+    };
+    const unassigned = {
+      id: "10002",
+      key: "EX-2",
+      fields: { summary: "Other", status: { id: "1", name: "Open" }, assignee: null },
+    };
+    const execute = createJiraRestToolExecutor(descriptor, (input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.endsWith("/accessible-resources")) {
+        return Promise.resolve(
+          Response.json([{ id: "cloud-123", url: "https://site.atlassian.net/" }]),
+        );
+      }
+      if (url.includes("/search/jql")) {
+        return Promise.resolve(Response.json({ issues: [assigned, unassigned] }));
+      }
+      return Promise.resolve(Response.json(url.includes("/issue/EX-2") ? unassigned : assigned));
+    });
+    const structured = async (name: string, args: Record<string, unknown>) => {
+      const response = await execute({ id: 1, tool: tool(name), arguments: args, credential });
+      const text = await response.clone().text();
+      expect(text).not.toContain("alice@example.com");
+      expect(text).not.toContain("drop");
+      return ((await response.json()) as { result: { structuredContent: unknown } }).result
+        .structuredContent;
+    };
+    const expectedAssigned = {
+      id: "10001",
+      key: "EX-1",
+      fields: {
+        summary: "Example",
+        status: { id: "1", name: "Open" },
+        assignee: { accountId: "account-1", displayName: "Alice" },
+      },
+    };
+    const expectedUnassigned = {
+      id: "10002",
+      key: "EX-2",
+      fields: { summary: "Other", status: { id: "1", name: "Open" }, assignee: null },
+    };
+
+    expect(await structured("jira_get_issue", { issueKey: "EX-1" })).toEqual(expectedAssigned);
+    expect(await structured("jira_get_issue", { issueKey: "EX-2" })).toEqual(expectedUnassigned);
+    expect(await structured("jira_search_issues", { jql: "project = EX" })).toEqual({
+      issues: [expectedAssigned, expectedUnassigned],
+    });
   });
 
   test("refuses caller routing fields before REST and fails closed on site resolution", async () => {
