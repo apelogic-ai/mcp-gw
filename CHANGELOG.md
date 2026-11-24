@@ -8,7 +8,21 @@ records the human-maintained compatibility summary.
 
 ## [Unreleased]
 
-## [0.8.4] - 2026-11-23
+## [0.8.5] - 2026-11-24
+
+This release publishes the 0.8.4 changes below. The v0.8.4 tag exists, but its release run failed
+before anything was published, so there are no v0.8.4 images, chart, or GitHub release. Upgrade
+from 0.8.2 straight to 0.8.5 and follow the 0.8.4 upgrade notes.
+
+### Fixed
+
+- Release and CI jobs run on `ubuntu-24.04` instead of `ubuntu-latest`. On the newer default runner
+  the release Kubernetes smoke could not load the multi-platform GitHub MCP server image into its
+  test cluster, which stopped the v0.8.4 release before publishing.
+
+## [0.8.4] - 2026-11-23 [NOT PUBLISHED]
+
+Tagged but never published; use 0.8.5, which contains these changes.
 
 ### Added
 
@@ -1095,7 +1109,8 @@ records the human-maintained compatibility summary.
 - Generated Google Workspace `gws_*` tool catalog with curated default service families.
 - Optional Google Workspace YAML policy file and external OPA policy integration.
 
-[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.4...HEAD
+[Unreleased]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.5...HEAD
+[0.8.5]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.2...v0.8.4
 [0.8.2]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/apelogic-ai/mcp-gw/compare/v0.8.0...v0.8.1
