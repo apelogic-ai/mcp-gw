@@ -895,10 +895,8 @@ describe("Kubernetes production chart", () => {
   test("accepts a generic wrapper image's tag beside its digest and still runs it by digest", () => {
     const [wrapper] = genericWrappers();
     const digest = `sha256:${"b".repeat(64)}`;
-    for (const image of [
-      { repository: "registry.example.com/platform/mcp-gw-generic-wrapper", digest },
-      { repository: "registry.example.com/platform/mcp-gw-generic-wrapper", tag: "0.8.6", digest },
-    ]) {
+    const repository = "registry.example.com/platform/mcp-gw-generic-wrapper";
+    const imageLines = (image: Record<string, string>) => {
       const rendered = helmTemplate([
         ...genericWrapperBaseArgs(),
         "--set-json",
@@ -909,11 +907,13 @@ describe("Kubernetes production chart", () => {
         "Deployment",
         `mcp-gateway-generic-wrapper-${String(wrapper?.name)}`,
       );
-      expect(deployment).toContain(
-        `image: registry.example.com/platform/mcp-gw-generic-wrapper@${digest}`,
-      );
-      expect(deployment).not.toContain("mcp-gw-generic-wrapper:0.8.6");
-    }
+      return deployment.split("\n").filter((line) => line.trim().startsWith("image:"));
+    };
+
+    const untagged = imageLines({ repository, digest });
+    expect(untagged).toEqual([expect.stringContaining(`image: ${repository}@${digest}`)]);
+    // A platform that writes a tag beside the digest changes nothing that runs.
+    expect(imageLines({ repository, tag: "0.8.6", digest })).toEqual(untagged);
   });
 
   test("refuses a generic wrapper image without a valid digest, even with a tag", () => {

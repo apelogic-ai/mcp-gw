@@ -25,7 +25,10 @@ credential modes are none, an existing Secret-backed static header, token
 exchange, and per-user authorization-code OAuth. Every wrapper image and
 sidecar image must be pinned by digest: set `image.repository` and
 `image.digest`. An `image.tag` may sit beside the digest, for a platform that
-writes both, but the image always runs by digest. `wrappers: []` is the default and
+writes both, but the image always runs by digest. Charts before this release
+refuse a non-empty wrapper `image.tag` at schema validation. So configure a
+platform to write the tag only after a chart that accepts it is deployed, and
+clear the tag before rolling the chart back below that release. `wrappers: []` is the default and
 renders no generic-wrapper objects.
 
 Per-user OAuth additionally needs the shared PostgreSQL migrations, an exact
