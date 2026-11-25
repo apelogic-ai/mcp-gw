@@ -18,16 +18,6 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
-- Chart: `wrappers[].image` (and a wrapper's sidecar image, and the wrapped `dbMcp` image) now
-  accepts a non-empty `tag` beside the required `digest`, so a platform that writes both into values
-  can update a wrapper's image on each release. The image still runs by digest, and an image without
-  a valid `digest` is still refused. Values without a tag render exactly as before.
-  - Rollback: earlier charts refuse a non-empty wrapper `image.tag` at schema validation; the
-    upgrade fails and the previous release keeps running. Configure a platform to write the tag only
-    after a chart with this change is deployed, and clear the tag before rolling the chart back.
-  - Changing only the tag restarts the wrapper's pod on the same image, because the wrapper's
-    configuration checksum covers its values.
-
 - Jira `jira_get_issue` and `jira_search_issues` now return each issue's assignee as its account ID
   and display name, or `null` when the issue is unassigned. The wrapper asks Jira for the
   `assignee` field and returns no other assignee details, such as email address or avatar.

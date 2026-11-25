@@ -27,8 +27,6 @@ wrappers:
     enabled: true
     image:
       repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
-      # Optional: a tag may sit beside the digest; the image runs by digest.
-      # tag: <release version>
       digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     toolPrefix: public_reference
     lifecycleRoutes: false

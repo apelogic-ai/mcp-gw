@@ -355,9 +355,6 @@ catalog is authoritative: only listed tools are advertised, each upstream tool
 is exposed as `<toolPrefix>_<name>`, and each call is classified before a
 credential is resolved. Pin the generic-wrapper image digest from the matching
 MCP-GW release handoff. A configured sidecar image must also be digest-pinned.
-`image.tag` may be set beside `image.digest` (a platform that writes image
-references into values may write both); the image still runs by digest, and an
-image without a valid digest is refused.
 The wrapper issues opaque MCP session IDs, binds them to the immutable HOP-1
 principal, rejects caller-invented session IDs, and reaps idle sessions on a
 timer. Optional per-wrapper limits are explicit:

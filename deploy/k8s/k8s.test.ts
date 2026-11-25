@@ -892,54 +892,79 @@ describe("Kubernetes production chart", () => {
     );
   });
 
-  test("accepts a generic wrapper image's tag beside its digest and still runs it by digest", () => {
-    const [wrapper] = genericWrappers();
-    const digest = `sha256:${"b".repeat(64)}`;
+  describe("shared generic-wrapper image", () => {
     const repository = "registry.example.com/platform/mcp-gw-generic-wrapper";
-    const imageLines = (image: Record<string, string>) => {
+    const shared = `sha256:${"b".repeat(64)}`;
+    const sharedArgs = (image: Record<string, string>) =>
+      Object.entries(image).flatMap(([key, value]) => [
+        "--set-string",
+        `genericWrapper.image.${key}=${value}`,
+      ]);
+    const withoutImage = () => {
+      const [wrapper] = genericWrappers();
+      const { image: _image, ...rest } = wrapper!;
+      return rest;
+    };
+    const wrapperImageLines = (wrappers: unknown[], extraArgs: string[] = []) => {
       const rendered = helmTemplate([
         ...genericWrapperBaseArgs(),
+        ...extraArgs,
         "--set-json",
-        `wrappers=${JSON.stringify([{ ...wrapper, image }])}`,
+        `wrappers=${JSON.stringify(wrappers)}`,
       ]);
-      const deployment = renderedResource(
-        rendered,
-        "Deployment",
-        `mcp-gateway-generic-wrapper-${String(wrapper?.name)}`,
-      );
-      return deployment.split("\n").filter((line) => line.trim().startsWith("image:"));
+      const name = String((wrappers[0] as { name: string }).name);
+      return renderedResource(rendered, "Deployment", `mcp-gateway-generic-wrapper-${name}`)
+        .split("\n")
+        .filter((line) => line.trim().startsWith("image:"));
     };
 
-    const untagged = imageLines({ repository, digest });
-    expect(untagged).toEqual([expect.stringContaining(`image: ${repository}@${digest}`)]);
-    // A platform that writes a tag beside the digest changes nothing that runs.
-    expect(imageLines({ repository, tag: "0.8.6", digest })).toEqual(untagged);
-  });
+    test("keeps a wrapper's own image even when a shared image is set", () => {
+      const [wrapper] = genericWrappers();
+      const own = wrapperImageLines([wrapper]);
+      expect(own).toEqual([
+        expect.stringContaining(`mcp-gw-generic-wrapper@sha256:${"a".repeat(64)}`),
+      ]);
+      expect(
+        wrapperImageLines([wrapper], sharedArgs({ repository, tag: "0.8.6", digest: shared })),
+      ).toEqual(own);
+    });
 
-  test("refuses a generic wrapper image without a valid digest, even with a tag", () => {
-    const [wrapper] = genericWrappers();
-    for (const [label, image] of [
-      [
-        "tag only",
-        { repository: "registry.example.com/platform/mcp-gw-generic-wrapper", tag: "0.8.6" },
-      ],
-      [
-        "malformed digest",
-        {
-          repository: "registry.example.com/platform/mcp-gw-generic-wrapper",
-          tag: "0.8.6",
-          digest: "sha256:not-a-digest",
-        },
-      ],
-    ] as const) {
+    test("runs a wrapper without its own image from the shared image, by digest", () => {
+      expect(
+        wrapperImageLines(
+          [withoutImage()],
+          sharedArgs({ repository, tag: "0.8.6", digest: shared }),
+        ),
+      ).toEqual([expect.stringContaining(`image: ${repository}@${shared}`)]);
+    });
+
+    test("refuses a wrapper without its own image unless the shared image is pinned", () => {
+      for (const [label, image, expected] of [
+        ["no shared image", {}, "genericWrapper.image.digest"],
+        ["tag only", { repository, tag: "0.8.6" }, "genericWrapper.image.digest"],
+        ["malformed digest", { repository, tag: "0.8.6", digest: "sha256:not-a-digest" }, "digest"],
+        ["no repository", { tag: "0.8.6", digest: shared }, "genericWrapper.image.repository"],
+      ] as const) {
+        const result = helmTemplateResult([
+          ...genericWrapperBaseArgs(),
+          ...sharedArgs(image),
+          "--set-json",
+          `wrappers=${JSON.stringify([withoutImage()])}`,
+        ]);
+        assertHelmRejected(result);
+        expect(result.stderr.toString(), label).toContain(expected);
+      }
+    });
+
+    test("refuses unknown shared image fields", () => {
       const result = helmTemplateResult([
         ...genericWrapperBaseArgs(),
-        "--set-json",
-        `wrappers=${JSON.stringify([{ ...wrapper, image }])}`,
+        "--set-string",
+        "genericWrapper.image.registry=registry.example.com",
       ]);
       assertHelmRejected(result);
-      expect(result.stderr.toString(), label).toContain("digest");
-    }
+      expect(result.stderr.toString()).toContain("registry");
+    });
   });
 
   test("rejects unpinned and colliding generic wrapper definitions", () => {
