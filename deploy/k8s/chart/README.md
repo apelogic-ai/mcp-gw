@@ -23,7 +23,9 @@ target. Supported upstreams are Streamable HTTP and a stdio command packaged
 in the same image; an HTTP server may instead run as a pinned sidecar. Supported
 credential modes are none, an existing Secret-backed static header, token
 exchange, and per-user authorization-code OAuth. Every wrapper image and
-sidecar image must be pinned by digest. `wrappers: []` is the default and
+sidecar image must be pinned by digest: set `image.repository` and
+`image.digest`. An `image.tag` may sit beside the digest, for a platform that
+writes both, but the image always runs by digest. `wrappers: []` is the default and
 renders no generic-wrapper objects.
 
 Per-user OAuth additionally needs the shared PostgreSQL migrations, an exact

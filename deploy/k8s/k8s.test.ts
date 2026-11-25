@@ -904,8 +904,14 @@ describe("Kubernetes production chart", () => {
         "--set-json",
         `wrappers=${JSON.stringify([{ ...wrapper, image }])}`,
       ]);
-      const deployment = renderedResource(rendered, "Deployment", `mcp-gateway-generic-wrapper-${String(wrapper?.name)}`);
-      expect(deployment).toContain(`image: registry.example.com/platform/mcp-gw-generic-wrapper@${digest}`);
+      const deployment = renderedResource(
+        rendered,
+        "Deployment",
+        `mcp-gateway-generic-wrapper-${String(wrapper?.name)}`,
+      );
+      expect(deployment).toContain(
+        `image: registry.example.com/platform/mcp-gw-generic-wrapper@${digest}`,
+      );
       expect(deployment).not.toContain("mcp-gw-generic-wrapper:0.8.6");
     }
   });
@@ -913,9 +919,18 @@ describe("Kubernetes production chart", () => {
   test("refuses a generic wrapper image without a valid digest, even with a tag", () => {
     const [wrapper] = genericWrappers();
     for (const [label, image] of [
-      ["tag only", { repository: "registry.example.com/platform/mcp-gw-generic-wrapper", tag: "0.8.6" }],
-      ["malformed digest", { repository: "registry.example.com/platform/mcp-gw-generic-wrapper", tag: "0.8.6",
-        digest: "sha256:not-a-digest" }],
+      [
+        "tag only",
+        { repository: "registry.example.com/platform/mcp-gw-generic-wrapper", tag: "0.8.6" },
+      ],
+      [
+        "malformed digest",
+        {
+          repository: "registry.example.com/platform/mcp-gw-generic-wrapper",
+          tag: "0.8.6",
+          digest: "sha256:not-a-digest",
+        },
+      ],
     ] as const) {
       const result = helmTemplateResult([
         ...genericWrapperBaseArgs(),
