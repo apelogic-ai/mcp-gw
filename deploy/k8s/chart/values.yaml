@@ -220,6 +220,16 @@ agentgateway:
 # empty default renders no additional Kubernetes objects or gateway targets.
 wrappers: []
 
+# The generic-wrapper image for wrappers[] entries that set no image of their own. An entry's own image
+# always wins. It's a map key, so a platform that writes image references into values (map keys only) can
+# update it on each release. When an entry uses it, digest must be a sha256 digest; the image runs by
+# digest and the tag is informational.
+genericWrapper:
+  image:
+    repository: ""
+    tag: ""
+    digest: ""
+
 governedCli:
   enabled: false
   image:

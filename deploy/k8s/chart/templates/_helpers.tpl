@@ -141,6 +141,24 @@ metadata:
 {{- end -}}
 {{- end -}}
 
+{{/*
+A wrappers[] entry's image: its own, or else the shared genericWrapper.image, which must be pinned by digest.
+*/}}
+{{- define "mcp-gateway.genericWrapperImage" -}}
+{{- if .wrapper.image -}}
+{{- include "mcp-gateway.image" (dict "root" .root "image" .wrapper.image) -}}
+{{- else -}}
+{{- $shared := (.root.Values.genericWrapper | default dict).image | default dict -}}
+{{- if not (regexMatch "^sha256:[a-fA-F0-9]{64}$" ($shared.digest | default "")) -}}
+{{- fail (printf "wrapper %s sets no image, so genericWrapper.image.digest must be the sha256 digest of a released generic-wrapper image" .wrapper.name) -}}
+{{- end -}}
+{{- if not $shared.repository -}}
+{{- fail (printf "wrapper %s sets no image, so genericWrapper.image.repository is required" .wrapper.name) -}}
+{{- end -}}
+{{- printf "%s@%s" $shared.repository $shared.digest -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "mcp-gateway.podScheduling" -}}
 {{- with .nodeSelector }}
 nodeSelector:

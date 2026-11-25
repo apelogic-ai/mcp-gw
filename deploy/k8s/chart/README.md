@@ -23,7 +23,16 @@ target. Supported upstreams are Streamable HTTP and a stdio command packaged
 in the same image; an HTTP server may instead run as a pinned sidecar. Supported
 credential modes are none, an existing Secret-backed static header, token
 exchange, and per-user authorization-code OAuth. Every wrapper image and
-sidecar image must be pinned by digest. `wrappers: []` is the default and
+sidecar image must be pinned by digest. A wrapper entry may leave out `image`
+and run from the shared `genericWrapper.image` (`repository`, `tag`, `digest`)
+instead. That's a map key, so a platform that writes image references into
+values can update it on each release. An entry's own image always wins. A
+wrapper that uses the shared image needs `genericWrapper.image.digest` set to a
+sha256 digest; it runs by digest, and the tag is informational. Charts before
+this release refuse `genericWrapper` and a wrapper without `image` at schema
+validation. So point a platform at `genericWrapper.image.*` only after a chart
+that accepts it is deployed, and before rolling the chart back below it, remove
+those platform paths and give the wrapper its own image again. `wrappers: []` is the default and
 renders no generic-wrapper objects.
 
 Per-user OAuth additionally needs the shared PostgreSQL migrations, an exact

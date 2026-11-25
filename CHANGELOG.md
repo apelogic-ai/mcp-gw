@@ -18,6 +18,18 @@ records the human-maintained compatibility summary.
 
 ### Changed
 
+- Chart: a `wrappers[]` entry may leave out `image` and run from the new shared
+  `genericWrapper.image` (`repository`, `tag`, `digest`). It's a map key, so a platform that writes
+  image references into values (map keys only) can update the generic-wrapper image on each release.
+  - An entry's own `image` still wins and is unchanged (repository plus a required digest, empty tag).
+  - A wrapper that uses the shared image needs `genericWrapper.image.digest` set to a sha256 digest and
+    a `repository`, or the chart refuses to render. It runs by digest; the tag is informational.
+  - Values in use today, where every wrapper sets its own image, render exactly as before.
+  - Rollback: earlier charts refuse `genericWrapper` and a wrapper without `image` at schema
+    validation, so the upgrade fails and the previous release keeps running. Point a platform at
+    `genericWrapper.image.*` only after a chart with this change is deployed. Before rolling back
+    below it, remove those platform paths and give the wrapper its own image again.
+
 - Jira `jira_get_issue` and `jira_search_issues` now return each issue's assignee as its account ID
   and display name, or `null` when the issue is unassigned. The wrapper asks Jira for the
   `assignee` field and returns no other assignee details, such as email address or avatar.
