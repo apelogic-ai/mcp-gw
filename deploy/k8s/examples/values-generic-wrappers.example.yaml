@@ -25,6 +25,8 @@ agentgateway:
 wrappers:
   - name: public-reference
     enabled: true
+    # Or leave image out and set genericWrapper.image {repository, tag, digest} once for every
+    # wrapper without one (a platform can write those map keys on each release).
     image:
       repository: ghcr.io/apelogic-ai/mcp-gw-generic-wrapper
       digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

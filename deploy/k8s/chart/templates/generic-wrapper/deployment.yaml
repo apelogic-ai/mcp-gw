@@ -38,7 +38,7 @@ spec:
         {{- end }}
       containers:
         - name: generic-wrapper
-          image: {{ include "mcp-gateway.image" (dict "root" $ "image" .image) }}
+          image: {{ include "mcp-gateway.genericWrapperImage" (dict "root" $ "wrapper" $wrapper) }}
           imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
           {{- $defaultSecurityContext := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) }}
           {{- $securityContext := mergeOverwrite (deepCopy $defaultSecurityContext) ($wrapper.securityContext | default (dict)) }}
